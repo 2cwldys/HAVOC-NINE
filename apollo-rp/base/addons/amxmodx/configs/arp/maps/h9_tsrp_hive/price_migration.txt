@@ -1,5 +1,5 @@
 -- price migration for a hive database that loaded an earlier h9_tsrp_hive.sql: INSERT OR IGNORE keeps the old rows, so each unowned property takes its price here.
--- Every property of the hive is for sale until somebody has it; these 87 lines are the prices of the ones whose price changed (34 in the file of 2026-11-11, 53 that had none).
+-- Every property of the hive is for sale until somebody has it but the guard posts and the throne room (state property, price 0); these 75 lines are the prices of the ones whose price changed (34 in the file of 2026-11-11, 41 that had none).
 -- Run as an ARP admin in the console, one line at a time (arp_query takes one statement); the map's table is arp_property_h9_tsrp_hive; the ownerauth test leaves a property that has an owner alone.
 -- It applies at the next map start.
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_aurora_annex' AND ownerauth=''
@@ -10,7 +10,6 @@ arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=38000 WHERE internalname='h9_al_catacombs' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=38000 WHERE internalname='h9_al_core_controls' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_al_cosmos' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_detention' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_eskimo' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_golgotha1' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_golgotha2' AND ownerauth=''
@@ -18,15 +17,12 @@ arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_golgotha4' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_al_golgotha5' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_golgotha6' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_al_golgotha_armoury' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_al_golgotha_club' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_kline' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_al_klines_safe' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_al_midgar_lab' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_ribs' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_al_shores_cells' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_steakhouse' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_al_throne_room' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_xaelem2' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_al_xaelem4' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_al_xaelem5' AND ownerauth=''
@@ -51,9 +47,6 @@ arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=38000 WHERE internalname='h9_pc_gear_guys_sw' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_pc_gear_guys_sw_back' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=38000 WHERE internalname='h9_pc_ktower_suite' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_pc_md_armoury' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_pc_md_cells' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_pc_md_facility' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_pc_pawn_prawn' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_pc_pikkys' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_pc_pikkys_back' AND ownerauth=''
@@ -65,11 +58,6 @@ arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_xe_city_gear_back' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_xe_clinic' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_xe_clinic_gate' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_xe_cp_armoury' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_xe_cp_barracks' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_xe_cp_cells' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=19000 WHERE internalname='h9_xe_cp_control' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=38000 WHERE internalname='h9_xe_cp_post' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=2400 WHERE internalname='h9_xe_cyber_lab' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=4800 WHERE internalname='h9_xe_data_centre' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=9600 WHERE internalname='h9_xe_electronics' AND ownerauth=''

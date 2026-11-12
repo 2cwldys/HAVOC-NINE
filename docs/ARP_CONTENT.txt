@@ -530,9 +530,9 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   (a third of a Merchant's), tier 5 1,520 (17 percent of a Lord Minister's). A property's tier is its kind's base plus a step for its floor area, plus 1 when it has four or more doors, at most 5:
     kind base:   stall (a storage unit, a kiosk, a stash) 0 and pod 0 (a pod or a stall is tier 0 whatever its size: one small room);  a flat, a house, an apartment 1;
                  a workroom (an office, a hideout, a vault, a plant) 1;  a luxury residence 2;  a shop, a cafe, a bar, a club, a restaurant, a distillery 2
-                 Every property is for sale, so the rows that began as state or public ones are priced the same way: a shop, a bank, a clinic or a corporation's front is a business; the back, side and
-                 staff doors of a shop, a clinic's gate, an office, a post, an armoury, a cell block, a lab, a vault and a store room are workrooms (their rooms are the front's, one kind lower); the Throne
-                 Room is luxury; the public gates, the lift, the level doors and the core console, which a whole city uses, are public: always tier 5, because one buyer's lock would shut them
+                 Every property but the guard posts is for sale, so the rows that began as state or public ones are priced the same way: a shop, a bank, a clinic or a corporation's front is a business; the back,
+                 side and staff doors of a shop, a clinic's gate, an office, a lab, a vault and a store room are workrooms (their rooms are the front's, one kind lower); the public gates, the lift, the level
+                 doors and the core console, which a whole city uses, are public: always tier 5, because one buyer's lock would shut them. The guard posts and the throne room are not priced: they belong to the guards
     area step:   under 60k square units of closed floor behind the doors 0;  60k to 150k 1;  150k to 250k 2;  250k and over 3;  not measured (the room behind the door could not be closed
                  by the flood fill of the room analysis) 1, the middle step
   The floor area is the closed rooms behind a property's doors (the room analysis of the plaque work, 16 x 16 unit cells; the work folder's rooms_complexes.json), in thousands of square units.
@@ -571,7 +571,6 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_aurora_maps         workroom     29k      1     1    2400  0
   h9_al_cosmos              residence    19k      1     1    2400  6000
   h9_al_cult_gate           workroom     47k      1     1    2400  new
-  h9_al_golgotha_armoury    workroom     28k      1     1    2400  0
   h9_al_klines_safe         workroom     38k      1     1    2400  0
   h9_al_midgar_lab          workroom     36k      2     1    2400  0
   h9_al_routing_office      workroom     49k      1     1    2400  new
@@ -597,8 +596,6 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_xe_city_gear           business     30k      1     2    4800  0
   h9_xe_city_office         workroom       -      3     2    4800  new
   h9_xe_clinic_gate         workroom     94k      1     2    4800  0
-  h9_xe_cp_barracks         workroom       -      1     2    4800  0
-  h9_xe_cp_cells            workroom     58k      6     2    4800  0
   h9_xe_data_centre         workroom    106k      3     2    4800  0
   h9_xe_green_dragon        business     52k      1     2    4800  0
   h9_xe_guns_n_stuff        business     32k      1     2    4800  0
@@ -620,9 +617,6 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_pc_cybernetics         business    124k      1     3    9600  0
   h9_pc_eden_news           business    106k      1     3    9600  0
   h9_pc_gear_guys           business       -      1     3    9600  0
-  h9_pc_md_armoury          workroom    170k      1     3    9600  0
-  h9_pc_md_cells            workroom    119k      4     3    9600  0
-  h9_pc_md_facility         workroom    170k      3     3    9600  0
   h9_pc_pawn_prawn          workroom    133k      4     3    9600  0
   h9_pc_pikkys              business       -      1     3    9600  0
   h9_pc_romagna_clinic      business    124k      2     3    9600  0
@@ -631,7 +625,6 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_xe_elzos               business       -      1     3    9600  0
   h9_xe_sky_bar             business     35k      4     3    9600  9600
   h9_xe_ug_distillery       business     70k      1     3    9600  new
-  h9_al_detention           workroom    243k      2     3    9600  0
   h9_al_golgotha1           residence   192k      1     3    9600  6000
   h9_al_golgotha4           residence   216k      2     3    9600  6000
   h9_al_golgotha_hideout    workroom    197k      1     3    9600  new
@@ -641,22 +634,17 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_midgar_office       workroom    196k      2     3    9600  new
   h9_al_ribs                business    121k      1     3    9600  12000
   h9_al_steakhouse          business    122k      2     3    9600  12000
-  h9_al_throne_room         luxury         -      2     3    9600  0
   h9_al_xaelem6             residence   161k      1     3    9600  6000
   h9_pc_gear_guys_sw_back   workroom    258k      2     4   19000  0
   h9_xe_clinic              business     94k      4     4   19000  0
-  h9_xe_cp_armoury          workroom    344k      2     4   19000  0
-  h9_xe_cp_control          workroom    338k      1     4   19000  0
   h9_al_cafe_fortress_back  workroom    281k      1     4   19000  0
   h9_al_golgotha3           residence   259k      1     4   19000  6000
   h9_al_golgotha5           residence   268k      1     4   19000  6000
   h9_al_golgotha_club       business     99k      4     4   19000  12000
-  h9_al_shores_cells        workroom    414k      2     4   19000  0
   h9_al_xaelem5             residence   283k      1     4   19000  6000
   h9_pc_gear_guys_sw        business    258k      1     5   38000  0
   h9_pc_ktower_suite        luxury      344k      1     5   38000  9600
   h9_pc_skytech             workroom    401k      8     5   38000  0
-  h9_xe_cp_post             workroom    355k      4     5   38000  0
   h9_xe_elevator            public       27k      3     5   38000  0
   h9_xe_level_doors         public      131k      4     5   38000  0
   h9_xe_lux_a               luxury      292k      2     5   38000  9600
@@ -670,15 +658,17 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_catacombs           business    305k      2     5   38000  12000
   h9_al_core_controls       public         -      1     5   38000  0
 
-  All 130 properties are for sale until somebody has one: tier 0 15, tier 1 21, tier 2 40, tier 3 28, tier 4 10, tier 5 16. A shop front stays open to anyone until it is bought, and a property sealed to the Ministry of Defense or the Medical Division
-  keeps those letters after a sale. INSERT OR IGNORE does not change a price a database already has, so a hive database that loaded an earlier file takes the new prices with one line for each changed,
-  unowned property (87 of them, in price_migration.txt beside the .sql file, which an ARP admin runs a line at a time in the console):
+  118 of the 130 properties are for sale until somebody has one: tier 0 15, tier 1 20, tier 2 38, tier 3 23, tier 4 7, tier 5 15. The other 12, the guard posts (the Ministry's and Civil Protection's posts, armouries, barracks, control room, cells and
+  detention blocks) and the Lord Minister's throne room, are state property that belongs to the guards: no owner, price 0, sealed to their letter. A shop front stays open to anyone until it is bought, and a
+  property sealed to the Ministry of Defense or the Medical Division keeps those letters after a sale. INSERT OR IGNORE does not change a price a database already has, so a hive database that loaded an
+  earlier file takes the new prices with one line for each changed, unowned property (75 of them, in price_migration.txt beside the .sql file, which an ARP admin runs a line at a time in the console):
     arp_query UPDATE arp_property_h9_tsrp_hive SET price=<price> WHERE internalname='<internal>' AND ownerauth=''
   A property with an owner keeps the price its owner set. The prices apply at the next map start.
 
   h9_tsrp_hive: 130 properties, 213 door names (217 entities; the jails' four wall panels, al_jail1act to 4act, are h9_jail's and are not in the file)
-  Every one is for sale until somebody has it. 18 stand open to anyone until then (the public fronts of the shops, the bank, Tartec, the clinic's gate, and the underground gates, the elevator, the level doors and
-  the core controls), 35 are sealed to the Ministry of Defense, the Medical Division and keyholders (their letters keep opening the doors after a sale), and 77 are homes and businesses sealed until bought.
+  118 are for sale until somebody has one: 18 stand open to anyone until then (the public fronts of the shops, the bank, Tartec, the clinic's gate, and the underground gates, the elevator, the level doors and
+  the core controls), 23 are sealed to the Ministry of Defense, the Medical Division and keyholders (their letters keep opening the doors after a sale), and 77 are homes and businesses sealed until bought.
+  The other 12 are the guard posts and the throne room: state property sealed to the Ministry's guards (the police letter a, or the Lord Minister's g).
 
   property                  plaque heading                 doors (targetnames)                                                         price  locked  access
   ------------------------  -----------------------------  --------------------------------------------------------------------------  -----  ------  ------
@@ -688,9 +678,9 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_pc_bank                Paradise Bank                  pc_bankdoor                                                                  9600  no      -
   h9_pc_pawn_prawn          Pawn Prawn Staff Room          pc_noodles1, pc_pphideout1, pc_pphideout, pc_pphideout3                      9600  yes     -
   h9_pc_romagna_clinic      Romagna Clinic                 pc_lwrromgoff2, pc_lwrromgoff3                                               9600  yes     b
-  h9_pc_md_facility         Ministry of Defense Facility   pc_mdfacgate, pc_msrmdoffice1, pc_mdelescreen1                               9600  yes     a
-  h9_pc_md_armoury          Ministry of Defense Armoury    pc_mdarmorydoor                                                              9600  yes     a
-  h9_pc_md_cells            Ministry of Defense Detention  pc_mdcell1, pc_mdcell2, pc_mdcell3, pc_mdcell4                               9600  yes     a
+  h9_pc_md_facility         Ministry of Defense Facility   pc_mdfacgate, pc_msrmdoffice1, pc_mdelescreen1                              -      yes     a
+  h9_pc_md_armoury          Ministry of Defense Armoury    pc_mdarmorydoor                                                             -      yes     a
+  h9_pc_md_cells            Ministry of Defense Detention  pc_mdcell1, pc_mdcell2, pc_mdcell3, pc_mdcell4                              -      yes     a
   h9_pc_cafe_avalon         Paradise Cafe                  pc_cafe1door, pc_cafe2door                                                   9600  yes     -
   h9_pc_flat_res1           Paradise Flat 1                pc_resident1                                                                 4800  yes     -
   h9_pc_flat_res2           Paradise Flat 2                pc_resident2, pc_resident2park                                               2400  yes     -
@@ -698,11 +688,11 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_xe_guns_n_stuff        Guns n Stuff                   xe_gunshop                                                                   4800  no      -
   h9_xe_green_dragon        Green Dragon                   xe_processedfood1                                                            4800  no      -
   h9_xe_city_gear           Xenon City Gear                xe_gearshop                                                                  4800  no      -
-  h9_xe_cp_post             Xenon City Civil Protection    xe_xenoncpgate, xe_pdshield, xe_cp_help, xe_cp_help1                        38000  yes     a
-  h9_xe_cp_armoury          XCCP Armoury                   xe_cp_armory, xe_cp_armory1                                                 19000  yes     a
-  h9_xe_cp_barracks         XCCP Barracks                  xe_cp_barracks                                                               4800  yes     a
-  h9_xe_cp_control          XCCP Control Room              xe_cp_control                                                               19000  yes     a
-  h9_xe_cp_cells            XCCP Detention                 xe_cp_prison1, xe_cp_prison2, xe_cp_prison3, xe_cp_prison4, xe_cp_prison5,   4800  yes     a
+  h9_xe_cp_post             Xenon City Civil Protection    xe_xenoncpgate, xe_pdshield, xe_cp_help, xe_cp_help1                        -      yes     a
+  h9_xe_cp_armoury          XCCP Armoury                   xe_cp_armory, xe_cp_armory1                                                 -      yes     a
+  h9_xe_cp_barracks         XCCP Barracks                  xe_cp_barracks                                                              -      yes     a
+  h9_xe_cp_control          XCCP Control Room              xe_cp_control                                                               -      yes     a
+  h9_xe_cp_cells            XCCP Detention                 xe_cp_prison1, xe_cp_prison2, xe_cp_prison3, xe_cp_prison4, xe_cp_prison5,  -      yes     a
                                                            xe_cp_prison6
   h9_xe_clinic              Xenon Clinic                   xe_clinic_off, xe_clinic_op, xe_clinic_rest, xe_clinic_wing                 19000  yes     b
   h9_xe_sky_bar             Sky Bar                        xe_skyb_gate, xe_skyb_door1, xe_skyb_door2, xe_skyb_drawer                  9600   yes     -
@@ -713,8 +703,8 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_cafe_fortress       Cafe Fortress (H&C Coffee)     al_cafe.fortress, al_cafefortress                                           38000  no      -
   h9_al_kline               K-Line Super Store             al_klinedoor                                                                 9600  yes     -
   h9_al_midgar_lab          Midgar Lab                     al_midgar.lab.gate.one, al_labentbutton                                      2400  yes     b
-  h9_al_detention           Ministry Detention Facility    al_prisongate, al_armorygate                                                 9600  yes     a
-  h9_al_throne_room         Throne Room                    al_throneroom, al_thronegate                                                 9600  yes     g
+  h9_al_detention           Ministry Detention Facility    al_prisongate, al_armorygate                                                -      yes     a
+  h9_al_throne_room         Throne Room                    al_throneroom, al_thronegate                                                -      yes     g
   h9_al_steakhouse          Ed's Steak House               al_edssteak, al_steakexit                                                    9600  yes     -
   h9_al_golgotha1           Golgotha Apartment 1           al_golgoapartment1                                                           9600  yes     -
   h9_al_golgotha2           Golgotha Apartment 2           al_golgoapartment2                                                           4800  yes     -
@@ -803,7 +793,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_cult_gate           Cult Gate                      al_cultgate                                                                  2400  yes     -
   h9_al_stash               Stash of Ash                   al_stashofash                                                                1200  yes     -
   h9_al_golgotha_hideout    Golgotha Hideout               al_golgohideout                                                              9600  yes     -
-  h9_al_golgotha_armoury    Golgotha Armoury               al_golgomen1armr                                                             2400  yes     a
+  h9_al_golgotha_armoury    Golgotha Armoury               al_golgomen1armr                                                                -  yes     a
   h9_al_xaelem_industrial   Xaelem Industrial Unit         al_industrialinxae                                                           4800  yes     -
   h9_al_klines_safe         K-Line Safe                    al_klinesafe                                                                 2400  yes     -
   h9_al_midgar_office       Midgar Office                  al_midgaroffice, al_theofficedoormid                                         9600  yes     -
@@ -811,7 +801,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   h9_al_fabrication         Midgar Fabrication Shop        al_fabricatdoor                                                              4800  yes     -
   h9_al_routing_office      Midgar Routing Office          al_midgarrouting                                                             2400  yes     -
   h9_al_routing_depot       Routing Depot                  al_routingdoor                                                               4800  yes     -
-  h9_al_shores_cells        Shores Detention               al_shorescell, al_shorestwoc                                                19000  yes     a
+  h9_al_shores_cells        Shores Detention               al_shorescell, al_shorestwoc                                                    -  yes     a
   h9_al_tech_vault          Tech Vault                     al_techvaultgate                                                             4800  yes     -
   h9_al_core_controls       Maintenance Core Controls      al_corekillswitch                                                           38000  no      -
 
