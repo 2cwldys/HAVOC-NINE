@@ -151,6 +151,7 @@
    Shops        arp_ammofill_cost 50 (ammunition refill at a gun shop), arp_profit_fraction 0.25 (a property's share of what it sells).
    Needs        arp_hunger_enabled 1, arp_thirst_enabled 1.
    H9 additions (each has a stock "off"; docs\APOLLO_RP.txt has the table): arp_h9_vgui 1 (ARP's menus as H9 panels), arp_h9_itemhover 1, arp_h9_itemicon 1,
+                arp_h9_itemglow 1 (a dropped pack glows purple for arp_h9_itemglow_time 12 seconds),
                 arp_h9_inv_window 1, arp_h9_inv_slots 32, arp_h9_inv_stack 20, arp_h9_inv_persist 1, arp_h9_credits 1, arp_h9_trade_range 250,
                 arp_h9_trade_timeout 120, arp_h9_search 1, arp_h9_search_range 150, arp_h9_search_money 1 (take money in a search),
                 arp_h9_restraints 1 (Cuffs, Tape and Rope exist; a change needs a map change), arp_h9_rope_length 150, arp_h9_cuffsprite 1 (the

@@ -269,6 +269,7 @@ h9_arpinv_model.h by a small C++ program, agreed after every message (25 seeds: 
   8. Drag a tile out of the window and look at the pack from a few steps: its picture stands above the banner that names it (cl_h9_arphud_icon 0 takes it away), and the same picture
      floats in the world over the pack (arp_h9_itemicon 1; look from across the room: it faces you whichever way you turn). Pick the pack up: the icon goes with it. Drop two
      different items and pick one up: only its icon goes. Look at a pack that lies on a table or behind a prop the crosshair is on: it is named all the same.
+     In a dark corner the dropped pack also pulses purple for twelve seconds (arp_h9_itemglow 1, docs\APOLLO_RP.txt): drop one there, then arp_h9_itemglow 0 on the server and drop another: no light.
   9. The colour: cl_h9_vgui_color 40 160 255. The window, the HUD panels, a notice, a chat bubble and a menu take the colour (the art, the text, the rails); a
      red warning row and the need bars keep theirs, and the item pictures do not change. cl_h9_vgui_color default: the purple. Typing
      cl_h9_vgui_r 40, _g 160 and _b 255 as three commands makes one change after a moment. docs\H9_VGUI.txt, 4k.

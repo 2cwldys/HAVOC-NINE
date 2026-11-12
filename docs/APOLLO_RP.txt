@@ -86,6 +86,10 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
     a time (the oldest makes way; 0 makes none) and an item the list sprites/h9_arpicons.txt has no picture for has none. The picture is drawn unlit, so it reads in a dark corridor,
     and none is made while the server has fewer than 100 free entity slots; the log says so when the feature is on and the sheet or its list is not on the server.
     arp_h9_itemicon 0 is stock Apollo RP.
+  * A DROPPED ITEM GLOWS PURPLE FOR A WHILE (arp_h9_itemglow, 1 by default). A pack that has just been dropped (or that fell from a full inventory) gets a purple point light over it, a pulse
+    every second and a half that fades out by itself, for arp_h9_itemglow_time (12) seconds, the last three of them shrinking, so that it shows in a dark corner and is easy to find and pick
+    up. It is a message to the players who can see the pack (ARP_Core.sma, H9_ItemGlowStart, H9_ItemGlowBeat, H9_ItemGlowPulse; ORIGIN 28) and no entity, so it costs the entity table nothing;
+    arp_h9_itemglow_radius (200 units) and arp_h9_itemglow_color ("180 60 255", red green blue) set the light. A pack a map places never glows. arp_h9_itemglow 0 is stock Apollo RP.
   * WHAT A PLAYER LOOKS AT, THE PLAQUE (arp_h9_plaque, 1 by default). A property door, an NPC and a player each say what they are, within 100 units, as the look-at line always
     did. ARP_Core's GetMsg builds it each time the look-at runs and sends it in the notice HUD. A player with panels (arp_hud4_type 2, which the shipped arp.cfg sets) sees a
     PLAQUE: a plate of one width on H9's purple art in the notice's place (the middle of the screen, low, clear of the crosshair), its heading in upper case with a rail under it,
@@ -381,6 +385,7 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
                                                      _h9vgui 7
     the dropped item's look-at line (28, 29)         arp_h9_itemhover (1)                   stock: nothing is said of a dropped item
     the dropped item's picture over its pack (28)    arp_h9_itemicon (1), arp_h9_itemicon_max (64), arp_h9_itemicon_scale (0.6)   stock: the pack is the backpack alone
+    the dropped item's glow (28)                     arp_h9_itemglow (1), arp_h9_itemglow_time (12), arp_h9_itemglow_radius (200), arp_h9_itemglow_color (180 60 255)   stock: the pack gives no light
     the look-at plaque of a door, an NPC and a       arp_h9_plaque (1), needs arp_hud4_type 2 stock: the text lines, with no Affiliation line and no
     player (41)                                      for the panel                          plaque
     the property tax (42)                            arp_h9_tax (1), arp_h9_tax_minutes     0: stock: nothing is read or written, nobody is

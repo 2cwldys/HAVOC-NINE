@@ -1959,6 +1959,15 @@
        0: none stand. No icon is made either while the server has fewer than 100 free entity slots (the engine stops the server when it has none).
    arp_h9_itemicon_scale  (cvar, default 0.6; configs\arp\arp.cfg)
        How large an icon is when it is made: 1.0 is 32 units across. Its middle stands a backpack's height and half its own height over the pack.
+   arp_h9_itemglow  (cvar, default 1; configs\arp\arp.cfg)
+       1: a pack that has just been dropped (or that fell from a full inventory) glows purple: a point light over it that pulses every second and a half, for the players who can see the pack,
+       so that it shows in a dark corner and is easy to find and pick up. It is a message and no entity. A pack a map places never glows. 0: no light, as stock ARP.
+   arp_h9_itemglow_time  (cvar, default 12, 0 to 600; configs\arp\arp.cfg)
+       The seconds a pack glows after it is made; the light shrinks over the last three. 0: none glows. A pack that is glowing finishes the time it was given.
+   arp_h9_itemglow_radius  (cvar, default 200, 40 to 600; configs\arp\arp.cfg)
+       How far the light reaches, in units.
+   arp_h9_itemglow_color  (cvar, default "180 60 255"; configs\arp\arp.cfg)
+       The colour of the light as three numbers, red green blue, each 0 to 255. A colour that is all 0 or not three numbers is read as the purple.
    arp_h9_plaque  (cvar, default 1; configs\arp\arp.cfg)
        1: what a player looks at says what it is. A property door: the establishment, OWNER (the owner and his job, STATE PROPERTY, or FOR SALE with the price), AFFILIATION (from
        the property's access letters: a or g Ministry of Defense, b Medical Division, i Insurgency, none Civilian, or Proletarian while arp_teamplay runs), STATUS (sealed or open) and, for a locked property the player may not use,

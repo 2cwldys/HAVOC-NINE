@@ -24,7 +24,7 @@ H9's changes (H9.patch, H9-menus.patch and H9-arpfix.patch, beside this file, ar
 H9.patch is the diff against the commit above as of 2026-11-03 (items 1 to 13); H9-menus.patch (item 14, 2026-11-08) and
 H9-arpfix.patch (items 15 to 17, 2026-11-09) hold the later changes, each a diff against the files as they stood before it;
 H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09), H9-arphud.patch (item 21) and H9-arpaudit.patch (items 22 and 23, 2026-11-09) and H9-arpneeds.patch (item 26, 2026-11-10), H9-arpthirst.patch (item 27), H9-arpitemhover.patch (item 28), H9-arpinventory.patch (items 29 to 33, 35 and 36, 2026-11-10), H9-arpitemicon.patch (item 28's picture, 2026-11-10), H9-arpweapons.patch (item 34, 2026-11-10), H9-arpplaque.patch (item 41, 2026-11-11), H9-arpitemworld.patch (item 28's picture in the world and its look-at branch, 2026-11-11), H9-arpcuff.patch (item 39's lighting, 2026-11-11), H9-arpowner.patch (item 42's owner keys, 2026-11-11), H9-arpiconfix.patch (items 28 and 39: the pictures unlit,
-room in the entity table, 2026-11-11) and H9-arpteams.patch (item 43, 2026-11-11) come after
+room in the entity table, 2026-11-11), H9-arpteams.patch (item 43, 2026-11-11) and H9-arpitemglow.patch (item 28's glow, 2026-11-12) come after
 (item 20 is a default in arp.cfg and ARP_Core.sma, in no patch).
 In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
 ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
@@ -267,6 +267,15 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    the limit. At most arp_h9_itemicon_max (64, at most 128) icons stand: with that many up, the oldest makes way for the new one, so ARP's packs, which have no limit and no timeout
    of their own (H9_MakePack only needs an entity and arp_performance above 10), add at most that many entities. An item with no picture in the list has no icon. arp_h9_itemicon 0 is
    stock ARP: nothing is precached or made, and a change to 0 takes the icons down within five seconds.
+   The pack's glow (2026-11-12, arp_h9_itemglow, arp_h9_itemglow_time, arp_h9_itemglow_radius, arp_h9_itemglow_color; H9_ItemGlowRead, H9_ItemGlowPulse, H9_ItemGlowStart, H9_ItemGlowBeat;
+   H9-arpitemglow.patch): H9_MakePack ends with H9_ItemGlowStart, which, with the switch on and a glow time of at least a second, keeps the game's time the pack glows until in its fuser1 (nothing else of
+   ARP_Core uses it; a pack a map places has none and never glows), sends the first pulse and starts a repeating task, the beat (1.5 seconds). A pulse is a TE_DLIGHT 12 units over the pack, sent MSG_PVS
+   (to the players who can see the point and nobody else) in arp_h9_itemglow_color (a purple, 180 60 255) with a radius of arp_h9_itemglow_radius (200) that the client lets fall to nothing as the
+   light's own life (1.2 seconds) ends, so a pulse is gone before the next; over the last three seconds of its glow time the radius shrinks to a third, a half, nothing, so that the glow dies away. It is a
+   message and no entity (the client keeps 32 dynamic lights and the oldest makes way; the unreliable channel cannot overflow), so nothing is added to the entity table and there is nothing to take
+   down: the beat looks over the packs (find_ent_by_class arp_item) and sends a pulse to each whose time is not out, at most 32 in a beat, and removes its own task when none is left (it runs only while a
+   pack glows). The switch and the settings are read at each pulse, so a change takes effect at once (a pack already glowing finishes the time it was given). arp_h9_itemglow 0 is stock ARP: nothing is
+   stored, sent or scheduled.
 
 29. Switches (include\ApolloRP_VGui.inc, ARP_Core.sma, configs\arp\arp.cfg; H9-arpinventory.patch). Every H9 addition to Apollo RP is to be switched by a server cvar, and with
    all of them off the server plays stock ARP (docs\APOLLO_RP.txt, 10, is the table). Two additions had none. arp_h9_vgui (1): ApolloRP_VGui.inc's arpvgui_init registers it
