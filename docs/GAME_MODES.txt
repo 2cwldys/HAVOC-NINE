@@ -542,8 +542,13 @@ over them, a pumping station in the middle, service galleries inside the walls, 
 room and a generator room. Rain falls from high over the city's toxic storm sky, dirty haze
 lies along the floors, and litter is everywhere. The sky gives little light; the lamps give
 the rest, their lit faces shining. Over each basin the city's elevated line crosses on a
-steel bridge between two tunnels, and every two minutes or so a train comes through, loud,
-the ground shaking under everyone round the basin.
+steel bridge between two tunnels, and every two minutes or so a train comes through: the
+north basin's waits 110 seconds in its tunnel between crossings and the south's 136, so the
+two keep no beat, and a crossing takes about 7 seconds. The train makes no sound of its own.
+What is heard is the rumble, TS's own sound\ambience\cg_rdmsubway.wav at full volume and
+92 percent pitch, from the middle of the bridge, within about 1250 units: it starts a second
+and a half before the train leaves its tunnel, and as the train leaves, the ground shakes
+under everyone within 1100 units of the bridge's middle.
 
   h9_up_drainage   MSR on the north basin's platform, the Insurgents on the south's (16
                    each). Zones: 1 the north culvert, 2 the filter room, 3 the south culvert,
