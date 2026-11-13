@@ -1397,13 +1397,16 @@
  kevlar 1900; the stealth shoes are never sold) against the class's cash:
  tsm_lr_cash, or tsm_lr_cash_<n> for class n (the default class's until he has
  picked one). A loadout that costs more than that, holds a weapon on
- tsm_lr_deny, weighs more than tsm_lr_slotcap slots or has more than 8 entries
- is refused AS A WHOLE and the player keeps what he had. Ammunition is part of
+ tsm_lr_deny that his class does not carry, weighs more than tsm_lr_slotcap
+ slots or has more than 8 entries is refused AS A WHOLE and the player keeps
+ what he had. Ammunition is part of
  the weapon: tsm_lr_clips spare magazines each (tsm_clip_bonus and tsm_clip_max
  apply as for a class kit). The menu's own money bar is 30000, not the plugin's:
  the menu will let a player build a loadout the plugin then turns down for its
- price, and says so in chat. With the class kit gone, a Marksman cannot have a
- Barrett and an Officer a laser rifle or a katana unless tsm_lr_deny lets them.
+ price, and says so in chat. A weapon on tsm_lr_deny is a class weapon: only a
+ class whose own kit carries it may buy it (the Marksman's Barrett), and that
+ class's cash is raised by its price, so the Barrett does not eat what he has
+ for the rest. The laser rifle and the katana are on sale to every class.
 
  THE SLOTS. A covered class carries at most tsm_lr_slotcap slots (81, which is
  TS's own limit; 0 is no limit), and handing its loadout over does not raise the
@@ -3463,7 +3466,8 @@
                                       or take a weapon
                                       [cfg: line commented out]
  tsm_lr_cash               8500       cash each such class has to spend: a rifle,
-                                      a pistol, a knife and kevlar (1900)
+                                      a pistol, a knife and kevlar (1900); a class
+                                      weapon of its own (the Barrett) comes on top
  tsm_lr_cash_1..9          (empty)    one class's cash, in place of tsm_lr_cash
  tsm_lr_lock               1          1: a player's loadout is final from the
                                       first time a round goes live for him: later
@@ -3488,8 +3492,11 @@
                                       is on: the class pick and the last buy;
                                       later rounds are tsm_freezetime long
                                       [cfg: line commented out]
- tsm_lr_deny               32,18,40,34  weapon ids that cannot be bought; the
-                                      word kevlar refuses the vest
+ tsm_lr_deny               32,18      weapon ids that only a class whose own
+                                      kit carries them may buy (the Barrett:
+                                      the Marksman; the M60E3: nobody the
+                                      rework covers); the word kevlar refuses
+                                      the vest
  tsm_lr_clips              3          spare magazines with each bought gun
  tsm_no_powerups           1          take TS's powerups out of match play
  tsm_bot_powerups          0          0: no bot walks to, uses or is handed a

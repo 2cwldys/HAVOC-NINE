@@ -6571,7 +6571,7 @@ public plugin_init()
 	g_cv_lr_cash   = register_cvar("tsm_lr_cash",       "8500");
 	g_cv_lr_secs   = register_cvar("tsm_lr_buy_seconds", "20");
 	g_cv_lr_freeze = register_cvar("tsm_lr_freeze", "30");
-	g_cv_lr_deny   = register_cvar("tsm_lr_deny",       "32,18,40,34");
+	g_cv_lr_deny   = register_cvar("tsm_lr_deny",       "32,18");
 	g_cv_lr_clips  = register_cvar("tsm_lr_clips",      "3");
 	g_cv_lr_kitfallback = register_cvar("tsm_lr_kitfallback", "0");
 	g_cv_lr_lock   = register_cvar("tsm_lr_lock",       "1");
@@ -31013,7 +31013,46 @@ lr_team(id)
 	return (t == 1 || t == 2) ? t : 1;
 }
 
-/// The cash a class has to spend: tsm_lr_cash_<n> when that is set, else tsm_lr_cash.
+/// 1 when the class carries this weapon in its own kit, on either side's list.
+bool:lr_class_has(ci, w)
+{
+	if (ci < 0 || ci >= g_class_count || w < 1)
+	{
+		return false;
+	}
+	for (new t = 1; t <= 2; t++)
+	{
+		for (new i = 0; i < g_class_wcount[ci][t]; i++)
+		{
+			if (g_class_wpn[ci][t][i] == w)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/// What a class's own class weapons cost: the price of each weapon on tsm_lr_deny that its kit carries (the Marksman's Barrett).
+lr_class_weapon_value(ci)
+{
+	new rest[96], carry[96], tok[16], sum = 0;
+	get_pcvar_string(g_cv_lr_deny, rest, charsmax(rest));
+	for (new guard = 0; guard < 24 && rest[0]; guard++)
+	{
+		strtok(rest, tok, charsmax(tok), carry, charsmax(carry), ',', 1);
+		copy(rest, charsmax(rest), carry);
+		new w = str_to_num(tok);
+		if (w > 0 && lr_class_has(ci, w))
+		{
+			sum += lr_price(w);
+		}
+	}
+	return sum;
+}
+
+/// The cash a class has to spend: tsm_lr_cash_<n> when that is set, else tsm_lr_cash, and on top of it the price of the class weapons its kit carries
+/// that tsm_lr_deny keeps to the classes that carry them, so that the Marksman's Barrett does not eat what he has for the rest.
 lr_budget(id)
 {
 	new ci = resolved_class(id) - 1;
@@ -31027,11 +31066,13 @@ lr_budget(id)
 			b = str_to_num(s);
 		}
 	}
+	b += lr_class_weapon_value(ci);
 	return clamp(b, 0, 30000);
 }
 
-/// Is this weapon (or with kevlar true, the kevlar vest) on tsm_lr_deny?
-bool:lr_denied(w, bool:kevlar = false)
+/// Is this weapon (or with kevlar true, the kevlar vest) on tsm_lr_deny, for this player? A listed weapon is a class weapon: the class whose own kit
+/// carries it (the Marksman's Barrett) may still buy it, every other class may not.
+bool:lr_denied(id, w, bool:kevlar = false)
 {
 	new rest[96], carry[96], tok[16];
 	get_pcvar_string(g_cv_lr_deny, rest, charsmax(rest));
@@ -31052,7 +31093,7 @@ bool:lr_denied(w, bool:kevlar = false)
 		}
 		else if (w > 0 && str_to_num(tok) == w)
 		{
-			return true;
+			return !lr_class_has(resolved_class(id) - 1, w);
 		}
 	}
 	return false;
@@ -31196,7 +31237,7 @@ lr_fit(id)
 		new w = g_lr_set_wpn[id][i];
 		new c = lr_entry_cost(w, g_lr_set_clips[id][i], g_lr_set_att[id][i]);
 		new s = lr_entry_slots(w, g_lr_set_clips[id][i]);
-		if (lr_denied(w) || cost + c > budget || (cap > 0 && slots + s > cap))
+		if (lr_denied(id, w) || cost + c > budget || (cap > 0 && slots + s > cap))
 		{
 			gone++;
 			if (len < 60)
@@ -31215,7 +31256,7 @@ lr_fit(id)
 	g_lr_set_n[id] = kept;
 	if (g_lr_set_kev[id])
 	{
-		if (lr_denied(0, true) || cost + TSM_LR_KEVLAR_COST > budget || (cap > 0 && slots + TSM_LR_KEVLAR_SLOTS > cap))
+		if (lr_denied(id, 0, true) || cost + TSM_LR_KEVLAR_COST > budget || (cap > 0 && slots + TSM_LR_KEVLAR_SLOTS > cap))
 		{
 			g_lr_set_kev[id] = false;
 			gone++;
@@ -31273,7 +31314,7 @@ lr_cart_add_weapon(id, w, v)
 		lr_cart_fail(id, "weapon %d is not sold here", w);
 		return;
 	}
-	if (lr_denied(w))
+	if (lr_denied(id, w))
 	{
 		lr_cart_fail(id, "the %s is not for your class", TSM_LR_NAME[w]);
 		return;
@@ -31353,7 +31394,7 @@ lr_cart_items(id)
 		new item = str_to_num(tok);
 		if (item == 16)
 		{
-			if (lr_denied(0, true))
+			if (lr_denied(id, 0, true))
 			{
 				lr_cart_fail(id, "kevlar is not for your class");
 			}

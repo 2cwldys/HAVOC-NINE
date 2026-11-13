@@ -183,7 +183,9 @@
 
  (a) Cash. A class's allowance is tsm_lr_cash (8500: a rifle, a pistol, a
      knife and kevlar), or tsm_lr_cash_<n> for class n when that cvar is
-     non-empty (n = the tsm_classN number). The figure the player's TS wallet
+     non-empty (n = the tsm_classN number); a class whose own kit carries a
+     weapon on tsm_lr_deny (the Marksman's Barrett) has that weapon's price
+     added to it (lr_budget). The figure the player's TS wallet
      shows (set by hold_cash through lr_wallet) is the allowance minus the cost
      of the loadout he holds, while his buy window is open, and 0 otherwise.
      Before a class is picked the DEFAULT class (tsm_default_class) stands for
@@ -209,15 +211,15 @@
 
  (c) Refusals. An apply is judged as a whole. Refused, with a chat and centre
      line saying why, and the player keeps what he held: an id the menu does
-     not sell, an id on tsm_lr_deny (default 32,18,40,34: the M60E3, the
-     Barrett, the laser rifle, the katana -- the class weapons; the word
-     kevlar refuses the vest), the stealth shoes, a second copy of a gun with
-     no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a total over the
-     allowance, and a total weight over tsm_lr_slotcap slots (81 by default,
-     0 for no limit). With the class kit no longer handed over, a Marksman
-     cannot have his Barrett and an Officer his laser rifle or katana unless
-     tsm_lr_deny lets them buy it (the Barrett is 9000, over the default
-     allowance in any case).
+     not sell, an id on tsm_lr_deny that the player's class does not carry
+     in its own kit (default 32,18: the M60E3 and the Barrett, the class
+     weapons; the word kevlar refuses the vest), the stealth shoes, a second
+     copy of a gun with no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a
+     total over the allowance, and a total weight over tsm_lr_slotcap slots
+     (81 by default, 0 for no limit). The Marksman, whose kit carries the
+     Barrett, may buy it (9000 and 70 slots, with 9000 added to his
+     allowance); every other covered class is told "the Barrett is not for
+     your class". The laser rifle and the katana are on sale to every class.
 
  (d) Windows (lr_window_open). A covered human (lr_eligible: not a bot, the
      rework usable, his class covered) whose loadout is not final may buy in:
@@ -691,14 +693,16 @@
   itself after the class pick. A server that would rather not risk it sets
   tsm_lr_kitfallback 1.
 
-  Class weapons. The Marksman's Barrett and the Officer's laser rifle and
-  katana are on tsm_lr_deny, so with the class kit gone they are in nobody's
-  hands unless the list lets a class buy them (the Barrett costs 9000, over the
-  default allowance anyway). An empty deny list lets any class buy them; the
-  Heavy's and Mech's M60 are theirs by kit.
+  Class weapons. The Marksman's Barrett and the M60E3 are on tsm_lr_deny: only
+  a class whose own kit carries a listed weapon may buy it, so the Barrett is
+  the Marksman's alone (9000 is added to his allowance, so it leaves the rest
+  of his cash alone; it weighs 70 of the 81 slots) and the M60E3 stays the
+  Heavy's and the Mech's by kit, which the rework does not cover. The
+  Officer's laser rifle and katana are on sale to every class. An empty deny
+  list lets any class buy all of them.
 
   Economy balance. A player who buys gives firepower up or takes more than the
-  old kit: the Medic can now have a rifle, a Marksman cannot have his Barrett,
+  old kit: the Medic can now have a rifle, a Marksman buys his Barrett,
   and nobody gets a free class kit. tsm_lr_cash_<n> per class, tsm_lr_deny and
   tsm_lr_slotcap are the knobs. Ammunition is free with the weapon (3 +
   tsm_clip_bonus magazines): a gun that eats ammunition buys the same as one
