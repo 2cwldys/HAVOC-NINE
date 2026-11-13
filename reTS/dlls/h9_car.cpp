@@ -43,6 +43,8 @@
 #include <math.h>
 
 #define H9CAR_GRAVITY 800.0f   // sv_gravity's default: the fall, and the pull along a slope
+#define H9CAR_CRAWL 20.0f      // under this speed the car counts as standing still
+#define H9CAR_SLOPE 3.0f       // degrees: a gentler slope does not roll the car
 #define H9CAR_EXIT_GAP 24.0f   // between the body and the player who gets out
 #define H9CAR_CAM_BACK 300.0f  // the camera, behind the car
 #define H9CAR_CAM_UP 110.0f    // and above its origin
@@ -386,15 +388,24 @@ void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 	const bool left = (buttons & IN_MOVELEFT) != 0, right = (buttons & IN_MOVERIGHT) != 0;
 	const bool handbrake = (buttons & IN_JUMP) != 0;
 
+	// A crawl (under H9CAR_CRAWL) counts as standing still when choosing between braking and driving off: otherwise a
+	// speed a hair over 0 (the slope's pull on a floor read at -0.001 degrees) is braked to 0 every frame, the pull
+	// puts the hair back, and S (or W) never reverses it.
 	if (ahead && !back)
-		m_flSpeed = m_flSpeed < 0 ? H9Approach(0, m_flSpeed, m_flBrake * dt) : m_flSpeed + m_flAccel * dt * (1 - m_flSpeed / m_flMaxSpeed);
+		m_flSpeed = m_flSpeed < -H9CAR_CRAWL ? H9Approach(0, m_flSpeed, m_flBrake * dt) : (m_flSpeed < 0 ? 0 : m_flSpeed) + m_flAccel * dt * (1 - (m_flSpeed > 0 ? m_flSpeed : 0) / m_flMaxSpeed);
 	else if (back && !ahead)
-		m_flSpeed = m_flSpeed > 0 ? H9Approach(0, m_flSpeed, m_flBrake * dt) : m_flSpeed - m_flAccel * dt;
+		m_flSpeed = m_flSpeed > H9CAR_CRAWL ? H9Approach(0, m_flSpeed, m_flBrake * dt) : (m_flSpeed > 0 ? 0 : m_flSpeed) - m_flAccel * dt;
 	else
+	{
 		m_flSpeed = H9Approach(0, m_flSpeed, m_flCoast * dt);
+		if (fabsf(m_flSpeed) < H9CAR_CRAWL) // let go, it stops (Diffusion: under 20)
+			m_flSpeed = 0;
+	}
 	if (handbrake)
 		m_flSpeed = H9Approach(0, m_flSpeed, m_flBrake * 0.6f * dt);
-	if (m_bGrounded) // gravity along the slope: uphill slows, downhill speeds up
+	// gravity along the slope (uphill slows, downhill speeds up), only on a real slope: a floor read a hair off level
+	// must not push (Diffusion lets a slope roll the car only past 10 degrees)
+	if (m_bGrounded && fabsf(m_flPitch) > H9CAR_SLOPE)
 		m_flSpeed -= H9CAR_GRAVITY * sinf(m_flPitch * (M_PI / 180)) * dt;
 	m_flSpeed = H9Clamp(m_flSpeed, -m_flBackSpeed, m_flMaxSpeed);
 
