@@ -28,6 +28,7 @@
 
 #include "cbase.h"
 #include "player.h"
+#include "race.h"
 #include "trains.h"
 #include "nodes.h"
 #include "weapons.h"
@@ -467,6 +468,8 @@ void CBasePlayer::TraceAttack(entvars_t* pevAttacker, float flDamage, Vector vec
 
 bool CBasePlayer::TakeDamage(entvars_t* pevInflictor, entvars_t* pevAttacker, float flDamage, int bitsDamageType)
 {
+	if (RaceActive()) // H9: nobody is hurt in a race map (race.cpp)
+		return false;
 	// have suit diagnose the problem - ie: report damage type
 	int bitsDamage = bitsDamageType;
 	bool ffound = true;

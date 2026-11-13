@@ -466,6 +466,10 @@ void CRaceRules::Roster()
 	{
 		Seat& seat = m_seats[index];
 		CBasePlayer* pPlayer = RacePlayer(index);
+		// a racer is a player at the wheel of a grid car (he chose it in the lobby: race_pick); on foot he is nobody
+		CBaseEntity* pCar = pPlayer ? (CBaseEntity*)pPlayer->m_pTank : NULL;
+		if (!pCar || !FClassnameIs(pCar->pev, "h9_car") || pCar->pev->iuser4 <= 0)
+			pPlayer = NULL;
 		if (!pPlayer)
 		{
 			if (seat.in)
@@ -477,15 +481,7 @@ void CRaceRules::Roster()
 		}
 		if (seat.in)
 			continue;
-		int slot = 1;
-		for (int other = 1; other <= RACE_MAX_PLAYERS; other++)
-		{
-			if (m_seats[other].in && m_seats[other].slot == slot)
-			{
-				slot++;
-				other = 0; // look again from the first
-			}
-		}
+		const int slot = pCar->pev->iuser4; // his car's grid slot
 		seat = Seat();
 		seat.in = true;
 		seat.slot = slot;
@@ -554,6 +550,11 @@ void CRaceRules::RaceThink()
 		Gantry(0);
 	}
 
+	if ((m_state == RACE_RACING || m_state == RACE_FINISHED) && Racers() == 0 && m_flResultsEnd == 0)
+	{
+		NewRace(); // everybody got out
+		return;
+	}
 	switch (m_state)
 	{
 	case RACE_WAITING: Wait(); break;

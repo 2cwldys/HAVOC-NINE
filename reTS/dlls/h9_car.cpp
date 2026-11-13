@@ -59,6 +59,8 @@
 #include "monsters.h"
 #include "weapons.h"
 #include "player.h"
+#include "gamerules.h"
+#include "race.h"
 #endif
 
 #include <math.h>
@@ -505,6 +507,8 @@ public:
 	void Step(const char* by);
 
 private:
+	friend class CRacePick;
+	void PutAt(const Vector& origin, float yaw);
 	CBasePlayer* Driver();
 	void TakeWheel(CBasePlayer* pPlayer);
 	void LeaveWheel(CBasePlayer* pPlayer);
@@ -526,8 +530,14 @@ private:
 	float m_flRadius = 20, m_flMaxStep = 12;
 	float m_flGrip = 1, m_flSlide = 1, m_flHandbrake = 1, m_flGravity = H9CAR_GRAVITY;
 	string_t m_iszEngine = 0;
+	int m_iSlot = 0; // "slot": its place on a race's grid (1 = pole); 0 is a car of no race
 
 	// state
+	Vector m_vecHome = g_vecZero; // where the mapper put it: its grid place
+	float m_flHomeYaw = 0;
+	int m_iRound = 0;             // the race's round it was last put on the grid for
+	int m_iRaceState = 0;         // the race's state, the frame before
+	bool m_bHeld = false;         // the race holds it (countdown, finished): no drive
 	EHANDLE m_hDriver;
 	EHANDLE m_hCamera;
 	H9CarMotion m_car;       // its speed along the nose and across it, its steering, how much it slides
@@ -587,6 +597,11 @@ bool CH9Car::KeyValue(KeyValueData* pkvd)
 			*key.value = atof(pkvd->szValue);
 			return true;
 		}
+	}
+	if (FStrEq(pkvd->szKeyName, "slot"))
+	{
+		m_iSlot = atoi(pkvd->szValue);
+		return true;
 	}
 	if (FStrEq(pkvd->szKeyName, "enginesnd"))
 	{
@@ -651,6 +666,9 @@ void CH9Car::Spawn()
 	m_height.z = pev->origin.z;
 	FitBox();
 	Settle(0);
+	m_vecHome = pev->origin;
+	m_flHomeYaw = m_flYaw;
+	pev->iuser4 = m_iSlot; // the race reads its driver's grid slot here
 	m_vecSafe = pev->origin; // where the mapper put it is the first safe place
 	m_flSafeYaw = m_flYaw;
 	m_bHasSafe = true;
@@ -802,6 +820,12 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 	SET_VIEW(pPlayer->edict(), pPlayer->edict());
 	pPlayer->m_hViewEntity = NULL;
 	m_hDriver = NULL;
+	if (m_iSlot > 0 && RaceActive()) // a race car: he is a player again in the lobby, and the car waits on the grid
+	{
+		if (pPlayer->IsAlive())
+			g_pGameRules->GetPlayerSpawnSpot(pPlayer);
+		PutAt(m_vecHome, m_flHomeYaw);
+	}
 	STOP_SOUND(edict(), CHAN_STATIC, STRING(m_iszEngine));
 	m_bEngineOn = false;
 }
@@ -810,7 +834,9 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 // its heading over the ground the wheels last stood on (H9CarStep).
 void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 {
-	const int buttons = pDriver ? pDriver->pev->button : 0;
+	const int buttons = pDriver && !m_bHeld ? pDriver->pev->button : 0;
+	if (m_bHeld)
+		m_car.forward = m_car.side = 0;
 	const bool ahead = (buttons & IN_FORWARD) != 0, back = (buttons & IN_BACK) != 0;
 	const bool left = (buttons & IN_MOVELEFT) != 0, right = (buttons & IN_MOVERIGHT) != 0;
 	H9CarInput in;
@@ -1110,6 +1136,22 @@ void CH9Car::Sound()
 	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, SND_CHANGE_PITCH | SND_CHANGE_VOL, pitch);
 }
 
+// Put somewhere, level and at rest (the grid, a respawn, the last safe place).
+void CH9Car::PutAt(const Vector& origin, float yaw)
+{
+	UTIL_SetOrigin(pev, origin);
+	m_flYaw = yaw;
+	m_car = H9CarMotion();
+	m_height = H9CarHeight();
+	m_height.z = origin.z;
+	m_flPitch = m_flRoll = 0;
+	for (float& z : m_flWheelGround)
+		z = origin.z;
+	m_flFrontGround = m_flRearGround = origin.z;
+	m_bPending = false;
+	pev->angles = Vector(0, yaw, 0);
+}
+
 void CH9Car::DriveThink()
 {
 	Step("think");
@@ -1155,6 +1197,42 @@ void CH9Car::Step(const char* by)
 		}
 	}
 
+	// In a race map: the countdown calls the car to its grid place and holds it; when the results are over its
+	// driver is a player again.
+	m_bHeld = false;
+	if (m_iSlot > 0 && RaceActive())
+	{
+		const int state = RaceGetState();
+		if (pDriver && state == RACE_WAITING && m_iRaceState == RACE_FINISHED)
+		{
+			pDriver->m_pTank = NULL;
+			LeaveWheel(pDriver);
+			pDriver = NULL;
+		}
+		else if (pDriver)
+		{
+			if (RaceRound() != m_iRound)
+			{
+				m_iRound = RaceRound();
+				PutAt(m_vecHome, m_flHomeYaw);
+				RacePlaced(pDriver);
+			}
+			m_bHeld = RaceHolds(pDriver);
+		}
+		m_iRaceState = state;
+		// with nobody in it, it is not on the track at all: the others drive through its grid place
+		if (pDriver)
+		{
+			pev->effects &= ~EF_NODRAW;
+			pev->solid = SOLID_BBOX;
+		}
+		else
+		{
+			pev->effects |= EF_NODRAW;
+			pev->solid = SOLID_NOT;
+		}
+	}
+
 	if (dt > 0)
 	{
 		Steer(pDriver, dt);
@@ -1168,15 +1246,14 @@ void CH9Car::Step(const char* by)
 		if (m_flResetHeld >= H9CAR_RESET_HOLD && m_bHasSafe)
 		{
 			m_flResetHeld = 0;
-			UTIL_SetOrigin(pev, m_vecSafe);
-			m_flYaw = m_flSafeYaw;
-			m_car = H9CarMotion();
-			m_height = H9CarHeight();
-			m_height.z = m_vecSafe.z;
-			m_flPitch = m_flRoll = 0;
-			for (float& z : m_flWheelGround)
-				z = m_vecSafe.z;
-			m_flFrontGround = m_flRearGround = m_vecSafe.z;
+			Vector place, angles;
+			if (m_iSlot > 0 && RaceActive() && RaceRespawnPoint(pDriver, place, angles)) // in a race: after the last checkpoint passed
+			{
+				PutAt(place, angles.y);
+				RacePlaced(pDriver);
+			}
+			else
+				PutAt(m_vecSafe, m_flSafeYaw);
 			EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 		}
 		else if (!hit && m_bAllWheels && m_height.contact)
@@ -1242,5 +1319,71 @@ void CH9Car::Step(const char* by)
 			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
 		}
 	}
+}
+
+// race_pick: a buggy on show in a race map's lobby. A player who presses +use on it becomes that buggy on the grid:
+// the free grid car with the lowest slot takes this one's skin and takes him in. When the race is over, or when he
+// gets out, he is a player in the lobby again (CH9Car::LeaveWheel).
+class CRacePick : public CBaseAnimating
+{
+public:
+	void Spawn() override;
+	int ObjectCaps() override { return (CBaseAnimating::ObjectCaps() & ~FCAP_ACROSS_TRANSITION) | FCAP_IMPULSE_USE; }
+	void Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value) override;
+};
+LINK_ENTITY_TO_CLASS(race_pick, CRacePick);
+
+void CRacePick::Spawn()
+{
+	if (FStringNull(pev->model))
+		pev->model = MAKE_STRING("models/h9/rc_car.mdl");
+	if (!H9FileOnDisk(STRING(pev->model)))
+	{
+		ALERT(at_error, "race_pick: its model %s is not on disk; removed\n", STRING(pev->model));
+		UTIL_Remove(this);
+		return;
+	}
+	PRECACHE_MODEL((char*)STRING(pev->model));
+	SET_MODEL(edict(), STRING(pev->model));
+	pev->movetype = MOVETYPE_NONE;
+	pev->solid = SOLID_BBOX;
+	pev->takedamage = DAMAGE_NO;
+	UTIL_SetSize(pev, Vector(-72, -72, 0), Vector(72, 72, 76));
+}
+
+void CRacePick::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value)
+{
+	if (!pActivator || !pActivator->IsPlayer() || !RaceActive())
+		return;
+	CBasePlayer* pPlayer = static_cast<CBasePlayer*>(pActivator);
+	if (!pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
+		return;
+	CH9Car* pFree = NULL;
+	CBaseEntity* pEntity = NULL;
+	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "h9_car")) != NULL)
+	{
+		CH9Car* pCar = static_cast<CH9Car*>(pEntity);
+		if (pCar->m_iSlot <= 0)
+			continue;
+		if (pCar->Driver())
+		{
+			if (pCar->pev->skin == pev->skin)
+			{
+				ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "That buggy is taken: choose another");
+				return;
+			}
+			continue;
+		}
+		if (!pFree || pCar->m_iSlot < pFree->m_iSlot)
+			pFree = pCar;
+	}
+	if (!pFree)
+	{
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "The grid is full: wait for the next race");
+		return;
+	}
+	pFree->pev->skin = pev->skin;
+	pFree->PutAt(pFree->m_vecHome, pFree->m_flHomeYaw);
+	pFree->TakeWheel(pPlayer);
 }
 #endif // H9CAR_MATHS_ONLY
