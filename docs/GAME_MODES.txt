@@ -203,10 +203,11 @@ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
                set it (COMMANDS.txt, CVAR REFERENCE).
   M60 shots    every shot of a Mech's M60 sends a large muzzle flash at the end of the barrels and
                flies a bullet in slow motion from there to where the round lands, as the .turret
-               turret's are, along a bright line (the laser rifle's streak; the turret's bullets
-               have it too), whoever pulls the trigger, a bot or a person (tsm_mech_flash,
-               tsm_mech_flash_scale, tsm_mech_trails and tsm_mech_trail_max, COMMANDS.txt). One Mech
-               can have up to six bullets in the air at once.
+               turret's are, with a thin white trail that follows it and fades out behind it (the
+               turret's bullets keep the laser rifle's streak), whoever pulls the trigger, a bot or
+               a person (tsm_mech_flash, tsm_mech_flash_scale, tsm_mech_trails and
+               tsm_mech_trail_max, COMMANDS.txt). One Mech can have up to six bullets in the air at
+               once.
   Bot Mechs    a bot that carries the M60 and the launcher alternates between them in a fight
                (rcbot_mm.dll, CHANGE 13): the M60 is its default; the launcher comes out for a
                target far off (1.35 x tsm_bot_mech_near, 400 units) and in clear sight of a rocket,

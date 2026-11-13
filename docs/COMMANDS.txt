@@ -3601,16 +3601,21 @@
  and are optional: without the files the M60's sound plays. Any other player's M60 sounds as before.
  Every shot of a Mech's M60 also sends a large muzzle flash (sprites/h9_minigun_flash.spr, else TS's muzzle flash) at the
  end of the barrels, and flies a bullet from there to where the round lands, in slow motion as the .turret turret's are:
- TS's bullet model (models/bullet.mdl) at 2000 units a second with a bright line along its path (the laser rifle's streak,
- sprites/laserrifle_trail.spr, 1.4 units wide, the turret's bullets have it too; TS's own bullet_trail.spr is too faint to
- show as a line and stays only where the streak is missing), seen by everyone. A shot is the game library's fire event for
- a round of the M60, which it plays for a bot as for a person.
+ TS's bullet model (models/bullet.mdl) at 2000 units a second, with a trail that follows it and fades out behind it: a
+ soft white ribbon (sprites/h9_bullet_trail.spr, 4 units across, a warm white at full brightness) that takes 0.1 s to
+ fade, so it is 200 units long, shorter than the 218 units between the rounds of a burst, and each bullet has a trail of
+ its own. It has the shape of TS's own slow-motion trail (bullet_trail.spr), which peaks at a tenth of full brightness
+ and cannot be seen as a line, drawn at a brightness that can; whoever sees the barrels sees it. Where the game lacks
+ sprites/h9_bullet_trail.spr the Mech's bullet has the turret's line, the laser rifle's streak
+ (sprites/laserrifle_trail.spr, drawn at once from the barrels to where the round lands, seen by everyone), which the
+ turret's bullets keep in any case. A shot is the game library's fire event for a round of the M60, which it plays for a
+ bot as for a person. The sprite is made by tools/make-mechminigun-trail.py.
  One Mech can have up to tsm_mech_trail_max bullets in the air at once (each is an entity while it flies): a shot fired
  while all of them are still flying shows its flash and no bullet, and none is made within 64 places of the engine's
  entity limit. Where the game lacks the bullet files the picture is a plain tracer line.
  tsm_mech_flash            1          a large muzzle flash at the Mech's barrels on every shot
  tsm_mech_flash_scale      0.3        its size, as a sprite scale (0.3 is about 40 units across)
- tsm_mech_trails           1          a bullet flown from the barrels to where the shot lands
+ tsm_mech_trails           1          a bullet and its trail flown from the barrels to where the shot lands
  tsm_mech_trail_max        6          bullets of one Mech in the air at once (1 to 16)
 
  -- Breacher

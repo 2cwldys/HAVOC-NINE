@@ -1068,6 +1068,7 @@ new g_turret_boom;        // the explosion sprite's index
 new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
 new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
 new g_turret_trail, bool:g_turret_bullet;   // the sprite of the line along a slow-motion bullet and the bullet's model (the turret's shots and a Mech's), 0/false when missing
+new g_mech_trail;                          // the sprite of the trail behind a Mech's bullet (H9's own), 0 when the game has none: the Mech's bullet then has the line of g_turret_trail
 new g_m60_view_idx, g_mech_gun_view_idx;   // model indexes of the stock M60 viewmodel and the Mech's minigun one, 0 when not precached
 new g_mech_gun_world_idx;                  // model index of the Mech's cannon lying in the world (TSM_MECHGUN_WMODEL), 0 when not precached
 new g_mech_flash_spr;                      // the Mech's muzzle flash sprite, 0 when the game has none
@@ -1076,6 +1077,8 @@ new g_ev_fire;                             // the game library's fire event (eve
 new Float:g_mech_fx_at[MAXPL];             // gametime of the last flash and bullet
 #define TSM_MECH_BULLETS 16                // the most bullets one Mech can have in the air at once: the ceiling of tsm_mech_trail_max
 new Float:g_mech_bullet_end[MAXPL][TSM_MECH_BULLETS];   // when each of a Mech's bullets in the air lands; a place whose time is not in the future is free
+#define TSM_MECH_TRAIL_LIFE 1              // tenths of a second a Mech bullet's trail takes to fade out behind it: at 2000 units a second a trail 200 units long, less than the 218 between the rounds of a burst
+#define TSM_MECH_TRAIL_WIDTH 2             // units each side of the bullet's path the trail is drawn
 new g_cv_turret_resist;   // the share of every hit its armour turns aside
 new g_cv_turret, g_cv_turret_per_team, g_cv_turret_hp, g_cv_turret_range, g_cv_turret_dmg;
 new g_cv_turret_rate, g_cv_turret_spread, g_cv_turret_repair, g_cv_turret_repaircd;
@@ -5616,8 +5619,9 @@ public plugin_precache()
 		}
 	}
 
-	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprite of the line along it, where the game has the model and TS's trail. TS's own trail
-	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the line is the laser rifle's streak where the game has it.
+	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprites of the line along it, where the game has the model and TS's trail. TS's own trail
+	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the turret's line is the laser rifle's streak where the game has it, and a
+	// Mech's trail is H9's own picture of TS's (h9_bullet_trail.spr: the same soft ribbon at full brightness), else the same streak as the turret's.
 	if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
 	{
 		if (file_exists("sprites/laserrifle_trail.spr", true))
@@ -5627,6 +5631,10 @@ public plugin_precache()
 		else
 		{
 			g_turret_trail = precache_model("sprites/bullet_trail.spr");
+		}
+		if (file_exists("sprites/h9_bullet_trail.spr", true))
+		{
+			g_mech_trail = precache_model("sprites/h9_bullet_trail.spr");
 		}
 		precache_model("models/bullet.mdl");
 		g_turret_bullet = true;
@@ -18043,12 +18051,15 @@ turret_seek(t, Float:muzzle[3])
 
 /*
  * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
- * the barrel to where the round went, a bright line along its path (g_turret_trail: the laser rifle's
- * streak, else TS's bullet_trail, which is faint). Only a picture: the round itself
- * landed when it was fired. A plain tracer where the game has no such files. The answer is the
- * seconds the bullet's entity stays in the world, 0.0 for a picture that holds no entity (the plain tracer).
+ * the barrel to where the round went, with a line along its path. The turret's line is drawn at once
+ * from the barrel to where the round went (g_turret_trail: the laser rifle's streak, else TS's
+ * bullet_trail, which is faint). A Mech's (mech) is a trail that follows the bullet and fades out
+ * behind it (g_mech_trail, H9's own sprite of TS's trail), and is the turret's line where the game
+ * lacks that sprite. Only a picture: the round itself landed when it was fired. A plain tracer where
+ * the game has no such files. The answer is the seconds the bullet's entity stays in the world, 0.0
+ * for a picture that holds no entity (the plain tracer).
  */
-Float:turret_trail(Float:from[3], Float:to[3])
+Float:turret_trail(Float:from[3], Float:to[3], bool:mech = false)
 {
 	new Float:dir[3];
 	for (new k = 0; k < 3; k++)
@@ -18091,11 +18102,33 @@ Float:turret_trail(Float:from[3], Float:to[3])
 	set_pev(b, pev_movetype, MOVETYPE_NOCLIP);
 	set_pev(b, pev_velocity, vel);
 
-	// The trail is drawn between two points, not after the bullet: in the frame the bullet is made no
-	// client has it yet, and a trail sent to follow it would have nothing to follow. To everyone, not
-	// only those who see the barrel: whoever stands at the far end sees it arrive. It lasts until the
-	// bullet has got there, and a moment more.
 	new Float:life = dist / speed;
+
+	// The entity goes when its task fires, which is never sooner than 0.1 s from now: that is how long it holds its place.
+	new Float:stays = (life > 0.1) ? life : 0.1;
+	set_task(stays, "remove_ent", b);
+
+	if (mech && g_mech_trail)
+	{
+		// A Mech's trail follows the bullet: the engine draws a ribbon of the sprite along its path and fades it out behind it. The engine puts a
+		// frame's entities ahead of its temporary entities in what it sends a client, so a client sent this already has the bullet. It goes to
+		// those who see the barrels, who are the ones the bullet is sent to.
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, from);
+		write_byte(TE_BEAMFOLLOW);
+		write_short(b);
+		write_short(g_mech_trail);
+		write_byte(TSM_MECH_TRAIL_LIFE);    // life, tenths of a second
+		write_byte(TSM_MECH_TRAIL_WIDTH);   // width, units each side of the path
+		write_byte(255);   // r
+		write_byte(247);   // g
+		write_byte(230);   // b: a warm white
+		write_byte(255);   // brightness
+		message_end();
+		return stays;
+	}
+
+	// The turret's trail is drawn between two points, to everyone, not only those who see the barrel: whoever stands at the far end sees it
+	// arrive. It lasts until the bullet has got there, and a moment more.
 	new tenths = clamp(floatround((life + 0.2) * 10.0, floatround_ceil), 2, 255);
 	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
 	write_byte(TE_BEAMPOINTS);
@@ -18117,10 +18150,6 @@ Float:turret_trail(Float:from[3], Float:to[3])
 	write_byte(255);   // brightness
 	write_byte(0);     // scroll: the streak is the same along its length
 	message_end();
-
-	// The entity goes when its task fires, which is never sooner than 0.1 s from now: that is how long it holds its place.
-	new Float:stays = (life > 0.1) ? life : 0.1;
-	set_task(stays, "remove_ent", b);
 	return stays;
 }
 
@@ -22028,8 +22057,8 @@ entity_room()
 
 /*
  * The Mech's M60 shot: a large muzzle flash at the barrels' end and a bullet flown in slow motion from
- * there to where the round lands, as the turret's are (turret_trail), of which one Mech has up to
- * tsm_mech_trail_max in the air at once. A shot is the game library's fire event for a round of the
+ * there to where the round lands, as the turret's are but with a trail behind it that fades out (turret_trail),
+ * of which one Mech has up to tsm_mech_trail_max in the air at once. A shot is the game library's fire event for a round of the
  * M60 (fw_mech_shot): it plays one for every round, for a bot as for a person. The clip the weapon
  * natives report is only what the library last sent in WeaponInfo, which it does when the weapon or
  * its reserve changes and never for a round (and the engine sends a bot no client data at all), so
@@ -22110,7 +22139,7 @@ mech_gun_fx(id)
 			get_tr2(0, TR_vecEndPos, endpos);
 
 			// The entity goes when its removal task has run, which is after the shots of the frame it is due in: the place is held for a tenth of a second more.
-			new Float:stays = turret_trail(muzzle, endpos);
+			new Float:stays = turret_trail(muzzle, endpos, true);
 			g_mech_bullet_end[id][place] = (stays > 0.0) ? now + stays + 0.1 : 0.0;
 		}
 	}
