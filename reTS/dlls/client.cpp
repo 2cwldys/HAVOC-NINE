@@ -139,6 +139,17 @@ void ClientDisconnect(edict_t* pEntity)
 	WRITE_STRING(text);
 	MESSAGE_END();
 
+	// H9: a driver who quits lets go of his car first (h9_car), so that it is not left with a ghost at the wheel
+	// and he is not put back beside it as a solid body
+	{
+		CBasePlayer* pLeaver = static_cast<CBasePlayer*>(CBaseEntity::Instance(pEntity));
+		if (pLeaver && pLeaver->m_pTank != NULL)
+		{
+			pLeaver->m_pTank->Use(pLeaver, pLeaver, USE_OFF, 0);
+			pLeaver->m_pTank = NULL;
+		}
+	}
+
 	// since the edict doesn't get deleted, fix it so it doesn't interfere.
 	pEntity->v.takedamage = DAMAGE_NO; // don't attract autoaim
 	pEntity->v.solid = SOLID_NOT;	   // nonsolid

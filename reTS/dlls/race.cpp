@@ -211,7 +211,21 @@ private:
 		bool present = false;
 		Vector mins, maxs, centre;
 		float bonus = 0;
+		float along = 0; // where it is on the lap's line (the waypoints), units from waypoint 0
 	};
+	// The lap's line: the race_waypoints in order, and how far along it each one is. With it a racer's distance to
+	// his next checkpoint is measured along the road, not straight across a hairpin.
+	struct Mark
+	{
+		Vector at;
+		float along = 0;
+	};
+	enum { RACE_MAX_MARKS = 512 };
+	Mark m_marks[RACE_MAX_MARKS];
+	int m_iMarks = 0;
+	float m_flLine = 0; // the whole lap's length along it
+	float Along(const Vector& at) const;
+	float ToCheckpoint(const Vector& at, int number) const;
 	// A player the race knows: his grid slot and what it saw of him the frame before.
 	struct Seat
 	{
@@ -454,6 +468,40 @@ void CRaceRules::Survey()
 	Vector origin, angles;
 	if (!RaceGridSlot(1, origin, angles))
 		ALERT(at_warning, "race_rules: the map has no race_grid with slot 1\n");
+	// the lap's line
+	m_iMarks = 0;
+	m_flLine = 0;
+	float speed, spread;
+	while (m_iMarks < RACE_MAX_MARKS && RaceWaypoint(m_iMarks, m_marks[m_iMarks].at, speed, spread))
+		m_iMarks++;
+	if (m_iMarks >= 3)
+	{
+		for (int i = 0; i < m_iMarks; i++)
+		{
+			m_marks[i].along = m_flLine;
+			m_flLine += (m_marks[(i + 1) % m_iMarks].at - m_marks[i].at).Length2D();
+		}
+		for (int number = 0; number < m_iCheckpoints; number++)
+			m_checkpoints[number].along = Along(m_checkpoints[number].centre);
+	}
+	else
+	{
+		m_iMarks = 0;
+		ALERT(at_warning, "race_rules: no race_waypoint line (numbers 0, 1, 2...): places and the wrong-way watch go by straight distance\n");
+	}
+	// what a player needs to get into the race at all
+	int cars = 0, picks = 0;
+	CBaseEntity* pThing = NULL;
+	while ((pThing = UTIL_FindEntityByClassname(pThing, "h9_car")) != NULL)
+		if (pThing->pev->iuser4 > 0)
+			cars++;
+	pThing = NULL;
+	while ((pThing = UTIL_FindEntityByClassname(pThing, "race_pick")) != NULL)
+		picks++;
+	if (cars == 0)
+		ALERT(at_warning, "race_rules: the map has no h9_car with a slot key: nobody can race\n");
+	if (picks == 0)
+		ALERT(at_warning, "race_rules: the map has no race_pick: nobody can get into a grid car\n");
 	ALERT(at_console, "race_rules: %d checkpoints, %d laps, countdown %.0f s, finishwait %.0f s, maxtime %.0f s\n",
 		m_iCheckpoints, m_iLaps, m_flCountdown, m_flFinishWait, m_flMaxTime);
 }
@@ -486,8 +534,61 @@ void CRaceRules::Roster()
 		seat.in = true;
 		seat.slot = slot;
 		m_book.Add(index);
+		if (m_state == RACE_WAITING)
+			m_flWarmEnd = 0; // the warm-up begins again: those still choosing a buggy start with him
 		ALERT(at_console, "race: %s takes grid slot %d\n", STRING(pPlayer->pev->netname), slot);
 	}
+}
+
+// How far along the lap's line a place is: the nearest waypoint, and the place set down on the stretch after it
+// (or before it).
+float CRaceRules::Along(const Vector& at) const
+{
+	int nearest = 0;
+	float best = -1;
+	for (int i = 0; i < m_iMarks; i++)
+	{
+		const float d = (m_marks[i].at - at).Length2D();
+		if (best < 0 || d < best)
+		{
+			best = d;
+			nearest = i;
+		}
+	}
+	const Mark& here = m_marks[nearest];
+	const Mark& next = m_marks[(nearest + 1) % m_iMarks];
+	const Mark& last = m_marks[(nearest + m_iMarks - 1) % m_iMarks];
+	Vector ahead = next.at - here.at, behind = here.at - last.at;
+	ahead.z = behind.z = 0;
+	const float aheadLength = ahead.Length(), behindLength = behind.Length();
+	Vector to = at - here.at;
+	to.z = 0;
+	float step = 0;
+	const float forward = aheadLength > 0 ? DotProduct(to, ahead) / aheadLength : 0;
+	const float backward = behindLength > 0 ? DotProduct(to, behind) / behindLength : 0;
+	if (forward > 0)
+		step = forward < aheadLength ? forward : aheadLength;
+	else if (backward < 0)
+		step = backward > -behindLength ? backward : -behindLength;
+	float along = here.along + step;
+	if (along < 0)
+		along += m_flLine;
+	if (along >= m_flLine)
+		along -= m_flLine;
+	return along;
+}
+
+// A racer's way to go to a checkpoint: along the lap's line where the map has one, else straight.
+float CRaceRules::ToCheckpoint(const Vector& at, int number) const
+{
+	if (m_iMarks == 0 || m_flLine <= 0)
+		return (m_checkpoints[number].centre - at).Length();
+	float left = m_checkpoints[number].along - Along(at);
+	if (left < 0)
+		left += m_flLine;
+	if (left > m_flLine - 600) // he is at it, a little past its middle and not yet counted
+		left = 0;
+	return left;
 }
 
 int CRaceRules::Racers() const
@@ -687,7 +788,7 @@ void CRaceRules::Track(int index, CBasePlayer* pPlayer, float dt)
 
 	const RaceRacer* racer = m_book.Find(index);
 	if (racer && m_book.Running() && !racer->finished && !racer->retired)
-		m_book.Progress(index, (m_checkpoints[racer->next].centre - at).Length(), dt);
+		m_book.Progress(index, ToCheckpoint(at, racer->next), dt);
 }
 
 // What a racer is told when a checkpoint answers.
@@ -754,8 +855,11 @@ void CRaceRules::Status(int index, CBasePlayer* pPlayer)
 			char left[48] = "";
 			if (m_flMaxTime > 0)
 				snprintf(left, sizeof(left), "\nLEFT %s", RaceTime(m_book.StartTime() + m_flMaxTime + racer->bonus - now, true));
-			snprintf(text, sizeof(text), "LAP %d/%d   POS %d/%d\nTIME %s\nLAP  %s\nBEST %s%s", racer->lap + 1, laps, racer->place,
-				Racers(), RaceTime(now - m_book.StartTime(), true), RaceTime(now - racer->lapStart, true), best, left);
+			CBaseEntity* pCar = pPlayer->m_pTank;
+			const int speed = pCar ? (int)fabsf(pCar->pev->fuser2) : 0; // the car's speed along its nose (h9_car)
+			snprintf(text, sizeof(text), "LAP %d/%d   POS %d/%d\nTIME %s\nLAP  %s\nBEST %s%s\nSPEED %d", racer->lap + 1, laps,
+				racer->place, Racers(), RaceTime(now - m_book.StartTime(), true), RaceTime(now - racer->lapStart, true), best,
+				left, speed);
 		}
 		RaceText(pPlayer, RACE_CHANNEL_STATUS, 0.02f, 0.30f, 255, 200, 60, RACE_STATUS_EVERY * 3, text);
 	}

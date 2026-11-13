@@ -538,6 +538,8 @@ private:
 	int m_iRound = 0;             // the race's round it was last put on the grid for
 	int m_iRaceState = 0;         // the race's state, the frame before
 	bool m_bHeld = false;         // the race holds it (countdown, finished): no drive
+	bool m_bGhost = false;        // held after its race (finished, out of time): it rolls to a stop and nothing hits it
+	float m_flUseHeld = 0;        // seconds +use has been held in a race: a second of it gets him out
 	EHANDLE m_hDriver;
 	EHANDLE m_hCamera;
 	H9CarMotion m_car;       // its speed along the nose and across it, its steering, how much it slides
@@ -814,9 +816,9 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 		pPlayer->pev->angles = Vector(0, m_flYaw, 0);
 		pPlayer->pev->v_angle = pPlayer->pev->angles;
 		pPlayer->pev->fixangle = 1;
-		pPlayer->m_iHideHUD &= ~HIDEHUD_WEAPONS;
 		pPlayer->EquipWeapon();
 	}
+	pPlayer->m_iHideHUD &= ~HIDEHUD_WEAPONS; // dead too: nothing else gives the weapons' HUD back
 	SET_VIEW(pPlayer->edict(), pPlayer->edict());
 	pPlayer->m_hViewEntity = NULL;
 	m_hDriver = NULL;
@@ -835,7 +837,12 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 {
 	const int buttons = pDriver && !m_bHeld ? pDriver->pev->button : 0;
-	if (m_bHeld)
+	if (m_bGhost) // its race is over: it brakes to a stop by itself
+	{
+		m_car.forward = H9Approach(0, m_car.forward, m_flBrake * 0.6f * dt);
+		m_car.side = H9Approach(0, m_car.side, m_flBrake * 0.6f * dt);
+	}
+	else if (m_bHeld)
 		m_car.forward = m_car.side = 0;
 	const bool ahead = (buttons & IN_FORWARD) != 0, back = (buttons & IN_BACK) != 0;
 	const bool left = (buttons & IN_MOVELEFT) != 0, right = (buttons & IN_MOVERIGHT) != 0;
@@ -1189,8 +1196,26 @@ void CH9Car::Step(const char* by)
 	{
 		const bool pressed = m_bUsePressed;
 		m_bUsePressed = false;
-		if (pressed && gpGlobals->time > m_flEntered + 0.3f)
+		// In a race a tap does not throw the race away: while it runs +use must be held a second, and a racer the
+		// race holds (the countdown; finished, until the results are over) stays in, so that he is in the results.
+		const bool racing = m_iSlot > 0 && RaceActive() && RaceGetState() != RACE_WAITING;
+		bool out = pressed && gpGlobals->time > m_flEntered + 0.3f;
+		if (racing)
 		{
+			out = false;
+			if (m_bHeld)
+				m_flUseHeld = 0;
+			else
+			{
+				if (pressed)
+					ClientPrint(pDriver->pev, HUD_PRINTCENTER, "Hold use for a second to leave the race");
+				m_flUseHeld = (pDriver->pev->button & IN_USE) ? m_flUseHeld + dt : 0;
+				out = m_flUseHeld >= 1.0f;
+			}
+		}
+		if (out)
+		{
+			m_flUseHeld = 0;
 			pDriver->m_pTank = NULL;
 			LeaveWheel(pDriver);
 			pDriver = NULL;
@@ -1220,16 +1245,22 @@ void CH9Car::Step(const char* by)
 			m_bHeld = RaceHolds(pDriver);
 		}
 		m_iRaceState = state;
-		// with nobody in it, it is not on the track at all: the others drive through its grid place
+		m_bGhost = pDriver && m_bHeld && state != RACE_COUNTDOWN;
+		// With nobody in it, it is not on the track at all: the others drive through its grid place. One whose race
+		// is over is a ghost: seen through, and the others drive through it to the line.
 		if (pDriver)
 		{
 			pev->effects &= ~EF_NODRAW;
-			pev->solid = SOLID_BBOX;
+			pev->solid = m_bGhost ? SOLID_NOT : SOLID_BBOX;
+			pev->rendermode = m_bGhost ? kRenderTransTexture : kRenderNormal;
+			pev->renderamt = m_bGhost ? 110 : 0;
 		}
 		else
 		{
 			pev->effects |= EF_NODRAW;
 			pev->solid = SOLID_NOT;
+			pev->rendermode = kRenderNormal;
+			pev->renderamt = 0;
 		}
 	}
 
@@ -1253,7 +1284,11 @@ void CH9Car::Step(const char* by)
 				RacePlaced(pDriver);
 			}
 			else
+			{
 				PutAt(m_vecSafe, m_flSafeYaw);
+				if (m_iSlot > 0 && RaceActive())
+					RacePlaced(pDriver);
+			}
 			EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 		}
 		else if (!hit && m_bAllWheels && m_height.contact)
@@ -1358,6 +1393,11 @@ void CRacePick::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useT
 	CBasePlayer* pPlayer = static_cast<CBasePlayer*>(pActivator);
 	if (!pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
 		return;
+	if (RaceGetState() == RACE_FINISHED) // somebody has finished: he would be held, then put out with the rest
+	{
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "This race is ending: choose when it is over");
+		return;
+	}
 	CH9Car* pFree = NULL;
 	CBaseEntity* pEntity = NULL;
 	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "h9_car")) != NULL)
