@@ -58,7 +58,7 @@
     {
       "kind": "amxx",
       "file": "ARP_Core.amxx",
-      "sha256": "9caf5b6e721642d8af5ea2b9359266010dca34348066b23e04c707619d106f59",
+      "sha256": "83014bc8f5e1792278f97b18848427666d44fd0d65bda8f214371a232c24d337",
       "note": "build 1.61"
     },
     {
@@ -76,19 +76,19 @@
     {
       "kind": "amxx",
       "file": "ARP_HungerMod.amxx",
-      "sha256": "4f0031ad01c5698a5200c85bbeaa8a562f307afda4b90b6a4bd7888e9ab2e6c6",
+      "sha256": "b70a865416915c4acfcdf7e24d7c50db357ec23d4e42e2b84fdbf08482ccc8cb",
       "note": "build 1.61"
     },
     {
       "kind": "amxx",
       "file": "ARP_Items.amxx",
-      "sha256": "8a6afc949d212b5120151a66528cfd8901e812e56c95dcb11cd4b8d0d52797cf",
+      "sha256": "973a594b86564d6e27a522a7a577728a3427f38e97a6f4305bc65225adf8157c",
       "note": "build 1.61"
     },
     {
       "kind": "amxx",
       "file": "ARP_JailMod.amxx",
-      "sha256": "e7d5b1565ea2246943680d6842d48702b447c81e367e516c7e788df66b00da5c",
+      "sha256": "48b7926bb5ba6f8bbc422ac6d510a8cae6ba6ff78d58742f9cb4a85bd4f2de6c",
       "note": "build 1.61"
     },
     {
@@ -112,13 +112,13 @@
     {
       "kind": "amxx",
       "file": "ARP_TS.amxx",
-      "sha256": "da2abdb923750381b40c78d78b85c1e82bc11b68b220b0570fd2fcad6ea342d1",
+      "sha256": "f322ca00ba5e6f7f1a7f48ce25caf48f2fbdfc0fb9a961179e6dcfab95341f84",
       "note": "build 1.61"
     },
     {
       "kind": "amxx",
       "file": "ARP_Zones.amxx",
-      "sha256": "68fb47faa2cd664e2ff8bb80f1f94c657802c1129785d3af4a39bb1f51adbaff",
+      "sha256": "9146105688c01cac55c64bc5339e668e119e6719a5634461a39772f5616e78e3",
       "note": "build 1.61"
     },
     {
@@ -268,7 +268,7 @@
     {
       "kind": "amxx",
       "file": "ts_matchmode.amxx",
-      "sha256": "93aab171697535defc8e532868f8a0756d1310f8738502227261b1622814615a",
+      "sha256": "4ec56719c5b4f7e5d8316dd91ade53e1261b0e91f31c897095186b47cf5e7ff4",
       "note": "build 1.61"
     },
     {
