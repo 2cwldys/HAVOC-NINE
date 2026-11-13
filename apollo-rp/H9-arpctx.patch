@@ -1,0 +1,262 @@
+--- a/apollo-rp/base/addons/amxmodx/scripting/ARP_Inventory.sma
++++ b/apollo-rp/base/addons/amxmodx/scripting/ARP_Inventory.sma
+@@ -3769,14 +3769,201 @@
+ 	return PLUGIN_HANDLED
+ }
+ 
+-// the use key was pressed on a player (ARP_Core's Player_Use): an exchange is offered to him, or his offer is accepted
++// the use key was pressed on a player (ARP_Core's Player_Use): the context menu takes the press when ARP_H9Ctx is there and gives it one (below); else an exchange is
++// offered to him, or his offer is accepted
+ public EventPlayerUse(Name[],Data[],Len)
+ {
+-	tr_use(Data[0],Data[1])
++	if(!ctx_takes(Data[0],Data[1]))
++		tr_use(Data[0],Data[1])
+ 
+ 	return PLUGIN_CONTINUE
+ }
+ 
++// ---------------------------------------------------------------------------------------------------------------------- the context menu (ARP_H9Ctx)
++//
++// With arp_h9_ctxmenu 1 the use key on a player opens ARP_H9Ctx's menu, whose entries Trade, Search and Show are this plugin's. The menu asks what each may do (H9Inv_CtxWhy:
++// the tests of tr_use, sr_use and inv_op_show made without a side effect, and the reason in the words the menu shows) and has it done through the functions the use key and the
++// window run (H9Inv_CtxDo, H9Inv_CtxShow), so there is no second implementation of any rule. With ARP_H9Ctx not loaded, or its switch off, the use key is what it was.
++
++// whether the use key on target is the menu's: 1 when ARP_H9Ctx has put the menu up for the player. The press that accepts an invitation is never the menu's.
++stock ctx_takes(id,target)
++{
++	if(id < 1 || id > MAX_PLAYERS || target < 1 || target > MAX_PLAYERS)
++		return 0
++
++	if(g_TrState[id] == TR_INVITED && g_TrPartner[id] == target)
++		return 0
++
++	// callfunc_begin never asks whether the other plugin runs, so a paused ARP_H9Ctx would still be called and nothing would serve its menu: the plugin is found by its file and the
++	// function by its id, and callfunc_begin_i answers 1 only for a plugin that can run
++	new pid = find_plugin_byfile("ARP_H9Ctx.amxx")
++	if(pid < 0)
++		return 0
++
++	new fid = get_func_id("H9Ctx_Press",pid)
++	if(fid < 0)
++		return 0
++
++	if(callfunc_begin_i(fid,pid) != 1)
++		return 0
++
++	callfunc_push_int(id)
++	callfunc_push_int(target)
++
++	return callfunc_end()
++}
++
++// a player's state in the exchange as tr_expire would leave it: an invitation that has lapsed is none
++stock ctx_tr_state(id,Float:now)
++{
++	new s = g_TrState[id]
++	if((s == TR_INVITING || s == TR_INVITED) && now >= g_TrUntil[id])
++		return TR_IDLE
++
++	return s
++}
++
++// why the use key on target could not offer id an exchange now, in the order tr_use asks; nothing when it could
++stock ctx_why_trade(id,target,why[],len)
++{
++	new Float:now = get_gametime(),mine = ctx_tr_state(id,now),theirs = ctx_tr_state(target,now)
++
++	if(!g_On[id] || !is_user_alive(id))
++		copy(why,len,"You cannot do that now")
++	else if(mine == TR_INVITED && g_TrPartner[id] == target)
++		why[0] = 0
++	else if(g_SrTarget[id])
++		copy(why,len,"Finish your search first")
++	else if(mine == TR_TRADING)
++		copy(why,len,"You are in an exchange")
++	else if(mine == TR_INVITING)
++		copy(why,len,"Wait for his answer")
++	else if(mine == TR_INVITED)
++		copy(why,len,"Answer the offer first")
++	else if(!inv_window(id))
++		copy(why,len,"You have no inventory window")
++	else if(is_user_bot(target))
++		copy(why,len,"Bots cannot trade")
++	else if(!is_user_alive(target))
++		copy(why,len,"He is dead")
++	else if(!g_On[target])
++		copy(why,len,"He is not ready")
++	else if(tr_restrained(id))
++		copy(why,len,"You are cuffed or jailed")
++	else if(tr_restrained(target))
++	{
++		if(get_pcvar_num(p_Search))
++			copy(why,len,"He is cuffed: search him")
++		else
++			copy(why,len,"He is cuffed")
++	}
++	else if(!inv_window(target))
++		copy(why,len,"He has no inventory window")
++	else if(theirs != TR_IDLE || g_SrTarget[target])
++		copy(why,len,"He is busy")
++	else if(g_CoolWith[id] == target && now < g_CoolUntil[id])
++		copy(why,len,"Wait a moment")
++	else if(now - g_InviteAt[id] < TR_INVITE_GAP && now >= g_InviteAt[id])
++		copy(why,len,"Wait a moment")
++}
++
++// why the use key on target could not open a search for id now, in the order sr_use asks; nothing when it could
++stock ctx_why_search(id,target,why[],len)
++{
++	new Float:now = get_gametime()
++
++	if(!get_pcvar_num(p_Search))
++		copy(why,len,"Searching is off")
++	else if(!g_On[id] || !is_user_alive(id))
++		copy(why,len,"You cannot do that now")
++	else if(!tr_restrained(target))
++		copy(why,len,"Cuff him first")
++	else if(!sr_window(id))
++		copy(why,len,"You have no search window")
++	else if(is_user_bot(target))
++		copy(why,len,"Bots cannot be searched")
++	else if(tr_restrained(id))
++		copy(why,len,"You are cuffed or jailed")
++	else if(g_SrBy[id])
++		copy(why,len,"You are being searched")
++	else if(!is_user_alive(target))
++		copy(why,len,"He is dead")
++	else if(!g_On[target])
++		copy(why,len,"He is not ready")
++	else if(g_SrTarget[id] == target)
++		why[0] = 0
++	else if(ctx_tr_state(id,now) != TR_IDLE)
++		copy(why,len,"Finish your exchange first")
++	else if(g_SrBy[target] && g_SrBy[target] != id)
++		copy(why,len,"Somebody is searching him")
++}
++
++// why id could not show an item to target now (inv_op_show's own test); nothing when he could
++stock ctx_why_show(id,target,why[],len)
++{
++	if(!g_On[id] || !is_user_alive(id))
++		copy(why,len,"You cannot do that now")
++	else if(is_user_bot(target))
++		copy(why,len,"Bots cannot see it")
++	else if(!inv_near(id,target,INV_SHOW_RANGE))
++		copy(why,len,"Not near enough")
++}
++
++// H9Inv_CtxWhy(id, target, what, why[], len): what 1 is the exchange, 2 the search, 3 the show of an item. Returns 1 when the press could do it now, and why is empty;
++// 0 when not, and why says it in a few words. Nothing is changed and nothing is sent.
++public H9Inv_CtxWhy(id,target,what,why[],len)
++{
++	why[0] = 0
++
++	if(id < 1 || id > MAX_PLAYERS || target < 1 || target > MAX_PLAYERS || id == target || !is_user_connected(id) || !is_user_connected(target))
++		copy(why,len,"Not available")
++	else if(what == 1)
++		ctx_why_trade(id,target,why,len)
++	else if(what == 2)
++		ctx_why_search(id,target,why,len)
++	else if(what == 3)
++		ctx_why_show(id,target,why,len)
++	else
++		copy(why,len,"Not available")
++
++	return why[0] ? 0 : 1
++}
++
++// H9Inv_CtxDo(id, target, what): what 1 offers target an exchange (or accepts his offer), what 2 opens the search of him, as the use key does it. Returns 1 when it was done.
++public H9Inv_CtxDo(id,target,what)
++{
++	new why[40]
++	if(!H9Inv_CtxWhy(id,target,what,why,39))
++	{
++		if(why[0])
++			inv_note(id,1,why)
++
++		return 0
++	}
++
++	if(what == 1)
++		tr_use(id,target)
++	else
++		sr_use(id,target)
++
++	return 1
++}
++
++// H9Inv_CtxShow(id, target, kind): the first cell of id's that holds that kind is shown to target, as the window's SHOW TO does it. Returns 1 when it was.
++public H9Inv_CtxShow(id,target,kind)
++{
++	if(id < 1 || id > MAX_PLAYERS || !g_On[id] || kind < 1)
++		return 0
++
++	for(new c;c < inv_cells(id);c++)
++		if(g_CK[id][c] == kind)
++			return inv_op_show(id,c,target) ? 0 : 1
++
++	inv_note(id,1,"You do not have that.")
++
++	return 0
++}
++
+ public EventDeath()
+ {
+ 	new victim = read_data(2)
+--- a/apollo-rp/base/addons/amxmodx/scripting/ARP_JailMod.sma
++++ b/apollo-rp/base/addons/amxmodx/scripting/ARP_JailMod.sma
+@@ -142,6 +142,25 @@
+ 	return (Mode == 1 && Proximity(id)) || (Mode == 2 && IsJailed(id)) ? 1 : 0
+ }
+ 
++// H9: whether the player is cuffed, as /cuff decides whether it cuffs or frees him (not in jail: that is H9_Restrained's); ARP_H9Ctx's menu says Free to him and Cuff to any other
++public H9_Cuffed(id)
++{
++	if(id < 1 || id > MAX_PLAYERS)
++		return 0
++
++	// the cuff flag is in the class that loads after he joins (and never with arp_jail_mode 0 or arp_jail_reconnect 0): IsCuffed on a class that is not loaded is a runtime error,
++	// which callfunc hands on to the plugin that asked, so until the class is here the saved speed that cuffing sets stands for it
++	if(!g_Class[id])
++	{
++		if(g_MaxSpeed[id])
++			return 1
++
++		return 0
++	}
++
++	return IsCuffed(id) ? 1 : 0
++}
++
+ // H9: the handcuff symbol: a sprite entity that follows the cuffed player (MOVETYPE_FOLLOW: his origin, whatever the offset), with the height in the
+ // sprite's own frame. Shown once whatever the number of times the cuffs are put on (a spawn does it again), taken down with the cuffs
+ H9_CuffIconShow(id)
+--- a/apollo-rp/base/addons/amxmodx/scripting/ARP_Items.sma
++++ b/apollo-rp/base/addons/amxmodx/scripting/ARP_Items.sma
+@@ -1493,6 +1493,25 @@
+ 		g_RopeHeld[Holder] = 0
+ }
+ 
++// what holds the player and what he holds, for ARP_H9Ctx's menu: bit 0 he is tied, bit 1 he holds somebody on a rope (the Rope's own test of it), bit 2 his mouth is taped
++public H9_RopeState(id)
++{
++	if(id < 1 || id > MAX_PLAYERS)
++		return 0
++
++	new bits
++	if(g_RopedBy[id])
++		bits |= 1
++
++	if(g_RopeHeld[id] && g_RopedBy[g_RopeHeld[id]] == id)
++		bits |= 2
++
++	if(g_Taped[id])
++		bits |= 4
++
++	return bits
++}
++
+ // everything a player is held by goes when he dies or leaves: the tape, the rope he is tied with and the person he holds
+ H9_ClearRestraints(id)
+ {

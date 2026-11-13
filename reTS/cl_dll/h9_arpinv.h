@@ -25,6 +25,10 @@ bool H9ArpInv_IsUp();
 // cl_h9_arpinv is not 0: the game says in _h9vgui that it has the window (6) and not (5).
 bool H9ArpInv_Wanted();
 
+// From the context menu (h9_arpctx.cpp), which stands over the window and takes the buttons while it is up: the buttons as they are when the menu goes, so that one held then
+// is no click on the window.
+void H9ArpInv_SyncMouse(int buttons);
+
 // From IN_MouseEvent while the cursor is up and no VGUI window owns it: the mouse buttons as the engine sees them.
 void H9ArpInv_HandleMouse(int buttons);
 

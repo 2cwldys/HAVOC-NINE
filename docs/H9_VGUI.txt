@@ -619,6 +619,10 @@ a hint dim; a game without it draws the lines as the plain notice they read as (
        VGUI: drawn by the HUD, driven by the slot keys, and clickable
        through IN_MouseEvent (inputw32.cpp:500-501). A precedent for a
        menu that works from the keys alone.
+   The context menu      h9_arpctx.cpp, h9_arpctx_ui.h and h9_arpctx_model.h (docs\ARP_INVENTORY_WINDOW.txt, 7). Like the inventory window a HUD
+       element and not a VGUI panel: its cursor is UpdateCursorState's (it asks H9ArpCtx_IsUp), its buttons come from IN_MouseEvent and its keys from
+       TeamFortressViewport::KeyInput, before every other rule. A list of rows with a reason on each greyed one, for a plugin's own list of choices
+       that is a short list of what can be done now (ARP_H9Ctx, the use key on a player).
 
  3b. Text menus and keys
 
@@ -852,7 +856,8 @@ a hint dim; a game without it draws the lines as the plain notice they read as (
  to a game of protocol 4 or more), "5" when it also reads H9Look (2026-11-10, section 4j), "6" when it also draws Apollo RP's inventory and exchange windows (H9Inv and H9Trade, docs\ARP_INVENTORY.txt; a game that keeps the text inventory says 5), "7" when it also draws the credit sign (the
  cent sign Apollo RP shows for money with arp_h9_credits 1: the single byte 0xA2 in a panel's or the HUD font's text, U+00A2 as UTF-8 in
  console, chat and centre text; include\h9_vgui.inc H9VGUI_CREDIT_PROTOCOL), "8" when it also draws the search of a handcuffed player (H9Search, docs\ARP_INVENTORY_WINDOW.txt, 3.4; ARP_Inventory
-carries the constant until include\h9_vgui.inc has it), "9" when it also takes money from the player searched (H9Search op 5, MONEY; H9VGUI_SEARCHMONEY_PROTOCOL, carried by ARP_Inventory likewise). A plugin
+carries the constant until include\h9_vgui.inc has it), "9" when it also takes money from the player searched (H9Search op 5, MONEY; H9VGUI_SEARCHMONEY_PROTOCOL, carried by ARP_Inventory likewise), "10" when it also draws the context menu of the use key on a player (H9Ctx,
+docs\ARP_INVENTORY.txt, 10; H9VGUI_CTXMENU_PROTOCOL, carried by ARP_H9Ctx likewise; a game with cl_h9_ctxmenu 0 says 9). A plugin
  sends a STATUS only to a game of protocol 2 or more (h9vgui_status says
  whether it did) and a MARK only to a game of protocol 3 or more (h9vgui_mark), and
  the rest keep the hudmessage or what the plugin gives them instead. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
@@ -1629,6 +1634,10 @@ carries the constant until include\h9_vgui.inc has it), "9" when it also takes m
  at the top with two buttons (keys 1 and 2; clickable only if
  he allows the mouse); his choice comes back through h9vgui_event(). ESC
  closes either and sends "h9vgui rc.ask 0 close" for the panel.
+
+ An entry in the context menu of the use key on a player (a shove, a faction NPC's order, a siege claim) is not a panel of the plugin's own: it takes include\ApolloRP_H9Ctx.inc,
+ the forward ARP_H9CtxBuild(id, target) and the native ARP_H9CtxAdd(label, handler, enabled, note), and the menu draws it, greyed with the note as the reason when it is not enabled,
+ for a player whose game says 10 (docs\ARP_INVENTORY.txt, 10).
 
 
  9. THE PURPLE: THE RECOLOUR MADE WITH THIS DESIGN

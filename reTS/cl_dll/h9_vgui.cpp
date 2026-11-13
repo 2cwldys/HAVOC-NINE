@@ -10,6 +10,7 @@
 #include "vgui_TeamFortressViewport.h"
 #include "h9_vgui.h"
 #include "h9_arpinv.h" // H9ArpInv_Wanted: the protocol a game says
+#include "h9_arpctx.h" // H9ArpCtx_Wanted: and whether it has the context menu
 #include "vgui_H9Panel.h"
 #include "h9_theme.h" // the colour the player gives the panels: h9theme::Init makes the cvars
 #include "triangleapi.h" // WorldToScreen: a mark's place on the screen
@@ -969,9 +970,10 @@ void SyncUserinfo()
 	if (!s_cvInfo)
 		return;
 	char want[8];
-	// the inventory window is Apollo RP's menu as a panel: a game that keeps those as text menus, or the inventory as text, says 5
+	// the inventory window is Apollo RP's menu as a panel: a game that keeps those as text menus, or the inventory as text, says 5; the context menu comes with the
+	// inventory window (its Trade and Search are the window's), and a game that does not want it says 9
 	const bool inventory = H9ArpInv_Wanted() && (!s_cvArp || s_cvArp->value != 0.0f);
-	snprintf(want, sizeof(want), "%d", Enabled() ? (inventory ? H9V_PROTOCOL : H9V_PROTOCOL_NO_INVENTORY) : 0);
+	snprintf(want, sizeof(want), "%d", Enabled() ? (inventory ? (H9ArpCtx_Wanted() ? H9V_PROTOCOL : H9V_PROTOCOL_NO_CTXMENU) : H9V_PROTOCOL_NO_INVENTORY) : 0);
 	if (!s_cvInfo->string || 0 != strcmp(s_cvInfo->string, want))
 		gEngfuncs.Cvar_Set("_h9vgui", want);
 	if (s_cvArp && s_cvArpInfo)

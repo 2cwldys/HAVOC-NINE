@@ -619,6 +619,12 @@ bool H9ArpInv_IsUp()
 	return s_md.open;
 }
 
+void H9ArpInv_SyncMouse(int buttons)
+{
+	s_iPrevButtons = buttons;
+	s_iIgnoreButtons = buttons;
+}
+
 bool H9ArpInv_Wanted()
 {
 	return s_cvWant == nullptr || s_cvWant->value != 0.0f;

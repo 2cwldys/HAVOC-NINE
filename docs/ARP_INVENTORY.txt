@@ -3,7 +3,7 @@ APOLLO RP'S INVENTORY -- cells and stacks, the window, and the exchange of goods
 
 What it is, the rules it keeps, the switches, the hooks a plugin can use and the protocol of the window. docs\APOLLO_RP.txt section 9 is the
 short form and section 10 the table of every H9 addition to ARP with its switch; docs\ARP_INVENTORY_CHECKS.txt says what to look at in a game.
-The plugin is apollo-rp\base\addons\amxmodx\scripting\ARP_Inventory.sma (ORIGIN.txt items 29 to 33, 35 and 36, H9-arpinventory.patch); the window itself is the
+The plugin is apollo-rp\base\addons\amxmodx\scripting\ARP_Inventory.sma (ORIGIN.txt items 29 to 33, 35 and 36, H9-arpinventory.patch; the context menu of section 10 is ARP_H9Ctx.sma, item 50); the window itself is the
 client's (reTS\cl_dll, the coordinator's half; docs\ARP_INVENTORY_WINDOW.txt describes it), which speaks the messages of section 5.
 
 
@@ -26,7 +26,8 @@ he is in the game and kept between his visits in a table of its own (section 8):
 A player whose game draws H9's inventory window (_h9vgui 6, include\h9_vgui.inc H9VGUI_INV_PROTOCOL; not a bot) is sent the cells (H9Inv, section
 5) and drives them with the client command h9inv; /items and /inventory open the window for him in place of the text menu. EVERY OTHER player keeps the
 text menu exactly as before (one line for each kind, with the total) and the same cell rules apply to him: they are the server's. A game that says _h9vgui 8 (H9VGUI_SEARCH_PROTOCOL)
-also draws the search window: the use key on a handcuffed player opens his cells beside the player's own (H9Search, section 9).
+also draws the search window: the use key on a handcuffed player opens his cells beside the player's own (H9Search, section 9). A game that says _h9vgui 10 also draws the
+context menu of the use key on a player (H9Ctx, section 10).
 
 Stock Apollo RP stays possible. With arp_h9_inv_slots 0 nothing is ever refused (no limit of cells), and arp_h9_vgui 0 (or arp_h9_inv_window 0) gives
 every player the text menu; arp_h9_inv_persist 0 packs the cells at every join and writes nothing; arp_h9_search 0 leaves a handcuffed player alone, as before; with
@@ -110,6 +111,8 @@ THE ITEM PATHS  Use, Give, Drop and Show are ARP's own: the text menu (ItemsOpti
   arp_h9_trade_timeout 120  (the exchange of goods, section 6)
   arp_h9_search        1    the search of a handcuffed player (section 9); 0: the use key on him does what it did, "That player cannot make an exchange now."
   arp_h9_search_range  150  (the search, section 9: how near the searcher must stay once the window is open; a limit, not a switch)
+  arp_h9_ctxmenu       0/1  the context menu of the use key on a player (section 10; the plugin's own default is 0, arp.cfg ships 1), with arp_h9_ctx_range, arp_h9_ctx_cuff,
+                            arp_h9_ctx_fine, arp_h9_ctx_give, arp_h9_ctx_fine_amounts and arp_h9_ctx_give_amounts
 
 
 4. WHAT A PLUGIN CAN USE  (include\ApolloRP_Items.inc)
@@ -125,6 +128,8 @@ THE ITEM PATHS  Use, Give, Drop and Show are ARP's own: the text menu (ItemsOpti
             ARP_SaveUser(id): saves the character (wallet, bank, job, items) now.
   forwards  ARP_InvOnCount(id, item, old, new): the core is about to change a count; ARP_Inventory answers the count to keep, plus one (0: no opinion).
             ARP_InvOnRoom(id, item, qty), ARP_InvOnUse(id, item, begin), ARP_InvOnNote(id, level, text[]). Nothing but ARP_Inventory implements them.
+  menu      include\ApolloRP_H9Ctx.inc: the forward ARP_H9CtxBuild(id, target) and the native ARP_H9CtxAdd(label, handler, enabled, note): an entry of the context menu
+            of the use key on a player (section 10).
   events    Item_Inventory (the plugin takes /items for a game with the window), Player_Ready (the cells are made), and ARP's own Item_Use, Item_Drop,
             Item_Give, Item_Show and Item_Pickup, unchanged.
 
@@ -208,7 +213,8 @@ Checking from the server console: arp_h9_inv_dump <player> (the arrangement: "DU
 ----------------------------------------------------------------------------------
 
 STARTING. client_PreThink of ARP_Core keeps the entity get_user_aiming found (100 units) and, when the door, pack, NPC and zone branches did not take
-the key, fires the event Player_Use (id, the aimed player) if it is a living player. ARP_Inventory answers it:
+the key, fires the event Player_Use (id, the aimed player) if it is a living player. ARP_Inventory answers it (first it asks ARP_H9Ctx whether the press is the context
+menu's, section 10: with arp_h9_ctxmenu 1 and a game that draws the menu it is, and Trade there runs the rules below; otherwise):
   * the first press offers an exchange: the sender is INVITING, the target INVITED for 12 seconds, the target is sent INVITE, the sender is told
     "Exchange offered to <NAME>." (a NOTE);
   * the target accepts with the use key on the sender (within the key's range and in sight) or with h9inv x accept: both are TRADING, both are sent OPEN
@@ -414,3 +420,93 @@ open, h9inv s take is answered by an H9Inv NOTE "You are not searching anyone.".
 THE SWITCHES. arp_h9_search (1) switches the whole feature: with 0 the use key on a handcuffed player does what it did ("That player cannot make an exchange
 now.") and a search that is open is closed with reason 6 within a second. arp_h9_search_range (150) is only a limit. arp_h9_inv_dump <player> prints a line
 "SEARCH searching=<the player he searches, or 0> searched_by=<the player searching him, or 0>".
+
+
+10. THE CONTEXT MENU OF THE USE KEY ON A PLAYER  (arp_h9_ctxmenu; ARP_H9Ctx.sma, a plugin of its own; ORIGIN.txt item 50)
+---------------------------------------------------------------------------------------------------------------------
+
+The use key on a living player (the event Player_Use) was the exchange of goods (6), or the search of a handcuffed player (9). Not everyone pressed on wants to trade, a bot cannot, and
+other plugins want the key too, so with arp_h9_ctxmenu 1 a player whose game draws it is shown a MENU of what he can do to that player instead, with the cursor up. ARP_H9Ctx is a plugin of its
+own: ARP_Inventory asks it first (H9Ctx_Press, by callfunc, so a server without it, or with it paused, is the use key as it was), and ARP_JailMod and ARP_Items each give it one small public
+function (H9_Cuffed, H9_RopeState). Nothing is a new game action: the menu reaches what exists.
+
+THE GATE. The press is the menu's when arp_h9_ctxmenu is 1; the presser is a person (a bot never sees a menu), alive, with his character loaded; his game says _h9vgui 10
+(H9VGUI_CTXMENU_PROTOCOL: the client with the menu and cl_h9_ctxmenu 1; include\h9_vgui.inc has no name for it, as it has none for 8 and 9) and wants Apollo RP's panels (arp_h9_vgui 1 and his
+cl_h9_arpvgui); the other is a living player; and at least one entry is listed. Every other press is what it was: the exchange (6), the search (9), the refusals of both. The press that
+ACCEPTS an exchange offered to him by that player is never the menu's. A game that says less than 10 (an older client.dll, the web client until it is synced, a classic client, a player who set
+cl_h9_ctxmenu 0) is not sent H9Ctx at all.
+
+THE ENTRIES, in this order. Each is LISTED or not by the rule of its own feature, and LISTED it is ENABLED or greyed with a reason of at most 33 characters, the one the action would give.
+A row's key is its place (1 to 9, the 0 key for the tenth and for Back); the rows after the tenth have none.
+  Trade                     listed with arp_h9_inv_window 1. Enabled when the exchange could be offered now (the tests of tr_use, in its order, made by ARP_Inventory without a side effect:
+                            H9Inv_CtxWhy). Reasons: "You cannot do that now", "Finish your search first", "You are in an exchange", "Wait for his answer", "Answer the offer first",
+                            "You have no inventory window", "Bots cannot trade", "He is dead", "He is not ready", "You are cuffed or jailed", "He is cuffed: search him" (or "He is cuffed" with
+                            arp_h9_search 0), "He has no inventory window", "He is busy", "Wait a moment".
+  Search                    listed with arp_h9_search 1. Enabled when the search could open now (sr_use's tests). Reasons: "Cuff him first", "You have no search window" (his game says less than 8),
+                            "Bots cannot be searched", "You are cuffed or jailed", "You are being searched", "He is dead", "He is not ready", "Finish your exchange first", "Somebody is searching him".
+  Cuff, or Free             listed with arp_h9_ctx_cuff 1; Free when he is cuffed (ARP_JailMod's H9_Cuffed: what /cuff itself decides by), Cuff otherwise. Police (arp_police_access) need no item;
+                            anyone else needs a Cuffs item (the note says "uses Cuffs") and may not be cuffed himself; police cannot be cuffed. 200 units and in sight. Reasons: "Police only" (no
+                            Cuffs item exists: arp_h9_restraints 0), "You are cuffed", "You have no Cuffs", "Police cannot be cuffed", "Not in sight", "Too far".
+  Tie, or Untie             listed when the Rope item exists (arp_h9_restraints 1); Untie when he is tied. Tie needs a Rope (the item stays) and a holder with nobody on a rope; Untie needs no item and
+                            a mouth that is not taped (/untie is refused to a taped mouth). 100 units. Reasons: "You have no Rope", "You hold someone already", "Your mouth is taped", "Not in sight", "Too far".
+  Tape mouth, or Remove tape  listed when the Tape item exists; Remove tape when his mouth is taped (/removetape: no item, refused to a taped mouth); Tape mouth uses a roll (the note says so).
+                            100 units. Reasons: "You have no Tape", "Your mouth is taped", "Not in sight", "Too far".
+  Fine >                    listed with arp_h9_ctx_fine 1; opens the page of the amounts of arp_h9_ctx_fine_amounts. Police only; enabled when the smallest amount is no more than his bank and
+                            wallet together (as /fine counts it); a page row greys an amount he cannot pay ("He cannot pay"). A choice runs /fine <amount> on him, which asks him to Pay or Refuse in its own
+                            menu. 200 units. Reasons: "Police only", "No amounts are set", "He has no money", "Not in sight", "Too far".
+  Give money >              listed with arp_h9_ctx_give 1; the page of arp_h9_ctx_give_amounts; enabled when the smallest amount is within the giver's wallet (a row greys an amount over it: "You have
+                            less"); a choice runs /givemoney <amount>. 200 units. Reasons: "No amounts are set", "Bots cannot hold money", "He is not ready", "Your wallet is empty", "Not in sight", "Too far". The amounts are written as the
+                            window writes money (the credit sign with arp_h9_credits 1 for a game that draws it, "100 credits" for one that does not, "$100" with 0).
+  Show license or card >    listed with arp_h9_inv_window 1; the page lists what he has whose item name has "license" or "card" in it (at most 8, in item order: on H9's maps Permitted License, Restricted
+                            License, ATM Card, Debit Card, Phone Prepaid Card); a choice shows the first cell that holds it as the window's SHOW TO does (inv_op_show: the Item_Show event, then the banner
+                            to the other player, within 150 units and in sight). Reasons: "No license or card", "Bots cannot see it", "Not near enough".
+  entries of other plugins  after these, below. "Back" ends every page of choices (the 0 key); a page is a new menu with a new serial.
+ONE RULE FOR A SWITCH: an entry whose feature is switched off is not listed (the menu never offers what the server has turned off); an entry that is listed and does not apply is greyed with its
+reason ("Police only" to a civilian is one). A greyed row can be clicked: the menu says the reason under the rows and sends nothing.
+
+THE SERVER DECIDES, and decides again. Every enabled or greyed state above is the server's, from the rules the actions already have: ARP_Inventory answers for Trade, Search and Show (H9Inv_CtxWhy asks the very
+tests tr_use, sr_use and inv_op_show make, with no side effect, and returns the words), ARP_JailMod and ARP_Items for what holds a player (H9_Cuffed; H9_RopeState: bit 0 tied, bit 1 holds somebody on a rope,
+bit 2 mouth taped), and the item, wallet and job natives of ARP for the rest. A choice is DONE through the code the use key and the window run (H9Inv_CtxDo for Trade and Search, H9Inv_CtxShow for a show),
+so there is no second copy of a rule. Cuff, Free, Tie, Untie, Tape mouth, Remove tape, a fine and money act on "the player looked at" in ARP's own commands (SayCuff, the items' use, /untie, /removetape, /fine,
+/givemoney: each calls get_user_aiming), so the menu runs THAT command, with the presser's view turned toward the player the menu is about for the length of the call and given back after it (nothing is sent to
+the client, whose next command overwrites the view in any case): the target is the menu's, never whoever stands in the crosshair when the click comes, and the command's own rules, range and refusals apply.
+The menu is built again every half second while it is up (a change is sent to the player: the same menu refreshed), and again when a choice arrives: a choice is done only when its entry is still in the menu
+and enabled, whatever the client sent. An index that is not a row, a serial that is not the menu's, a menu that is not up, a closed switch, a target out of range or dead, and more than ten h9ctx commands in a
+second do nothing.
+
+IT CLOSES (the player is sent CLOSE with the reason, looked at every half second): 0 the switch went off, or his game cannot draw the menu any more; 1 the player the menu is about is gone or dead; 2 he went
+beyond arp_h9_ctx_range (150; 0 is no limit but each action's own reach); 3 a choice was carried out; 4 the player died or was cuffed. The player closes it himself with the client command
+h9ctx close <serial> (ESC, a right click, a click outside the menu). A page of the menu that has been up for 90 seconds is closed by the client, which tells the server.
+
+EXTENDING (include\ApolloRP_H9Ctx.inc). A plugin that wants an entry (a shove, a faction NPC's order, a siege claim) takes the forward
+    public ARP_H9CtxBuild(id, target)
+which ARP_H9Ctx calls in every plugin that has it each time it builds the menu of id on target (when it opens and every half second), and inside it calls the native
+    ARP_H9CtxAdd(const label[], const handler[], bool:enabled = true, const note[] = "")      returns 1 when the entry was added
+The label is at most 23 characters, the note at most 33 (ASCII; anything else becomes ?). An enabled entry shows the note as a small detail after the label ("uses Cuffs"); with enabled false it is greyed and
+the note is its reason. The handler is a public function of the calling plugin, public handler(id, target), run when the player chooses the entry, after the menu was built again and the entry found in it
+and enabled (so a choice of an entry that is gone, or greyed meanwhile, never reaches it), with the aim turned toward target as above. The menu lists the first four entries that plugins add, on its first page,
+after its own; the native adds nothing outside ARP_H9CtxBuild (it returns 0). The menu is not kept: what the plugins add now is the menu now, so an entry of a plugin that is paused or unloaded is gone from the
+next menu and from the one that is up within half a second, and a choice of it in between is refused with a note ("That is not available now."). A plugin that wants the entry only when ARP_H9Ctx is there takes
+the native filter, set_native_filter("ARP_H9CtxFilter") in plugin_natives: it then loads, and ARP_H9CtxAdd does nothing, on a server without the plugin.
+
+THE SWITCHES. arp_h9_ctxmenu (the plugin's own default is 0, arp.cfg ships 1), arp_h9_ctx_range (150), arp_h9_ctx_cuff, arp_h9_ctx_fine and arp_h9_ctx_give (1; 0 leaves the entry out of the menu and
+touches neither /cuff, /fine nor /givemoney), arp_h9_ctx_fine_amounts ("50 100 250 500 1000") and arp_h9_ctx_give_amounts ("10 50 100 500 1000") (up to 8 numbers of 1 or more). Every one is read when
+it is used: none needs a map change; with arp_h9_ctxmenu 0 a menu that is up is closed (reason 0) within half a second and the use key is what it was. The player's own switch is the client's cl_h9_ctxmenu
+(saved; 0 says _h9vgui 9). arp_h9_ctx_dump <user> [<target>] (the server's console, or an ARP admin's) prints the menu <user> has up (CTX user= on= level= wanted= up= serial= target= page= range=, then
+ROW lines: key, flags, keyno, label, note, and ROWS: the count and a signature of what was sent), or, with <target>, the first page the use key on <target> would give him, and sends nothing.
+
+H9Ctx, server to client, registered by ARP_H9Ctx like H9Inv (variable length), sent only to a game that says 10; the first byte is the op, and a message is at most 188 bytes (the rows of a page are
+cut into as many messages as that takes)
+  1 OPEN    byte 1; byte serial (1 to 255, counting up for each menu and each page of one); byte flags (bit 0: the same menu again with its rows replaced, a refresh); byte page (0 the first page, 1 a fine,
+            2 money, 3 a show); byte rows (how many ROWS will follow, at most 12); string title (the other player's name, or the page's: "FINE", "GIVE MONEY", "SHOW"); string line under the title (the
+            other player's name on a page of choices, else empty)
+  2 ROWS    byte 2; byte serial; byte first row; byte count; then for each row: byte flags (bit 0 it can be chosen, bit 1 it opens a page of choices, bit 2 drawn in red, bit 3 a half row of gap above it);
+            byte key (1 to 9, 10 for the 0 key, 0 for none); string label (at most 23); string note (at most 33)
+  3 CLOSE   byte 3; byte serial (0: whatever is up); byte reason (above)
+  4 NOTE    byte 4; byte serial; byte level (0 plain, 1 a refusal); string text (a short line; the client keeps 71 characters): the line under the rows
+The client sends, at most ten commands a second and only when a menu is up:
+  h9ctx pick <serial> <index>   the row <index> (counting from 0, in the order of the ROWS) of the menu with that serial; the server checks it against the menu it holds
+  h9ctx close <serial>          the player closed it (serial 0 closes whatever is up)
+A client holds only a list of rows and what it was told: what a row means, whether it is enabled and why not are the server's, and every index, length and string of a message is checked and cut to the
+client's own limits (docs\ARP_INVENTORY_WINDOW.txt, 7). The layouts are tested from this text alone: tests\test_arpctx.cpp builds the messages from it, and the server's test run feeds the bytes ARP_H9Ctx really
+sent through the client's reader.

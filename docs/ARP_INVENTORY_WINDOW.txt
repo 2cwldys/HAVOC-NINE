@@ -71,8 +71,10 @@ Client:  cl_h9_arpinv 1|0        (archived) 0: this game keeps the text inventor
          cl_h9_inventory         opens or closes the window (bind it)
          cl_h9_trade_accept, cl_h9_trade_decline    answer an invitation without the mouse
          cl_h9_arpinv_state      what this game has read, for finding out why a window did not come up
+         cl_h9_ctxmenu 1|0, cl_h9_ctxmenu_state, cl_h9_ctxmenu_test    the context menu of the use key on a player (section 7)
 Server:  arp_h9_vgui, arp_h9_inv_window, arp_h9_inv_slots, arp_h9_inv_stack, arp_h9_inv_persist, arp_h9_credits, arp_h9_trade_range, arp_h9_trade_timeout,
-         arp_h9_search, arp_h9_search_range
+         arp_h9_search, arp_h9_search_range, arp_h9_ctxmenu, arp_h9_ctx_range, arp_h9_ctx_cuff, arp_h9_ctx_fine, arp_h9_ctx_give, arp_h9_ctx_fine_amounts,
+         arp_h9_ctx_give_amounts
          (docs\APOLLO_RP.txt, COMMANDS.txt). With them off the server plays stock Apollo RP.
 
 
@@ -80,7 +82,8 @@ Server:  arp_h9_vgui, arp_h9_inv_window, arp_h9_inv_slots, arp_h9_inv_stack, arp
 ---------------
 
 A client says it can draw the window with the userinfo key _h9vgui at 6 or more (5 is H9Look, the aim plaque; 4 the buy window; 7 is 6
-and the credit sign, the cent sign Apollo RP shows for money with arp_h9_credits 1; 8 is 7 and the search window, H9Search), and says 5 when cl_h9_arpinv or cl_h9_arpvgui is 0. The server sends the user messages below to such a client only (H9Search to one that says 8), and the client sends the
+and the credit sign, the cent sign Apollo RP shows for money with arp_h9_credits 1; 8 is 7 and the search window, H9Search; 9 is 8 and the money of a search; 10 is 9 and the context menu of the use key on a player, H9Ctx, section 7), and says 9 when cl_h9_ctxmenu is 0 and 5
+when cl_h9_arpinv or cl_h9_arpvgui is 0. The server sends the user messages below to such a client only (H9Search to one that says 8), and the client sends the
 console command h9inv. The layouts are the plugin's and the client's contract (the byte order is the engine's: little endian).
 
 Three plugin-registered user messages (H9Inv, H9Trade, H9Search), registered with engfunc(EngFunc_RegUserMsg, name, -1) exactly as ARP_Core registers H9ArpHud
@@ -300,3 +303,57 @@ h9_arpinv_model.h by a small C++ program, agreed after every message (25 seeds: 
      under its picture, centred, on up to three lines (Phone Prepaid Card on two); on 1280 x 720 or 1024 x 768 they are 80 pixels with two lines, and a name that needs more, or
      a word wider than the tile, ends in "..."; on 800 x 600 the 48 pixel tiles hold the picture alone. In an exchange the other player offers an item you do not carry: the
      tile of THEIR OFFER shows that item's picture, not two letters.
+
+
+7. THE CONTEXT MENU OF THE USE KEY ON A PLAYER  (the client half; the rules, the entries and the protocol: docs\ARP_INVENTORY.txt, 10)
+-------------------------------------------------------------------------------------------------------------------------------------
+
+WHAT THE PLAYER SEES. With arp_h9_ctxmenu 1 on the server, E on a living player does not offer an exchange: a list comes up just right of the crosshair, its middle at the height of it (the cursor
+comes up in the middle of the screen, so the first row is a short move to the right; on a screen too narrow for that the list stands left of the crosshair), headed by the other player's name, with a row
+for each thing he can do to him: Trade, Search, Cuff (Free), Tie (Untie), Tape mouth (Remove tape), Fine, Give money, Show license or card, and what other plugins add. A row has its number (1 to 9, 0 for the
+tenth), its label, and at the right either a small detail ("uses Cuffs") or, when it is greyed, the reason ("Bots cannot trade", "Cuff him first", "Police only"); a ">" marks a row that opens a page of choices
+(the amounts of a fine or of money, the licenses and cards he has), which ends in Back. The line under the rows says what the keys do ("Click or press the number. ESC closes."), or the reason a greyed row
+that was clicked gave, for four seconds. The look stops while it is up (the cursor is the player's, as with the inventory window); a click on a row, or its number key, chooses it (every number key is the menu's
+while it is up, row or none, so a mistyped digit does not change the weapon); ESC, a right click and a click outside the list close it; the wheel does nothing. The colours are cl_h9_vgui_color's and the margins and
+width follow cl_h9_vgui_scale, as for every H9 panel; the text is the game's own HUD font. It is drawn over the inventory window when both are up, and takes the mouse before it.
+It closes by itself when the server says so (the other player died or left, he is out of range, the switch went off), and the client closes a page that has been up for 90 seconds (it tells the server).
+
+THE FILES. h9_arpctx_model.h keeps the list and reads H9Ctx (every byte checked: a message is at most 192 bytes, the rows are cut to 12, the strings to 23, 33, 35 and 71 characters, a key is 0 to 10, a
+row message must continue where the last one ended, and an OPEN with a serial of 0 is refused); h9_arpctx_ui.h is the geometry, the rules of the clicks and the keys (it queues the commands, at most four at a time)
+and the drawing, over a canvas; h9_arpctx.cpp is the engine's part: the message, the canvas (FillRGBABlend and the HUD font), the cursor, the mouse, the keys and "h9ctx pick <serial> <index>" and "h9ctx close
+<serial>", at most ten a second. The hooks are CHud::Init and CHud::VidInit (hud.cpp), TeamFortressViewport::UpdateCursorState and KeyInput (the menu's keys come before every other rule), IN_MouseEvent (the
+menu's buttons come before the inventory window's) and h9_vgui.cpp (the level it says). A server is untrusted: the client does nothing the message does not say.
+
+THE SWITCHES. cl_h9_ctxmenu 1|0 (saved): 0 keeps the use key as it was, and the game says _h9vgui 9 instead of 10 (5 without the inventory window). cl_h9_ctxmenu_state prints whether a menu is up, how many OPEN,
+ROWS, CLOSE and NOTE messages were read and how many refused, the rows it holds with their keys and flags, and the size and place of the panel. cl_h9_ctxmenu_test [seconds] (20 by default, 2 to 120) draws a menu of
+8 rows by the very painter the game's menu is drawn by, with the cursor up, for the player's colour and scale; a choice only says what it was, and nothing is sent.
+
+TESTS. reTS\cl_dll\tests\test_arpctx.cpp checks the model, the clicks and the keys, the layout and the drawing without the game: the messages decoded and refused (cut short, too long, a serial of 0, rows out of
+order, more rows than announced, a key out of range, 20,000 random messages that leave the model sound), a click on a row, on a greyed row (it says why, sends nothing), outside, with the right button, the number keys
+and 0, ESC, a menu that is not up taking nothing, the layout at eight screen sizes and four scales (the panel stays in the safe area, right of the crosshair, the rows inside it and in order, twelve rows on a
+640 x 480 screen), the drawing (a greyed row in the grey, a red row in red, nothing drawn right of the panel, the hint until a status replaces it, the credit sign as the byte it is), and a check of the
+source that the hooks are where they must be (CHud::Init and VidInit call it, the cursor, the keys and the mouse take it before the inventory window, the protocol is 10 and 9, the files are in the build).
+Build and run: cl /std:c++17 /EHsc test_arpctx.cpp (in the tests folder); test_arpctx.exe <file of hex messages> also reads what the server sent, a line each, and prints the menu it ends with. tests\render_arpctx.cpp
+draws twelve situations (the first page at four screens and the scale 1.5, a greyed row clicked, a police officer in front of a cuffed player, a bot, the page of a fine, of money in credits and of a show, twelve rows
+at 640 x 480 and 1280 x 720) with the game's own font into the JSON that tools\render_arpinv.py turns into pictures: the layout, not the glyphs.
+
+OWNER'S CHECKS for the menu (in a game, in order; a client.dll with it, and the server's ARP_H9Ctx, ARP_Inventory, ARP_JailMod and ARP_Items built again)
+  1. With nobody else: cl_h9_ctxmenu_test in the console. A list of 8 rows stands right of the crosshair with the cursor on it; rows light under the mouse; a click on "Search" (greyed) says "Cuff him first" under
+     the rows; a click on "Trade" or the 1 key says "Demo: you chose Trade."; ESC, a right click or a click outside closes it. cl_h9_vgui_color 40 160 255 and cl_h9_vgui_scale 1.5 change it.
+  2. On a roleplay map with a second player and arp_h9_ctxmenu 1: press E on him. The menu comes up with his name, the look stops and the cursor is free. Trade is on, Search is greyed "Cuff him first", Cuff is greyed
+     "You have no Cuffs" (or "Police only"). Press 1 (or click Trade): the menu closes and he is offered an exchange as ever; he accepts with E at you (no menu for that press). ESC closes the menu; walking
+     away 150 units, or him leaving or dying, closes it by itself.
+  3. E on a roaming citizen (a bot): Trade says "Bots cannot trade", Search "Cuff him first"; Give money is on.
+  4. Cuffs: arp_createitems "<you>" "Cuffs" 1, then E on him: Cuff says "uses Cuffs"; choose it: the menu closes and he is cuffed (the symbol over his head). E again: Free has taken Cuff's place, Search is on,
+     Trade is greyed "He is cuffed: search him". Choose Search: the search window opens as before. Choose Free: he is free. As police (arp_setjob "<you>" "Cadet"): Cuff needs no item; on another
+     police officer it says "Police cannot be cuffed".
+  5. Rope and tape: arp_createitems "<you>" "Rope" 1 and "Tape" 1: Tie ties him (he is pulled along) and the row becomes Untie; Tape mouth gags him (a roll is used up) and the row becomes Remove tape.
+  6. Money: Give money > opens the amounts; "$50" (or the credit sign with arp_h9_credits 1) gives 50 and the wallets say so; an amount over your wallet is greyed "You have less". As police: Fine > opens its
+     amounts; choose one: he gets the Pay or Refuse menu. A civilian's Fine says "Police only".
+  7. Show: arp_createitems "<you>" "Permitted License" 1: Show license or card > lists it; choose it: he reads "<NAME> SHOWS YOU" and the license. With none: "No license or card".
+  8. The switches, with a menu up: arp_h9_ctx_cuff 0 takes the Cuff row out within half a second, arp_h9_inv_window 0 takes Trade and Show out, arp_h9_ctxmenu 0 closes the menu; after it E is the exchange
+     again. cl_h9_ctxmenu 0 in your console and E at a player: the exchange as before, and arp_h9_ctx_dump "<you>" says level=9 wanted=0.
+  9. A game that cannot draw it (the web client until it is synced, a client.dll without it): E is the exchange, and no menu is ever sent. With ARP_H9Ctx out of plugins.ini: the same for everybody.
+ 10. Forged or late: a menu that is up, and the other player is cuffed by somebody else: within half a second the rows change (Free, Search); a click on a row that is gone is refused with a note and does
+     nothing. What a wrong result looks like: a Cuff that cuffs somebody else than the player named in the heading; a row that stays on after its switch went off; E that opens the menu for a bot's press,
+     or a menu on the player who is invited and presses E to accept; a cursor left up after the menu closed (press ESC: it must go); the inventory window not answering to the mouse after the menu closed.
