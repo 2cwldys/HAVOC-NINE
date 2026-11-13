@@ -82,6 +82,10 @@ target_sources(hl PRIVATE
 	ts_gun.cpp
 	ts_mechrocket.cpp
 	h9_car.cpp
+	race.cpp
+	race.h
+	race_book.cpp
+	race_book.h
 	ts_deadcorpse.cpp
 	TS_combat.cpp
 	TS_entities.cpp
@@ -202,3 +206,10 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_shared.h
 
 	../public/interface.h)
+
+# The race's bookkeeping alone, with no engine: a scripted race that checks order, laps, places and times.
+#   cmake --build <dir> --target race_test --config Release, then run race_test
+add_executable(race_test EXCLUDE_FROM_ALL
+	tests/race_test.cpp
+	race_book.cpp
+	race_book.h)
