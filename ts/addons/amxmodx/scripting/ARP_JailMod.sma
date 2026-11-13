@@ -142,6 +142,25 @@ public H9_Restrained(id)
 	return (Mode == 1 && Proximity(id)) || (Mode == 2 && IsJailed(id)) ? 1 : 0
 }
 
+// H9: whether the player is cuffed, as /cuff decides whether it cuffs or frees him (not in jail: that is H9_Restrained's); ARP_H9Ctx's menu says Free to him and Cuff to any other
+public H9_Cuffed(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return 0
+
+	// the cuff flag is in the class that loads after he joins (and never with arp_jail_mode 0 or arp_jail_reconnect 0): IsCuffed on a class that is not loaded is a runtime error,
+	// which callfunc hands on to the plugin that asked, so until the class is here the saved speed that cuffing sets stands for it
+	if(!g_Class[id])
+	{
+		if(g_MaxSpeed[id])
+			return 1
+
+		return 0
+	}
+
+	return IsCuffed(id) ? 1 : 0
+}
+
 // H9: the handcuff symbol: a sprite entity that follows the cuffed player (MOVETYPE_FOLLOW: his origin, whatever the offset), with the height in the
 // sprite's own frame. Shown once whatever the number of times the cuffs are put on (a spawn does it again), taken down with the cuffs
 H9_CuffIconShow(id)

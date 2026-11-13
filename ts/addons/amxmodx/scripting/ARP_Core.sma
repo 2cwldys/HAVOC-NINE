@@ -3239,14 +3239,13 @@ H9_PlaqueDoor(id,Property)
 		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
 }
 
-// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
-// block names, and how to use it.
+// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), and how to use it. The property its npcs.ini block names
+// takes the profit of its sales (ARP_GetNpcProperty) and is not on the plaque: an NPC has no owner.
 H9_PlaqueNpc(Index)
 {
-	static Name[33],Handler[32],Role[16],Property[64]
+	static Name[33],Handler[32],Role[16]
 	entity_get_string(Index,EV_SZ_noise1,Name,32)
 	entity_get_string(Index,EV_SZ_noise,Handler,31)
-	entity_get_string(Index,EV_SZ_noise2,Property,63)
 
 	Role[0] = 0
 	if(equal(Handler,"EdekaHandle"))
@@ -3265,10 +3264,6 @@ H9_PlaqueNpc(Index)
 
 	if(Role[0])
 		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
-
-	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
-	if(Linked != -1)
-		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
 
 	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
 }
@@ -3878,6 +3873,8 @@ public plugin_natives()
 	register_native("ARP_FindJobId","_ARP_FindJobId")
 	register_native("ARP_AddJob","_ARP_AddJob")
 	register_native("ARP_DeleteJob","_ARP_DeleteJob")
+	// H9: the salary a job pays, set from outside (ARP_PayScale)
+	register_native("ARP_H9SetJobSalary","_ARP_H9SetJobSalary")
 	
 	register_native("ARP_RegisterItem","_ARP_RegisterItem")
 	register_native("ARP_ValidItemId","_ARP_ValidItemId")
@@ -6300,6 +6297,37 @@ public _ARP_GetJobSalary(Plugin,Params)
 	}
 	
 	return array_get_int(array_get_int(g_JobsArray,JobId),2)
+}
+
+// H9: sets the salary the core holds for a job (what the job's row said when it was read: the row itself is not touched, and the next map load reads it again) and the salary of
+// each player in the game who has the job, so that he is paid it from the next payday and ARP_GetJobSalary and arp_joblist say it (include\ApolloRP_H9Pay.inc; ARP_PayScale)
+public _ARP_H9SetJobSalary(Plugin,Params)
+{
+	if(Params != 2)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 2, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new JobId = get_param(1) - 1,Salary = get_param(2)
+
+	if(!UTIL_ARP_ValidJobId(JobId))
+	{
+		format(g_Query,4095,"Invalid job id: %d",JobId)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	array_set_int(array_get_int(g_JobsArray,JobId),2,Salary)
+
+	// the players ShowHud pays: not the bots
+	new Players[MAX_PLAYERS],Playersnum
+	get_players(Players,Playersnum,"c")
+
+	for(new Count;Count < Playersnum;Count++)
+		if(g_JobId[Players[Count]] == JobId)
+			g_Salary[Players[Count]] = Salary
+
+	return SUCCEEDED
 }
 
 public _ARP_GetJobAccess(Plugin,Params)

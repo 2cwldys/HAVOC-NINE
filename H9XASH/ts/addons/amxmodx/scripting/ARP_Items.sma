@@ -1493,6 +1493,25 @@ H9_DropRope(Index)
 		g_RopeHeld[Holder] = 0
 }
 
+// what holds the player and what he holds, for ARP_H9Ctx's menu: bit 0 he is tied, bit 1 he holds somebody on a rope (the Rope's own test of it), bit 2 his mouth is taped
+public H9_RopeState(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return 0
+
+	new bits
+	if(g_RopedBy[id])
+		bits |= 1
+
+	if(g_RopeHeld[id] && g_RopedBy[g_RopeHeld[id]] == id)
+		bits |= 2
+
+	if(g_Taped[id])
+		bits |= 4
+
+	return bits
+}
+
 // everything a player is held by goes when he dies or leaves: the tape, the rope he is tied with and the person he holds
 H9_ClearRestraints(id)
 {
