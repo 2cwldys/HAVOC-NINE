@@ -24,7 +24,7 @@
 *    race_waypoint    point   number, speed, spread (kept for the AI drivers of a later wave)
 *    race_gantry      a targetname: every entity so named gets skin 0 (off), 1..4 (reds, over the countdown),
 *                     5 (green, at the start; back to 0 three seconds later). Also a class: a studio model
-*                     (key model, default models/race/rc_gantry.mdl) that names itself race_gantry
+*                     (key model, default models/h9/rc_gantry.mdl) that names itself race_gantry
 *
 *  The HUD is server text only (TE_TEXTMESSAGE on four channels), sent a few times a second at most.
 *  Cvars: mp_racelaps (0 = the map's `laps`), mp_racewarmup (seconds before each countdown, 10).
@@ -161,7 +161,7 @@ public:
 	void Spawn() override
 	{
 		if (FStringNull(pev->model))
-			pev->model = MAKE_STRING("models/race/rc_gantry.mdl");
+			pev->model = MAKE_STRING("models/h9/rc_gantry.mdl");
 		// a precache of a file that is not there stops the map
 		int length = 0;
 		byte* file = LOAD_FILE_FOR_ME((char*)STRING(pev->model), &length);
