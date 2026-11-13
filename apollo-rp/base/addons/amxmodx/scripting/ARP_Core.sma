@@ -3239,14 +3239,13 @@ H9_PlaqueDoor(id,Property)
 		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
 }
 
-// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
-// block names, and how to use it.
+// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), and how to use it. The property its npcs.ini block names
+// takes the profit of its sales (ARP_GetNpcProperty) and is not on the plaque: an NPC has no owner.
 H9_PlaqueNpc(Index)
 {
-	static Name[33],Handler[32],Role[16],Property[64]
+	static Name[33],Handler[32],Role[16]
 	entity_get_string(Index,EV_SZ_noise1,Name,32)
 	entity_get_string(Index,EV_SZ_noise,Handler,31)
-	entity_get_string(Index,EV_SZ_noise2,Property,63)
 
 	Role[0] = 0
 	if(equal(Handler,"EdekaHandle"))
@@ -3265,10 +3264,6 @@ H9_PlaqueNpc(Index)
 
 	if(Role[0])
 		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
-
-	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
-	if(Linked != -1)
-		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
 
 	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
 }
