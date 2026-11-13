@@ -4,7 +4,7 @@
 #include <ApolloRP_VGui>
 
 // H9: ARP_PropertyTax -- an owned property costs its owner money every few minutes, taken from his bank, or owed until he pays it by hand; a property that is not paid is taken back
-// (docs\APOLLO_RP.txt, section 11; ORIGIN.txt items 42 and 44).
+// (docs\APOLLO_RP.txt, section 11; ORIGIN.txt items 42, 44 and 45).
 //
 // THE TOLL. Every arp_h9_tax_minutes minutes of the map's time each property that has an owner costs its owner arp_h9_tax_flat plus arp_h9_tax_percent per cent of what the
 // property cost him, rounded up to a whole number (at least 1 when the sum is above 0; the percent and the flat sum count to the hundredth, and the sum is worked out in whole
@@ -52,13 +52,26 @@
 // for arp_h9_tax_evict_tolls tolls in a row (0: no such limit) or when what it owes has reached arp_h9_tax_evict_debt (0: no such limit): either one. It is the server's own act: the
 // owner need not be in the game. Taking it back clears its owner's name and key and its keyholders (ARP_PropertyClearAccess), sets its price back to what the owner paid
 // (arp_h9_taxbase; a property with no such record keeps its price), sets its lock back to what it was before it was first bought (noted at the event Property_Buy when the property had
-// no owner; sealed where that is not known), deletes its row, and writes one log line. Its profit stays with it, as at any sale. The ex-owner is told at once when he is in the game
+// no owner; sealed where that is not known), deletes its row, and writes one log line. Its profit stays with it, as at any sale (but see THE TOWN'S TREASURY, below). The ex-owner is told at once when he is in the game
 // and his character has loaded, and in his next login popup when not (a row of arp_h9_taxnote, deleted with the showing). An owner in the game is warned in one line when a property
 // passes half and three quarters of its allowance, and his login popup says how long each of his properties has left. Nothing is taken back in the first toll after the map began
 // (the clock starts with the map), nor while the database cannot be used (the ex-owner's notice is written to it: the property goes at a later toll), and a toll waits until what each
 // property owes has been read from the database.
 //
-// The tables are made with CREATE TABLE IF NOT EXISTS when they are first needed (the two of payment by hand only while arp_h9_tax_manual is 1); going back is dropping them.
+// THE TOWN'S TREASURY (arp_h9_tax_treasury 1; it means something only with arp_h9_tax_manual 1 and arp_h9_tax_evict 1, since nothing is taken back without them). The profit of a property that is
+// taken back (ARP_PropertyGetProfit: the share of every sale that the shops of npcs.ini naming it have added to it, ARP_NPCs) is added to the treasury of the town the property is in, and the
+// property's profit is set to 0, in the same step. A town is a key of a few letters: on h9_tsrp_hive the three cities, by the prefix of the property's internal name (h9_al_ al, h9_pc_ pc,
+// h9_xe_ xe; h9_jail, the property of the jail of Alexandria, is Alexandria's), on every other map the whole map (all). The treasury belongs to the town: one row for each map's property table and
+// town in the table arp_h9_treasury (tbl, town, faction, balance), made with CREATE TABLE IF NOT EXISTS only while the cvar is 1. The faction is who runs the town (msr until a row says ins);
+// nothing here changes it, and it does not touch the balance. The balance counts in whole numbers, never past TAX_MAX_TREASURY, and is added to by statements that wait. THE ORDER: the database
+// is written first, and the property's profit is set to 0 only when the statement says that the sum was added, so a database that cannot be written, a treasury that cannot hold the sum
+// and a property that is in no town of its map leave the profit with the property (the log says so): a sum is never in neither place. ARP writes a property's profit only at its own save
+// (arp_save_interval seconds, or a map change) while the treasury is written at once: a server that dies in those seconds restarts with the property as ARP last saved it, owned and with its
+// profit, and the sum is then in both places, a duplicate and never a loss (the log line of the eviction names the sum). A property with no profit credits nothing and writes nothing.
+// Nothing in this plugin takes money out of a treasury.
+//
+// The tables are made with CREATE TABLE IF NOT EXISTS when they are first needed (the two of payment by hand only while arp_h9_tax_manual is 1, the treasury's only while arp_h9_tax_treasury is 1);
+// going back is dropping them.
 
 #pragma dynamic 8192
 
@@ -86,6 +99,9 @@
 #define TAX_NOTE_ROWS    20      // notices of properties taken back that a login reads at most
 #define TAX_PEND_SECS    120.0   // seconds an automatic payment may wait for the database before a toll says so in the log (it is never given up: its statement is still queued)
 #define TAX_MENU_PANEL   "arptax.pay"
+#define TAX_MAX_TREASURY 2000000000 // the most a town's treasury holds
+#define TAX_TOWNS        3       // the towns of h9_tsrp_hive
+#define TAX_TOWN_LEN     8       // characters of a town's key
 
 // the kinds of query whose answer TaxDbDone is given
 #define TAX_Q_RECORD     1
@@ -126,6 +142,14 @@
 #define TAX_SQL_NOTE_CLEAR     "DELETE FROM %s WHERE authid='%s' AND updated<=%d"
 #define TAX_SQL_AUTO           "UPDATE %s SET bankmoney=bankmoney-%d WHERE %s AND bankmoney>=%d"
 
+// the statements of the towns' treasuries: one row for each map's property table and town, made when a sum is first added to it
+#define TAX_SQL_TREAS_SQLITE     "CREATE TABLE IF NOT EXISTS %s (tbl VARCHAR(66),town VARCHAR(8),faction VARCHAR(8),balance INT(11),UNIQUE (tbl,town))"
+#define TAX_SQL_TREAS_MYSQL      "CREATE TABLE IF NOT EXISTS %s (tbl VARCHAR(66),town VARCHAR(8),faction VARCHAR(8),balance INT(11),UNIQUE KEY (tbl,town))"
+#define TAX_SQL_TREAS_ROW_SQLITE "INSERT OR IGNORE INTO %s (tbl,town,faction,balance) VALUES ('%s','%s','msr',0)"
+#define TAX_SQL_TREAS_ROW_MYSQL  "INSERT IGNORE INTO %s (tbl,town,faction,balance) VALUES ('%s','%s','msr',0)"
+#define TAX_SQL_TREAS_ADD        "UPDATE %s SET balance=balance+%d WHERE tbl='%s' AND town='%s' AND balance<=%d"
+#define TAX_SQL_TREAS_READ       "SELECT town,faction,balance FROM %s WHERE tbl='%s' ORDER BY town"
+
 // the cvars
 new p_Tax
 new p_Minutes
@@ -135,6 +159,7 @@ new p_Manual                                    // arp_h9_tax_manual: 1 adds the
 new p_Evict                                     // arp_h9_tax_evict: 1 lets the server take back a property that has owed too long or too much
 new p_EvictTolls                                // arp_h9_tax_evict_tolls: the tolls a property may owe in a row
 new p_EvictDebt                                 // arp_h9_tax_evict_debt: the money a property may owe
+new p_Treasury                                  // arp_h9_tax_treasury: 1 sends the profit of a property that is taken back to the treasury of its town
 
 // the tables: ARP_GetTable gives the users table and the property table of the map (arp.ini and the map's own arp.ini name them); the record table follows the users table, so that
 // characters kept apart by a map's own users table keep their records apart too
@@ -153,6 +178,15 @@ new g_DbMade2                                   // the two tables of payment by 
 new g_DueInited                                 // what the properties of this map owe has been asked for
 new g_DueLoaded                                 // and has come
 new g_PendSeq                                   // the number of the last automatic payment that was handed to the database
+new g_TreasTable[] = "arp_h9_treasury"          // the treasuries of the towns (the map's property table, the town, who runs it, what it holds)
+new g_DbMade3                                   // the treasury table is there
+new g_TreasSum                                  // what has gone to a treasury since the map began, and from how many properties
+new g_TreasNum
+
+// the towns of h9_tsrp_hive: the key, the prefix of the internal names of its properties, and what the command calls it
+new g_TownKey[TAX_TOWNS][] = {"al","pc","xe"}
+new g_TownPrefix[TAX_TOWNS][] = {"h9_al_","h9_pc_","h9_xe_"}
+new g_TownName[TAX_TOWNS][] = {"Alexandria","Paradise City","Xenon City"}
 
 // the rates of the toll in whole numbers (tax_rates)
 new g_Pm                                        // the percent in hundredths of a per cent
@@ -275,6 +309,10 @@ public plugin_init()
 	p_EvictTolls = register_cvar("arp_h9_tax_evict_tolls","96")
 	p_EvictDebt = register_cvar("arp_h9_tax_evict_debt","0")
 
+	// arp_h9_tax_treasury 1: the profit of a property that is taken back goes to the treasury of its town (the table arp_h9_treasury) in place of staying with the property; it needs
+	// arp_h9_tax_manual 1 and arp_h9_tax_evict 1. 0 (the default): the profit stays with the property, and the table is never made
+	p_Treasury = register_cvar("arp_h9_tax_treasury","0")
+
 	ARP_RegisterChat("/tax","SayTax","- shows what your properties cost in property tax at each toll, what they owe, and when the next toll is")
 	ARP_RegisterChat("/renew","SayRenew","- the property tax of the property whose door you look at: a menu to pay what it owes, and to turn its automatic payment on or off")
 	ARP_RegisterChat("/paytax","SayPayTax","- the same as /renew")
@@ -283,6 +321,8 @@ public plugin_init()
 	register_concmd("arp_h9_tax_dump","CmdDump",_,"- the property tax: switches, clock, the last toll, the database")
 	ARP_AddCommand("arp_h9_tax_value","(ADMIN) <internal name> <price> - the price a property counts as having cost, which the percent of the tax is taken of")
 	register_concmd("arp_h9_tax_value","CmdValue",_,"<internal name> <price> - the price a property counts as having cost (0: its own price again)")
+	ARP_AddCommand("arp_h9_tax_towns","(ADMIN) Shows the towns of this map: each one's key, who runs it and what its treasury holds")
+	register_concmd("arp_h9_tax_towns","CmdTowns",_,"- the towns of this map: key, faction, treasury")
 
 	register_menucmd(register_menuid(g_MenuName),MENU_KEY_1|MENU_KEY_2|MENU_KEY_0,"TaxMenuHandle")
 
@@ -1506,8 +1546,184 @@ stock tax_notice_flush()
 	}
 }
 
+// ---------------------------------------------------------------------------------------------------------------------- the towns' treasuries
+
+// whether the profit of a property that is taken back goes to a treasury: the cvar is on, and the server takes properties back
+stock bool:tax_treasury()
+	return tax_evicts() && get_pcvar_num(p_Treasury) != 0
+
+// whether this map is h9_tsrp_hive, the one map that has more than one town
+stock bool:tax_hive()
+{
+	new map[32]
+
+	get_mapname(map,31)
+
+	return equali(map,"h9_tsrp_hive") != 0
+}
+
+// the key of the town a property is in: on h9_tsrp_hive the city that the prefix of its internal name says (h9_jail, the property of the jail of Alexandria, is Alexandria's), on every other
+// map the whole map (all). False for a property of h9_tsrp_hive that is in none.
+stock bool:tax_town(property,key[],len)
+{
+	new name[66]
+
+	key[0] = 0
+
+	if(!tax_hive())
+	{
+		copy(key,len,"all")
+
+		return true
+	}
+
+	ARP_PropertyGetInternalName(property,name,65)
+
+	for(new i;i < TAX_TOWNS;i++)
+	{
+		if(equali(name,g_TownPrefix[i],strlen(g_TownPrefix[i])))
+		{
+			copy(key,len,g_TownKey[i])
+
+			return true
+		}
+	}
+
+	if(equali(name,"h9_jail"))
+	{
+		copy(key,len,"al")
+
+		return true
+	}
+
+	return false
+}
+
+// whether the table of the treasuries is there (made once, with a query that waits, as the others are). A failure says why and is for the caller to report: unlike the others it does not
+// leave the database alone for a minute, because the notice of the property that was taken back is still to be written.
+stock bool:tax_db_table3(why[],len)
+{
+	if(g_DbMade3)
+		return true
+
+	new err,Handle:db = SQL_Connect(ARP_SqlHandle(),err,why,len)
+
+	if(db == Empty_Handle || err)
+		return false
+
+	new query[300],bool:ok
+
+	if(ARP_SqlMode() == MYSQL)
+		formatex(query,299,TAX_SQL_TREAS_MYSQL,g_TreasTable)
+	else
+		formatex(query,299,TAX_SQL_TREAS_SQLITE,g_TreasTable)
+
+	ok = tax_exec(db,query,why,len) >= 0
+
+	SQL_FreeHandle(db)
+
+	if(ok)
+		g_DbMade3 = 1
+
+	return ok
+}
+
+// adds a sum to the treasury of a town of this map, with statements that wait: 1 when it was added, 0 when the treasury cannot hold it (it never holds more than TAX_MAX_TREASURY), -1 when
+// the database could not be written (why says what). The row of the town is made when there is none, with msr as its faction.
+stock tax_treasury_add(const town[],amount,why[],len)
+{
+	if(!tax_db_ready())
+	{
+		copy(why,len,"the database cannot be used now")
+
+		return -1
+	}
+
+	if(!tax_db_table3(why,len))
+		return -1
+
+	new err,Handle:db = SQL_Connect(ARP_SqlHandle(),err,why,len)
+
+	if(db == Empty_Handle || err)
+		return -1
+
+	new query[400],tbl[140],tw[24],rows
+
+	copy(tbl,139,g_PropTable)
+	ARP_SqlEscape(tbl,139)
+	copy(tw,23,town)
+	ARP_SqlEscape(tw,23)
+
+	if(ARP_SqlMode() == MYSQL)
+		formatex(query,399,TAX_SQL_TREAS_ROW_MYSQL,g_TreasTable,tbl,tw)
+	else
+		formatex(query,399,TAX_SQL_TREAS_ROW_SQLITE,g_TreasTable,tbl,tw)
+
+	rows = tax_exec(db,query,why,len)
+
+	if(rows >= 0)
+	{
+		formatex(query,399,TAX_SQL_TREAS_ADD,g_TreasTable,amount,tbl,tw,TAX_MAX_TREASURY - amount)
+
+		rows = tax_exec(db,query,why,len)
+	}
+
+	SQL_FreeHandle(db)
+	g_DbWrites++
+
+	return rows < 0 ? -1 : (rows > 0 ? 1 : 0)
+}
+
+// the profit of a property that is taken back goes to the treasury of its town (the header says why in this order): the database is written first, and the profit is set to 0 only when the
+// statement says that the sum was added. Returns the sum that went there; 0 when nothing did (no treasury, no profit, or the profit stays with the property, which the log says).
+stock tax_treasury_take(property,const name[])
+{
+	new profit,town[TAX_TOWN_LEN + 1],why[128],rows
+
+	if(!tax_treasury())
+		return 0
+
+	profit = ARP_PropertyGetProfit(property)
+
+	if(profit < 1)
+		return 0
+
+	if(!tax_town(property,town,TAX_TOWN_LEN))
+	{
+		log_amx("[ARP] property tax: the profit of %s ($%d) stays with it: the property is in no town of this map",name,profit)
+
+		return 0
+	}
+
+	rows = tax_treasury_add(town,profit,why,127)
+
+	if(rows < 0)
+	{
+		log_amx("[ARP] property tax: the profit of %s ($%d) stays with it: the treasury of the town %s could not be written (%s)",name,profit,town,why)
+
+		return 0
+	}
+
+	if(rows < 1)
+	{
+		log_amx("[ARP] property tax: the profit of %s ($%d) stays with it: the treasury of the town %s cannot hold it",name,profit,town)
+
+		return 0
+	}
+
+	ARP_PropertySetProfit(property,0)
+
+	g_TreasSum = tax_add(g_TreasSum,profit)
+	g_TreasNum++
+
+	log_amx("[ARP] property tax: the profit of %s ($%d) went to the treasury of the town %s",name,profit,town)
+
+	return profit
+}
+
 // the server takes a property back: it is for sale again at what its owner paid, locked or unlocked as it was before he bought it, with nobody's name or key on it and no keyholder, and
-// its row is deleted. Its owner is told by tax_notice_flush. A property whose price was never learned (one an admin gave) keeps the price it has; one whose lock was not noted is sealed.
+// its row is deleted. Its owner is told by tax_notice_flush. A property whose price was never learned (one an admin gave) keeps the price it has; one whose lock was not noted is sealed. Its profit goes to the
+// treasury of its town when arp_h9_tax_treasury is 1 (tax_treasury_take), and stays with it when that is not possible.
 stock tax_evict(r,property)
 {
 	new name[66],owner[36],lt = tax_limit_tolls(),tolls = g_RowTolls[r],due = g_RowDue[r],why,i,lock
@@ -1540,6 +1756,8 @@ stock tax_evict(r,property)
 	g_Gone++
 
 	log_amx("[ARP] property tax: %s was taken back from %s (it owed $%d for %d tolls; %s; it is %slocked and its price is $%d)",name,owner,due,tolls,why == 1 ? "the period was used up" : "the ceiling was reached",lock ? "" : "un",ARP_PropertyGetPrice(property))
+
+	tax_treasury_take(property,name)
 }
 
 // a property's row after a toll added to it: its owner is warned when it has passed half or three quarters of its allowance, and the server takes it back when the allowance is used up,
@@ -3059,6 +3277,133 @@ public CmdDump(id,level,cid)
 		console_print(id,"HANDLAST properties=%d owed_more=%d owed_more_sum=%d automatic_owners=%d in_game=%d taken=%d unpaid=%d away=%d asked=%d unpaid_properties=%d left_out=%d gone=%d warned=%d gone_total=%d",g_LastProps,g_LastHand,g_LastHandSum,g_LastOwners,g_LastOnline,g_LastTaken,g_LastUnpaid,g_LastOffline,g_LastAway,g_LastShort,g_LastSkipped,g_LastGone,g_LastWarned,g_Gone)
 		console_print(id,"HANDDB made=%d due_table=%s note_table=%s",g_DbMade2,g_DueTable,g_NoteTable)
 	}
+
+	return PLUGIN_HANDLED
+}
+
+// arp_h9_tax_towns: the towns of this map, who runs each and what each treasury holds. A town that has no row yet is run by msr and holds nothing.
+public CmdTowns(id,level,cid)
+{
+	#pragma unused level
+
+	if(!ARP_CmdAccess(id,cid,1))
+		return PLUGIN_HANDLED
+
+	if(!get_pcvar_num(p_Tax))
+	{
+		console_print(id,"[ARP] arp_h9_tax is 0: the property tax does nothing.")
+
+		return PLUGIN_HANDLED
+	}
+
+	new map[32],why[128],err,Handle:db,Handle:st,query[300],tbl[140],n,i,j,listN
+	new rowKey[16][TAX_TOWN_LEN + 1],rowFaction[16][TAX_TOWN_LEN + 1],rowBalance[16],rowShown[16]
+	new listKey[TAX_TOWNS][TAX_TOWN_LEN + 1],listName[TAX_TOWNS][20]
+
+	get_mapname(map,31)
+
+	console_print(id,"TREASURY on=%d manual=%d evict=%d map=%s hive=%d credited=%d properties=%d",get_pcvar_num(p_Treasury),get_pcvar_num(p_Manual),get_pcvar_num(p_Evict),map,tax_hive() ? 1 : 0,g_TreasSum,g_TreasNum)
+
+	if(!get_pcvar_num(p_Treasury))
+	{
+		console_print(id,"[ARP] arp_h9_tax_treasury is 0: the profit of a property that is taken back stays with it, and no town has a treasury.")
+
+		return PLUGIN_HANDLED
+	}
+
+	if(!tax_db_ready())
+	{
+		console_print(id,"[ARP] The database cannot be used now.")
+
+		return PLUGIN_HANDLED
+	}
+
+	if(!tax_db_table3(why,127))
+	{
+		console_print(id,"[ARP] The table of the treasuries could not be made (%s).",why)
+
+		return PLUGIN_HANDLED
+	}
+
+	db = SQL_Connect(ARP_SqlHandle(),err,why,127)
+
+	if(db == Empty_Handle || err)
+	{
+		console_print(id,"[ARP] The database cannot be used now (%s).",why)
+
+		return PLUGIN_HANDLED
+	}
+
+	copy(tbl,139,g_PropTable)
+	ARP_SqlEscape(tbl,139)
+	formatex(query,299,TAX_SQL_TREAS_READ,g_TreasTable,tbl)
+	st = SQL_PrepareQuery(db,"%s",query)
+
+	if(!SQL_Execute(st))
+	{
+		SQL_QueryError(st,why,127)
+		SQL_FreeHandle(st)
+		SQL_FreeHandle(db)
+		console_print(id,"[ARP] The treasuries could not be read (%s).",why)
+
+		return PLUGIN_HANDLED
+	}
+
+	while(SQL_MoreResults(st) && n < 16)
+	{
+		SQL_ReadResult(st,0,rowKey[n],TAX_TOWN_LEN)
+		SQL_ReadResult(st,1,rowFaction[n],TAX_TOWN_LEN)
+		rowBalance[n] = SQL_ReadResult(st,2)
+
+		if(!rowFaction[n][0])
+			copy(rowFaction[n],TAX_TOWN_LEN,"msr")
+
+		n++
+
+		SQL_NextRow(st)
+	}
+
+	SQL_FreeHandle(st)
+	SQL_FreeHandle(db)
+	g_DbReads++
+
+	if(tax_hive())
+	{
+		for(i = 0;i < TAX_TOWNS;i++)
+		{
+			copy(listKey[i],TAX_TOWN_LEN,g_TownKey[i])
+			copy(listName[i],19,g_TownName[i])
+		}
+
+		listN = TAX_TOWNS
+	}
+	else
+	{
+		copy(listKey[0],TAX_TOWN_LEN,"all")
+		copy(listName[0],19,"the whole map")
+
+		listN = 1
+	}
+
+	for(i = 0;i < listN;i++)
+	{
+		for(j = 0;j < n;j++)
+			if(equali(rowKey[j],listKey[i]))
+				break
+
+		if(j < n)
+		{
+			rowShown[j] = 1
+
+			console_print(id,"TOWN %s faction=%s balance=%d (%s)",listKey[i],rowFaction[j],rowBalance[j],listName[i])
+		}
+		else
+			console_print(id,"TOWN %s faction=msr balance=0 (%s; no row yet)",listKey[i],listName[i])
+	}
+
+	for(j = 0;j < n;j++)
+		if(!rowShown[j])
+			console_print(id,"TOWN %s faction=%s balance=%d (not a town of this map)",rowKey[j],rowFaction[j],rowBalance[j])
 
 	return PLUGIN_HANDLED
 }
