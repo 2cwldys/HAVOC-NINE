@@ -3,7 +3,8 @@
 *
 *  A point entity with a studio model. A player who presses +use on it takes the wheel: he is hidden and held
 *  inside it, his weapons are put away, and he sees the car from a camera that follows it. W and S drive and
-*  brake, A and D steer, jump is the handbrake, +use gets out beside the car.
+*  brake, A and D steer, jump is the handbrake, +use gets out beside the car, and R held a second puts a stuck car
+*  back where it last stood on four wheels touching nothing.
 *
 *  The car is an arcade car, not a rigid body (the method of Diffusion's func_car, written anew here): its speed
 *  is one number, its steering one angle, and it turns about its rear axle as a bicycle does (yaw rate = speed *
@@ -45,6 +46,8 @@
 #define H9CAR_GRAVITY 800.0f   // sv_gravity's default: the fall, and the pull along a slope
 #define H9CAR_CRAWL 20.0f      // under this speed the car counts as standing still
 #define H9CAR_SLOPE 3.0f       // degrees: a gentler slope does not roll the car
+#define H9CAR_PUSH 25.0f       // the least speed while pushed into a wall, so it slides along it
+#define H9CAR_RESET_HOLD 1.0f  // seconds R is held to put a stuck car back at its last safe place
 #define H9CAR_EXIT_GAP 24.0f   // between the body and the player who gets out
 #define H9CAR_CAM_BACK 300.0f  // the camera, behind the car
 #define H9CAR_CAM_UP 110.0f    // and above its origin
@@ -135,6 +138,15 @@ private:
 	int m_iLastButtons = 0; // the driver's, the command before: a +use press gets him out
 	bool m_bUsePressed = false;
 	float m_flLastDt = 0;
+	int m_iPush = 0;           // the driver's throttle: 1 W, -1 S, 0 neither
+	bool m_bAllWheels = true;  // all four wheels on the ground, the last Settle
+	Vector m_vecSafe = g_vecZero; // the last place it stood on four wheels, touching nothing (R held puts it back)
+	float m_flSafeYaw = 0;
+	bool m_bHasSafe = false;
+	Vector m_vecPending = g_vecZero; // a place on its way to becoming the safe one
+	float m_flPendingYaw = 0, m_flPendingAt = 0;
+	bool m_bPending = false;
+	float m_flResetHeld = 0;   // seconds R has been held
 	float m_flEntered = 0;
 	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
 	float m_flLastHit = 1;
@@ -228,6 +240,9 @@ void CH9Car::Spawn()
 	m_flMaxStep = H9Clamp(m_flMaxStep, 0, 32);
 	FitBox();
 	Settle(0);
+	m_vecSafe = pev->origin; // where the mapper put it is the first safe place
+	m_flSafeYaw = m_flYaw;
+	m_bHasSafe = true;
 	m_flLastThink = gpGlobals->time;
 	SetThink(&CH9Car::DriveThink);
 	pev->nextthink = gpGlobals->time + 0.1;
@@ -315,7 +330,7 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	SET_VIEW(pPlayer->edict(), m_hCamera->edict());
 	pPlayer->m_hViewEntity = m_hCamera;
 
-	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump brakes, use gets out");
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump brakes, use gets out\nstuck? hold R");
 	EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, 0, 70);
 	m_bEngineOn = true;
@@ -387,6 +402,7 @@ void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 	const bool ahead = (buttons & IN_FORWARD) != 0, back = (buttons & IN_BACK) != 0;
 	const bool left = (buttons & IN_MOVELEFT) != 0, right = (buttons & IN_MOVERIGHT) != 0;
 	const bool handbrake = (buttons & IN_JUMP) != 0;
+	m_iPush = ahead == back ? 0 : (ahead ? 1 : -1);
 
 	// A crawl (under H9CAR_CRAWL) counts as standing still when choosing between braking and driving off: otherwise a
 	// speed a hair over 0 (the slope's pull on a floor read at -0.001 degrees) is braked to 0 every frame, the pull
@@ -500,7 +516,12 @@ bool CH9Car::Move(float dt)
 		normal = -move.Normalize();
 	normal = normal.Normalize();
 	const float headOn = fabsf(DotProduct(move.Normalize(), normal));
+	const int way = m_flSpeed > 0 ? 1 : -1;
 	m_flSpeed *= (1 - headOn);
+	// still pushed the way it went: it keeps a crawl, so that it goes on sliding along the wall instead of sticking to
+	// it (Diffusion's "in case if stuck": 25)
+	if (m_iPush == way && fabsf(m_flSpeed) < H9CAR_PUSH)
+		m_flSpeed = H9CAR_PUSH * way;
 	Vector slide = move * (1 - hit.flFraction);
 	slide = slide - normal * DotProduct(slide, normal);
 	TraceResult again;
@@ -540,6 +561,7 @@ void CH9Car::Settle(float dt)
 
 	Vector origin = pev->origin;
 	m_bGrounded = count > 0;
+	m_bAllWheels = count == 4;
 	if (!m_bGrounded)
 	{
 		m_flFall -= H9CAR_GRAVITY * dt;
@@ -673,7 +695,44 @@ void CH9Car::Step(const char* by)
 	if (dt > 0)
 	{
 		Steer(pDriver, dt);
-		Move(dt);
+		const bool hit = Move(dt);
+		// R held a second: back to the last place it stood on four wheels touching nothing, level and at rest
+		// (Diffusion's reset); it keeps that place's heading
+		if (pDriver && (pDriver->pev->button & IN_RELOAD))
+			m_flResetHeld += dt;
+		else
+			m_flResetHeld = 0;
+		if (m_flResetHeld >= H9CAR_RESET_HOLD && m_bHasSafe)
+		{
+			m_flResetHeld = 0;
+			UTIL_SetOrigin(pev, m_vecSafe);
+			m_flYaw = m_flSafeYaw;
+			m_flSpeed = m_flSteer = m_flPitch = m_flRoll = m_flFall = 0;
+			for (float& z : m_flWheelGround)
+				z = m_vecSafe.z;
+			m_flFrontGround = m_flRearGround = m_vecSafe.z;
+			EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
+		}
+		else if (!hit && m_bAllWheels && m_flFall == 0)
+		{
+			// a place a second old, and safe the whole second since: not the spot just before it got stuck
+			if (!m_bPending)
+			{
+				m_vecPending = pev->origin;
+				m_flPendingYaw = m_flYaw;
+				m_flPendingAt = gpGlobals->time;
+				m_bPending = true;
+			}
+			else if (gpGlobals->time >= m_flPendingAt + 1.0f)
+			{
+				m_vecSafe = m_vecPending;
+				m_flSafeYaw = m_flPendingYaw;
+				m_bHasSafe = true;
+				m_bPending = false;
+			}
+		}
+		else
+			m_bPending = false;
 		Settle(dt);
 		FitBox();
 		SetBoneController(0, m_flSteer);
