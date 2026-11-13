@@ -6,12 +6,26 @@
 *  brake, A and D steer, jump is the handbrake, +use gets out beside the car, and R held a second puts a stuck car
 *  back where it last stood on four wheels touching nothing.
 *
-*  The car is an arcade car, not a rigid body (the method of Diffusion's func_car, written anew here): its speed
-*  is one number, its steering one angle, and it turns about its rear axle as a bicycle does (yaw rate = speed *
-*  tan(steer) / wheelbase). Each frame it moves itself: a hull trace and four bumper traces stop it at walls (it
-*  slides along one it meets at a slant), and four traces down, one under each wheel, set its height, its pitch
-*  and its roll. A rise the wheels cannot climb (more than "maxstep") is a wall. With no wheel on the ground it
-*  falls. Gravity along the slope slows it uphill.
+*  The car is an arcade car, not a rigid body (the method of Diffusion's func_car, written anew here): its
+*  steering is one angle, and its nose turns about its rear axle as a bicycle does (yaw rate = speed * tan(steer) /
+*  wheelbase). Each frame it moves itself: a hull trace and the bumper traces stop it at walls (it slides along
+*  one it meets at a slant), and four traces down, one under each wheel, set its height, its pitch and its roll.
+*  A rise the wheels cannot climb (more than "maxstep") is a wall. Gravity along the slope slows it uphill.
+*
+*  Its handling is a rally car's (the method of HL Rally's car, written anew here). Its speed is two numbers, along
+*  its nose and across it, so its path need not be where it points. The tyres pull the path round to the nose with
+*  what the ground under them gives (H9CAR_GRIP, by the surface, by the "grip" key): a corner that asks for more
+*  (speed squared * tan(steer) / wheelbase) leaves the car drifting wide with its nose turned in, and the drift
+*  scrubs speed off. The handbrake lets the rear go: the nose comes round fast about the front while the path goes
+*  on. Power on gravel or dirt steps the rear out a little; lifting tucks it back in. The surface is read from the
+*  name of the texture under each wheel (g_h9SurfaceNames; race01's FINAL.md, contract 1) and from the water a
+*  wheel stands in; a name the table does not know drives as tarmac. In the air (no wheel down, or the body more
+*  than H9CAR_AIRGAP over its wheels' ground) nothing steers or drives it: it keeps the speed it left with, rises
+*  and falls with the slope it left, and loses a little speed by how hard it lands. All of this is in the plain
+*  functions H9CarStep and H9CarFallStep, which dlls/tests/car_test.cpp also compiles and runs with no game.
+*
+*  For other code (a race's sounds, smoke, a speedometer): pev->fuser1 is how much the tyres slide, 0 to 1, and
+*  pev->fuser2 the speed along the nose, negative backwards.
 *
 *  It takes the player's controls through CBasePlayer::m_pTank, the hook func_tank uses: while it is set the
 *  player's weapons do nothing (ItemPostFrame), his death and his respawn call Use(USE_OFF), and every PostThink
@@ -33,17 +47,24 @@
 *    length 200   width 100   height 64   (the body, for collision; the origin is on the ground, at the middle)
 *    radius 20      (the wheels')   maxstep 12 (the highest rise the wheels climb)
 *    enginesnd      the engine's loop (default plats/ttrain2.wav, pitched by speed)
+*    grip 1         (all the tyres' hold, a scale: 0.8 a looser car, 1.3 one on rails)
+*    slide 1        (how fast a slide bleeds away, a scale: under 1 long drifts, over 1 it bites back at once)
+*    handbrake 1    (how much the handbrake lets the rear go and slows the car, a scale; 0 turns it off)
+*    gravity 800    (the fall, and the pull along a slope; less makes longer jumps)
 ***/
+#ifndef H9CAR_MATHS_ONLY // the test harness compiles the plain functions alone, with none of the game's headers
 #include "extdll.h"
 #include "util.h"
 #include "cbase.h"
 #include "monsters.h"
 #include "weapons.h"
 #include "player.h"
+#endif
 
 #include <math.h>
+#include <string.h>
 
-#define H9CAR_GRAVITY 800.0f   // sv_gravity's default: the fall, and the pull along a slope
+#define H9CAR_GRAVITY 800.0f   // sv_gravity's default: the fall, and the pull along a slope ("gravity")
 #define H9CAR_CRAWL 20.0f      // under this speed the car counts as standing still
 #define H9CAR_SLOPE 3.0f       // degrees: a gentler slope does not roll the car
 #define H9CAR_PUSH 25.0f       // the least speed while pushed into a wall, so it slides along it
@@ -52,6 +73,20 @@
 #define H9CAR_CAM_BACK 300.0f  // the camera, behind the car
 #define H9CAR_CAM_UP 110.0f    // and above its origin
 #define H9CAR_CAM_LOOK 40.0f   // it looks at this height over the origin
+#define H9CAR_GRIP 1100.0f     // the pull across the car that tarmac's tyres give, units a second squared
+#define H9CAR_SLIDING 0.85f    // a tyre that slides already gives this much of it ("slide" scales it)
+#define H9CAR_SCRUB 0.6f       // how much of the tyres' pull, in a slide, goes against the speed
+#define H9CAR_SLIP_OPEN 35.0f  // degrees between nose and path at which steering stops turning the nose further in
+#define H9CAR_SLIP_HAND 50.0f  // and this much further with the handbrake on
+#define H9CAR_HAND_BRAKE 0.2f  // the handbrake slows the car by this share of "brake": it holds the rear wheels only
+#define H9CAR_HAND_REAR 0.65f  // and takes this share of the tyres' hold across the car away
+#define H9CAR_HAND_YAW 1.6f    // and brings the nose round this much faster
+#define H9CAR_BOG 2.0f         // over a surface's top speed the car loses this share of the excess a second
+#define H9CAR_SUBSTEP 0.02f    // the longest step the handling takes at once: a longer frame is cut into several
+#define H9CAR_AIRGAP 4.0f      // the body this far over its wheels' ground is in the air
+#define H9CAR_LAND 250.0f      // a landing harder than this (units a second, down) costs speed
+#define H9CAR_LOOK 0.1f        // seconds between two readings of the texture under one wheel
+#define H9_RAD 0.017453292f    // a degree, in radians
 
 static float H9Approach(float target, float value, float step)
 {
@@ -64,6 +99,374 @@ static float H9Clamp(float value, float low, float high)
 {
 	return value < low ? low : (value > high ? high : value);
 }
+
+//=========================================================
+// The surfaces. One table: what each gives the tyres. A wheel's surface is found by the start of its floor
+// texture's name (H9SurfaceByName), and a wheel standing in water is on water whatever the bed is made of.
+//=========================================================
+enum
+{
+	H9SURF_TARMAC,
+	H9SURF_GRAVEL,
+	H9SURF_DIRT,
+	H9SURF_GRASS,
+	H9SURF_WATER,
+	H9SURF_COUNT
+};
+
+struct H9Surface
+{
+	const char* name;
+	float grip;  // of tarmac's hold across the car; braking and pulling away follow it too
+	float top;   // the share of "maxspeed" the car reaches on it
+	float roll;  // the slowing it adds, units a second squared, when the car coasts or is over that top speed
+	float loose; // how much the rear steps out under power: 0 none, 1 gravel
+};
+
+static const H9Surface g_h9Surfaces[H9SURF_COUNT] = {
+	{"tarmac", 1.00f, 1.00f, 0, 0},
+	{"gravel", 0.70f, 0.92f, 40, 1.0f},
+	{"dirt", 0.60f, 0.88f, 60, 1.0f},
+	{"grass", 0.45f, 0.72f, 150, 0.4f},
+	{"water", 0.55f, 0.50f, 400, 0}, // a film of it; H9SurfaceAdd deepens it
+};
+#define H9CAR_DEEP_TOP 0.25f   // water a wheel's height deep: the top speed's share
+#define H9CAR_DEEP_ROLL 900.0f // and the slowing
+
+static const struct
+{
+	const char* start;
+	int surface;
+} g_h9SurfaceNames[] = {
+	{"tarmac", H9SURF_TARMAC}, {"road", H9SURF_TARMAC}, {"start", H9SURF_TARMAC}, {"gravel", H9SURF_GRAVEL},
+	{"dirt", H9SURF_DIRT}, {"grass", H9SURF_GRASS}, {"verge", H9SURF_GRASS}, {"hill", H9SURF_GRASS},
+	{"water", H9SURF_WATER},
+};
+
+// The surface a texture's name stands for. The marks a name may begin with are passed over first ("~", "{", "!",
+// "*", "+0" and "-0" with their digit or letter), and capitals count as small letters. A name the table does not
+// know, or none, is tarmac.
+static int H9SurfaceByName(const char* name)
+{
+	if (!name)
+		return H9SURF_TARMAC;
+	while (*name)
+	{
+		const char c = *name;
+		const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+		if ((c == '+' || c == '-') && name[1])
+			name += 2;
+		else if (!letter)
+			name++;
+		else
+			break;
+	}
+	for (const auto& known : g_h9SurfaceNames)
+	{
+		const char *a = name, *b = known.start;
+		while (*b && (*a | 0x20) == *b) // the table's names are small letters
+		{
+			a++;
+			b++;
+		}
+		if (!*b)
+			return known.surface;
+	}
+	return H9SURF_TARMAC;
+}
+
+// What the car has under it: the mean of its grounded wheels, the slope, and whether it is in the air.
+struct H9CarGround
+{
+	float grip = 1, top = 1, roll = 0, loose = 0;
+	float pitch = 0; // the body's, nose up, degrees: gravity pulls along it
+	float gravity = H9CAR_GRAVITY;
+	bool airborne = false;
+};
+
+// One wheel's surface added to a sum (H9CarGround's four numbers; divide by the wheels counted). `depth` is how
+// deep the wheel stands in water, 0 dry to 1 its whole height.
+static void H9SurfaceAdd(H9CarGround& sum, int surface, float depth)
+{
+	if (surface < 0 || surface >= H9SURF_COUNT)
+		surface = H9SURF_TARMAC;
+	const H9Surface& s = g_h9Surfaces[surface];
+	float top = s.top, roll = s.roll;
+	if (surface == H9SURF_WATER)
+	{
+		depth = H9Clamp(depth, 0, 1);
+		top += (H9CAR_DEEP_TOP - top) * depth;
+		roll += (H9CAR_DEEP_ROLL - roll) * depth;
+	}
+	sum.grip += s.grip;
+	sum.top += top;
+	sum.roll += roll;
+	sum.loose += s.loose;
+}
+
+struct H9CarTune // the keys the handling reads
+{
+	float maxSpeed = 900, backSpeed = 300, accel = 450, brake = 1200, coast = 150;
+	float maxTurn = 35, turnRate = 150, wheelbase = 150;
+	float grip = 1, slide = 1, handbrake = 1;
+};
+
+struct H9CarInput
+{
+	int push = 0; // the throttle: 1 W, -1 S, 0 neither
+	int turn = 0; // 1 left, -1 right
+	bool handbrake = false;
+};
+
+struct H9CarMotion
+{
+	float forward = 0; // the speed along the nose; negative backwards
+	float side = 0;    // the speed across it, positive to the left: 0 while the tyres hold
+	float steer = 0;   // the front wheels, degrees, positive to the left
+	float hand = 0;    // the handbrake, 0 off to 1 on: on in a tenth of a second, off over a third
+	float slip = 0;    // how much the tyres slide, 0 to 1 (for sounds and smoke)
+};
+
+// One short step of the handling (H9CarStep cuts a frame into these). It returns the turn of the nose, degrees.
+// Nothing in it adds speed but the engine and a downhill slope: the turn of the nose and the tyres' pull only
+// turn the speed, and a slide takes some away.
+static float H9CarStepOnce(H9CarMotion& m, const H9CarTune& t, const H9CarInput& in, const H9CarGround& g, float dt)
+{
+	const float maxSpeed = t.maxSpeed > 1 ? t.maxSpeed : 1;
+	m.hand = H9Approach(in.handbrake ? 1.0f : 0.0f, m.hand, dt * (in.handbrake ? 10.0f : 3.0f));
+
+	// less lock at speed, as a driver gives it; the wheels ease back when let go
+	const float lock = t.maxTurn * (1 - 0.45f * H9Clamp(fabsf(m.forward) / maxSpeed, 0, 1));
+	const float target = in.turn == 0 ? 0 : (in.turn > 0 ? lock : -lock);
+	m.steer = H9Approach(target, m.steer, t.turnRate * (target == 0 ? 1.5f : 1.0f) * dt);
+
+	if (g.airborne) // nothing touches the ground: it keeps the speed it has, both ways, and the nose stays
+	{
+		m.slip = H9Approach(0, m.slip, dt * 5);
+		return 0;
+	}
+
+	const float surface = H9Clamp(g.grip, 0, 1);
+	const float traction = 0.5f + 0.5f * surface; // pulling away on a loose surface
+	const float bite = 0.25f + 0.75f * surface;   // and braking on one
+	const float cap = maxSpeed * H9Clamp(g.top, 0.05f, 1);
+	float slow = 0; // what slows it along its path, whichever way that goes
+
+	// A crawl (under H9CAR_CRAWL) counts as standing still when choosing between braking and driving off: otherwise a
+	// speed a hair over 0 (the slope's pull on a floor read at -0.001 degrees) is braked to 0 every frame, the pull
+	// puts the hair back, and S (or W) never reverses it.
+	if (in.push > 0)
+	{
+		if (m.forward < -H9CAR_CRAWL)
+			slow += t.brake * bite;
+		else
+		{
+			if (m.forward < 0)
+				m.forward = 0;
+			if (m.forward < cap)
+				m.forward += t.accel * traction * dt * (1 - m.forward / cap);
+		}
+	}
+	else if (in.push < 0)
+	{
+		if (m.forward > H9CAR_CRAWL)
+			slow += t.brake * bite;
+		else
+		{
+			if (m.forward > 0)
+				m.forward = 0;
+			m.forward -= t.accel * traction * dt;
+		}
+	}
+	else
+		slow += t.coast + g.roll;
+	slow += t.brake * H9CAR_HAND_BRAKE * H9Clamp(t.handbrake, 0, 2) * bite * m.hand;
+
+	float speed = sqrtf(m.forward * m.forward + m.side * m.side);
+	if (speed > cap) // grass, water: the ground holds it back to what it lets a car do
+		slow += g.roll + (speed - cap) * H9CAR_BOG;
+	if (slow > 0 && speed > 0)
+	{
+		const float left = speed - slow * dt > 0 ? (speed - slow * dt) / speed : 0;
+		m.forward *= left;
+		m.side *= left;
+	}
+	if (in.push == 0 && sqrtf(m.forward * m.forward + m.side * m.side) < H9CAR_CRAWL) // let go, it stops
+		m.forward = m.side = 0;
+	// gravity along the slope (uphill slows, downhill speeds up), only on a real slope: a floor read a hair off level
+	// must not push (Diffusion lets a slope roll the car only past 10 degrees)
+	if (fabsf(g.pitch) > H9CAR_SLOPE)
+		m.forward -= g.gravity * sinf(g.pitch * H9_RAD) * dt;
+	m.forward = H9Clamp(m.forward, -t.backSpeed, maxSpeed);
+	m.side = H9Clamp(m.side, -maxSpeed, maxSpeed);
+
+	// The nose. It turns as a bicycle's does about the rear axle. `beta` is the angle from the way the car points
+	// (or backs) to the way it goes, positive when it goes to the left of it: turning the nose left makes it less.
+	speed = sqrtf(m.forward * m.forward + m.side * m.side);
+	float dir = m.forward >= 0 ? 1.0f : -1.0f;
+	float beta = speed > 0.01f ? atan2f(m.side * dir, m.forward * dir) : 0;
+	const float wheelbase = t.wheelbase > 1 ? t.wheelbase : 1;
+	const float hold = H9CAR_GRIP * g.grip * t.grip; // what the tyres can pull across the car
+	const float hand = m.hand * H9Clamp(t.handbrake, 0, 1.4f);
+	const float loose = in.push * dir > 0 ? g.loose : 0; // power on a loose surface
+	// with the handbrake the car comes round about its front wheels, which roll at the whole speed, not only at the
+	// part of it along the nose
+	const float rolling = m.forward + (dir * speed - m.forward) * H9Clamp(hand, 0, 1);
+	float yawRate = rolling * tanf(m.steer * H9_RAD) / wheelbase; // radians a second
+	const float asked = fabsf(m.forward * yawRate);              // the pull across the car this corner asks for
+	if (yawRate * beta <= 0)
+	{
+		// The steering is opening the slide (or there is none yet). The further the nose is already inside the path,
+		// the less it turns further in: a corner taken too fast settles into a drift at a steady angle instead of
+		// spinning. The handbrake, and power on a loose surface, bring the nose round faster and let it go further.
+		const float open = (H9CAR_SLIP_OPEN + H9CAR_SLIP_HAND * H9Clamp(hand, 0, 1) + 10 * loose) * H9_RAD;
+		const float over = hold > 1 ? H9Clamp((asked / hold - 0.5f) * 2, 0, 1) : 1; // from half of what the tyres hold
+		yawRate *= (1 + H9CAR_HAND_YAW * hand + 0.3f * loose * over) * H9Clamp(1 - fabsf(beta) / open, 0, 1);
+	}
+	const float turn = H9Clamp(yawRate * dt, -0.5f, 0.5f);
+	const float c = cosf(turn), s = sinf(turn);
+	const float ahead = m.forward * c + m.side * s; // the speed stays where it was in the world: the nose turned under it
+	m.side = m.side * c - m.forward * s;
+	m.forward = ahead;
+
+	// The tyres. They turn the path round to the nose, by as much as their hold allows in this step, and leave its
+	// speed alone: while the corner asks for less than they hold, the whole of the turn is taken up each step and the
+	// car goes where it points, as it always did. What is left over is the slide, and it scrubs speed off.
+	float sliding = 0;
+	if (speed > 0.01f)
+	{
+		dir = m.forward >= 0 ? 1.0f : -1.0f;
+		beta = atan2f(m.side * dir, m.forward * dir);
+		const float wide = fabsf(beta);
+		// the rear let go: by the handbrake, and a little by power on a loose surface
+		float pull = hold * H9Clamp(1 - H9CAR_HAND_REAR * hand, 0.05f, 1) * (1 - 0.2f * loose);
+		float back = pull * dt / (speed > 1 ? speed : 1);
+		// tyres that slide already hold less than tyres that roll: by what they could not take up in this step, from
+		// nothing to 10 degrees of it
+		const float broken = H9Clamp((wide - back) / (10 * H9_RAD), 0, 1);
+		pull *= 1 + (H9Clamp(H9CAR_SLIDING * t.slide, 0.05f, 3) - 1) * broken;
+		back = pull * dt / (speed > 1 ? speed : 1);
+		const float kept = wide > back ? wide - back : 0;
+		speed -= pull * sinf(kept) * H9CAR_SCRUB * dt;
+		if (speed < 0)
+			speed = 0;
+		m.forward = dir * speed * cosf(kept);
+		m.side = dir * speed * sinf(beta < 0 ? -kept : kept);
+		sliding = H9Clamp(kept / (25 * H9_RAD), 0, 1) * H9Clamp(speed / 200, 0, 1);
+	}
+	m.slip += (sliding - m.slip) * H9Clamp(dt * 12, 0, 1);
+	return turn / H9_RAD;
+}
+
+// One frame of the handling: throttle, brake, steering, the turn of the nose, the slide. It changes `m` and
+// returns the turn of the nose in degrees. A long frame is cut into steps of H9CAR_SUBSTEP at most, so that the
+// car drives the same at 20 frames a second as at 1000.
+static float H9CarStep(H9CarMotion& m, const H9CarTune& t, const H9CarInput& in, const H9CarGround& g, float dt)
+{
+	if (!(dt > 0))
+		return 0;
+	int steps = (int)ceilf(dt / H9CAR_SUBSTEP);
+	steps = steps < 1 ? 1 : (steps > 50 ? 50 : steps);
+	float turn = 0;
+	for (int i = 0; i < steps; i++)
+		turn += H9CarStepOnce(m, t, in, g, dt / steps);
+	return turn;
+}
+
+// The body's height over a frame.
+struct H9CarHeight
+{
+	float z = 0;
+	float fall = 0;        // the vertical speed while off the ground (negative down); 0 on it
+	float climb = 0;       // the vertical speed the ground gives it while on it: what it leaves the ground with
+	float slopeAlong = 0;  // the ground's rise a unit forward, under the four wheels when all four last stood on it
+	float slopeAcross = 0; // and a unit to the right
+	bool contact = true;   // on the ground, the frame before
+	bool airborne = false; // no wheel down, or the body more than H9CAR_AIRGAP over its wheels' ground
+};
+
+// The height of the ground under the car's middle, from what its wheels found (`ground`, for those `touching`;
+// `along` and `across` are each wheel's place forward and to the right of the middle). It returns how many wheels
+// touch. With all four down it is their mean, and the slope they stand on is kept. With some in the air (the
+// front over a ramp's lip) the others say where the middle would be were that slope to go on: so the body rides
+// off a lip along the ramp's line until its last wheel leaves, instead of dropping to its rear wheels' height.
+// With none, the slope is forgotten, and a car that lands on two wheels stands at their height.
+static int H9CarFloor(H9CarHeight& h, const float ground[4], const bool touching[4], const float along[4],
+	const float across[4], float wheelbase, float track, float& floor)
+{
+	int count = 0;
+	for (int i = 0; i < 4; i++)
+		count += touching[i] ? 1 : 0;
+	if (count == 4) // the wheels are front left, front right, rear left, rear right
+	{
+		h.slopeAlong = ((ground[0] + ground[1]) / 2 - (ground[2] + ground[3]) / 2) / (wheelbase > 1 ? wheelbase : 1);
+		h.slopeAcross = ((ground[1] + ground[3]) / 2 - (ground[0] + ground[2]) / 2) / (track > 1 ? track : 1);
+	}
+	else if (count == 0)
+		h.slopeAlong = h.slopeAcross = 0;
+	float sum = 0;
+	for (int i = 0; i < 4; i++)
+	{
+		if (touching[i])
+			sum += ground[i] - (count < 4 ? along[i] * h.slopeAlong + across[i] * h.slopeAcross : 0);
+	}
+	floor = count ? sum / count : h.z;
+	return count;
+}
+
+// One frame of the body's height. `wheels` is how many wheels found ground and `floor` the ground under the
+// car's middle (H9CarFloor); `rate` is the vertical speed that ground gives the car (its speed over the slope
+// under it). The body always flies the arc its vertical speed and gravity give, and is on the ground when that
+// arc would take it into the floor: so it follows a slope down without leaving it, leaves a ramp's lip with the
+// rise the ramp gave it, and goes light over a crest. It returns how hard it landed, units a second (0 when it
+// did not land this frame).
+static float H9CarFallStep(H9CarHeight& h, int wheels, float floor, float rate, float gravity, float dt)
+{
+	if (!(dt > 0)) // placed, not moved: on its wheels' ground when it has any
+	{
+		if (wheels > 0)
+		{
+			h.z = floor;
+			h.fall = 0;
+			h.contact = true;
+		}
+		h.airborne = wheels == 0;
+		return 0;
+	}
+	float impact = 0;
+	if (h.contact)
+		h.fall = h.climb;
+	h.fall -= gravity * dt;
+	const float z = h.z + h.fall * dt;
+	if (wheels > 0 && z <= floor)
+	{
+		if (!h.contact)
+		{
+			impact = rate - h.fall > 0 ? rate - h.fall : 0;
+			h.climb = rate;
+		}
+		else // eased, so that a kerb's one frame of slope does not throw the car up
+			h.climb += (rate - h.climb) * H9Clamp(dt * 20, 0, 1);
+		h.z = floor;
+		h.fall = 0;
+		h.contact = true;
+	}
+	else
+	{
+		h.z = z;
+		h.contact = false;
+	}
+	h.airborne = wheels == 0 || h.z - floor > H9CAR_AIRGAP;
+	return impact;
+}
+
+// The share of its speed a landing leaves the car: a soft one all of it, the hardest two thirds.
+static float H9CarLanding(float impact)
+{
+	return 1 - H9Clamp((impact - H9CAR_LAND) / 1500, 0, 0.35f);
+}
+
+#ifndef H9CAR_MATHS_ONLY
 
 //=========================================================
 // The camera a driver looks through: an entity with the car's model drawn fully transparent (an entity with no
@@ -110,6 +513,7 @@ private:
 	bool Move(float dt);
 	bool Blocked(const Vector& from, const Vector& move, TraceResult& hit);
 	void Settle(float dt);
+	void LookUnder(int wheel, const TraceResult& tr, const Vector& above, const Vector& below);
 	void PlaceCamera(float dt);
 	void FitBox();
 	void Sound();
@@ -120,17 +524,18 @@ private:
 	float m_flFrontDist = 75, m_flRearDist = 75, m_flTrack = 88;
 	float m_flLength = 200, m_flWidth = 100, m_flHeight = 64;
 	float m_flRadius = 20, m_flMaxStep = 12;
+	float m_flGrip = 1, m_flSlide = 1, m_flHandbrake = 1, m_flGravity = H9CAR_GRAVITY;
 	string_t m_iszEngine = 0;
 
 	// state
 	EHANDLE m_hDriver;
 	EHANDLE m_hCamera;
-	float m_flSpeed = 0;     // along the car's heading; negative backwards
-	float m_flSteer = 0;     // the front wheels, degrees, positive to the left
+	H9CarMotion m_car;       // its speed along the nose and across it, its steering, how much it slides
+	H9CarGround m_ground;    // what its wheels stood on, the last Settle
+	H9CarHeight m_height;    // its height, and its vertical speed off the ground
 	float m_flYaw = 0;       // the heading
 	float m_flPitch = 0;     // nose up, degrees
 	float m_flRoll = 0;
-	float m_flFall = 0;      // the vertical speed while off the ground (negative down)
 	float m_flLastThink = 0;
 	float m_flNextSound = 0;
 	bool m_bEngineOn = false;
@@ -150,11 +555,14 @@ private:
 	float m_flEntered = 0;
 	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
 	float m_flLastHit = 1;
-	int m_iHitBy = -1, m_iLastHitBy = -1; // which trace stopped it: 0 the hull, 1-6 the bumper rays
+	int m_iHitBy = -1, m_iLastHitBy = -1; // which trace stopped it: 0 the hull, 1-6 the bumper rays, 7-10 the flank's
 	float m_flLastHitTime = -1;
 	char m_szLastHit[32] = "";
 	float m_flWheelGround[4] = {0, 0, 0, 0}; // each wheel's ground, the frame before: its trace starts over it
 	float m_flFrontGround = 0, m_flRearGround = 0; // under each axle: the bumper rays go at a height over it
+	int m_iWheelSurface[4] = {0, 0, 0, 0};     // each wheel's surface (H9SURF_), read every H9CAR_LOOK seconds
+	float m_flWheelDepth[4] = {0, 0, 0, 0};    // how deep it stands in water, 0 dry to 1 its whole height
+	float m_flWheelLook[4] = {0, 0, 0, 0};     // when it is read next
 };
 LINK_ENTITY_TO_CLASS(h9_car, CH9Car);
 
@@ -169,7 +577,8 @@ bool CH9Car::KeyValue(KeyValueData* pkvd)
 		{"maxspeed", &m_flMaxSpeed}, {"backspeed", &m_flBackSpeed}, {"accel", &m_flAccel}, {"brake", &m_flBrake},
 		{"coast", &m_flCoast}, {"maxturn", &m_flMaxTurn}, {"turnrate", &m_flTurnRate}, {"frontdist", &m_flFrontDist},
 		{"reardist", &m_flRearDist}, {"track", &m_flTrack}, {"length", &m_flLength}, {"width", &m_flWidth},
-		{"height", &m_flHeight}, {"radius", &m_flRadius}, {"maxstep", &m_flMaxStep},
+		{"height", &m_flHeight}, {"radius", &m_flRadius}, {"maxstep", &m_flMaxStep}, {"grip", &m_flGrip},
+		{"slide", &m_flSlide}, {"handbrake", &m_flHandbrake}, {"gravity", &m_flGravity},
 	};
 	for (const Key& key : keys)
 	{
@@ -238,6 +647,8 @@ void CH9Car::Spawn()
 	m_flFrontGround = m_flRearGround = pev->origin.z;
 	m_flMaxTurn = H9Clamp(m_flMaxTurn, 1, 60);
 	m_flMaxStep = H9Clamp(m_flMaxStep, 0, 32);
+	m_flGravity = H9Clamp(m_flGravity, 50, 4000);
+	m_height.z = pev->origin.z;
 	FitBox();
 	Settle(0);
 	m_vecSafe = pev->origin; // where the mapper put it is the first safe place
@@ -330,7 +741,7 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	SET_VIEW(pPlayer->edict(), m_hCamera->edict());
 	pPlayer->m_hViewEntity = m_hCamera;
 
-	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump brakes, use gets out\nstuck? hold R");
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump is the handbrake, use gets out\nstuck? hold R");
 	EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, 0, 70);
 	m_bEngineOn = true;
@@ -395,53 +806,41 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 	m_bEngineOn = false;
 }
 
-// Throttle, brake and steering from the driver's buttons; the steering eases back when let go.
+// Throttle, brake, steering and handbrake from the driver's buttons, and what they do to the car's speed and
+// its heading over the ground the wheels last stood on (H9CarStep).
 void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 {
 	const int buttons = pDriver ? pDriver->pev->button : 0;
 	const bool ahead = (buttons & IN_FORWARD) != 0, back = (buttons & IN_BACK) != 0;
 	const bool left = (buttons & IN_MOVELEFT) != 0, right = (buttons & IN_MOVERIGHT) != 0;
-	const bool handbrake = (buttons & IN_JUMP) != 0;
-	m_iPush = ahead == back ? 0 : (ahead ? 1 : -1);
+	H9CarInput in;
+	in.push = ahead == back ? 0 : (ahead ? 1 : -1);
+	in.turn = left == right ? 0 : (left ? 1 : -1);
+	in.handbrake = (buttons & IN_JUMP) != 0;
+	m_iPush = in.push;
 
-	// A crawl (under H9CAR_CRAWL) counts as standing still when choosing between braking and driving off: otherwise a
-	// speed a hair over 0 (the slope's pull on a floor read at -0.001 degrees) is braked to 0 every frame, the pull
-	// puts the hair back, and S (or W) never reverses it.
-	if (ahead && !back)
-		m_flSpeed = m_flSpeed < -H9CAR_CRAWL ? H9Approach(0, m_flSpeed, m_flBrake * dt) : (m_flSpeed < 0 ? 0 : m_flSpeed) + m_flAccel * dt * (1 - (m_flSpeed > 0 ? m_flSpeed : 0) / m_flMaxSpeed);
-	else if (back && !ahead)
-		m_flSpeed = m_flSpeed > H9CAR_CRAWL ? H9Approach(0, m_flSpeed, m_flBrake * dt) : (m_flSpeed > 0 ? 0 : m_flSpeed) - m_flAccel * dt;
-	else
-	{
-		m_flSpeed = H9Approach(0, m_flSpeed, m_flCoast * dt);
-		if (fabsf(m_flSpeed) < H9CAR_CRAWL) // let go, it stops (Diffusion: under 20)
-			m_flSpeed = 0;
-	}
-	if (handbrake)
-		m_flSpeed = H9Approach(0, m_flSpeed, m_flBrake * 0.6f * dt);
-	// gravity along the slope (uphill slows, downhill speeds up), only on a real slope: a floor read a hair off level
-	// must not push (Diffusion lets a slope roll the car only past 10 degrees)
-	if (m_bGrounded && fabsf(m_flPitch) > H9CAR_SLOPE)
-		m_flSpeed -= H9CAR_GRAVITY * sinf(m_flPitch * (M_PI / 180)) * dt;
-	m_flSpeed = H9Clamp(m_flSpeed, -m_flBackSpeed, m_flMaxSpeed);
+	H9CarTune tune;
+	tune.maxSpeed = m_flMaxSpeed;
+	tune.backSpeed = m_flBackSpeed;
+	tune.accel = m_flAccel;
+	tune.brake = m_flBrake;
+	tune.coast = m_flCoast;
+	tune.maxTurn = m_flMaxTurn;
+	tune.turnRate = m_flTurnRate;
+	tune.wheelbase = m_flFrontDist + m_flRearDist;
+	tune.grip = m_flGrip;
+	tune.slide = m_flSlide;
+	tune.handbrake = m_flHandbrake;
 
-	// less lock at speed, as a driver gives it
-	const float lock = m_flMaxTurn * (1 - 0.45f * H9Clamp(fabsf(m_flSpeed) / m_flMaxSpeed, 0, 1));
-	const float target = left == right ? 0 : (left ? lock : -lock);
-	m_flSteer = H9Approach(target, m_flSteer, m_flTurnRate * (target == 0 ? 1.5f : 1.0f) * dt);
-
-	if (m_bGrounded)
-	{
-		const float wheelbase = m_flFrontDist + m_flRearDist > 1 ? m_flFrontDist + m_flRearDist : 1;
-		float yawRate = m_flSpeed * tanf(m_flSteer * (M_PI / 180)) / wheelbase * (180 / M_PI);
-		if (handbrake && fabsf(m_flSpeed) > 200)
-			yawRate *= 1.5f; // the rear lets go
-		m_flYaw = UTIL_AngleMod(m_flYaw + yawRate * dt);
-	}
+	m_ground.pitch = m_flPitch;
+	m_ground.gravity = m_flGravity;
+	m_ground.airborne = !m_bGrounded;
+	m_flYaw = UTIL_AngleMod(m_flYaw + H9CarStep(m_car, tune, in, m_ground, dt));
 }
 
 // Whether the car, standing at `from`, would hit something on `move`: a hull trace through its middle and line
-// traces from the corners that lead, at a wheel's climb over the ground and at the body's middle.
+// traces from the corners that lead, at a wheel's climb over the ground and at the body's middle. A car that
+// slides goes partly sideways, so the side that leads has its rays too.
 bool CH9Car::Blocked(const Vector& from, const Vector& move, TraceResult& hit)
 {
 	memset(&hit, 0, sizeof(hit));
@@ -486,14 +885,41 @@ bool CH9Car::Blocked(const Vector& from, const Vector& move, TraceResult& hit)
 			}
 		}
 	}
+	// sliding: the flank that leads, at its middle and at its trailing corner (the bumper rays have the other
+	// corner), each at heights over the ground nearest to it
+	const float sideways = DotProduct(way, right);
+	if (fabsf(sideways) > 0.2f)
+	{
+		const float flank = sideways > 0 ? 1.0f : -1.0f;
+		const float trailing = (ahead > 0 ? m_flRearGround : m_flFrontGround) - from.z;
+		const float along[] = {0, -halfLength * ahead * 0.95f};
+		const float bases[] = {(base + trailing) / 2, trailing};
+		for (int place = 0; place < 2; place++)
+		{
+			const float levels[] = {bases[place] + m_flMaxStep + 2, bases[place] + m_flHeight / 2};
+			for (int level = 0; level < 2; level++)
+			{
+				const Vector start = from + forward * along[place] + right * (halfWidth * flank) + Vector(0, 0, levels[level]);
+				UTIL_TraceLine(start, start + move + lead, dont_ignore_monsters, edict(), &tr);
+				if (!tr.fStartSolid && !tr.fAllSolid && tr.flFraction < hit.flFraction && DotProduct(tr.vecPlaneNormal, way) < -0.1f)
+				{
+					hit = tr;
+					m_iHitBy = 7 + place * 2 + level; // 7-8 the flank's middle (low, high), 9-10 its trailing corner
+				}
+			}
+		}
+	}
 	return hit.flFraction < 1;
 }
 
-// One frame's travel along the heading, sliding along a wall met at a slant. True when it hit something.
+// One frame's travel, along the nose and across it, sliding along a wall met at a slant. True when it hit
+// something.
 bool CH9Car::Move(float dt)
 {
 	UTIL_MakeVectors(Vector(0, m_flYaw, 0));
-	Vector move = gpGlobals->v_forward * (m_flSpeed * dt);
+	const Vector forward = gpGlobals->v_forward, left = -gpGlobals->v_right;
+	const Vector velocity = forward * m_car.forward + left * m_car.side;
+	const Vector move = velocity * dt;
 	TraceResult hit;
 	const bool blocked = Blocked(pev->origin, move, hit);
 	if (blocked) // the last real stop, kept for the report
@@ -509,30 +935,62 @@ bool CH9Car::Move(float dt)
 		return false;
 	}
 	// up to where it hit, then what is left of the move along the wall
-	const float speedBefore = fabsf(m_flSpeed);
+	const float speedBefore = velocity.Length();
 	Vector normal = hit.vecPlaneNormal;
 	normal.z = 0;
 	if (normal.Length() < 0.01f)
 		normal = -move.Normalize();
 	normal = normal.Normalize();
 	const float headOn = fabsf(DotProduct(move.Normalize(), normal));
-	const int way = m_flSpeed > 0 ? 1 : -1;
-	m_flSpeed *= (1 - headOn);
+	const int way = m_car.forward > 0 ? 1 : -1;
+	// The wall takes all of its speed into it, the slide's too, and what is left runs along the wall, less by how
+	// squarely it hit (as before: all of it lost head on, little at a graze).
+	Vector along = velocity - normal * DotProduct(velocity, normal);
+	if (along.Length() > 0.01f)
+		along = along.Normalize() * (speedBefore * (1 - headOn));
+	else
+		along = g_vecZero;
+	m_car.forward = DotProduct(along, forward);
+	m_car.side = DotProduct(along, left);
 	// still pushed the way it went: it keeps a crawl, so that it goes on sliding along the wall instead of sticking to
 	// it (Diffusion's "in case if stuck": 25)
-	if (m_iPush == way && fabsf(m_flSpeed) < H9CAR_PUSH)
-		m_flSpeed = H9CAR_PUSH * way;
+	if (m_iPush == way && fabsf(m_car.forward) < H9CAR_PUSH)
+		m_car.forward = H9CAR_PUSH * way;
 	Vector slide = move * (1 - hit.flFraction);
 	slide = slide - normal * DotProduct(slide, normal);
 	TraceResult again;
 	if (slide.Length() > 0.1f && !Blocked(pev->origin, slide, again))
 		UTIL_SetOrigin(pev, pev->origin + slide);
-	if (speedBefore - fabsf(m_flSpeed) > 300)
+	if (speedBefore - sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side) > 300)
 		EMIT_SOUND_DYN(edict(), CHAN_BODY, "debris/metal2.wav", 1, ATTN_NORM, 0, 90 + RANDOM_LONG(0, 20));
 	return true;
 }
 
-// The wheels on the ground: four traces down set the height, the pitch and the roll; with none it falls.
+// What one wheel stands on, kept until it is looked at again (H9CAR_LOOK): the surface its floor texture's name
+// stands for, and how deep the wheel is in water. `tr` is the wheel's trace down, from `above` to `below`.
+void CH9Car::LookUnder(int wheel, const TraceResult& tr, const Vector& above, const Vector& below)
+{
+	if (gpGlobals->time < m_flWheelLook[wheel] && gpGlobals->time > m_flWheelLook[wheel] - 1)
+		return;
+	m_flWheelLook[wheel] = gpGlobals->time + H9CAR_LOOK + wheel * 0.01f; // not all four in one frame
+	// the texture of the brush entity the trace met, or the world's
+	edict_t* floor = tr.pHit && !FNullEnt(tr.pHit) ? tr.pHit : ENT(0);
+	const char* name = TRACE_TEXTURE(floor, above, below);
+	if (!name && floor != ENT(0))
+		name = TRACE_TEXTURE(ENT(0), above, below);
+	m_iWheelSurface[wheel] = H9SurfaceByName(name);
+	m_flWheelDepth[wheel] = 0;
+	const Vector foot = tr.vecEndPos + Vector(0, 0, 1);
+	if (UTIL_PointContents(foot) == CONTENTS_WATER)
+	{
+		const float tall = m_flRadius > 1 ? m_flRadius * 2 : 2;
+		m_iWheelSurface[wheel] = H9SURF_WATER;
+		m_flWheelDepth[wheel] = H9Clamp((UTIL_WaterLevel(foot, foot.z, foot.z + tall) - tr.vecEndPos.z) / tall, 0, 1);
+	}
+}
+
+// The wheels on the ground: four traces down set the height, the pitch and the roll, and say what the tyres
+// stand on; with none it flies (H9CarFallStep).
 void CH9Car::Settle(float dt)
 {
 	UTIL_MakeVectors(Vector(0, m_flYaw, 0));
@@ -541,62 +999,67 @@ void CH9Car::Settle(float dt)
 	const float across[4] = {-m_flTrack / 2, m_flTrack / 2, -m_flTrack / 2, m_flTrack / 2}; // left, right
 	float ground[4];
 	bool touching[4];
-	int count = 0;
-	float sum = 0;
+	H9CarGround under;
+	under.grip = under.top = under.roll = under.loose = 0;
 	for (int i = 0; i < 4; i++)
 	{
 		Vector wheel = pev->origin + forward * along[i] + right * across[i];
 		wheel.z = m_flWheelGround[i]; // from its own ground: on a slope a wheel is well above or below the middle
 		TraceResult tr;
-		UTIL_TraceLine(wheel + Vector(0, 0, m_flMaxStep + 1), wheel - Vector(0, 0, m_flRadius * 2 + 8), ignore_monsters,
-			edict(), &tr);
+		const Vector above = wheel + Vector(0, 0, m_flMaxStep + 1), below = wheel - Vector(0, 0, m_flRadius * 2 + 8);
+		UTIL_TraceLine(above, below, ignore_monsters, edict(), &tr);
 		touching[i] = tr.flFraction < 1 && !tr.fStartSolid;
 		ground[i] = touching[i] ? tr.vecEndPos.z : pev->origin.z - m_flRadius;
 		if (touching[i])
 		{
-			sum += ground[i];
-			count++;
+			LookUnder(i, tr, above, below);
+			H9SurfaceAdd(under, m_iWheelSurface[i], m_flWheelDepth[i]);
 		}
 	}
 
+	const float wheelbase = m_flFrontDist + m_flRearDist > 1 ? m_flFrontDist + m_flRearDist : 1;
+	const float track = m_flTrack > 1 ? m_flTrack : 1;
 	Vector origin = pev->origin;
-	m_bGrounded = count > 0;
+	m_height.z = origin.z;
+	float floor;
+	const int count = H9CarFloor(m_height, ground, touching, along, across, wheelbase, track, floor);
+	// the vertical speed the ground gives it: its speed over the slope under it (its side speed is to the left)
+	const float rate = m_car.forward * m_height.slopeAlong - m_car.side * m_height.slopeAcross;
+	const float impact = H9CarFallStep(m_height, count, floor, rate, m_flGravity, dt);
+	origin.z = m_height.z;
+	m_bGrounded = !m_height.airborne;
 	m_bAllWheels = count == 4;
-	if (!m_bGrounded)
+	if (impact > H9CAR_LAND) // a hard landing takes some of its speed
 	{
-		m_flFall -= H9CAR_GRAVITY * dt;
-		origin.z += m_flFall * dt;
+		const float kept = H9CarLanding(impact);
+		m_car.forward *= kept;
+		m_car.side *= kept;
+		EMIT_SOUND_DYN(edict(), CHAN_BODY, "plats/ttrain_brake1.wav", 0.7, ATTN_NORM, 0, 120);
+	}
+	if (count > 0) // what the tyres stand on: the mean of the wheels that are down
+	{
+		m_ground.grip = under.grip / count;
+		m_ground.top = under.top / count;
+		m_ground.roll = under.roll / count;
+		m_ground.loose = under.loose / count;
+	}
+
+	const float ease = dt > 0 ? H9Clamp(dt * 10, 0, 1) : 1;
+	if (count > 0)
+	{
+		const float pitch = atan2f((ground[0] + ground[1]) / 2 - (ground[2] + ground[3]) / 2, wheelbase) * (180 / M_PI);
+		const float roll = atan2f((ground[1] + ground[3]) / 2 - (ground[0] + ground[2]) / 2, track) * (180 / M_PI);
+		m_flPitch += (pitch - m_flPitch) * ease;
+		m_flRoll += (roll - m_flRoll) * ease;
 	}
 	else
 	{
-		const float floor = sum / count;
-		if (origin.z > floor + 1 && dt > 0) // above its wheels' ground: it falls onto it
-		{
-			m_flFall -= H9CAR_GRAVITY * dt;
-			origin.z += m_flFall * dt;
-			if (origin.z <= floor)
-			{
-				origin.z = floor;
-				if (m_flFall < -350)
-				{
-					m_flSpeed *= 0.8f;
-					EMIT_SOUND_DYN(edict(), CHAN_BODY, "plats/ttrain_brake1.wav", 0.7, ATTN_NORM, 0, 120);
-				}
-				m_flFall = 0;
-			}
-		}
-		else
-		{
-			origin.z = floor;
-			m_flFall = 0;
-		}
-		const float wheelbase = m_flFrontDist + m_flRearDist > 1 ? m_flFrontDist + m_flRearDist : 1;
-		const float track = m_flTrack > 1 ? m_flTrack : 1;
-		const float pitch = atan2f((ground[0] + ground[1]) / 2 - (ground[2] + ground[3]) / 2, wheelbase) * (180 / M_PI);
-		const float roll = atan2f((ground[1] + ground[3]) / 2 - (ground[0] + ground[2]) / 2, track) * (180 / M_PI);
-		const float ease = dt > 0 ? H9Clamp(dt * 10, 0, 1) : 1;
-		m_flPitch += (pitch - m_flPitch) * ease;
-		m_flRoll += (roll - m_flRoll) * ease;
+		// in the air the nose follows the arc a little (up while it rises, down while it falls) and the body levels,
+		// slowly: it comes down close to flat, on its wheels
+		const float speed = sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side);
+		const float arc = atan2f(m_height.fall, speed > 300 ? speed : 300) * (180 / M_PI) * (m_car.forward < 0 ? -1 : 1);
+		m_flPitch += (H9Clamp(arc * 0.4f, -12, 12) - m_flPitch) * ease * 0.3f;
+		m_flRoll += (0 - m_flRoll) * ease * 0.3f;
 	}
 	UTIL_SetOrigin(pev, origin);
 	pev->angles = Vector(m_flPitch, m_flYaw, m_flRoll);
@@ -643,7 +1106,7 @@ void CH9Car::Sound()
 	if (!m_bEngineOn || gpGlobals->time < m_flNextSound)
 		return;
 	m_flNextSound = gpGlobals->time + 0.1f;
-	const int pitch = 70 + (int)(90 * H9Clamp(fabsf(m_flSpeed) / m_flMaxSpeed, 0, 1));
+	const int pitch = 70 + (int)(90 * H9Clamp(fabsf(m_car.forward) / (m_flMaxSpeed > 1 ? m_flMaxSpeed : 1), 0, 1));
 	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, SND_CHANGE_PITCH | SND_CHANGE_VOL, pitch);
 }
 
@@ -652,11 +1115,11 @@ void CH9Car::DriveThink()
 	Step("think");
 	CBasePlayer* pDriver = Driver();
 	// every frame while it moves or is driven; at rest, ten times a second
-	const bool resting = !pDriver && m_flSpeed == 0 && m_bGrounded && m_flFall == 0;
+	const bool resting = !pDriver && m_car.forward == 0 && m_car.side == 0 && m_bGrounded && m_height.contact;
 	pev->nextthink = gpGlobals->time + (resting ? 0.1f : 0.01f);
 }
 
-// One frame of the car: from its think, and from its driver's PostThink (a frame's second call finds dt 0).
+// One frame of the car, from its think alone.
 void CH9Car::Step(const char* by)
 {
 	float dt = gpGlobals->time - m_flLastThink; // the server's clock only: Step runs from the think alone
@@ -707,13 +1170,16 @@ void CH9Car::Step(const char* by)
 			m_flResetHeld = 0;
 			UTIL_SetOrigin(pev, m_vecSafe);
 			m_flYaw = m_flSafeYaw;
-			m_flSpeed = m_flSteer = m_flPitch = m_flRoll = m_flFall = 0;
+			m_car = H9CarMotion();
+			m_height = H9CarHeight();
+			m_height.z = m_vecSafe.z;
+			m_flPitch = m_flRoll = 0;
 			for (float& z : m_flWheelGround)
 				z = m_vecSafe.z;
 			m_flFrontGround = m_flRearGround = m_vecSafe.z;
 			EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 		}
-		else if (!hit && m_bAllWheels && m_flFall == 0)
+		else if (!hit && m_bAllWheels && m_height.contact)
 		{
 			// a place a second old, and safe the whole second since: not the spot just before it got stuck
 			if (!m_bPending)
@@ -735,14 +1201,16 @@ void CH9Car::Step(const char* by)
 			m_bPending = false;
 		Settle(dt);
 		FitBox();
-		SetBoneController(0, m_flSteer);
-		SetBoneController(1, m_flSteer);
+		SetBoneController(0, m_car.steer);
+		SetBoneController(1, m_car.steer);
 		// the roll: one cycle is one turn of the wheels, so the rate is turns a second times the cycle's length
 		const float cycle = m_flFrameRate > 0 ? 256.0f / m_flFrameRate : 1.0f;
-		pev->framerate = m_flSpeed / (2 * M_PI * (m_flRadius > 1 ? m_flRadius : 1)) * cycle;
+		pev->framerate = m_car.forward / (2 * M_PI * (m_flRadius > 1 ? m_flRadius : 1)) * cycle;
 		StudioFrameAdvance(dt);
 		if (pev->frame < 0) // StudioFrameAdvance wraps a loop only forwards
 			pev->frame += 256 * (1 + (int)(-pev->frame / 256));
+		pev->fuser1 = m_car.slip; // for other code: how much the tyres slide, and the speed along the nose
+		pev->fuser2 = m_car.forward;
 	}
 
 	if (pDriver)
@@ -758,10 +1226,15 @@ void CH9Car::Step(const char* by)
 		if (CVAR_GET_FLOAT("developer") > 0 && gpGlobals->time >= m_flNextReport)
 		{
 			m_flNextReport = gpGlobals->time + 0.5f;
-			// two lines: the engine cuts a console message at about 190 characters
+			// three lines: the engine cuts a console message at about 190 characters
 			char line[160];
 			snprintf(line, sizeof(line), "h9_car: buttons %x dt %.3f speed %.0f steer %.1f yaw %.0f grounded %d\n",
-				pDriver->pev->button, m_flLastDt, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0);
+				pDriver->pev->button, m_flLastDt, m_car.forward, m_car.steer, m_flYaw, m_bGrounded ? 1 : 0);
+			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
+			snprintf(line, sizeof(line), "  side %.0f slip %.2f hand %.1f; wheels %s %s %s %s grip %.2f top %.2f; fall %.0f\n",
+				m_car.side, m_car.slip, m_car.hand, g_h9Surfaces[m_iWheelSurface[0]].name, g_h9Surfaces[m_iWheelSurface[1]].name,
+				g_h9Surfaces[m_iWheelSurface[2]].name, g_h9Surfaces[m_iWheelSurface[3]].name, m_ground.grip, m_ground.top,
+				m_height.fall);
 			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
 			snprintf(line, sizeof(line), "  stop %.1fs ago by %d on %s at %.2f; z %.1f pitch %.1f ground %.1f/%.1f\n",
 				m_flLastHitTime < 0 ? -1.0f : gpGlobals->time - m_flLastHitTime, m_iLastHitBy, m_szLastHit, m_flLastHit,
@@ -770,3 +1243,4 @@ void CH9Car::Step(const char* by)
 		}
 	}
 }
+#endif // H9CAR_MATHS_ONLY
