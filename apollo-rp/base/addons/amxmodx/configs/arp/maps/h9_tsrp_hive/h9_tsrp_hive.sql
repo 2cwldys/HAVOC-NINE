@@ -8,9 +8,11 @@
 -- lower case, nothing after the ;  (docs\ARP_CONTENT.txt, section 2, has the whole rule). A line that starts with - ; or # is skipped.
 -- Columns: name, salary paid every 60 seconds into the bank, access letters (a police, b medical, z ARP admin: the
 -- Administrator job only; c d e f are the hiring tiers and g is the Lord Minister's own letter: see ARP_CONTENT.txt, section 4).
+-- Unemployed pays 0, so that a character takes a job to be paid. pay.ini, in this folder, sets what a job is paid in place of what its row says, in a database that has the row
+-- already too (docs\ARP_CONTENT.txt, section 3).
 
 -- Civilians
-INSERT OR IGNORE INTO arp_jobs VALUES ('Unemployed',5,'');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Unemployed',0,'');
 INSERT OR IGNORE INTO arp_jobs VALUES ('Citizen',10,'');
 INSERT OR IGNORE INTO arp_jobs VALUES ('Laborer',12,'');
 INSERT OR IGNORE INTO arp_jobs VALUES ('Courier',15,'');

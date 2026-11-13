@@ -3873,6 +3873,8 @@ public plugin_natives()
 	register_native("ARP_FindJobId","_ARP_FindJobId")
 	register_native("ARP_AddJob","_ARP_AddJob")
 	register_native("ARP_DeleteJob","_ARP_DeleteJob")
+	// H9: the salary a job pays, set from outside (ARP_PayScale)
+	register_native("ARP_H9SetJobSalary","_ARP_H9SetJobSalary")
 	
 	register_native("ARP_RegisterItem","_ARP_RegisterItem")
 	register_native("ARP_ValidItemId","_ARP_ValidItemId")
@@ -6295,6 +6297,37 @@ public _ARP_GetJobSalary(Plugin,Params)
 	}
 	
 	return array_get_int(array_get_int(g_JobsArray,JobId),2)
+}
+
+// H9: sets the salary the core holds for a job (what the job's row said when it was read: the row itself is not touched, and the next map load reads it again) and the salary of
+// each player in the game who has the job, so that he is paid it from the next payday and ARP_GetJobSalary and arp_joblist say it (include\ApolloRP_H9Pay.inc; ARP_PayScale)
+public _ARP_H9SetJobSalary(Plugin,Params)
+{
+	if(Params != 2)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 2, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new JobId = get_param(1) - 1,Salary = get_param(2)
+
+	if(!UTIL_ARP_ValidJobId(JobId))
+	{
+		format(g_Query,4095,"Invalid job id: %d",JobId)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	array_set_int(array_get_int(g_JobsArray,JobId),2,Salary)
+
+	// the players ShowHud pays: not the bots
+	new Players[MAX_PLAYERS],Playersnum
+	get_players(Players,Playersnum,"c")
+
+	for(new Count;Count < Playersnum;Count++)
+		if(g_JobId[Players[Count]] == JobId)
+			g_Salary[Players[Count]] = Salary
+
+	return SUCCEEDED
 }
 
 public _ARP_GetJobAccess(Plugin,Params)
