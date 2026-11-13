@@ -23,12 +23,12 @@ H9's changes (H9.patch, H9-menus.patch and H9-arpfix.patch, beside this file, ar
 --------------------------------------------------------------------------------------------------------------------------
 H9.patch is the diff against the commit above as of 2026-11-03 (items 1 to 13); H9-menus.patch (item 14, 2026-11-08) and
 H9-arpfix.patch (items 15 to 17, 2026-11-09) hold the later changes, each a diff against the files as they stood before it;
-H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09), H9-arphud.patch (item 21) and H9-arpaudit.patch (items 22 and 23, 2026-11-09) and H9-arpneeds.patch (item 26, 2026-11-10), H9-arpthirst.patch (item 27), H9-arpitemhover.patch (item 28), H9-arpinventory.patch (items 29 to 33, 35 and 36, 2026-11-10), H9-arpitemicon.patch (item 28's picture, 2026-11-10), H9-arpweapons.patch (item 34, 2026-11-10), H9-arpplaque.patch (item 41, 2026-11-11), H9-arpitemworld.patch (item 28's picture in the world and its look-at branch, 2026-11-11), H9-arpcuff.patch (item 39's lighting, 2026-11-11), H9-arpowner.patch (item 42's owner keys, 2026-11-11), H9-arpiconfix.patch (items 28 and 39: the pictures unlit,
-room in the entity table, 2026-11-11), H9-arpteams.patch (item 43, 2026-11-11) and H9-arpitemglow.patch (item 28's glow, 2026-11-12) come after
+H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09), H9-arphud.patch (item 21), H9-arpaudit.patch (items 22 and 23, 2026-11-09), H9-arpevents.patch (item 22, 2026-11-09), H9-arpjobs.patch (item 25, 2026-11-10) and H9-arpneeds.patch (item 26, 2026-11-10), H9-arpthirst.patch (item 27), H9-arpitemhover.patch (item 28), H9-arpinventory.patch (items 29 to 33, 35 and 36, 2026-11-10), H9-arpitemicon.patch (item 28's picture, 2026-11-10), H9-arpweapons.patch (item 34, 2026-11-10), H9-arpplaque.patch (item 41, 2026-11-11; its NPC plaque as item 47 left it, 2026-11-12), H9-arpzones.patch (item 47's Zones plugin, 2026-11-12), H9-arpitemworld.patch (item 28's picture in the world and its look-at branch, 2026-11-11), H9-arpcuff.patch (item 39's lighting, 2026-11-11), H9-arpowner.patch (item 42's owner keys, 2026-11-11), H9-arpiconfix.patch (items 28 and 39: the pictures unlit,
+room in the entity table, 2026-11-11), H9-arpteams.patch (item 43, 2026-11-11), H9-arpteamnotice.patch (item 43, 2026-11-12), H9-arpitemglow.patch (item 28's glow, 2026-11-12), H9-arppay.patch (item 49, 2026-11-13) and H9-arpthirstkeep.patch (item 27's kept thirst, 2026-11-12) come after
 (item 20 is a default in arp.cfg and ARP_Core.sma, in no patch).
 In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
 ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
-ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch), ARP_Inventory (items 31, 32) and ARP_PropertyTax (item 42, H9's own, in no patch). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
+ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch), ARP_Inventory (items 31, 32), ARP_PropertyTax (item 42, H9's own, in no patch), ARP_PayScale (item 49, H9's own, in no patch) and ARP_PropClip (item 48, H9's own, in no patch). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
 folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
 
 1. Roleplay maps only (ARP_Core, plugin_precache). On a map whose name is not a roleplay one -- rp_
@@ -82,8 +82,8 @@ folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
    every second, so other plugins' HUD text does not fight them for one.
 13. H9's maps (configs\arp\maps). h9_tsrp_hive: its jailmod.ini, the four cells of the Alexandria
    jail wired to the map's cages (al_cell1-4), managers (al_cell1mm-4mm) and panels
-   (al_jail1act-4act), and an empty zones.ini. h9_tsrp_newbyzantium: an empty jailmod.ini and
-   zones.ini. Neither has a rob.ini. Their NPCs and jobs are item 19.
+   (al_jail1act-4act), and a zones.ini (the three cities: item 47). h9_tsrp_newbyzantium: an empty jailmod.ini and
+   a zones.ini (one zone, the city: item 47). Neither has a rob.ini. Their NPCs and jobs are item 19.
 
 14. H9 VGUI menus (every plugin that shows a menu: ARP_Core, ARP_Commands, ARP_Config, ARP_Items,
    ARP_JailMod, ARP_NPCs, ARP_TalkArea, ARP_TS). Each menu is also an H9 VGUI panel for a player whose
@@ -172,7 +172,8 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    when he joins and when his items arrive: items bought or found were lost, and saved items did not load). Only ARP_Core calls
    TravTrieClear, so only its code changes; the build tool builds again every plugin that includes the file. ARP_H9Menu (H9's own
    plugin, in no patch) ends its Menu_Display handler with an explicit return PLUGIN_CONTINUE (the core takes any non-zero return value of an
-   event handler for a veto, and then does not show the menu it was given).
+   event handler for a veto, and then does not show the menu it was given). ARP_RobMod's ARP_Event, the handler of the robbery events, answers PLUGIN_CONTINUE
+   on every path the same way, in place of a bare return or the end of the function (H9-arpevents.patch, 2026-11-09: eight hunks in ARP_RobMod.sma and nothing else).
 
 23. ARP_Core, ClassSaveHandle (H9-arpaudit.patch). It counts the answers of a class save down in the class's "/lastquery" and is done
    when the count is spent. The SQL module hands the answers that finished in one frame over last in, first out, and a save that
@@ -227,15 +228,33 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    are written down: this item and 21, include\ApolloRP_HUD.inc (the HUDK_* list and ARP_AddNeedItem), the first lines of h9_arphud.cpp,
    COMMANDS.txt (ITS HUD). H9-arpneeds.patch is the plugin and include changes against the files as they stood before it.
 
-27. Thirst (ARP_HungerMod; H9-arpthirst.patch; configs\arp\arp.cfg). ARP had hunger only. ARP_HungerMod now keeps a second need, thirst, beside it,
+27. Thirst (ARP_HungerMod; H9-arpthirst.patch, H9-arpthirstkeep.patch; configs\arp\arp.cfg). ARP had hunger only. ARP_HungerMod now keeps a second need, thirst, beside it,
    switched by arp_thirst_enabled (the plugin's default is 1, and the shipped arp.cfg sets 1, as it does for hunger): 0 to 100 for each player, up by one
    with a one in three chance every 15 seconds (about a point every 45 seconds; hunger's chance is one in six), kept in the plugin while the player
-   is in the game and not stored (a player who joins starts at 0, and a death resets it as ARP_Core's death handler does hunger), and quenched only by a drink when it is finished: Soda by 35 and
+   is in the game and, between his visits, in a table of the plugin's own, as hunger is in ARP's (the last paragraph of this item: a character that has none starts at 0, and a death resets it as
+   ARP_Core's death handler does hunger), and quenched only by a drink when it is finished: Soda by 35 and
    Milk by 30. They heal their hunger as before; a thirsty player may drink with no hunger to heal, where "you don't feel like drinking" refused
    it. Thirst is a meter and nothing more: no speed change, no message, no salary; from 90 the second HUD shows the status line "Dehydrated" (HUDK_STATUS)
    under the bars, and the hunger line is now "Starving" (it was "Starving: No Salary"; the rule, no salary while starving, is stock ARP's and stays). The two needs are
    two rows of the needs panel (ARP_AddNeedItem(id, "Thirst", value), item 26), Hunger first. Nothing in the core changed. H9-arpthirst.patch is the
    plugin and arp.cfg changes against the files as item 26 left them.
+   Kept thirst (2026-11-12, arp_h9_thirst_keep; H9-arpthirstkeep.patch). Thirst comes back when the character joins again, as hunger does. Hunger is a column of ARP_Core's users table: the core writes
+   it when it saves the character (SaveUserData: every arp_save_interval seconds, when he leaves, at a map change and when the server stops) and reads it when it loads him (FetchClientData); a death sets it
+   to 0 in memory (EventDeathMsg) and the 0 is written at the next save; a character the table has no row for starts at 0; nothing counts the time he was away. Nothing in the core knows thirst and nothing in
+   it changed: thirst is a table of the plugin's own, arp_h9_thirst (authid VARCHAR(36), thirst INT(11), UNIQUE (authid)), made with CREATE TABLE IF NOT EXISTS the first time it is needed (by SQLite or MySQL as
+   ARP_SqlMode() says, the way ARP_PropertyTax and ARP_Inventory make theirs) and only while arp_thirst_enabled and arp_h9_thirst_keep are 1. No row of any ARP table is added or changed, and going back is dropping it.
+   A map whose own users table is not arp_users has a table named after that one (arp_h9_thirst_ and its letters, digits and underscores), as the property tax names its tables, so characters a map's own users
+   table keeps apart keep their thirst apart; H9's two maps share arp_users, so on both it is arp_h9_thirst. A row is kept under the character's key (ARP_GetUserKey: the key his users row is under, his authid
+   or the first authid recorded for his havoc9.org account), never under his name, his slot or the authid of the moment, so a rename, a rejoin and a second character cannot swap values. The plugin takes two
+   of ARP_Core's events, as ARP_Inventory does. Player_Ready (the character has loaded) asks for his row, and thirst is what it holds, or 0 for a character that has none; Player_Save, which the core calls inside
+   SaveUserData, writes it with one statement (INSERT OR REPLACE; REPLACE INTO on MySQL), so thirst is written at exactly the moments the users row, and hunger with it, is. ARP_CleverQuery hands the statements to
+   the core's worker, which runs them in the order they come (and in line when nobody is in the game or the map is ending, as for the core's own). Nothing is written for a character whose row has not been read, so a
+   thirst that was never read does not write over what the database holds; a player whose row could not be asked for or read (the database cannot be used, the read failed) plays with thirst in memory, and the next
+   pass of the task that raises thirst asks again. A failed statement is said once in the log ("[ARP] thirst: the database failed (...)") and nothing is read or written for a minute. When the core itself cannot
+   load a character it pauses itself (its fatal error), Player_Ready never comes, and nothing of his thirst is read or written. A crash (no plugin_end, so no save) loses what the next save would have written, for
+   thirst and hunger alike: up to arp_save_interval seconds (300 in the shipped arp.cfg) of both. arp_h9_thirst_keep 0 keeps thirst in memory alone (a player who joins starts at 0, no table is made or read; the
+   setting is read at each load and each save, so a player who is in the game when it is changed keeps what he has until he joins again); arp_thirst_enabled 0 is stock ARP: no thirst, no table, no statement.
+   H9-arpthirstkeep.patch is the ARP_HungerMod and arp.cfg changes against the files as H9-arpthirst.patch left them.
 
 28. Dropped items name themselves (ARP_Core.sma, GetMsg and H9_AimedItem; H9-arpitemhover.patch, H9-arpitemworld.patch). An item dropped on the floor (classname arp_item, the
    backpack model; its name in the noise string, its number in iuser2) looked the same whatever it was, and its box (5 units) is too small for
@@ -399,7 +418,7 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    alone: Administration; a letter of arp_h9_insurgent_access (i): Insurgency; else Civilian, or Proletarian while H9's team play runs (H9_CivilianWord); the letters are read from the cvars arp_police_access, arp_medical_access, arp_admin_access and arp_h9_insurgent_access, g is the Lord Minister's own), STATUS (Locked or Unlocked; the
    panel words it SEALED or OPEN by the kind), RESTRICTED when the property is locked and the viewer has neither its key (H9_HasKey), nor the property (the owner's key), nor a letter of its access
    (the test client_PreThink makes before it uses the door), and the buy hint when it has a price; an NPC says its name, a ROLE from the handler its plugin gave it (EdekaHandle shop, BankHandle,
-   DoctorHandle, GunshopHandle gun shop, AtmHandle ATM), the owner and affiliation of the property its npcs.ini block names (the noise2 of its entity; none of H9's does) and the hint; a player his
+   DoctorHandle, GunshopHandle gun shop, AtmHandle ATM) and the hint, with no owner and no affiliation (an NPC is not a property: item 47; the property its npcs.ini block names, the noise2 of its entity, is only the profit's: item 45); a player his
    name, job and the affiliation of his job's letters (g_Access; H9_PlayerAffiliation: Middle Sea Republic for the police letter, the medical letter or g, Insurgency for a letter of arp_h9_insurgent_access, Administration for the admin letter alone, else Civilian). Every other game (no panels, cl_h9_arphud 0, arp_hud4_type 1) gets the stock text with an "Affiliation:" line before the status (a door) or after
    the job (a player); an NPC's text is unchanged. A panel player who keeps looking at the same thing is built again at most every 0.25 s (g_PlaqueKey, g_PlaqueAt) and the core sends the same lines again every
    HUDP_NOTICE_GAP (1.5 s), the game holding what it has for 2.5 s; the door branch looks the property up once (UTIL_ARP_GetProperty) where it scanned the door rows and printed for each. The one text the
@@ -453,7 +472,12 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    share no letter with a Ministry job (docs\ARP_CONTENT.txt, 3 and 4; the rows are in a text block for each map, appended after the last job row). tsrp_roambots 1.5: with the teams running a citizen is a Proletarian and, in an insurgency,
    of the Insurrection (a bot joins onto the team with the fewest players and the plugin moves it to its team before it spawns; the team field of every citizen at once, TS's team as each takes up arms: jointeam, so TS takes it out of play for its respawn time and RCBot respawns it, and it comes back armed in another district), .civilians moves them back,
    and every bot has a faction (citizen or guard) that .insurgency and .civilians act on only for citizens; rcbot-patch CHANGE 14: with the teams in use an insurgent roamer's enemies are every player and every bot that is not on its own team (the Proletarian and Middle Sea Republic players, and the Republic's guards when there are any) and never one that is. Switch: arp_teamplay (0: stock ARP,
-   which touches no team and sets nothing of TS's; read at the precache, so a change needs a map change). H9-arpteams.patch is the ARP_Core.sma, ARP_TS.sma, ApolloRP_H9Teams.inc and arp.cfg changes against the files as they stood before it.
+   which touches no team and sets nothing of TS's; read at the precache, so a change needs a map change). The switch is read from the two files only: arp_teamplay 1 typed at the console on a running map does nothing (TS has
+   made its rules and the game's half was not set up), and arp.cfg, which ARP_Core executes at every map load, puts the cvar back at the next load. ARP_TS keeps what the load asked for (g_TeamLoaded, h9_teams_requested at
+   plugin_cfg) and its TeamAsked needs both that and the switch: with the switch at 1 and no such request TeamLate says so once, in three short lines to the server's console (which cuts a line at 254 characters) and one to the log,
+   and nothing is set, judged or moved (before this change a switch typed in the first minute of a map made TeamEnsure write mp_friendlyfire 1 and mp_teamlist live and made the plugin leave out TS's join lines), and arp_teams
+   says it too; the judgment's line for a map that did ask says that TS read mp_teamplay once, as the map loaded. H9-arpteams.patch is the ARP_Core.sma, ARP_TS.sma, ApolloRP_H9Teams.inc and arp.cfg changes against
+   the files as they stood before it; H9-arpteamnotice.patch is the ARP_TS.sma change against the file as it left it (the notes in arp.cfg, COMMANDS.txt and docs\APOLLO_RP.txt say that the files are the only place the switch counts).
 
 44. The property tax paid by hand, automatic payment as an opt-in, and eviction by the server (ARP_PropertyTax.sma, H9's own, in no patch; configs\arp\arp.cfg; docs\APOLLO_RP.txt, 11; docs\ARP_TAX_CHECKS.txt;
    COMMANDS.txt; docs\ARP_COMMANDS.txt). Item 42's tax takes the money from the owner's bank at each toll and forgives what the bank cannot pay. arp_h9_tax_manual 1 (the plugin's own default is 0, so the tax stays as
@@ -466,10 +490,160 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    payment is charged at each toll what it owes plus the toll's amount, all or nothing for the automatic properties of an owner together: in the game from his bank in memory, away by ONE statement, UPDATE <users> SET
    bankmoney=bankmoney-N WHERE <his key> AND bankmoney>=N, whose callback (ARP_CleverQuery gives it the query handle) reads SQL_AffectedRows, so that no read comes first and no race is possible (a key cut at 32 to 34
    characters is found by SUBSTR, as in item 42); what could not be taken is owed, and what was taken is in his row of arp_h9_tax for his login popup. A payment that is on its way is waited for (its property is left out of the tolls that come, so that nothing is charged twice), and a property that was sold or given to another meanwhile is its new owner's. arp_h9_tax_evict 1 (default 0; it needs arp_h9_tax_manual 1) takes a
-   property back at a toll when it has owed arp_h9_tax_evict_tolls tolls in a row (96; 0 off) or arp_h9_tax_evict_debt money (0 off), whether or not its owner is in the game, and never in the first toll after a map began:
+   property back at a toll when it has owed arp_h9_tax_evict_tolls tolls in a row (96; arp.cfg ships 288, 72 hours, as the owner asked on 2026-11-13; 0 off) or arp_h9_tax_evict_debt money (0 off), whether or not its owner is in the game, and never in the first toll after a map began:
    ARP_PropertySetOwnerName and ARP_PropertySetOwnerAuth with "", ARP_PropertyClearAccess, ARP_PropertySetPrice (what the owner paid, from arp_h9_taxbase), ARP_PropertySetLocked (the lock noted at the event Property_Buy when the
    property had no owner; sealed where unknown), its row deleted, one log line. The ex-owner is told at once when he is in the game and has loaded, and otherwise by a row of arp_h9_taxnote (INSERT ... SELECT from the users
    table, so under the key it keeps) that his next login deletes when it shows him one popup; an owner in the game is warned in one line when a property passes half and three quarters of its allowance, and his login popup says
    how long each property has left. Money is whole numbers throughout (no sum passes 32 bits). ARP_Core is not changed. One thing was found in it: ARP_PropertyClearAccess deletes the rows of the keys table only when a player
    in the game holds a key (H9_AnyKeys), so keyholders who are away keep their rows after an eviction (docs\APOLLO_RP.txt, 11). The two tables are made when first needed while arp_h9_tax_manual is 1; no ARP table is touched, and
    going back is dropping them.
+
+45. Profit for the shops' properties and the towns' treasuries (ARP_PropertyTax.sma, H9's own, in no patch; configs\arp\maps\h9_tsrp_hive\npcs.ini and h9_tsrp_newbyzantium\npcs.ini; configs\arp\arp.cfg;
+   docs\APOLLO_RP.txt, 10 and 11; docs\ARP_CONTENT.txt, 6 to 9; docs\ARP_TAX_CHECKS.txt, F; COMMANDS.txt; docs\ARP_COMMANDS.txt). Stock Apollo RP adds arp_profit_fraction (0.25) of every sale of a shop or a
+   gun shop NPC (ARP_NPCs, three places) to the profit of the property that the NPC's block of npcs.ini names with a property line, which the owner takes with /profit; no NPC of H9's maps named one, so no property ever
+   earned anything. DATA: the hive's npcs.ini names a property for nine of its sixteen shops and gun shops (the two Gear Guys NPCs h9_pc_gear_guys, Uncle Pikkys h9_pc_pikkys, the two Guns n Stuff NPCs
+   h9_xe_guns_n_stuff, the Green Dragon h9_xe_green_dragon, Xenon City Gear h9_xe_city_gear, the K-Line h9_al_kline, H&C Coffee h9_al_cafe_fortress), each the front of the shop the NPC stands in, from the door boxes of the
+   compiled map and the closed rooms of the plaque work; the other seven (Pawn Prawn, the Snack Archive, Amoeba Music, the Black Market, the two XCCP clerks, Cafe Avalon) and all 17 of New Byzantium's, a map with no property for
+   a shop, have none, and the headers of both files and docs\ARP_CONTENT.txt, 6, say why. Nothing in ARP_Core uses an NPC's property (H9_PlaqueNpc, item 41, stopped reading it with item 47: an NPC's plaque shows no owner); ARP_NPCs'
+   three credits are its only reader (ARP_GetNpcProperty). CODE (ARP_PropertyTax.sma; ARP_Core is not changed): arp_h9_tax_treasury (the plugin's own default 0; arp.cfg ships 1; it needs arp_h9_tax_manual 1 and
+   arp_h9_tax_evict 1) sends the profit of a property that the server takes back (tax_evict, tax_treasury_take) to the treasury of its town and sets the property's profit to 0, with statements that wait, the database
+   first and the profit only when the statement says that the sum was added (INSERT OR IGNORE of the town's row, INSERT IGNORE on MySQL; UPDATE arp_h9_treasury SET balance=balance+N WHERE tbl AND town AND
+   balance<=2000000000-N), so that a database that fails, a treasury that is full and a property in no town leave the profit with the property, and the log says so. A town is a key: on h9_tsrp_hive al, pc and xe by the
+   prefix of the property's internal name (h9_al_, h9_pc_, h9_xe_; h9_jail, the jail of Alexandria, is al), on every other map all; a hive property with none of the prefixes is in no town. The table arp_h9_treasury (tbl:
+   the map's property table, town, faction msr or ins, balance) is made with CREATE TABLE IF NOT EXISTS only while the cvar is 1, SQLite and MySQL; the faction is changed by SQL and the balance stays with the town;
+   nothing spends a treasury. arp_h9_tax_towns (an ARP admin's console or the server's) prints the towns of the map, each with its faction and balance. A crash within the arp_save_interval seconds after an eviction
+   leaves the sum in the treasury and, as ARP last saved it, on the property too: a duplicate, never a loss (docs\APOLLO_RP.txt, 11). The ex-owner's notice does not mention the profit. With the switch at its
+   default 0 nothing of item 44 changes: the whole rig of that item (397 checks) passes on the new build, and the scripts that take properties back (262 checks) pass again with the switch at 1.
+
+46. The hive's properties, doors and prices (configs\arp\maps\h9_tsrp_hive\h9_tsrp_hive.sql and price_migration.txt; docs\ARP_CONTENT.txt, 8 and 9; docs\APOLLO_RP.txt, 6 and 11; docs\ARP_TAX_CHECKS.txt, C and D;
+   tools\gen_prices.py, tools\check_docs_vs_sql.py; no plugin is changed and no cvar is added: the files are H9's own maps' data). The owner's requests of 2026-11-12. STATE PROPERTY (price 0, nobody can buy it): the ways through
+   that a whole city uses, open to everyone (locked 0, no letters): Tartec, Underground Public Gate, Underground Commercial Gate, Xenon Elevator, Xenon Level Doors and Maintenance Core Controls; the seven buildings that only the Ministry of Defense uses (the cyber lab, the data center, generator station 5 and the lab control room of
+   Xenon, the Aurora laboratories, map room and annex: sealed to the letter a); and a new MSR Gate (h9_pc_msr_gate: pc_MSRGATEUP and pc_MSRGATEDOWN, the two halves of one gate, sealed to a: the map's manager that moves them is fired
+   only by two key panels that nothing can use, so ARP's lock is the only way open; the lock does not stop a lockpick, but the halves are func_door and the lockpick works rotating doors only). The Medical Division's four properties stay
+   for sale. ONE PROPERTY FOR MIDGAR: h9_al_midgar_office holds the office's two doors, the kiosk window, the two doors of the car that runs down to the Shores (al_clabshores and al_shoresclab: use-only doors that the game opens
+   to any use key, so the lock does not hold them) and the two cell doors of the Shores corridor; h9_al_midgar_kiosk and h9_al_shores_cells are gone (the cells are no building of their own). THE ORG HEADQUARTERS: h9_pc_org_hq holds pc_orghqroma1
+   (ground floor) and pc_orghqroma2 and pc_orghqroma3 (upstairs); its lift door is left alone. PARADISE FLAT 4 IS A BAR: h9_pc_flat_res4 is now h9_pc_bar_paradise, "Paradise Bar" (door pc_resident4, the only pc_resident door that starts
+   open; no sign hangs near it, so the heading is the town's own), kind business; Flat 4A is renumbered Paradise Flat 4 (h9_pc_flat_res4, door pc_resident4a) so the flats run 1 to 9. The six h9_xe_rect_pod rows are headed
+   "Rectangular Pod 1" to "6". PRICES: every price of the first scale (1,200 2,400 4,800 9,600 19,000 38,000) is multiplied by 3 (the owner: 'Try 3x for now'; PRICE_MULTIPLIER in tools\gen_prices.py: change it and run the script
+   again, and the .sql, the migration file and the numbers of the docs follow), giving 3,600, 7,200, 14,000, 29,000, 57,000 and 110,000; the Cult Gate is 15,000 and the rectangular pods twice the scale, 7,200. The property tax was 1 percent of the price every 15 minutes, which at these prices costs more an hour than a Citizen earns from tier 3 up; the owner asked for a marginal tax of about 10 percent of the value a day, so arp.cfg now ships arp_h9_tax_percent 0.10 (0.4 percent an hour, 9.6 percent a day over the 96 tolls of a day; the plugin's own default stays 1.0): 16 an hour on a tier 0 property (3 percent of a Citizen's pay), 116 on tier 3 (10 percent of a Merchant's), 440 on tier 5 (5 percent of a Lord Minister's). The
+   hive now has 130 properties (105 for sale: tier 0 14, tier 1 16, tier 2 36, tier 3 22, tier 4 7, tier 5 10; 25 state property) with 220 door names (224 entities; 52 of the map's 276 names are left out, with
+   their reasons, in docs\ARP_CONTENT.txt, 9), Alexandria's 39, Paradise City's 41 and Xenon City's 50; the NPC links of item 45 name the same seven properties. INSERT OR IGNORE keeps the rows a database has, so price_migration.txt
+   (136 lines, in the order given, before the map restarts with the new file) renames, moves, deletes and reprices the unowned rows; a property with an owner is never renamed, deleted or repriced, and an admin settles it by hand.
+   tools\check_docs_vs_sql.py recomputes the counts, the tiers, every price, the door table, the descriptions and the list of left-out doors from the .sql and the compiled map and fails if a doc or the migration file disagrees. Not seen in a game.
+
+47. Cafe Avalon's salesman, two bank terminals, the NPC plaque and the zones of the hive (ARP_Core.sma H9_PlaqueNpc, carried by H9-arpplaque.patch; ARP_Zones.sma, H9-arpzones.patch; configs\arp\arp.cfg; COMMANDS.txt;
+   configs\arp\maps\h9_tsrp_hive\npcs.ini and zones.ini; configs\arp\maps\h9_tsrp_newbyzantium\zones.ini; docs\APOLLO_RP.txt, 2 and 11; docs\ARP_CONTENT.txt, 1 and 5 to 8; docs\ARP_TAX_CHECKS.txt, F; docs\ARP_HUD_CHECKS.txt, 15;
+   docs\ARP_COMMANDS.txt). CODE: H9_PlaqueNpc
+   (item 41) no longer reads the property that an NPC's npcs.ini block names (the noise2 of its entity) and no longer asks H9_PlaqueOwner for its owner and affiliation: the plaque of an NPC is its name, its ROLE and the
+   use hint, linked or not, because an NPC is not a property. H9_PlaqueDoor, the player branch and GetMsg are untouched, and so is the property of an NPC itself: ARP_NPCs' three profit credits (ARP_GetNpcProperty) read it as
+   before. It is H9's own plaque, so it has no cvar (arp_h9_plaque 0 is still stock Apollo RP's text); H9-arpplaque.patch carries the new function. ARP_Core compiles with its 14 baseline warnings and no other, and compared function
+   by function in assembly the other 357 of its 358 functions are the same program (docs\ARP_CONTENT.txt, 8). DATA: the hive's npcs.ini has 24 NPCs. Cafe Avalon Cantina is a Cantina shop in the bay of the wood counter at the west end of
+   the hall under the plaza's east side (1230 1076 -339), named from that hall's AVALON sign, with no property line: the bay is not in the room of h9_pc_cafe_avalon. Two Bank Terminals (type bank, the invisible model
+   models/player/Invisible/invisible.mdl) stand before the screens of the two hexagonal kiosks under the map's two floating BANK signs (func_rotating {PC_BANK), at -136 1962 -270 and -1904 -1297 -948: use opens the teller's menu and
+   /withdraw and /deposit work facing one. Each spot was proved against the compiled BSP2 with a hull test on its clip nodes (docs\ARP_CONTENT.txt, 6 and 8). The hive's zones.ini names its three cities (Alexandria, Paradise City, Xenon
+   City: boxes 9000 each way sideways, split in z at the two solid caps the cities are stacked with, -1488 and 411, within 40 units of which no player's origin is possible) and New Byzantium's names its one, so the HUD's Location line no longer
+   says Unknown on either map. No trigger_multiple of either map has a targetname, so no trigger's name can show in place of a zone. ARP_Zones itself has two faults, repaired behind the new cvar arp_h9_zonefix (default 1; 0 is the
+   stock plugin; arp.cfg, COMMANDS.txt; the zones' switch is the line arp.cfg holds, read with h9_cfg_num as the plugin reads its file before the server has executed arp.cfg, and the touch follows the cvar): it stopped with a memory access error at the end of the first zone of a zones.ini (TravTrieSetString looks an old value up in a buffer of 4 cells with the length 4, AMX Mod X writes the
+   terminator one cell past it, over the wrapper's frame), so a file of several zones gave its first and a player outside it read Unknown; and its touch handler returned FMRES_IGNORED, which is 1 and blocks the touch, so no
+   trigger_multiple fired for a player and the hive's two automatic doors (Tartec's front, the bank's glass doors) never opened. The corners are written back with TrieSetString (the key is there already), and the handler returns
+   PLUGIN_CONTINUE. A map change reads the data files and the zones; the ARP_Core and ARP_Zones builds change.
+
+48. Solid props (new plugin ARP_PropClip.sma, H9's own, in no patch; configs\arp\arp.cfg; configs\arp\maps\h9_tsrp_hive\propclip.ini (new); build.bat; tools\propclip_tool.py and tools\mdl_tool.py (new);
+   docs\APOLLO_RP.txt, 7, 10 and 12; docs\ARP_COMMANDS.txt, 10; docs\ARP_CONTENT.txt, 1 and 7; COMMANDS.txt). The owner, 2026-11-12: the bookshelves of the Lord Minister's throne room can be walked through. CAUSE.
+   The shelves are ts_model entities (the studio-model prop of a Specialists map), which reTS\dlls\TS_entities.cpp, CTSModel::Spawn, gives a box of size 0 and SOLID_SLIDEBOX. The engine's player movement takes up a
+   solid only when its size is not null and it has a model (xash3d-fwgs engine\server\sv_pmove.c: SV_AddLinksToPmove skips a null size, SV_CopyEdictToPhysEnt a solid with no model), so players and bots walk through
+   every ts_model of every map. The maps put invisible clip brushes round the props that must be solid, and h9_tsrp_hive has none round these. The map is not recompiled and the game library is not changed (that
+   would make every ts_model of every map solid): ARP_PropClip makes the boxes at run time, from a file.
+   THE FILE. configs\arp\maps\<map>\propclip.ini, one line for each prop (a map with no file of its own has none, and configs\arp\propclip.ini is not a fallback): box "x1 y1 z1" "x2 y2 z2" "<model>" "<ox oy oz>"
+   "<ax ay az>", the world box, the prop's model as the map names it and the prop's origin and angles. The hive's holds four, the two library shelves of the throne room (entities 231 and 232:
+   models\alex-hlru\cc_pr_LibBookShelf_1.mdl at 1588 29 -2168 and 1588 -212 -2168) and two bookcases (254 at -1178 1111 -1992 and 340 at 2814 181 -2072, turned 180 degrees: models\alex-hlru\bookcase.mdl). The boxes
+   come from tools\propclip_tool.py, which works out the box from the vertices the model draws (body 0, sequence 0, frame 0, moved by the bone matrices; the shelf is 156 x 37 x 205, the bookcase 67 x 21 x 103) and
+   the prop's angles, turned the way the studio renderer turns them and made world-aligned, never from the model's header: the header's min, max, bbmin and bbmax are 0 in every model checked, while the box of
+   sequence 0, which the model compiler wrote, equals the tool's for both. A prop turned by a multiple of 90 degrees gets exactly the box it fills; the tool says when another angle gives the hull of the turned
+   shape. A "model" kind of line (a box for every prop that uses a model) is the tool's work, not the plugin's: it reads no model and finds no entity by itself, which would fail where h9_staticprops has freed the
+   ts_model entities (it does that at plugin_cfg; the plugin notes the props' models at plugin_init, before, and a line whose model no prop of the map uses is left out and logged).
+   THE BOX. An info_target renamed arp_propclip with SOLID_BBOX and MOVETYPE_NONE, carrying the prop's own model at the prop's own origin and angles and the box as its size; no think, no touch, no sound. THE MODEL
+   IS NEEDED. The first idea was a box with no model and EF_NODRAW, but the engine's own movement leaves a solid with no model out of a player's movement, so such a box stops a trace (TraceHull) and not a player.
+   The rig showed it with a fake client that was really in play (RunPlayerMove, the engine's own player movement; a test wall across the aisle between the two shelves, the client walking at it): a SOLID_BBOX wall
+   with no model let the client walk through (final y 15.96); the same wall with the shelf's model stopped it at its face, to the hundredth of a unit (y -116.03 for a face at -100 and a hull half width of 16), and
+   so did the plugin's four boxes (each from 56 units outside the face, straight at it: stopped at the face less 16, standing still, to 0.04 of a unit). Render mode texture with an amount of 0 (what the plugin
+   sets), MOVETYPE_NONE, PUSH and STEP, SOLID_BBOX and SLIDEBOX, and a carrier of another model (models\player.mdl; models\arp\pellet.mdl, which has no hitboxes) made no difference. The prop's own model is one the
+   map has precached and loaded: nothing new is precached, sent or kept.
+   NOT DRAWN, PREDICTED. The box is not drawn (render mode texture, amount 0: R_AddEntity of both renderers skips an entity that is not render mode normal and has an amount of 0) and it is sent to the clients (the
+   game library's AddToFullPack sends an entity that has a model and is not EF_NODRAW) with its size, so that a client's own movement stops at the box as the server's does and a player is not pulled back at it
+   (CL_AddLinksToPmove takes a studio model with a size, whatever its render mode). That the box is not seen on the H9 client, the web client and the Linux client, and that a client's prediction agrees with the
+   server's, is read in the engine's source and not seen in a game.
+   BULLETS. A trace with a size (a player, a bot, a monster) meets the box; a point-sized trace (a bullet, TraceLine) meets the hitboxes of the carried model (SV_HullForStudioModel), which for the shelves and the
+   bookcases are one box that matches the drawn prop to a unit. A prop with no box never stops a bullet (a trace whose owner has a size skips a point-sized entity). With the boxes, the rig scanned 420 lines at the
+   four props (five faces each, five places along a face, up to four heights, from 80 units outside the face to 20 inside it); at the first look, with no box, the world stood in the way of 60, so 360 are fair: 311
+   of them hit the box, every one at the hitbox faces (0.2 to 0.9 of a unit inside the box), and 49 went through: all 20 at the +y face of the first shelf (entity 231), 16 of 20 at the +y face of the bookcase at
+   2814 181 -2072 (entity 340), and the far end of three more faces (4, 4 and 5 lines). A grid of start distances at the first shelf and that bookcase showed that these lines pass only when they start more than
+   about 60 to 80 units out: the same lines from 48 units (64 for the bookcase) hit, and the other shelf is hit from every distance. It is not the studio hull cache (r_studiocache 0 gives the same) and the engine's
+   source reads as a plain box; the cause is not found. So the boxes stop most shots, not all, and a shelf is not a sure cover. If a box must not stop a bullet at all, it can carry a model with no hitboxes
+   (models\arp\pellet.mdl: the rig shows it still blocks a player and lets every bullet through); nothing here does, as nobody asked.
+   SAFETY. A box is made not solid and becomes solid on the first look when no player's hull (2 units wider) is in it: a player in it when the switch goes to 1 is never trapped (the rig: the box waited, he walked
+   out, it became solid). The boxes are removed at the end of the map, when the switch goes to 0 and when the plugin is paused, and a sweep by class name takes any that the plugin lost track of: no map change,
+   toggle or pause leaves one twice. A box is one entity of the 4098 the engine allows (at most 128 lines; the hive has about 2000 in use with the ARP stack, New Byzantium about 3070). The switch arp_h9_propclip
+   (the plugin's own default 0, which is stock Apollo RP: the file is not read, no entity is made, nothing is logged; arp.cfg ships 1) is looked at every second (AMX Mod X's cvar hooks do not fire in this build), so
+   arp.cfg, which the server runs after plugin_init, is seen and a change needs no restart: 1 reads the file again. A line that is not a box line, has a value that is not three numbers, names a model no prop of the
+   map uses, or has an empty or outside box is left out and the log says which. On a map that is not a roleplay map ARP stands down and the plugin with it. build.bat: ARP_PropClip is the last of ARP_TARGETS (built,
+   deployed, listed in plugins.ini after the others); it is in none of the presets' plugin lists, as ARP_Inventory and ARP_PropertyTax are not, so preset-check is unchanged. Neither the map, the game library,
+   ARP_Core, ARP_TS nor any other plugin is changed. THE AUDIT of the two maps' props (336 ts_model in the hive, 584 in New Byzantium, with what a player would expect to be solid) is in the engineer's delivery,
+   PROP_AUDIT.txt; nothing but the four named props was boxed.
+   THE RIG (the real ARP stack, the 17 ARP plugins built from the masters of 2026-11-13 at 10:40, on a private headless server of its own on UDP 27197 under the heavy lock; a rig-only test plugin, never shipped,
+   runs the traces, makes the fake client and counts the entity classes): 119 checks, 119 pass. The four boxes appear from arp.cfg's 1 with the right fields (SOLID_BBOX, MOVETYPE_NONE, no think, the prop's
+   modelindex, absmin and absmax the box plus and minus 1) and are the four lines of the file; every box stops a standing hull (TraceHull) at its face to 0.04 of a unit; a fake client in play stops at each one; the
+   doors of the throne room stay passable; control traces in the open are the same with the boxes as without; the other classes of entities are as many with the boxes as without, through three toggles of the switch,
+   a pause and an unpause and three map changes (a roleplay map with no propclip.ini makes none and logs nothing; on h9_up_drainage ARP stands down and the plugin is paused; back on the hive four boxes, not eight);
+   a file with every kind of bad line makes the good three and logs each of the six that it leaves out; the model rule is shown by the variants (no model: the client walks through; another model with no hitboxes: it
+   is stopped and the shots pass). With h9_staticprops 1, which frees the ts_model entities at plugin_cfg, a cold start with the switch at 0 makes nothing, and the switch turned on afterwards still makes the four
+   boxes (329 props handed to the clients, 17 checks pass). Static evidence: tools\propclip_tool.py check, 37 checks pass; the four boxes' places hold 100 per cent free space, no door within 265 units, no player start within 1600, no RCBot waypoint
+   within 366 and no NPC within 1100; each box is one piece with its surroundings, so none seals a pocket. What only a game can show: that a client's own movement agrees with the server's at a box, that the box is
+   not drawn on any client, and how a shelf feels in an aisle.
+
+49. Pay: what a job is paid, by a percent and by a line of the map's pay.ini (new plugin ARP_PayScale.sma, H9's own, in no patch; ARP_Core.sma's native ARP_H9SetJobSalary and its declaration, the new include\ApolloRP_H9Pay.inc,
+   H9-arppay.patch; configs\arp\arp.cfg; pay.ini and .sql of configs\arp\maps\h9_tsrp_hive and h9_tsrp_newbyzantium; build.bat; docs\APOLLO_RP.txt, 6, 8 and 10; docs\ARP_CONTENT.txt, 1, 3 and 7;
+   docs\ARP_COMMANDS.txt; COMMANDS.txt). A job's salary was its row in the map's jobs table and nothing else, and the maps' .sql files are INSERT OR IGNORE, which never changes a row a database has, so
+   a change of pay was an UPDATE of the database. THE UNIT: ARP_Core's ShowHud runs every 2.0 - arp_performance / 100 seconds (a second at the shipped 100), pays each player's salary (g_Salary, the row's, into the
+   BANK) on every 60th pass, and once on the first pass of a map, so a salary is paid every 60 seconds and a salary of 10 is 10 a minute; the "$/hr" and "$/h" of the HUD, /menu and the employment offer and the "m"
+   of "Payday: 12m" are upstream's wording and are not renamed. UNEMPLOYED PAYS 0: the row is 0 in both maps' .sql files (it was 5) and both maps' pay.ini says "Unemployed" 0, which wins over the row of a
+   database that has the old one (the live database's is 5; no row of a database is changed by this item, and an UPDATE does it if the row is to say 0 as well). The core still holds 5 for the job it makes when a
+   jobs table has none (UTIL_ARP_AddJob("Unemployed",5,0) in FetchJobs and in three places of FetchClientData; the two g_Salary = 5 beside them are overwritten a few lines on): that is a table without the job, which
+   the maps' .sql files fill before the core looks, and a line of pay.ini covers it; the core is not changed for it, so stock Apollo RP stays as it was. THE PLUGIN: a job is paid the salary of its line in pay.ini
+   (configs\arp\maps\<map>\pay.ini, else configs\arp\pay.ini, read at the map load; a line is  "<job name>" <salary>, ; starts a comment, the name is compared whole and without regard to case, a name no job has
+   is said once in the log, 128 job lines are kept and a line is read 127 characters at a time), else the salary of its row, at arp_h9_pay_percent per cent (the plugin's own default is 100, arp.cfg ships 100;
+   0 to 1000): value / 100 * percent + (value % 100 * percent + 50) / 100, in whole numbers rounded half up, with no float and no sum past 32 bits (a salary counts up to 100000000), 0 stays 0, and a row below 0 is
+   left as it is. With 100 and no pay.ini the plugin gives the core no salary, stops no payday, logs nothing and writes nothing: stock. HOW: when the core has the native ARP_H9SetJobSalary (new; it sets the salary the core
+   holds for a job and each player's own in the game, never a row) the plugin looks at the jobs every 2 seconds, keeps each job's row from its first look (and drops a job that arp_deletejob takes away) and gives the core the salary to pay, so that the core pays it
+   by its own code and the HUD, /menu, the employment offer and arp_joblist, which read it from the core, say the number that is paid; a change of the percent shows in about two seconds. The forward ARP_Salary is
+   answered as well: when what a character is to be paid is not what the core holds (the percent changed a moment ago, or the core has no such native, which the plugin's native filter notes at the load) the plugin
+   adds it to his bank (never past 2147483647) and returns PLUGIN_HANDLED. ARP_HungerMod and ARP_JailMod stop a payday by that forward as before; the forward stops at the first plugin that returns PLUGIN_HANDLED, so a
+   plugin listed after this one never sees a payday that this one paid itself (build.bat lists a new plugin last, and the log has a line when plugins.ini lists this one before either of them). Command: arp_h9_pay_dump
+   (the server's console, or an ARP admin's) lists the percent, the way, the file and each job's row, line, pay and what the core says. The core changes in one native, which is declared in the new include of its own
+   (H9-arppay.patch is the ARP_Core.sma change and that include, against the files as they stood before it). No table is made and no statement is sent; going back is taking ARP_PayScale out of plugins.ini (the rows were never changed). The rig of this item (the real ARP stack on SQLite on a private headless server; the core's own join, save, disconnect, payday, arp_joblist and HUD run, a bot made a person): S0 the stock stack 20 checks, S2 the plugin with the native 73, S3 without the native 25, S4 a table without Unemployed 8, S5 a payday right after a change of the percent 3, S6 jobs deleted and added while the plugin runs and a byte-order mark in pay.ini 18, and apply_pay_db.py on copies 27: 174 pass, 0 fail.
+
+50. The context menu of the use key on a player (new plugin ARP_H9Ctx.sma, H9's own, in no patch, and its include\ApolloRP_H9Ctx.inc; ARP_Inventory.sma's EventPlayerUse and three public functions, ARP_JailMod.sma's
+   H9_Cuffed and ARP_Items.sma's H9_RopeState, carried by H9-arpctx.patch; the client's h9_arpctx.cpp, h9_arpctx.h, h9_arpctx_model.h and h9_arpctx_ui.h with hooks in hud.cpp, vgui_TeamFortressViewport.cpp, inputw32.cpp,
+   h9_vgui.cpp and h9_vgui.h, h9_arpinv.cpp and h9_arpinv.h, client.dll.patch; configs\arp\arp.cfg; build.bat; tools\check_arp_docs.py; COMMANDS.txt; docs\APOLLO_RP.txt, 7 and 10; docs\ARP_COMMANDS.txt;
+   docs\ARP_INVENTORY.txt, 10; docs\ARP_INVENTORY_WINDOW.txt; docs\H9_VGUI.txt). The use key on a living player (the event Player_Use, 100 units, in sight) meant an exchange of goods, or a search when he is
+   handcuffed, and it can no longer mean only that: not everyone pressed on wants to trade, a bot cannot, and other plugins want the key too. WHAT IT IS: with the new cvar arp_h9_ctxmenu 1 (the plugin's own
+   default is 0, which is the use key as it was; arp.cfg ships 1) a player whose game says _h9vgui 10 (new: the client with the menu and cl_h9_ctxmenu 1; 9 when he turned it off) is sent a menu of what he can do to
+   the player: Trade, Search, Cuff (Free when he is cuffed), Tie (Untie), Tape mouth (Remove tape), Fine, Give money, Show license or card, and up to four entries another plugin adds. The menu stands right of the
+   crosshair with the cursor up; the look stops; a click or a number key chooses, ESC, a right click or a click outside closes it. An entry that does not apply stays on the list, greyed, with the reason in a few
+   words ("Bots cannot trade", "Cuff him first", "Police only", "You have no Cuffs", "Not in sight"); an entry whose feature is off (arp_h9_inv_window, arp_h9_search, arp_h9_restraints, arp_h9_ctx_cuff,
+   arp_h9_ctx_fine, arp_h9_ctx_give) is not listed: one rule. THE SERVER DECIDES: ARP_Inventory answers what Trade, Search and Show may do now and why not (H9Inv_CtxWhy: the very tests tr_use, sr_use and inv_op_show make,
+   asked in their order, with no side effect) and does them through the functions the use key and the window run (H9Inv_CtxDo, H9Inv_CtxShow), so there is no second copy of any rule; ARP_JailMod says whether he is
+   cuffed (H9_Cuffed: /cuff cuffs or frees by that) and ARP_Items what holds him (H9_RopeState: tied, holds somebody on a rope, mouth taped), and the rest is ARP's own natives. Cuff, Free, Tie, Untie, Tape mouth,
+   Remove tape, a fine and money run the player's own command (SayCuff, the items' use, /untie, /removetape, /fine, /givemoney), whose rules apply, with his view turned toward the player the menu is about for the length
+   of the call and given back after it, because every one of those commands acts on the player looked at: the target is the menu's, never whoever stands in the crosshair when the click comes. The menu is built again
+   every half second while it is up (a change is sent), and again when a choice arrives: a choice is done only when its entry is still in the menu and enabled, whatever the client sent; a forged index, serial or
+   target does nothing. It closes when the player or his target dies, leaves or is restrained, when he goes beyond arp_h9_ctx_range (150), when the switch goes off or his game stops drawing it. The press that accepts an
+   exchange that was offered to him is never the menu's. EXTENSIBLE: include\ApolloRP_H9Ctx.inc has the forward ARP_H9CtxBuild(id, target), called in every plugin that has it each time a menu is built, and the native
+   ARP_H9CtxAdd(label, handler, enabled, note) valid inside it; an entry that is not enabled is greyed with the note as its reason, and the handler is a public function of the plugin, public handler(id, target), run
+   with the aim turned as above; an entry of a plugin that is paused or gone is not asked for, so it is gone within half a second. DEGRADES: a game that says less than 10, a bot, a player whose character is not
+   loaded and a server with the switch off get the use key as it was, from the same plugin and the same code. PROTOCOL: the user message H9Ctx (OPEN, ROWS, CLOSE, NOTE; docs\ARP_INVENTORY.txt, 10) and the client commands
+   h9ctx pick <serial> <index> and h9ctx close <serial>, at most ten a second. CVARS (all read when used, none needs a map change): arp_h9_ctxmenu, arp_h9_ctx_range, arp_h9_ctx_cuff, arp_h9_ctx_fine, arp_h9_ctx_give,
+   arp_h9_ctx_fine_amounts and arp_h9_ctx_give_amounts; the player's own cl_h9_ctxmenu (saved), cl_h9_ctxmenu_state and cl_h9_ctxmenu_test; the console command arp_h9_ctx_dump. THE CLIENT: h9_arpctx_model.h keeps the list and
+   checks every byte of every message, h9_arpctx_ui.h is the geometry, the rules of the clicks and keys and the drawing over a canvas, h9_arpctx.cpp is the engine's part; the inventory window and the menu share the
+   cursor and the mouse, and the menu takes the buttons first. Going back is arp_h9_ctxmenu 0, or ARP_H9Ctx out of plugins.ini: ARP_Inventory then finds no such plugin and the use key is what it was. ARP_Inventory,
+   ARP_JailMod and ARP_Items change in a few lines each, so they are built again with ARP_H9Ctx and the client.dll with it. docs\ARP_INVENTORY_WINDOW.txt, 7, says what to look at in a game.

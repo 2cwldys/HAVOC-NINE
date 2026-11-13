@@ -24,8 +24,9 @@ C. With H9's client on h9_tsrp_hive.
       Job under, each label dimmer than its value. cl_h9_arphud_list in the console: key "1", messages read > 0, HUD 1 shown.
       If arp_hudstate says PANEL and messages were sent but cl_h9_arphud_list says "0 message(s) read": the message does not reach the
       game (hook or network); if it says some read but "no lines held" or another reason, the reason is the thing to read.
-   3. Earn or spend money: Wallet changes within two seconds. Walk into another zone: Location changes. Eat or starve (hunger on): the Needs panel
-      at the top right changes (13). Wait on the spot a minute: the panel does not blink (the refresh sends the same lines and changes nothing).
+   3. Earn or spend money: Wallet changes within two seconds. Walk into another zone: Location changes (h9_tsrp_hive has three zones, one for each city and so each level: Alexandria,
+      Paradise City, Xenon City, so take a lift between levels; h9_tsrp_newbyzantium has one, New Byzantium; Location says Unknown only on a map whose zones.ini names none: docs\ARP_CONTENT.txt, 7).
+      Eat or starve (hunger on): the Needs panel at the top right changes (13). Wait on the spot a minute: the panel does not blink (the refresh sends the same lines and changes nothing).
    4. Each switch: cl_h9_arphud_wallet 0 (the wallet line goes, the rest stay), _title 0 (the heading and the blank go, no empty heading),
       _job 0, _status 0 then die (only the heading is left of the panel while dead, the line that says so is gone), _extra 0 (location goes),
       every kind 0 (the panel goes), then back to 1. cl_h9_arphud_left 0: the whole panel goes and no text takes its place.
@@ -56,7 +57,8 @@ C. With H9's client on h9_tsrp_hive.
       (1000): the bar full. Two thin light marks cross the bar at three quarters and nine tenths. Eat (/items: the Steak heals 80, the
       Soda 5): the bar falls by 5 each second and the colour goes back with it, within two seconds of each change.
       Thirst: with arp_thirst_enabled 1 on the server (the shipped arp.cfg has 1) a second row, Thirst, stands under Hunger. It rises by 1 about
-      every 45 seconds and is not stored (a player who joins starts at 0, and one who dies starts again at 0, as hunger does). A Soda or a Milk lowers it by
+      every 45 seconds and is kept in the database, as hunger is (leave with Thirst at 30% and join again: it is back at 30%; a player who dies starts again at 0, as hunger does;
+      with arp_h9_thirst_keep 0 every join starts at 0). A Soda or a Milk lowers it by
       35 or 30 when it is finished, also with no hunger to heal. From 90 a red row "Dehydrated" stands under the bars. It changes nothing else: no
       slowdown, no message, no salary. Let it climb, die (or have an admin kill you) and respawn: both rows are back at 0%.
       Dropped items: drop an item (/items, or the inventory window) and look at it from a few steps: the notice names it ("Soda x3"), and its picture
@@ -135,7 +137,9 @@ E. THE ADDITIONS OF 2026-11-11 (a full server restart first: the new cvars; a ma
          RESTRICTED. The cells in its row and the checkpoints' doors say their own names. The shops, bars, clinics and the bank have no plaque at their shutters (their doors have no name;
          docs\ARP_CONTENT.txt, 9); their NPCs have one.
       C. NPCs: Gear Guys Arms Dealer (hive, x 1900, y 2324): GEAR GUYS ARMS DEALER, ROLE GUN SHOP, and "Press use (default e) to use". The ATM Droid says ROLE ATM, the bank teller
-         ROLE BANK, a Medical Officer ROLE DOCTOR, a shop clerk ROLE SHOP.
+         ROLE BANK, a Medical Officer ROLE DOCTOR, a shop clerk ROLE SHOP. No NPC's plaque has an OWNER or an AFFILIATION row, whatever its npcs.ini block holds. The BANK kiosk of the plaza (x -100, y 1962, floor -306) has
+         a Bank Terminal before its screen that nothing draws: look at the screen from 100 units west of it and the plaque says BANK TERMINAL, ROLE BANK (the kiosk in the south west, x -1904, y -1261, floor -984, the same
+         from the south).
       D. Players: with a second player, his name, JOB and AFFILIATION: a Captain MINISTRY OF DEFENSE, an M-Ensign MEDICAL DIVISION, a Merchant CIVILIAN (PROLETARIAN while team play runs), the Administrator ADMINISTRATION.
          Nothing is shown of a dead player.
       E. The plaque does not flicker: look steadily at the CP gate for ten seconds, and slowly across the gate and the shield behind it (xe_pdshield) and the wall beside: the plate
