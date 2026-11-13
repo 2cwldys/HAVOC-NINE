@@ -130,7 +130,9 @@ private:
 	float m_flNextSound = 0;
 	bool m_bEngineOn = false;
 	bool m_bGrounded = true;
-	int m_iLastButtons = 0; // the driver's, the frame before: a +use press gets him out
+	int m_iLastButtons = 0; // the driver's, the command before: a +use press gets him out
+	bool m_bUsePressed = false;
+	float m_flLastDt = 0;
 	float m_flEntered = 0;
 	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
 	float m_flLastHit = 1;
@@ -257,10 +259,19 @@ void CH9Car::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType
 			LeaveWheel(pPlayer);
 		return;
 	}
-	if (useType == USE_SET && value == 2) // the per-frame "still at the controls" call: the car drives on it too
+	// The per-frame "still at the controls" call. It runs at the client's clock (Xash's SV_RunCmd sets
+	// gpGlobals->time to the client's timebase for PlayerPostThink), not the server's, so the car must not step on
+	// it: a dt taken across the two clocks comes out negative or zero for whole seconds. It only keeps a +use press,
+	// which a short tap could make and undo between two of the car's thinks.
+	if (useType == USE_SET && value == 2)
 	{
 		if (pPlayer == pDriver)
-			Step("postthink");
+		{
+			const int buttons = pPlayer->pev->button;
+			if ((buttons & IN_USE) && !(m_iLastButtons & IN_USE))
+				m_bUsePressed = true;
+			m_iLastButtons = buttons;
+		}
 		return;
 	}
 	if (pDriver || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
@@ -287,6 +298,7 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	pPlayer->pev->owner = edict(); // the car's traces pass through him
 	UTIL_SetOrigin(pPlayer->pev, pev->origin + Vector(0, 0, 40));
 	m_iLastButtons = pPlayer->pev->button;
+	m_bUsePressed = false;
 	m_flEntered = gpGlobals->time;
 
 	if (!m_hCamera)
@@ -614,9 +626,10 @@ void CH9Car::DriveThink()
 // One frame of the car: from its think, and from its driver's PostThink (a frame's second call finds dt 0).
 void CH9Car::Step(const char* by)
 {
-	float dt = gpGlobals->time - m_flLastThink;
+	float dt = gpGlobals->time - m_flLastThink; // the server's clock only: Step runs from the think alone
 	m_flLastThink = gpGlobals->time;
 	dt = H9Clamp(dt, 0, 0.1f);
+	m_flLastDt = dt;
 
 	CBasePlayer* pDriver = Driver();
 	if (m_hDriver && (!pDriver || !pDriver->IsAlive() || pDriver->m_pTank != this)) // left, died or was taken out
@@ -634,11 +647,10 @@ void CH9Car::Step(const char* by)
 		m_bEngineOn = false;
 	}
 
-	if (pDriver) // +use gets him out: a fresh press, not the one that got him in
+	if (pDriver) // +use gets him out: a fresh press (kept by the PostThink call), not the one that got him in
 	{
-		const int buttons = pDriver->pev->button;
-		const bool pressed = (buttons & IN_USE) != 0 && (m_iLastButtons & IN_USE) == 0;
-		m_iLastButtons = buttons;
+		const bool pressed = m_bUsePressed;
+		m_bUsePressed = false;
 		if (pressed && gpGlobals->time > m_flEntered + 0.3f)
 		{
 			pDriver->m_pTank = NULL;
@@ -676,9 +688,12 @@ void CH9Car::Step(const char* by)
 		if (CVAR_GET_FLOAT("developer") > 0 && gpGlobals->time >= m_flNextReport)
 		{
 			m_flNextReport = gpGlobals->time + 0.5f;
-			char line[256];
-			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d last stop %.1fs ago by %d on %s at %.2f; z %.1f pitch %.1f ground %.1f/%.1f\n", by,
-				pDriver->pev->button, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0,
+			// two lines: the engine cuts a console message at about 190 characters
+			char line[160];
+			snprintf(line, sizeof(line), "h9_car: buttons %x dt %.3f speed %.0f steer %.1f yaw %.0f grounded %d\n",
+				pDriver->pev->button, m_flLastDt, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0);
+			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
+			snprintf(line, sizeof(line), "  stop %.1fs ago by %d on %s at %.2f; z %.1f pitch %.1f ground %.1f/%.1f\n",
 				m_flLastHitTime < 0 ? -1.0f : gpGlobals->time - m_flLastHitTime, m_iLastHitBy, m_szLastHit, m_flLastHit,
 				pev->origin.z, m_flPitch, m_flFrontGround, m_flRearGround);
 			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
