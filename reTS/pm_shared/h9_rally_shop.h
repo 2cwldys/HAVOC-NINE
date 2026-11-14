@@ -13,7 +13,7 @@
 *      changecar <class>      1..H9R_NUM_CARS: this car for me (HL Rally's changecar <model>); free.
 *      spectate               out of the next race, observer (HL Rally's spectate).
 *      selectcar              HL Rally's `m`: only while a race runs; out until the next race, and the server opens the menu.
-*      buy <part>             0..H9R_NUM_PARTS-1: buy that part if the money allows and the class has no better one.
+*      buy <part>             0..H9R_NUM_PARTS-1: buy that part if the money allows (strictly more); it replaces the part of its class, no refund (HL Rally).
 *    server -> client
 *      H9RMoney  (4 bytes)    long: my money now (sent at join and at every change; HL Rally sent it only at join and finish,
 *                             a lag we do not copy).
