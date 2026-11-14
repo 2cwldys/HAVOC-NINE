@@ -10,7 +10,8 @@
 // sound message is: 255), and 2 is the lowest that means itself (a pitch of 1 or less is taken as 100). HL Rally's frequency is 2000 + 260 rpm Hz for the
 // local car, so the percent depends on the file's rate: the rate is read from each file's header (h9_rallysnd_calc.h, FileRate) the first time it is wanted.
 //
-// Where the files are. sound/h9/rally/ (the names are in the report; HL Rally's own are not copied here). A file that is not there plays nothing and says
+// Where the files are. sound/h9/rally/: our own files, made with SMAK by h9-maps art/race/rc-rally-sounds.mjs (engine, whine, backfire, skid_tarmac, hitwall1-2, horn,
+// car_lands, voc_*). HL Rally's own sounds have no licence and are not shipped. A file that is not there plays nothing and says
 // nothing; a file whose rate cannot be read is taken as absent. Nothing is precached (the client loads a sound when it first plays it).
 //
 // Looping. Xash3D loops a wav only if it has a `cue ` chunk, and an mp3 only with a LOOP_START tag. A loop file without one plays once to its end, and the
@@ -204,12 +205,11 @@ void StopLocal(float now)
 
 const Asset* LocalEngineFile(int carClass, const char* carName, float now)
 {
-	char a[64], b[64];
-	snprintf(a, sizeof(a), "engine/%s_engine.mp3", carName);
-	snprintf(b, sizeof(b), "engine/%s_engine.wav", carName);
-	const char* const rels[] = {a, b, "engine/206_engine.mp3", "engine/206_engine.wav"}; // rs fmodEngineStart: the model's .mp3, its .wav, then the 206
+	// HL Rally's fmodEngineStart takes the car model's own engine file, then a default; ours ship one engine for every car (our own sound)
+	const char* const rels[] = {"engine.wav"};
 	(void)carClass;
-	return FindFirst(rels, 4, now);
+	(void)carName;
+	return FindFirst(rels, 1, now);
 }
 
 const char* CarName(int carClass)
@@ -288,7 +288,7 @@ void LocalFrame(float now, float dt, cl_entity_t* local)
 			L.engClass = n.carClass;
 		}
 		if (!L.whine)
-			L.whine = Find("engine/racing_whine.wav", now);
+			L.whine = Find("whine.wav", now);
 		const int rpm = (int)n.rpm; // the int parameter
 		const float speed3 = n.valid ? sqrtf(n.vel[0] * n.vel[0] + n.vel[1] * n.vel[1] + n.vel[2] * n.vel[2]) : 0.0f;
 		if (L.eng)
@@ -408,8 +408,8 @@ void RemoteFrame(float now, float dt, cl_entity_t* local)
 
 	if (!s_remoteEng)
 	{
-		const char* const rels[] = {"engine/206_engine.mp3", "engine/206_engine.wav"}; // every other car sounds like the 206
-		s_remoteEng = FindFirst(rels, 2, now);
+		const char* const rels[] = {"engine.wav"}; // every other car sounds like the default engine (HL Rally's: the 206's)
+		s_remoteEng = FindFirst(rels, 1, now);
 	}
 	bool inSlot[33];
 	memset(inSlot, 0, sizeof(inSlot));
@@ -470,13 +470,13 @@ void H9RallySnd_RaceState(int state, float greenAt, float serverNow, float count
 		s_muted = false; // rallyhud.cpp:207 fmodStartEngine
 		// hud:185: the voice at the countdown's start (a state met mid-countdown, as by a player who has just joined, does not start it)
 		if (left >= countdown - 1.0f)
-			VoiceOne("voc/321.wav", now);
+			VoiceOne("voc_321.wav", now);
 	}
 	else if (state == RACE_FINISHED)
 	{
 		// hud:488-490: the first finisher starts the others' 30 seconds, and everyone hears the warning (only where our clock is 30 s too)
 		if (left >= 29.0f && left <= 31.0f)
-			VoiceOne("voc/warning30.wav", now);
+			VoiceOne("voc_warning30.wav", now);
 	}
 }
 
@@ -489,22 +489,22 @@ void H9RallySnd_RaceNote(int kind, int a, int b)
 	switch (kind)
 	{
 	case RACE_NOTE_CHECKPOINT: // hud:381
-		VoiceOne("voc/checkpoint.wav", now);
+		VoiceOne("voc_checkpoint.wav", now);
 		break;
 	case RACE_NOTE_LAP: // hud:420
-		VoiceOne("voc/lapend.wav", now);
+		VoiceOne("voc_lapend.wav", now);
 		break;
 	case RACE_NOTE_FINISH: // hud:497-505, then 530: the engine is muted
 	{
-		static const char* const congrats[] = {"voc/congrats.wav", "voc/congrats.mp3"};
-		static const char* const second[] = {"voc/second.wav", "voc/second.mp3"};
-		static const char* const third[] = {"voc/third.wav", "voc/third.mp3"};
-		static const char* const next[] = {"voc/nexttime.wav"};
+		static const char* const congrats[] = {"voc_congrats.wav"};
+		static const char* const second[] = {"voc_second.wav"};
+		static const char* const third[] = {"voc_third.wav"};
+		static const char* const next[] = {"voc_nexttime.wav"};
 		switch (FinishVoice(a))
 		{
-		case FINISH_CONGRATS: Voice(congrats, 2, now); break;
-		case FINISH_SECOND: Voice(second, 2, now); break;
-		case FINISH_THIRD: Voice(third, 2, now); break;
+		case FINISH_CONGRATS: Voice(congrats, 1, now); break;
+		case FINISH_SECOND: Voice(second, 1, now); break;
+		case FINISH_THIRD: Voice(third, 1, now); break;
 		default: Voice(next, 1, now); break;
 		}
 		s_muted = true;
