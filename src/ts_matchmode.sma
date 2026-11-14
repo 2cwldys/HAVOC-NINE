@@ -12320,6 +12320,7 @@ public task_arm_respawn(taskid)
 			&& (tsm_live_team_of(id) == 1 || tsm_live_team_of(id) == 2))
 		{
 			arm_give_kit(id);
+			officer_powerup(id);   // the Officer's kung fu, as at the round start: nothing before this arm gave it
 			g_armed[id] = true;
 			tlog("[TSM] late arm: %d armed after LIVE (class %d).", id, resolved_class(id));
 			mode_notify(g_fw_armed, id);
@@ -31541,6 +31542,12 @@ lr_regive(id)
 	ts_setuserslots(id, TSM_LR_SLOT_CAP);
 	set_user_armor(id, (ci >= 0) ? g_class_ap[ci] : 0);
 	arm_give_kit(id);
+	// The strip took the Officer's kung fu with the weapons, as a spawn does: in the round it is given again (the freeze's own round start
+	// gives it to everyone, so the freeze has nothing to add).
+	if (g_state == ST_LIVE)
+	{
+		officer_powerup(id);
+	}
 }
 
 /// How a loadout bought now becomes final, for the line that confirms it.
