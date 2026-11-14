@@ -540,11 +540,13 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 	// the tilt of the command before (HL Rally's vuser1, see the top of the file): the axes the ground is looked for along, with the
 	// yaw that command had. A car that has none yet (its first command, or the engine did not carry the fields) reads it from
 	// four traces straight down, as an earlier version of this file always did.
-	float pitch0 = 0, yaw0 = yaw, roll0 = 0;
+	// No kept tilt is HL Rally's vuser1 of (0, 0, 0): the client's prediction starts from it every time, because HL Rally's
+	// UpdateClientData never sends vuser1 (dlls/client.cpp: only vuser4, the stats); only the server keeps the chain. So the up is
+	// the world's and the traces' axes are yaw 0 for that first command, as in HL Rally.
+	float pitch0 = 0, yaw0 = 0, roll0 = 0;
 	if (!H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], &pitch0, &yaw0, &roll0))
 	{
-		yaw0 = yaw;
-		ReadTilt(AxesOf(0, yaw, 0), yaw, pitch0, roll0);
+		pitch0 = yaw0 = roll0 = 0;
 	}
 	Axes ax0 = AxesOf(pitch0, yaw0, roll0); // the up that Categorize looks along and the axes of the tilt's traces: the kept angles, the kept yaw (vuser1)
 	const Axes axF = AxesOf(pitch0, yaw, roll0); // pmove->forward and ->right: the kept pitch and roll with this command's yaw (rally.c:338, pm_shared.c:1625)

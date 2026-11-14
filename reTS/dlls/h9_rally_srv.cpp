@@ -352,8 +352,11 @@ void H9RallyClientData(const edict_t* ent, struct clientdata_s* cd)
 {
 	if (ent == nullptr || cd == nullptr || CurrentClass(const_cast<edict_t*>(ent)) <= 0)
 		return;
-	cd->vuser3.x = ent->v.vuser3.x;
-	cd->vuser4 = ent->v.vuser4;
+	// HL Rally sends its tilt (vuser1) to nobody: the client's prediction starts each run from no tilt and looks for the ground
+	// straight down; only the server's chain keeps the tilt from command to command. Sending ours made the client's chain
+	// carry it on, and a car near a bank tipped further each frame (the owner: "tiende a quedar de costado", 2026-11-14).
+	cd->vuser3.x = 0; // no mark: H9RallyTiltUnpack fails and the command starts flat (pm_shared/h9_rally.cpp)
+	cd->vuser4 = Vector(0, 0, 0);
 }
 
 // A number in this player's physinfo, set when it differs.
