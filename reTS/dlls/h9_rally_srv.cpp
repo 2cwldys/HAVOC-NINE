@@ -15,6 +15,7 @@
 #include "player.h"
 #include "h9_rally_srv.h"
 #include "h9_rally_snd.h"
+#include "h9_rally_car.h"
 #include "race.h"
 
 float GetSpeedBySlots(CBasePlayer* pPlayer); // ts_gun.cpp
@@ -94,6 +95,7 @@ void H9RallyServerThink(CBasePlayer* pl)
 			UTIL_SetSize(pev, VEC_HULL_MIN, VEC_HULL_MAX);
 			UTIL_SetOrigin(pev, pev->origin + Vector(0, 0, 36));
 			pev->view_ofs = VEC_VIEW;
+			pev->viewmodel = 0; // the interior's model is not a weapon's
 			pl->SetPlayerSpeed(GetSpeedBySlots(pl)); // the loadout's speed again (a car's maxspeed is 3000)
 			H9RallySoundStop(pl); // the mode went off (the cvar to 0, or the race's vehicle changed): no loop is left
 			return;
@@ -116,7 +118,11 @@ void H9RallyServerThink(CBasePlayer* pl)
 	// in the car: no weapons, and the car's size for whatever else in the world touches the player
 	if (pl->m_pActiveItem)
 		pl->RemoveAllItems(false);
-	pev->viewmodel = 0;
+	// the view model slot holds the interior (a wheel, a speedometer and a rev counter drawn by the client) when its file is there, else nothing
+	{
+		const char* interior = H9RallyInteriorModel();
+		pev->viewmodel = interior != nullptr ? MAKE_STRING(interior) : 0;
+	}
 	pev->weaponmodel = 0;
 	if (pev->maxs.z != 16.0f || pev->maxs.x != 16.0f || pev->mins.z != 0.0f)
 		UTIL_SetSize(pev, Vector(-16, -16, 0), Vector(16, 16, 16));
