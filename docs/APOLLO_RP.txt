@@ -262,6 +262,8 @@ to it, items 1 to 50), builds eighteen of its plugins for The Specialists and li
   docs\ARP_ADMINS.txt        giving ARP admin to a player: by his xash player id, his havoc9.org account, or a job; giving yourself money, items and a job to test
   docs\ARP_COMMANDS.txt      every ARP command and what it does: chat, police, property, admin, database, and the switches of arp.cfg
   docs\ARP_ITEMS.txt         every item: its number (arp_itemlist), what using it does, which shop sells it, from the plugins' sources and the shops' npcs.ini
+  docs\ARP_H9_ADDITIONS.txt  everything H9 added to Apollo RP in one list: what it is, what you see, its switch, where the detail is; one table of every H9 cvar
+  docs\ARP_SIEGE.txt         how the siege and town control work: from the admin's command to the claim, the doors, the jobs, the siren and the bots (designed, being built)
   COMMANDS.txt                cl_h9_arpvgui, arp_account_wait and ARP's console commands
   configs\arp\                arp.cfg, arp.ini and maps\<map>\ (the map's own files)
   tools\gen_prices.py         the prices of the hive's properties from one number, and the figures of the docs that follow from them

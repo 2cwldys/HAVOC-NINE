@@ -147,6 +147,8 @@
    arp_help               every command ARP has registered, with its help text.
    arp_joblist            the jobs and their salaries.     arp_itemlist   the items and their numbers.      arp_plugins   the ARP plugins running.
    docs\ARP_ITEMS.txt     every item with its number, what using it does and who sells it; the numbers are those of arp_itemlist and follow the plugin order.
+   docs\ARP_H9_ADDITIONS.txt  everything H9 added to Apollo RP: what it is, its switch (cvar) and where the detail is, and one table of every H9 cvar.
+   docs\ARP_SIEGE.txt         how the siege and town control work (designed, being built).
    arp_queries, getclasses   debugging lists for the people who write ARP plugins.
    h9inv <op> <args>      what the inventory window sends; not for typing (COMMANDS.txt lists the ops).
 
