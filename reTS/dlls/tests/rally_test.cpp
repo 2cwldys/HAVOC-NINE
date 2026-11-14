@@ -1041,6 +1041,52 @@ int main()
 			"gauge: the end of the gauge follows the player's class and his top parts (class 1 +8 is 88/80 of 680)");
 	}
 
+	// --- the log files (pm_shared/h9_rallylog.h) ----------------------------------------------------------------------
+	{
+		H9RallyLogRec r;
+		memset(&r, 0, sizeof r);
+		r.valid = true;
+		r.msec = 10;
+		r.forward = 1200.0f;
+		r.buttons = 8;
+		r.vel[0] = 3.0f;
+		r.vel[1] = 4.0f;
+		r.org[2] = -143.3f;
+		r.onground = 0;
+		r.onground0 = -1;
+		snprintf(r.tex, sizeof r.tex, "%s", "sand_dune");
+		char line[1200];
+		const int n = H9RallyLogFormatSrv(line, sizeof line, 7, r);
+		auto commas = [](const char* s) { int c = 0; for (; *s; s++) c += *s == ','; return c; };
+		Check(n > 0 && n < (int)sizeof line && commas(line) == commas(H9RALLYLOG_SRV_HEADER),
+			"log: the server's line has as many columns as its header");
+		Check(strncmp(line, "7,", 2) == 0 && strstr(line, "sand_dune") != nullptr && strstr(line, ",5.00000") != nullptr,
+			"log: the line starts with its sequence number and carries the texture and the horizontal speed (5)");
+		H9RallyClientRec c;
+		memset(&c, 0, sizeof c);
+		char cl[900];
+		const int m = H9RallyLogFormatCl(cl, sizeof cl, c);
+		Check(m > 0 && m < (int)sizeof cl && commas(cl) == commas(H9RALLYLOG_CL_HEADER), "log: the client's line has as many columns as its header");
+
+		// a file in a made folder, with a header; the cap closes it with a last line
+		H9RallyLogFile f;
+		f.cap = 400;
+		const bool opened = f.Open(".", "tst", "rc_dune valley", "a,b,c");
+		Check(opened && f.IsOpen() && strstr(f.path, "rallylog/tst_rc_dune_valley_") != nullptr, "log: a file opens in rallylog/ with the map's name made safe");
+		int written = 0;
+		for (int i = 0; i < 200 && f.Line("1,2,3,4,5,6,7,8,9,10,11,12"); i++)
+			written++;
+		Check(written > 5 && written < 40 && !f.IsOpen() && f.capped, "log: the cap stops the file");
+		FILE* back = fopen(f.path, "rb");
+		char buf[600] = "";
+		size_t got = back ? fread(buf, 1, sizeof buf - 1, back) : 0;
+		if (back)
+			fclose(back);
+		buf[got] = 0;
+		Check(strncmp(buf, "a,b,c\n1,2,3", 11) == 0 && strstr(buf, "# stopped") != nullptr, "log: the file starts with its header and ends with the cap's line");
+		remove(f.path);
+	}
+
 	// --- numbers for the report -------------------------------------------------------------------------------------
 	{
 		printf("      lap of 35500 units, throttle held, no corners (a lower bound), from a standing start:\n");

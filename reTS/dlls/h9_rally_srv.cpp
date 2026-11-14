@@ -24,6 +24,8 @@
 #include "h9_rally_car.h"
 #include "race.h"
 #include "h9_rally.h" // the settings HL Rally's server runs with
+#include "pm_defs.h"
+#include "pm_shared.h" // PM_Move: H9RallyPMMove calls it
 #include "h9_rally_shop_srv.h" // the car menu's rules: money, parts, the car chosen
 #include "UserMessages.h"
 #include "ts_utils.h" // TSHudMessageOne
@@ -41,6 +43,9 @@ static cvar_t h9_rally = {"h9_rally", "0", FCVAR_SERVER};
 // 1: each rally player's movement prints one line every half second to the server console (pm_shared/h9_rally.cpp, DebugLine).
 // pmove reaches no cvar of ours, so the flag goes to it in the physinfo key "rdbg", as "rally" does.
 static cvar_t h9_rally_debug = {"h9_rally_debug", "0", 0};
+// 1 (the default): every rally car's pmove command is written as a CSV line to <gamedir>/rallylog/srv_<map>_<date-time>.txt
+// (pm_shared/h9_rallylog.h has the columns). 0: no file.
+static cvar_t h9_rally_log = {"h9_rally_log", "1", FCVAR_ARCHIVE};
 
 // What a car is told its speed limit is: nothing of The Specialists' loadout (SetPlayerSpeed: 0..330) may clamp it. Rally's own
 // movement does not read maxspeed (the wish speed is the car's stat), but PM_CheckParamters scales the command by it first.
@@ -84,6 +89,52 @@ void H9RallyRegisterCvars()
 {
 	CVAR_REGISTER(&h9_rally);
 	CVAR_REGISTER(&h9_rally_debug);
+	CVAR_REGISTER(&h9_rally_log);
+}
+
+// ---- the log (pm_shared/h9_rallylog.h) -----------------------------------------------------------------------------------------------
+// pmove cannot open a file (the same code is the client's), so H9RallyMove leaves a record of each server command in g_h9RallyLogRec and
+// the engine's call of PM_Move comes through here (dlls/cbase.cpp's pfnPM_Move): the record is written after PM_Move returns, one CSV line
+// to rallylog/srv_<map>_<date-time>.txt in the game folder, a new file for each map load.
+static H9RallyLogFile s_log;
+static char s_logMap[64] = "";
+static float s_logLastTime = 0;
+static int s_logSeq = 0;
+
+void H9RallyPMMove(struct playermove_s* ppmove, qboolean server)
+{
+	const bool want = server != 0 && h9_rally_log.value != 0;
+	g_h9RallyLogWanted = want;
+	g_h9RallyLogRec.valid = false;
+	PM_Move(ppmove, server);
+	g_h9RallyLogWanted = false;
+	if (!want)
+	{
+		if (s_log.IsOpen() && h9_rally_log.value == 0)
+			s_log.Close();
+		return;
+	}
+	if (!g_h9RallyLogRec.valid)
+		return; // not a car's command (a spectator, a dead player, a player on foot)
+
+	// a new map load (another map, or the clock back to the start): a new file
+	const char* map = STRING(gpGlobals->mapname);
+	if (!s_log.IsOpen() || strncmp(map, s_logMap, sizeof s_logMap - 1) != 0 || gpGlobals->time + 1.0f < s_logLastTime)
+	{
+		if (!s_log.IsOpen() && s_log.capped && strncmp(map, s_logMap, sizeof s_logMap - 1) == 0 && gpGlobals->time + 1.0f >= s_logLastTime)
+			return; // this map's file is full: no more of it
+		char gameDir[260];
+		GET_GAME_DIR(gameDir);
+		snprintf(s_logMap, sizeof s_logMap, "%s", map);
+		s_logSeq = 0;
+		s_log.Open(gameDir, "srv", map, H9RALLYLOG_SRV_HEADER);
+	}
+	s_logLastTime = gpGlobals->time;
+	if (!s_log.IsOpen())
+		return;
+	char line[1200];
+	H9RallyLogFormatSrv(line, sizeof line, s_logSeq++, g_h9RallyLogRec);
+	s_log.Line(line);
 }
 
 int H9RallyCvarClass()

@@ -891,6 +891,10 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	if (rallyOn && (cmd->buttons & (IN_MOVELEFT | IN_MOVERIGHT)) != 0)
 		cmd->buttons |= IN_LEFT;
 
+	// the input model's log (cvar cl_h9_rally_log): this frame's keys, throttle and steering, with the command as it goes out
+	if (rallyOn)
+		H9RallyLog_Frame(cmd, frametime);
+
 	// If they're in a modal dialog, ignore the attack button.
 	if (GetClientVoiceMgr()->IsInSquelchMode())
 		cmd->buttons &= ~IN_ATTACK;

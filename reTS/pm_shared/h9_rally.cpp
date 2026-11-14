@@ -73,6 +73,8 @@ static int PhysInfoInt(const char* key)
 }
 
 float g_h9RallyCrashAmount = 0; // velocity along the wall's normal at the last body check, 0 when no wall
+bool g_h9RallyLogWanted = false; // the server dll's switch for the log record (pm_shared/h9_rallylog.h)
+H9RallyLogRec g_h9RallyLogRec;   // the last server command's record, valid once H9RallyMove has run
 
 namespace
 {
@@ -125,6 +127,8 @@ struct Dbg
 	float fuser1 = 1.0f, engineFrametime = 0;
 	float dt = 0;
 	float wishspeed = 0;
+	float tilt0[3] = {0, 0, 0}; // the tilt kept before this command (pitch, yaw, roll), and whether one was kept
+	bool tilt0Valid = false;
 };
 
 // The car's own axes for a heading and a tilt (HLR keeps them in pmove->forward, ->right and the angles). `right` is HL's right.
@@ -565,10 +569,14 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 	// UpdateClientData never sends vuser1 (dlls/client.cpp: only vuser4, the stats); only the server keeps the chain. So the up is
 	// the world's and the traces' axes are yaw 0 for that first command, as in HL Rally.
 	float pitch0 = 0, yaw0 = 0, roll0 = 0;
-	if (!H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], &pitch0, &yaw0, &roll0))
+	d.tilt0Valid = H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], &pitch0, &yaw0, &roll0);
+	if (!d.tilt0Valid)
 	{
 		pitch0 = yaw0 = roll0 = 0;
 	}
+	d.tilt0[0] = pitch0;
+	d.tilt0[1] = yaw0;
+	d.tilt0[2] = roll0;
 	Axes ax0 = AxesOf(pitch0, yaw0, roll0); // the up that Categorize looks along and the axes of the tilt's traces: the kept angles, the kept yaw (vuser1)
 	// pmove->forward and ->right: HL Rally builds them at pm_shared.c:1635 (`AngleVectors (pmove->angles, pmove->forward, pmove->right,
 	// pmove->up)`) from pmove->angles, which there are the command's own view angles with PM_CheckParamters' yaw (pitch and roll are
@@ -748,7 +756,72 @@ void H9RallyMove()
 	Dbg d;
 	bool held = false;
 	Vector org0 = pmove->origin;
+	// the log's "before" (the state pmove was called with): only the server's dll asks for it
+	const bool wantLog = g_h9RallyLogWanted && pmove->server;
+	H9RallyLogRec& lr = g_h9RallyLogRec;
+	if (wantLog)
+	{
+		memset(&lr, 0, sizeof lr);
+		for (int i = 0; i < 3; i++)
+		{
+			lr.org0[i] = pmove->origin[i];
+			lr.vel0[i] = pmove->velocity[i];
+			lr.base0[i] = pmove->basevelocity[i];
+			lr.view[i] = pmove->cmd.viewangles[i];
+		}
+		lr.onground0 = pmove->onground;
+		lr.forward = pmove->cmd.forwardmove;
+		lr.side = pmove->cmd.sidemove;
+		lr.up = pmove->cmd.upmove;
+		lr.buttons = pmove->cmd.buttons;
+		lr.impulse = pmove->cmd.impulse;
+		lr.msec = pmove->cmd.msec;
+		lr.player = pmove->player_index;
+		lr.time = (float)(pmove->time * 0.001);
+	}
 	MoveInner(d, held, org0);
+	if (wantLog)
+	{
+		float tp = 0, ty = 0, tr = 0;
+		H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], &tp, &ty, &tr);
+		for (int i = 0; i < 3; i++)
+		{
+			lr.org[i] = pmove->origin[i];
+			lr.vel[i] = pmove->velocity[i];
+			lr.base[i] = pmove->basevelocity[i];
+			lr.tilt0[i] = d.tilt0[i];
+			lr.normal[i] = d.normal[i];
+		}
+		lr.tilt[0] = tp;
+		lr.tilt[1] = ty;
+		lr.tilt[2] = tr;
+		lr.tiltValid = d.tilt0Valid ? 1 : 0;
+		lr.onground = pmove->onground;
+		lr.groundEnt = (pmove->onground >= 0 && pmove->onground < pmove->numphysent) ? pmove->physents[pmove->onground].info : -1;
+		lr.flags = pmove->flags;
+		lr.gap = d.gap;
+		snprintf(lr.tex, sizeof lr.tex, "%s", d.tex);
+		snprintf(lr.surf, sizeof lr.surf, "%s", g_h9RallySurfaces[d.surface].name);
+		lr.usehull = pmove->usehull;
+		lr.wishspeed = d.wishspeed;
+		lr.wanted = d.wanted;
+		lr.got = d.got;
+		lr.crash = g_h9RallyCrashAmount;
+		lr.stepped = d.stepped ? 1 : 0;
+		lr.toss = d.toss ? 1 : 0;
+		lr.held = held ? 1 : 0;
+		lr.stuck = d.stuck ? 1 : 0;
+		lr.friction = pmove->friction;
+		lr.gravity = pmove->gravity;
+		lr.fuser1 = d.fuser1;
+		lr.maxspeed = pmove->maxspeed;
+		lr.cmaxspeed = pmove->clientmaxspeed;
+		lr.rally = PhysInfoInt("rally");
+		lr.rh = PhysInfoInt("rh");
+		lr.rt = PhysInfoInt("rt");
+		lr.rhull = PhysInfoInt("rhull");
+		lr.valid = true;
+	}
 	if (pmove->server)
 	{
 		const char* dbg = pmove->PM_Info_ValueForKey(pmove->physinfo, "rdbg");

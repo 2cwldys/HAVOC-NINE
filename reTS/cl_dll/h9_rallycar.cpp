@@ -486,8 +486,85 @@ bool FreshNote()
 
 // ----------------------------------------------------------------------------------------------------------------------------
 
+// ---- the log (pm_shared/h9_rallylog.h): the input model's frame, one CSV line to rallylog/cl_<map>_<date-time>.txt ----------------------------
+
+static cvar_t* s_cvLog = nullptr;       // cl_h9_rally_log
+static H9RallyLogFile s_logFile;
+static H9RallyClientRec s_logRec;       // filled over the frame: the throttle, the steering, the camera; written by H9RallyLog_Frame
+static bool s_logReopen = true;         // a new map: a new file
+static char s_logMap[64] = "";
+static float s_logTime = 0;
+
+void H9RallyLog_Frame(const struct usercmd_s* cmd, float frametime)
+{
+	if (s_cvLog == nullptr || s_cvLog->value == 0.0f)
+	{
+		s_logFile.Close();
+		s_logReopen = true;
+		return;
+	}
+	if (cmd == nullptr)
+		return;
+	const float now = gEngfuncs.GetClientTime();
+	// the level's name: "maps/rc_dunevalley.bsp"
+	const char* lv = gEngfuncs.pfnGetLevelName ? gEngfuncs.pfnGetLevelName() : "";
+	char map[64];
+	{
+		const char* b = lv ? lv : "";
+		const char* sl = strrchr(b, '/');
+		if (sl)
+			b = sl + 1;
+		snprintf(map, sizeof map, "%s", b);
+		char* dot = strrchr(map, '.');
+		if (dot)
+			*dot = 0;
+	}
+	if (s_logReopen || !s_logFile.IsOpen() || strcmp(map, s_logMap) != 0 || now + 1.0f < s_logTime)
+	{
+		if (!s_logFile.IsOpen() && s_logFile.capped && !s_logReopen && strcmp(map, s_logMap) == 0 && now + 1.0f >= s_logTime)
+			return; // this map's file is full
+		snprintf(s_logMap, sizeof s_logMap, "%s", map);
+		s_logReopen = false;
+		s_logFile.Open(gEngfuncs.pfnGetGameDirectory(), "cl", map, H9RALLYLOG_CL_HEADER);
+	}
+	s_logTime = now;
+	if (!s_logFile.IsOpen())
+		return;
+
+	H9RallyClientRec& r = s_logRec;
+	r.time = now;
+	r.frametime = frametime;
+	r.keyFwd = (cmd->buttons & IN_FORWARD) != 0;
+	r.keyBack = (cmd->buttons & IN_BACK) != 0;
+	r.keyLeft = (cmd->buttons & (IN_LEFT | IN_MOVELEFT)) != 0;
+	r.keyRight = (cmd->buttons & (IN_RIGHT | IN_MOVERIGHT)) != 0;
+	r.keyJump = (cmd->buttons & IN_JUMP) != 0;
+	r.keyLeftFrac = s_lastKeys.left;
+	r.keyRightFrac = s_lastKeys.right;
+	r.fwdSent = cmd->forwardmove;
+	r.side = cmd->sidemove;
+	r.up = cmd->upmove;
+	r.buttons = cmd->buttons;
+	r.yawSent = cmd->viewangles[1];
+	r.tractionLoss = s_steer.tractionLoss;
+	r.steerDelta = s_steer.delta;
+	r.wheel = s_steer.wheel;
+	r.rpmAfter = s_steer.box.rpm;
+	r.gearAfter = s_steer.box.gear;
+	float tp = 0, ty = 0, tr = 0;
+	r.tiltValid = H9RallyStoredTilt(&tp, &ty, &tr) ? 1 : 0;
+	r.tiltP = tp;
+	r.tiltY = ty;
+	r.tiltR = tr;
+	r.noteFresh = s_note.have && s_note.time == s_viewTime ? 1 : 0;
+	char line[900];
+	H9RallyLogFormatCl(line, sizeof line, r);
+	s_logFile.Line(line);
+}
+
 void H9RallyCam_Init()
 {
+	s_cvLog = CVAR_CREATE("cl_h9_rally_log", "1", FCVAR_ARCHIVE); // 1: the input model's frames to rallylog/cl_<map>_<date-time>.txt
 	s_cvView = CVAR_CREATE("cl_h9_rallyview", "4", 0); // 0 chase, 2 bonnet, 3 side, 4 interior; a new map sets it to 4 (HL Rally: chase)
 	s_cvBack = CVAR_CREATE("cl_h9_rallycam_dist", "40", FCVAR_ARCHIVE); // HL Rally's cam_wishdist
 	s_cvPivot = CVAR_CREATE("cl_h9_rallycam_pivot", "10", FCVAR_ARCHIVE); // the chase camera's pivot above the car's origin (26 - 16 in HL Rally)
@@ -527,6 +604,7 @@ void H9RallyCam_VidInit()
 	s_rallyTime = -1.0f;
 	s_note.have = false;
 	s_dyn.have = false;
+	s_logReopen = true; // a new map: a new log file
 	s_steer = rallysteer::State();
 	s_mouseActive = false;
 	s_mirrorPending = false;
@@ -730,6 +808,18 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	pp->viewangles[2] = pose.roll;
 	AngleVectors(pp->viewangles, pp->forward, pp->right, pp->up);
 
+	// for the log: the tilt shown (the camera's, and the body's: the interior model's, else the car's own filtered tilt)
+	s_logRec.camPitch = pose.pitch;
+	s_logRec.camRoll = pose.roll;
+	s_logRec.modelPitch = interior ? io.modelPitch : slot.tilt.pitch;
+	s_logRec.modelRoll = interior ? io.modelRoll : slot.tilt.roll;
+	s_logRec.viewMode = viewNow;
+	for (int i = 0; i < 3; i++)
+	{
+		s_logRec.org[i] = pp->simorg[i];
+		s_logRec.vel[i] = pp->simvel[i];
+	}
+
 	// the weapon's slot: the interior in the interior view, nothing else (TS's weapon code has no say in a car)
 	if (view != nullptr)
 	{
@@ -867,6 +957,9 @@ float H9RallySteer_End(float viewYaw, const H9RallyKeys& k)
 	}
 	if (!in.onGround)
 		in.mouseYaw = 0.0f;
+	s_logRec.steerKeyYaw = in.keyYaw;
+	s_logRec.steerMouseYaw = in.mouseYaw;
+	s_logRec.heading0 = s_steerBegin;
 	const Output out = Step(s_steer, in);
 	s_steerWritten = out.heading;
 	s_mouseActive = false;
@@ -909,6 +1002,14 @@ H9RallyDriveResult H9RallyDrive_Move(const H9RallyDriveKeys& k)
 	in.reversing = s_steer.reversing;
 	const rallysteer::DriveOut o = rallysteer::DriveStep(in);
 	s_steer.reversing = o.reversing;
+	// for the log: what the throttle saw and decided
+	s_logRec.rpm = in.rpm;
+	s_logRec.gear = in.gear;
+	s_logRec.speedH = in.speedH;
+	s_logRec.onGround = in.onGround ? 1 : 0;
+	s_logRec.reversing = o.reversing;
+	s_logRec.accelerating = o.accelerating ? 1 : 0;
+	s_logRec.braking = o.braking ? 1 : 0;
 	H9RallyDriveResult r;
 	r.forwardmove = rallysteer::CmdForwardMove(o.forwardmove);
 	r.accelerating = o.accelerating;

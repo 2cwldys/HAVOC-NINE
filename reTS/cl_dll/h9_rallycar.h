@@ -86,6 +86,9 @@ struct H9RallyDriveResult
 	int reversing;
 };
 H9RallyDriveResult H9RallyDrive_Move(const H9RallyDriveKeys& keys);
+// The input model's log (cvar cl_h9_rally_log, rallylog/cl_<map>_<date-time>.txt): CL_CreateMove calls this once a frame for a car, with the
+// finished command.
+void H9RallyLog_Frame(const struct usercmd_s* cmd, float frametime);
 // After the finish (physinfo "rfin"): the heading is left as it stands and nothing is pressed; only the revs follow the speed.
 void H9RallyDrive_Frozen(float frametime);
 // The race's finish for this car (physinfo "rfin").

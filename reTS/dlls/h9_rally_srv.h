@@ -8,6 +8,9 @@ class CBasePlayer;
 // Registers the cvar h9_rally; called once from GameDLLInit.
 void H9RallyRegisterCvars();
 
+// The engine's pfnPM_Move (dlls/cbase.cpp): PM_Move, and then the command's line in the log (cvar h9_rally_log, rallylog/srv_*.txt).
+void H9RallyPMMove(struct playermove_s* ppmove, qboolean server);
+
 // Called each frame for each living player (CBasePlayer::PostThink): makes his state match h9_rally.
 void H9RallyServerThink(CBasePlayer* pl);
 

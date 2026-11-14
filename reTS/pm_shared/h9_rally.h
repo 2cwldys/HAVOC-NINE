@@ -46,6 +46,7 @@
 
 #include <math.h>
 #include <string.h>
+#include "h9_rallylog.h" // the log's record (H9RallyLogRec)
 
 // ------------------------------------------------------------------------------------------------------------
 //  THE TUNING TABLE. "HLR" is a value HL Rally has (the file it comes from is named); "ours" is ours, with the reason.
@@ -654,4 +655,8 @@ bool H9RallyActive();  // rally mode, for this player, this command
 void H9RallyMove();    // the command's whole movement
 // The car's tilt as the last command left it (H9RallyTiltPack's fields of the predicted pmove): for the client's slip share. False when none.
 bool H9RallyStoredTilt(float* pitch, float* yaw, float* roll);
+// The log (pm_shared/h9_rallylog.h): the server dll sets g_h9RallyLogWanted before PM_Move, H9RallyMove then fills g_h9RallyLogRec
+// (valid) for a server command, and the server writes it after PM_Move returns (dlls/h9_rally_srv.cpp). Nothing reaches the movement.
+extern bool g_h9RallyLogWanted;
+extern H9RallyLogRec g_h9RallyLogRec;
 #endif
