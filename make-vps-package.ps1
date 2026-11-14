@@ -15,8 +15,8 @@
       havoc9.org\       the site, with deploy\ (the nginx and certificate scripts); never
                         backups (*.bak*), archives (*.zip) or dot files
       serverlist-bot\   the list's code, requirements.txt, README.md, serverlist.ini,
-                        servers.txt and serverlist.cfg.example; never serverlist.cfg (the
-                        Discord token and heartbeat key) or its log
+                        servers.txt, serverlist.cfg.example and blacklisted.ini.example; never
+                        serverlist.cfg (the Discord token and heartbeat key), blacklisted.ini or its log
       p2p\              the P2P relay: the service's code (lib\ without the helper, bin\h9rv.js),
                         package.json, README.txt, the examples of its settings and of its host
                         list, run.sh, run.bat and its systemd unit; never hosts.json or
@@ -187,7 +187,7 @@ function Get-SourceText([string]$Dir) {
     }
 }
 
-$BadName = '^(secrets\.json|data\.key|serverlist\.cfg|ts_advertise\.cfg|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(db|db-wal|db-shm|db-journal|sqlite3?|h9backup|pem|key|p12|pfx|crt|ppk)$'
+$BadName = '^(secrets\.json|data\.key|serverlist\.cfg|blacklisted\.ini|ts_advertise\.cfg|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(db|db-wal|db-shm|db-journal|sqlite3?|h9backup|pem|key|p12|pfx|crt|ppk)$'
 $TextExt = '\.(js|mjs|cjs|json|html|htm|css|txt|md|ini|cfg|sh|ps1|cmd|py|service|timer|conf|example|template|xml|svg)$|^[^.]+$'
 $Hard = @(
     @{ Why = 'a Discord bot token'; Rx = [regex]'[MNO][A-Za-z\d_\-]{23,27}\.[A-Za-z\d_\-]{6}\.[A-Za-z\d_\-]{27,40}' },
@@ -222,7 +222,7 @@ foreach ($t in $Targets) {
     foreach ($d in @('lib', 'bin', 'modules')) { Copy-Tree (Join-Path $h9web $d) (Join-Path $Stage "h9web\$d") $copied $Stage }
     Copy-Tree (Join-Path $Root 'havoc9.org') (Join-Path $Stage 'havoc9.org') $copied $Stage
     $list = Join-Path $Root 'serverlist-bot'
-    foreach ($f in @('h9_serverlist.py', 'requirements.txt', 'README.md', 'serverlist.ini', 'servers.txt', 'serverlist.cfg.example')) {
+    foreach ($f in @('h9_serverlist.py', 'requirements.txt', 'README.md', 'serverlist.ini', 'servers.txt', 'serverlist.cfg.example', 'blacklisted.ini.example')) {
         Copy-One (Join-Path $list $f) (Join-Path $Stage "serverlist-bot\$f") $copied $Stage
     }
     foreach ($f in $P2pFiles) { Copy-One (Join-Path $Root "p2p\$f") (Join-Path $Stage "p2p\$f") $copied $Stage }
