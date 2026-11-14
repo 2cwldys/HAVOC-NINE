@@ -1829,6 +1829,27 @@ bool CStudioModelRenderer::StudioDrawCar(int flags, entity_state_t* pplayer, con
 			VectorTransform(att[0].org, (*m_pbonetransform)[att[0].bone], at);
 			H9RallyFx_NoteExhaust(saved.index, at);
 		}
+
+		// The body's chrome overlay, the car being a player: HL Rally's rally_chrome (StudioModelRenderer.cpp:2390-2427). A second model, drawn after the
+		// first, added (kRenderTransAdd, :2408), on the first one's bones (StudioMergeBones, :2413), with 24 of ambient so the car shines a little in the
+		// dark (:2416-2419), then the render mode back to normal (:2425). HL Rally asks for models/player/<model>/<model>_chrome.mdl; this car has the one
+		// model, so its overlay is models/h9/rc_rally_xs_chrome.mdl (h9_rallyfx.cpp), found by H9RallyFx_CarChrome while cl_h9_rally_chrome (rally_chrome) is on.
+		model_t* h9Chrome = H9RallyFx_CarChrome();
+		if (h9Chrome != NULL)
+		{
+			studiohdr_t* chromeHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(h9Chrome);
+			if (chromeHeader != NULL)
+			{
+				gEngfuncs.pTriAPI->RenderMode(kRenderTransAdd);
+				m_pStudioHeader = chromeHeader;
+				IEngineStudio.StudioSetHeader(m_pStudioHeader);
+				StudioMergeBones(h9Chrome);
+				lighting.ambientlight = 24;
+				IEngineStudio.StudioSetupLighting(&lighting);
+				StudioRenderModel();
+				gEngfuncs.pTriAPI->RenderMode(kRenderNormal);
+			}
+		}
 	}
 
 	*m_pCurrentEntity = saved;
