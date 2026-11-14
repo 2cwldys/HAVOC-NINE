@@ -27,6 +27,11 @@
 *  For other code (a race's sounds, smoke, a speedometer): pev->fuser4 is how much the tyres slide (not fuser1: the sound code lowers the pitch of an entity by its fuser1), 0 to 1, and
 *  pev->fuser2 the speed along the nose, negative backwards; pev->fuser3 is its top speed ("maxspeed").
 *
+*  Sounds (sound/h9/race/, each used only if the file is on disk; stock Half-Life sounds stand in where one exists): an
+*  engine loop whose pitch and volume follow "revs" (speed and throttle, smoothed), a skid loop chosen by the rear
+*  wheels' surface, backfire pops when the throttle is let go at speed, a horn on +attack2, a landing thump, wall
+*  hits, a splash into water, the starter. Every loop is stopped in LeaveWheel (StopSounds) and when the driver goes.
+*
 *  It takes the player's controls through CBasePlayer::m_pTank, the hook func_tank uses: while it is set the
 *  player's weapons do nothing (ItemPostFrame), his death and his respawn call Use(USE_OFF), and every PostThink
 *  asks OnControls() whether he is still at the wheel (Use(USE_SET, 2)). So nothing in player.cpp changes.
@@ -46,7 +51,8 @@
 *    frontdist 75   reardist 75   (the axles from the origin)   track 88 (between the wheels of one axle)
 *    length 200   width 100   height 64   (the body, for collision; the origin is on the ground, at the middle)
 *    radius 20      (the wheels')   maxstep 12 (the highest rise the wheels climb)
-*    enginesnd      the engine's loop (default plats/ttrain2.wav, pitched by speed)
+*    enginesnd      the engine's loop (default sound/h9/race/engine_loop.wav when it is on disk, else plats/ttrain2.wav;
+*                   pitched by the revs, which follow the speed and the throttle)
 *    grip 1         (all the tyres' hold, a scale: 0.8 a looser car, 1.3 one on rails)
 *    slide 1        (how fast a slide bleeds away, a scale: under 1 long drifts, over 1 it bites back at once)
 *    handbrake 1    (how much the handbrake lets the rear go and slows the car, a scale; 0 turns it off)
@@ -90,6 +96,30 @@
 #define H9CAR_LAND 250.0f      // a landing harder than this (units a second, down) costs speed
 #define H9CAR_LOOK 0.1f        // seconds between two readings of the texture under one wheel
 #define H9_RAD 0.017453292f    // a degree, in radians
+// sounds
+#define H9CAR_SND_IDLE 60          // the engine loop's pitch (100 = as recorded) at idle revs
+#define H9CAR_SND_TOP 200          // and flat out
+#define H9CAR_SND_GAP 0.1f         // seconds between two sound messages of one car (a change of pitch or volume)
+#define H9CAR_SND_PITCH_STEP 2     // a pitch change smaller than this is not sent
+#define H9CAR_SND_VOL_STEP 0.04f   // nor a volume change smaller than this
+#define H9CAR_REV_LAUNCH 0.55f     // the revs (0 idle to 1 flat out) the throttle pulls to from a standstill
+#define H9CAR_REV_COAST 0.85f      // with the throttle let go the revs fall to this share of the speed's
+#define H9CAR_REV_SPIN 0.35f       // the revs wheelspin (the tyres' slip) adds under throttle
+#define H9CAR_REV_UP 3.0f          // revs a second the engine gains under throttle
+#define H9CAR_REV_DOWN 1.2f        // and loses with it let go
+#define H9CAR_START_TIME 0.95f     // seconds the starter sample runs before the engine loop takes over (a throttle press cuts it short)
+#define H9CAR_SKID_SPEED 120.0f    // the least speed a skid starts at (it holds to half of it)
+#define H9CAR_SKID_ON 0.25f        // the slip at which the skid loop starts
+#define H9CAR_SKID_OFF 0.15f       // and under which it stops (the gap is the hysteresis)
+#define H9CAR_SKID_SWAP 0.3f       // the least seconds before a skid loop is swapped for another surface's
+#define H9CAR_BACKFIRE_SPEED 0.6f  // a pop needs this share of top speed when the throttle is let go
+#define H9CAR_BACKFIRE_CHANCE 0.6f // the chance a lift at that speed pops
+#define H9CAR_BACKFIRE_GAP 1.5f    // the least seconds between two pops
+#define H9CAR_HORN_GAP 0.6f        // the least seconds between two horns
+#define H9CAR_HIT_MIN 300.0f       // the speed a wall takes off the car (units a second) for its hit to sound
+#define H9CAR_HIT_GAP 0.25f        // the least seconds between two hits
+#define H9CAR_SPLASH_SPEED 150.0f  // the speed a wheel first entering water makes a splash at
+#define H9CAR_SPLASH_GAP 1.0f      // the least seconds between two splashes
 
 static float H9Approach(float target, float value, float step)
 {
@@ -527,7 +557,9 @@ private:
 	void LookUnder(int wheel, const TraceResult& tr, const Vector& above, const Vector& below);
 	void PlaceCamera(float dt);
 	void FitBox();
-	void Sound();
+	void Sound(CBasePlayer* pDriver);
+	void StopSounds();
+	void SkidStart(int kind, float vol, int pitch);
 
 	// tuning (keys)
 	float m_flMaxSpeed = 900, m_flBackSpeed = 300, m_flAccel = 450, m_flBrake = 1200, m_flCoast = 150;
@@ -557,8 +589,31 @@ private:
 	float m_flPitch = 0;     // nose up, degrees
 	float m_flRoll = 0;
 	float m_flLastThink = 0;
-	float m_flNextSound = 0;
-	bool m_bEngineOn = false;
+	float m_flNextSound = 0;   // when a pitch or volume change may next be sent
+	bool m_bEngineOn = false;  // a driver is at the wheel: the sounds are wanted
+	// sounds: the files found on disk (NULL = none), and what the loops are doing
+	const char* m_pszStart = NULL;       // the starter; the stock ignition when ours is missing
+	const char* m_pszLand = NULL;        // the landing thump; the stock brake squeal when missing
+	const char* m_pszHit[2] = {NULL, NULL}; // wall hits; the stock metal when missing
+	const char* m_pszBackfire[2] = {NULL, NULL};
+	const char* m_pszHorn = NULL;
+	const char* m_pszSplash = NULL;
+	const char* m_pszSkid[3] = {NULL, NULL, NULL}; // tarmac, loose ground (gravel, dirt, grass), snow (snow, ice, water)
+	bool m_bOwnStart = false, m_bOwnLand = false;
+	bool m_bEngineLoop = false;          // the engine loop is playing
+	float m_flEngineAt = 0;              // when it starts (after the starter)
+	float m_flRevs = 0;                  // 0 idle to 1 flat out
+	int m_iEnginePitch = 0;              // as last sent
+	float m_flEngineVol = 0;
+	int m_iSkid = -1;                    // the skid loop playing: 0 tarmac, 1 loose, 2 snow; -1 none
+	int m_iSkidPitch = 0;
+	float m_flSkidVol = 0;
+	float m_flSkidSince = 0;
+	bool m_bSkidTurn = false;            // which loop's change is sent first when both want one
+	bool m_bThrottle = false;            // the throttle was pressed, the think before
+	bool m_bHornDown = false;
+	float m_flNextBackfire = 0, m_flNextHorn = 0, m_flNextHit = 0, m_flNextSplash = 0;
+	bool m_bWheelWet[4] = {false, false, false, false}; // a wheel stood in water, the last time it was read
 	bool m_bGrounded = true;
 	int m_iLastButtons = 0; // the driver's, the command before: a +use press gets him out
 	bool m_bUsePressed = false;
@@ -633,12 +688,22 @@ static bool H9FileOnDisk(const char* name)
 	return true;
 }
 
+// The name (a path under sound/) when the file is on disk, else NULL.
+static const char* H9OwnSound(const char* name)
+{
+	char path[128];
+	snprintf(path, sizeof(path), "sound/%s", name);
+	return H9FileOnDisk(path) ? name : NULL;
+}
+
 void CH9Car::Precache()
 {
 	if (FStringNull(pev->model))
 		pev->model = MAKE_STRING("models/h9/car.mdl");
-	if (FStringNull(m_iszEngine))
-		m_iszEngine = MAKE_STRING("plats/ttrain2.wav");
+	// Our sounds (sound/h9/race/, made by h9-maps art/race/rc-sounds.mjs): each is precached only when it is on disk
+	// (a precache of a missing file stops the map). Where Half-Life has a sound that will do, it stands in.
+	if (FStringNull(m_iszEngine)) // the "enginesnd" key overrides this
+		m_iszEngine = MAKE_STRING(H9OwnSound("h9/race/engine_loop.wav") ? "h9/race/engine_loop.wav" : "plats/ttrain2.wav");
 	if (H9FileOnDisk(STRING(pev->model)))
 		PRECACHE_MODEL((char*)STRING(pev->model));
 	PRECACHE_SOUND((char*)STRING(m_iszEngine));
@@ -646,6 +711,24 @@ void CH9Car::Precache()
 	PRECACHE_SOUND("plats/ttrain_brake1.wav");
 	PRECACHE_SOUND("plats/vehicle_ignition.wav");
 	PRECACHE_SOUND("debris/metal2.wav");
+	m_bOwnStart = H9OwnSound("h9/race/start.wav") != NULL;
+	m_pszStart = m_bOwnStart ? "h9/race/start.wav" : "plats/vehicle_ignition.wav";
+	m_bOwnLand = H9OwnSound("h9/race/land.wav") != NULL;
+	m_pszLand = m_bOwnLand ? "h9/race/land.wav" : "plats/ttrain_brake1.wav";
+	m_pszHit[0] = H9OwnSound("h9/race/hit1.wav") ? "h9/race/hit1.wav" : "debris/metal2.wav";
+	m_pszHit[1] = H9OwnSound("h9/race/hit2.wav") ? "h9/race/hit2.wav" : m_pszHit[0];
+	static const char* const skids[3] = {"h9/race/skid_tarmac.wav", "h9/race/skid_gravel.wav", "h9/race/skid_snow.wav"};
+	for (int i = 0; i < 3; i++)
+		m_pszSkid[i] = H9OwnSound(skids[i]) ? skids[i] : NULL; // no stock skid: silent without ours
+	m_pszBackfire[0] = H9OwnSound("h9/race/backfire1.wav") ? "h9/race/backfire1.wav" : NULL;
+	m_pszBackfire[1] = H9OwnSound("h9/race/backfire2.wav") ? "h9/race/backfire2.wav" : m_pszBackfire[0];
+	m_pszHorn = H9OwnSound("h9/race/horn.wav") ? "h9/race/horn.wav" : NULL;
+	m_pszSplash = H9OwnSound("h9/race/splash.wav") ? "h9/race/splash.wav" : NULL;
+	const char* const ours[] = {m_pszStart, m_pszLand, m_pszHit[0], m_pszHit[1], m_pszSkid[0], m_pszSkid[1], m_pszSkid[2],
+		m_pszBackfire[0], m_pszBackfire[1], m_pszHorn, m_pszSplash};
+	for (const char* name : ours)
+		if (name)
+			PRECACHE_SOUND((char*)name);
 }
 
 void CH9Car::Spawn()
@@ -775,8 +858,10 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	pPlayer->m_hViewEntity = m_hCamera;
 
 	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump is the handbrake, use gets out\nstuck? hold R");
-	EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
-	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, 0, 70);
+	EMIT_SOUND_DYN(edict(), CHAN_ITEM, m_pszStart, 0.8, ATTN_NORM, 0, PITCH_NORM);
+	// the engine loop starts from Sound(), after the starter's sample (at once with the stock ignition, or on a throttle press)
+	StopSounds();
+	m_flEngineAt = gpGlobals->time + (m_bOwnStart ? H9CAR_START_TIME : 0);
 	m_bEngineOn = true;
 	m_flLastThink = gpGlobals->time;
 	pev->nextthink = gpGlobals->time;
@@ -841,8 +926,7 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 			g_pGameRules->GetPlayerSpawnSpot(pPlayer);
 		PutAt(m_vecHome, m_flHomeYaw);
 	}
-	STOP_SOUND(edict(), CHAN_STATIC, STRING(m_iszEngine));
-	m_bEngineOn = false;
+	StopSounds(); // stop path 1: the driver gets out (+use, death, the race's end, a respawn)
 }
 
 // Throttle, brake, steering and handbrake from the driver's buttons, and what they do to the car's speed and
@@ -1007,8 +1091,13 @@ bool CH9Car::Move(float dt)
 	TraceResult again;
 	if (slide.Length() > 0.1f && !Blocked(pev->origin, slide, again))
 		UTIL_SetOrigin(pev, pev->origin + slide);
-	if (speedBefore - sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side) > 300)
-		EMIT_SOUND_DYN(edict(), CHAN_BODY, "debris/metal2.wav", 1, ATTN_NORM, 0, 90 + RANDOM_LONG(0, 20));
+	const float lost = speedBefore - sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side);
+	if (lost > H9CAR_HIT_MIN && gpGlobals->time >= m_flNextHit) // louder the harder it hit
+	{
+		m_flNextHit = gpGlobals->time + H9CAR_HIT_GAP;
+		EMIT_SOUND_DYN(edict(), CHAN_BODY, m_pszHit[RANDOM_LONG(0, 1)],
+			H9Clamp(0.4f + (lost - H9CAR_HIT_MIN) / 900.0f * 0.6f, 0.4f, 1.0f), ATTN_NORM, 0, 90 + RANDOM_LONG(0, 20));
+	}
 	return true;
 }
 
@@ -1060,6 +1149,15 @@ void CH9Car::Settle(float dt)
 		{
 			LookUnder(i, tr, above, below);
 			H9SurfaceAdd(under, m_iWheelSurface[i], m_flWheelDepth[i]);
+			const bool wet = m_iWheelSurface[i] == H9SURF_WATER;
+			const float speed = sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side);
+			if (wet && !m_bWheelWet[i] && m_pszSplash && speed > H9CAR_SPLASH_SPEED && gpGlobals->time >= m_flNextSplash)
+			{
+				m_flNextSplash = gpGlobals->time + H9CAR_SPLASH_GAP;
+				EMIT_SOUND_DYN(edict(), CHAN_AUTO, m_pszSplash,
+					H9Clamp(0.4f + speed / (m_flMaxSpeed > 1 ? m_flMaxSpeed : 1) * 0.6f, 0.4f, 1.0f), ATTN_NORM, 0, 95 + RANDOM_LONG(0, 10));
+			}
+			m_bWheelWet[i] = wet;
 		}
 	}
 
@@ -1080,7 +1178,11 @@ void CH9Car::Settle(float dt)
 		const float kept = H9CarLanding(impact);
 		m_car.forward *= kept;
 		m_car.side *= kept;
-		EMIT_SOUND_DYN(edict(), CHAN_BODY, "plats/ttrain_brake1.wav", 0.7, ATTN_NORM, 0, 120);
+		if (m_bOwnLand) // the thump, louder the harder it landed; the stock squeal stands in without it
+			EMIT_SOUND_DYN(edict(), CHAN_BODY, m_pszLand, H9Clamp(0.45f + (impact - H9CAR_LAND) / 1000.0f * 0.55f, 0.45f, 1.0f),
+				ATTN_NORM, 0, 95 + RANDOM_LONG(0, 10));
+		else
+			EMIT_SOUND_DYN(edict(), CHAN_BODY, m_pszLand, 0.7, ATTN_NORM, 0, 120);
 	}
 	if (count > 0) // what the tyres stand on: the mean of the wheels that are down
 	{
@@ -1146,14 +1248,131 @@ void CH9Car::PlaceCamera(float dt)
 	pCamera->pev->v_angle = angles;
 }
 
-// The engine's pitch follows the speed.
-void CH9Car::Sound()
+// Every loop stops here: the engine's and the skid's (a horn, a pop, a hit are short and play out). Called from
+// LeaveWheel, from Step when the driver has gone (a disconnect), and before TakeWheel starts the sounds afresh.
+void CH9Car::StopSounds()
 {
-	if (!m_bEngineOn || gpGlobals->time < m_flNextSound)
+	STOP_SOUND(edict(), CHAN_STATIC, STRING(m_iszEngine));
+	if (m_iSkid >= 0 && m_pszSkid[m_iSkid])
+		STOP_SOUND(edict(), CHAN_VOICE, m_pszSkid[m_iSkid]);
+	m_bEngineLoop = false;
+	m_bEngineOn = false;
+	m_iSkid = -1;
+	m_flRevs = 0;
+	m_bThrottle = false;
+	m_bHornDown = false;
+	m_iEnginePitch = 0;
+	m_flEngineVol = 0;
+}
+
+void CH9Car::SkidStart(int kind, float vol, int pitch)
+{
+	EMIT_SOUND_DYN(edict(), CHAN_VOICE, m_pszSkid[kind], vol, ATTN_NORM, 0, pitch);
+	m_iSkid = kind;
+	m_flSkidVol = vol;
+	m_iSkidPitch = pitch;
+	m_flSkidSince = gpGlobals->time;
+}
+
+// The car's sounds, from its think (the driver is at the wheel). The engine's pitch and volume follow "revs": the
+// speed's share of the top speed, pulled up by the throttle (to H9CAR_REV_LAUNCH even at a standstill, more with
+// wheelspin, flat out in the air) and let fall when it is let go, smoothed. A change of pitch or volume is sent only
+// when it is a step big enough, and one message per H9CAR_SND_GAP for the whole car, the engine's and the skid's
+// taking turns; nothing is sent while nothing changes.
+void CH9Car::Sound(CBasePlayer* pDriver)
+{
+	if (!m_bEngineOn)
 		return;
-	m_flNextSound = gpGlobals->time + 0.1f;
-	const int pitch = 70 + (int)(90 * H9Clamp(fabsf(m_car.forward) / (m_flMaxSpeed > 1 ? m_flMaxSpeed : 1), 0, 1));
-	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, SND_CHANGE_PITCH | SND_CHANGE_VOL, pitch);
+	const float now = gpGlobals->time;
+	const float top = m_flMaxSpeed > 1 ? m_flMaxSpeed : 1;
+	const float speed = sqrtf(m_car.forward * m_car.forward + m_car.side * m_car.side);
+	const float ratio = H9Clamp(fabsf(m_car.forward) / top, 0, 1);
+	const bool throttle = m_iPush != 0 && m_iPush * m_car.forward >= -H9CAR_CRAWL; // pulling, not braking
+
+	// the horn: a press (not a held key), once per H9CAR_HORN_GAP. IN_ATTACK2 does nothing else while he drives: the
+	// weapons are put away and the car reads no other button but forward, back, left, right, jump, use and reload.
+	const bool horn = pDriver && (pDriver->pev->button & IN_ATTACK2) != 0;
+	if (horn && !m_bHornDown && m_pszHorn && now >= m_flNextHorn)
+	{
+		m_flNextHorn = now + H9CAR_HORN_GAP;
+		EMIT_SOUND_DYN(edict(), CHAN_WEAPON, m_pszHorn, 1.0, ATTN_NORM, 0, PITCH_NORM);
+	}
+	m_bHornDown = horn;
+
+	// the revs
+	float target = ratio * H9CAR_REV_COAST;
+	if (throttle)
+	{
+		target = H9CAR_REV_LAUNCH + (1 - H9CAR_REV_LAUNCH) * ratio;
+		target += m_bGrounded ? H9CAR_REV_SPIN * H9Clamp(m_car.slip, 0, 1) : 1.0f; // wheelspin; in the air it screams
+	}
+	target = H9Clamp(target, 0, 1);
+	m_flRevs = H9Approach(target, m_flRevs, (target > m_flRevs ? H9CAR_REV_UP : H9CAR_REV_DOWN) * m_flLastDt);
+	const int pitch = H9CAR_SND_IDLE + (int)((H9CAR_SND_TOP - H9CAR_SND_IDLE) * m_flRevs + 0.5f);
+	const float vol = 0.45f + 0.45f * m_flRevs;
+
+	// a pop: the throttle let go (not braked) at speed, with a chance and a gap
+	if (m_bThrottle && m_iPush == 0 && m_bGrounded && m_car.forward > 0 && ratio > H9CAR_BACKFIRE_SPEED && m_pszBackfire[0] &&
+		now >= m_flNextBackfire && RANDOM_FLOAT(0, 1) < H9CAR_BACKFIRE_CHANCE)
+	{
+		m_flNextBackfire = now + H9CAR_BACKFIRE_GAP;
+		EMIT_SOUND_DYN(edict(), CHAN_AUTO, m_pszBackfire[RANDOM_LONG(0, 1)], RANDOM_FLOAT(0.7f, 0.95f), ATTN_NORM, 0, 90 + RANDOM_LONG(0, 30));
+	}
+	m_bThrottle = throttle;
+
+	// the engine loop: after the starter's sample, or at once on a throttle press
+	if (!m_bEngineLoop && (now >= m_flEngineAt || m_iPush != 0))
+	{
+		EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), vol, ATTN_NORM, 0, pitch);
+		m_bEngineLoop = true;
+		m_iEnginePitch = pitch;
+		m_flEngineVol = vol;
+	}
+
+	// the skid loop, by the rear wheels' surface: on at a slip of H9CAR_SKID_ON, off under H9CAR_SKID_OFF
+	const int rear = m_iWheelSurface[2];
+	const int kind = rear == H9SURF_TARMAC ? 0 : (rear == H9SURF_SNOW || rear == H9SURF_ICE || rear == H9SURF_WATER ? 2 : 1);
+	const float skidVol = H9Clamp((0.25f + 0.65f * H9Clamp((m_car.slip - H9CAR_SKID_OFF) / 0.6f, 0, 1)) * H9Clamp(speed / 400, 0.35f, 1), 0, 0.95f);
+	const int skidPitch = 90 + (int)(25 * H9Clamp(speed / top, 0, 1));
+	if (m_iSkid >= 0)
+	{
+		if (!m_bGrounded || speed < H9CAR_SKID_SPEED * 0.5f || m_car.slip < H9CAR_SKID_OFF) // stop path 3: the skid ends
+		{
+			STOP_SOUND(edict(), CHAN_VOICE, m_pszSkid[m_iSkid]);
+			m_iSkid = -1;
+		}
+		else if (kind != m_iSkid && m_pszSkid[kind] && now >= m_flSkidSince + H9CAR_SKID_SWAP) // the surface changed
+		{
+			STOP_SOUND(edict(), CHAN_VOICE, m_pszSkid[m_iSkid]);
+			SkidStart(kind, skidVol, skidPitch);
+		}
+	}
+	else if (m_bGrounded && speed > H9CAR_SKID_SPEED && m_car.slip > H9CAR_SKID_ON && m_pszSkid[kind])
+		SkidStart(kind, skidVol, skidPitch);
+
+	// pitch and volume changes: one message at most per H9CAR_SND_GAP, and only for a step
+	const bool engineChange = m_bEngineLoop && (abs(pitch - m_iEnginePitch) >= H9CAR_SND_PITCH_STEP ||
+											fabsf(vol - m_flEngineVol) >= H9CAR_SND_VOL_STEP);
+	const bool skidChange = m_iSkid >= 0 && (abs(skidPitch - m_iSkidPitch) >= H9CAR_SND_PITCH_STEP * 2 ||
+											fabsf(skidVol - m_flSkidVol) >= H9CAR_SND_VOL_STEP * 1.5f);
+	if (now >= m_flNextSound && (engineChange || skidChange))
+	{
+		const bool skid = skidChange && (!engineChange || m_bSkidTurn);
+		m_flNextSound = now + H9CAR_SND_GAP;
+		m_bSkidTurn = !skid; // the other loop is first next time
+		if (skid)
+		{
+			EMIT_SOUND_DYN(edict(), CHAN_VOICE, m_pszSkid[m_iSkid], skidVol, ATTN_NORM, SND_CHANGE_PITCH | SND_CHANGE_VOL, skidPitch);
+			m_iSkidPitch = skidPitch;
+			m_flSkidVol = skidVol;
+		}
+		else
+		{
+			EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), vol, ATTN_NORM, SND_CHANGE_PITCH | SND_CHANGE_VOL, pitch);
+			m_iEnginePitch = pitch;
+			m_flEngineVol = vol;
+		}
+	}
 }
 
 // Put somewhere, level and at rest (the grid, a respawn, the last safe place).
@@ -1201,8 +1420,7 @@ void CH9Car::Step(const char* by)
 			pDriver = NULL;
 		}
 		m_hDriver = NULL;
-		STOP_SOUND(edict(), CHAN_STATIC, STRING(m_iszEngine));
-		m_bEngineOn = false;
+		StopSounds(); // stop path 2: the driver is gone (disconnected, or LeaveWheel already ran)
 	}
 
 	if (pDriver) // +use gets him out: a fresh press (kept by the PostThink call), not the one that got him in
@@ -1353,7 +1571,7 @@ void CH9Car::Step(const char* by)
 		pDriver->pev->owner = edict();
 		UTIL_SetOrigin(pDriver->pev, pev->origin + Vector(0, 0, 40)); // he rides inside: the sounds and the PVS follow
 		PlaceCamera(dt);
-		Sound();
+		Sound(pDriver);
 		if (CVAR_GET_FLOAT("developer") > 0 && gpGlobals->time >= m_flNextReport)
 		{
 			m_flNextReport = gpGlobals->time + 0.5f;
