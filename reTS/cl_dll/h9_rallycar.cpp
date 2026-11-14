@@ -131,6 +131,7 @@ rallycam::V3 s_tvCams[rallycam::kTvMaxCams];
 int s_tvCount = 0;
 char s_tvLevel[80] = "";
 float s_tvFov = 0.0f;
+float s_specTvTime = -1.0f; // the client time of the last frame a spectator saw through the TV camera
 
 void TvLoad()
 {
@@ -750,6 +751,34 @@ bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw&
 bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 {
 	using namespace rallycam;
+	// A spectator in a rally race (HL Rally, in_camera.cpp:276-290 and 645-656: g_iUser1 forces the TV camera, on the player g_iUser2 follows;
+	// the eye, aim and FOV are the TV camera's own). Only a car is followed: the player's own view setting is not touched. A spectator with
+	// nobody to follow (roaming) keeps TS's own view; HL Rally would aim at entity 0 there.
+	if (pp != nullptr && !H9RallyCam_LocalIsCar() && g_iUser1 != 0 && g_iUser2 > 0)
+	{
+		cl_entity_t* target = gEngfuncs.GetEntityByIndex(g_iUser2);
+		if (target != nullptr && H9RallyCar_IsCarEntity(target))
+		{
+			s_chase.init = false;
+			s_first.init = false;
+			s_int.init = false;
+			s_mirrorPending = false;
+			TvLoad();
+			const V3 at(target->origin[0], target->origin[1], target->origin[2]); // pl->origin (in_camera.cpp:651)
+			const V3 eye = TvPickCamera(s_tvCams, s_tvCount, at);
+			const Pose pose = TvAim(eye, at);
+			s_tvFov = TvFov((at - eye).Length());
+			s_specTvTime = gEngfuncs.GetClientTime();
+			pp->vieworg[0] = pose.org.x;
+			pp->vieworg[1] = pose.org.y;
+			pp->vieworg[2] = pose.org.z;
+			pp->viewangles[0] = pose.pitch;
+			pp->viewangles[1] = pose.yaw;
+			pp->viewangles[2] = 0.0f;
+			AngleVectors(pp->viewangles, pp->forward, pp->right, pp->up);
+			return true;
+		}
+	}
 	if (pp == nullptr || !H9RallyCam_LocalIsCar())
 	{
 		s_chase.init = false;
@@ -1086,6 +1115,8 @@ bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose)
 float H9RallyCam_Fov()
 {
 	const float f = CvF(s_cvFov, 90.0f);
+	if (s_specTvTime >= 0.0f && gEngfuncs.GetClientTime() - s_specTvTime < 0.25f && gEngfuncs.GetClientTime() >= s_specTvTime && s_tvFov > 0.0f)
+		return s_tvFov; // a spectator's TV camera, the same lens
 	if (H9RallyCam_LocalIsCar() && s_viewNow == rallycam::VIEW_TV && s_tvFov > 0.0f)
 		return s_tvFov; // HL Rally's TV camera sets its own FOV (in_camera.cpp:693-713)
 	return H9RallyCam_LocalIsCar() && f > 1.0f ? f : 0.0f;
