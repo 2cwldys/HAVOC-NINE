@@ -19,6 +19,12 @@ HOW A SERVER GETS ON
 HOW A SERVER GETS OFF
     It stops answering. Nothing has to tell the list that a server has shut down.
 
+WHICH SERVERS NEVER GET ON
+    The ones blacklisted.ini names: an address, an address range or a host name. The file is read
+    at start and again whenever it changes. Every way of getting on is held to it, the key and
+    servers.txt and Discord included, and a server that is on the list when an entry names it is
+    taken off at the next poll.
+
 WHAT THIS DOES NOT DO
     It carries no game traffic and it does not touch Steam. The client queries each address
     the list returns for itself.
@@ -58,6 +64,7 @@ INI = DATA_DIR / "serverlist.ini"
 SECRETS = DATA_DIR / "serverlist.cfg"
 SEEDS = DATA_DIR / "servers.txt"
 LOG = DATA_DIR / "serverlist.log"
+BLACKLIST = DATA_DIR / "blacklisted.ini"
 
 DEFAULT_PORT = 27015                                        # the engine's default for a bare host
 GAMEDIR_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
@@ -71,6 +78,8 @@ HEARTBEAT_FAILS = 10                                        # wrong keys one add
 HEARTBEAT_WINDOW = 600                                      # seconds; past the limit, 429 until the window ends
 HEARTBEAT_RATE_WINDOW = 60                                  # seconds; one address's keyless heartbeats are counted per window
 MAX_OPEN_ADDS = 4                                           # keyless heartbeats being queried at once; the rest are refused, not queued
+BLACKLISTED = "that server is blacklisted from this list"   # the reason given to a heartbeat or /addserver that blacklisted.ini refuses
+REFUSED_LOG_SECONDS = 600                                   # a blacklisted address is written to the log once in this long
 
 
 def log(message):
@@ -255,14 +264,175 @@ class Settings:
             sys.exit(f"public_url {self.public_url!r} in serverlist.ini does not start with http:// or https://")
 
 
+class Blacklist:
+    """
+    blacklisted.ini: the servers the list will not list. One entry to a line; ; or # starts a comment.
+
+        203.0.113.7           every server at that address, on any port
+        203.0.113.7:27016     that one server
+        203.0.113.0/24        every address in a range (IPv4)
+        fake.example.com      every server that host name stands for (host:port for just one of them)
+
+    The file is read when the list starts and again whenever it changes, so an edit takes hold
+    within poll_seconds, with no restart. A missing file blacklists nothing.
+    """
+
+    UNREAD = object()
+
+    def __init__(self, path):
+        self.path = path
+        self.hosts = set()                                  # host names and IPv4 addresses, lower case: any port
+        self.servers = set()                                # (host, port)
+        self.nets = []                                      # IPv4 ranges
+        self.stamp = self.UNREAD                            # the file as it was last read: (time, size), or None for no file
+        self.refresh()
+
+    def __len__(self):
+        return len(self.hosts) + len(self.servers) + len(self.nets)
+
+    @staticmethod
+    def entry(text):
+        """One line as ("host", name), ("server", (name, port)) or ("net", network). ValueError when it is none of them."""
+        if "/" in text:
+            net = ipaddress.ip_network(text, strict=False)
+            if net.version != 4:
+                raise ValueError("IPv4 ranges only")
+            return "net", net
+        host, _, port = text.partition(":")
+        if not HOST_RE.match(host):
+            raise ValueError("not a host name, an address or a range")
+        host = host.lower()
+        if IPV4_RE.match(host):
+            host = str(ipaddress.IPv4Address(host))         # a ValueError for a malformed address
+        if port == "":
+            return "host", host
+        if not (port.isdigit() and 0 < int(port) <= 65535):
+            raise ValueError("bad port")
+        return "server", (host, int(port))
+
+    def refresh(self):
+        """Reads the file again when it has changed. True when what it blacklists may be different now."""
+        try:
+            status = self.path.stat()
+            stamp = (status.st_mtime_ns, status.st_size)
+        except OSError:
+            stamp = None
+        if stamp == self.stamp:
+            return False
+        lines = []
+        if stamp is not None:
+            try:
+                lines = self.path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError) as exc:
+                log(f"blacklisted.ini: not read, the entries from before stay: {exc}")
+                return False
+        first = self.stamp is self.UNREAD
+        self.stamp = stamp
+        hosts, servers, nets = set(), set(), []
+        for number, line in enumerate(lines, 1):
+            text = re.split(r"[;#]", line, maxsplit=1)[0].strip()
+            if not text:
+                continue
+            try:
+                kind, value = self.entry(text)
+            except ValueError as exc:
+                log(f"blacklisted.ini line {number}: skipped {text!r}: {exc}")
+                continue
+            if kind == "host":
+                hosts.add(value)
+            elif kind == "server":
+                servers.add(value)
+            else:
+                nets.append(value)
+        self.hosts, self.servers, self.nets = hosts, servers, nets
+        if stamp is not None:
+            log("blacklisted.ini: 1 entry" if len(self) == 1 else f"blacklisted.ini: {len(self)} entries")
+        elif not first:
+            log("blacklisted.ini is gone: nothing is blacklisted")
+        return True
+
+    def has_addresses(self):
+        """Whether any entry is an address or a range, which a host name could stand for."""
+        return bool(self.nets) or any(IPV4_RE.match(host) for host in self.hosts) \
+            or any(IPV4_RE.match(host) for host, _ in self.servers)
+
+    def match(self, host, port, addresses=()):
+        """
+        The entry that blacklists host:port, as that entry is written, or None. addresses are the
+        IPv4 addresses the host name stands for, tried as well as the name itself.
+        """
+        for name in (host.lower(), *addresses):
+            if (name, port) in self.servers:
+                return f"{name}:{port}"
+            if name in self.hosts:
+                return name
+            if self.nets:
+                try:
+                    address = ipaddress.IPv4Address(name)
+                except ValueError:
+                    continue
+                for net in self.nets:
+                    if address in net:
+                        return str(net)
+        return None
+
+
 class ServerList:
     """The servers on the list, by "host:port"."""
 
-    def __init__(self, settings):
+    def __init__(self, settings, blacklist=None):
         self.settings = settings
         self.entries = {}
         self.first_poll = asyncio.Event()                   # set once every seed has been asked
         self.adding = 0                                     # keyless heartbeats whose query is out
+        self.blacklist = Blacklist(BLACKLIST) if blacklist is None else blacklist
+        self.refused = {}                                   # "host:port" -> when a blacklisted attempt was last written to the log
+
+    async def addresses_of(self, host):
+        """
+        The IPv4 addresses a host stands for, so that a name cannot get round an address on the
+        blacklist. An address stands for itself. A name that does not resolve stands for nothing.
+        """
+        try:
+            return [str(ipaddress.IPv4Address(host))]
+        except ValueError:
+            pass
+        try:
+            found = await asyncio.get_running_loop().getaddrinfo(host, None, family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        except OSError:
+            return []
+        return sorted({info[4][0] for info in found})
+
+    async def blacklisted(self, host, port):
+        """The blacklisted.ini entry that names host:port, or None."""
+        self.blacklist.refresh()
+        if not len(self.blacklist):
+            return None
+        found = self.blacklist.match(host, port)
+        if found or not self.blacklist.has_addresses():
+            return found
+        return self.blacklist.match(host, port, await self.addresses_of(host))
+
+    def note_blacklisted(self, host, port, entry, source):
+        """Writes a refusal to the log once in REFUSED_LOG_SECONDS for each address, so that a server that keeps sending heartbeats does not fill it."""
+        now = time.monotonic()
+        key = f"{host}:{port}"
+        if len(self.refused) > 1000:
+            self.refused.clear()
+        if now - self.refused.get(key, -REFUSED_LOG_SECONDS) >= REFUSED_LOG_SECONDS:
+            self.refused[key] = now
+            log(f"refused {key} from {source}: blacklisted ({entry})")
+
+    async def drop_blacklisted(self):
+        """Takes off the servers the blacklist names now: the file may have changed since they got on."""
+        self.blacklist.refresh()
+        if not len(self.blacklist):
+            return
+        for key, entry in list(self.entries.items()):
+            found = await self.blacklisted(entry["host"], entry["port"])
+            if found:
+                log(f"dropped {key}: blacklisted ({found})")
+                self.entries.pop(key, None)
 
     def live(self, gamedir):
         """The servers in this game folder that answered within expire_seconds."""
@@ -313,6 +483,10 @@ class ServerList:
         (entry, None), or (None, reason) when it is refused.
         """
         host, port = target
+        found = await self.blacklisted(host, port)
+        if found:
+            self.note_blacklisted(host, port, found, source)
+            return None, BLACKLISTED
         reason = self.refusal(host, port, open_)
         if reason:
             return None, reason
@@ -387,12 +561,17 @@ class ServerList:
             except ValueError as exc:
                 log(f"servers.txt: skipped {text!r}: {exc}")
                 continue
+            found = self.blacklist.match(host, port)
+            if found:
+                log(f"servers.txt: skipped {text!r}: blacklisted ({found})")
+                continue
             self.entries.setdefault(f"{host}:{port}", new_entry(host, port, "servers.txt"))
             count += 1
         return count
 
     async def poll(self):
-        """Query every listed server again, then take off the ones that have gone quiet."""
+        """Take off the servers the blacklist names, query every other listed server again, then take off the ones that have gone quiet."""
+        await self.drop_blacklisted()
         keys = list(self.entries)
         targets = [(self.entries[key]["host"], self.entries[key]["port"]) for key in keys]
         infos = await asyncio.gather(*(probe(target, self.settings.probe_timeout) for target in targets))
@@ -547,7 +726,8 @@ async def handle_heartbeat(request):
     it comes from and the port it names, unless open_heartbeats = 0 in serverlist.ini. Either
     way the server is listed only once it answers a query from this game folder. Without the key a
     heartbeat is also held to heartbeats_per_minute for its address (429 past it), and may list
-    only max_per_address servers from its address and max_open_servers in all (422 past them).
+    only max_per_address servers from its address and max_open_servers in all (422 past them). An
+    address that blacklisted.ini names is refused with 403, with or without the key.
     """
     settings = request.app["settings"]
     fails = request.app["fails"]
@@ -599,7 +779,7 @@ async def handle_heartbeat(request):
                                  status=429, headers={"Retry-After": str(HEARTBEAT_RATE_WINDOW)})
     entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}", open_=not keyed)
     if entry is None:
-        return web.json_response({"ok": False, "error": reason}, status=422)
+        return web.json_response({"ok": False, "error": reason}, status=403 if reason == BLACKLISTED else 422)
     return web.json_response({"ok": True, "address": entry["address"], "name": entry["name"]})
 
 
