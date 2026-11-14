@@ -17,15 +17,25 @@
 #include "h9_rally_snd.h"
 #include "race.h"
 
+float GetSpeedBySlots(CBasePlayer* pPlayer); // ts_gun.cpp
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
 static cvar_t h9_rally = {"h9_rally", "0", FCVAR_SERVER};
+// 1: each rally player's movement prints one line every half second to the server console (pm_shared/h9_rally.cpp, DebugLine).
+// pmove reaches no cvar of ours, so the flag goes to it in the physinfo key "rdbg", as "rally" does.
+static cvar_t h9_rally_debug = {"h9_rally_debug", "0", 0};
+
+// What a car is told its speed limit is: nothing of The Specialists' loadout (SetPlayerSpeed: 0..330) may clamp it. Rally's own
+// movement does not read maxspeed (the wish speed is the car's stat), but PM_CheckParamters scales the command by it first.
+#define H9RALLY_MAXSPEED 3000.0f // HL Rally's sv_maxspeed
 
 void H9RallyRegisterCvars()
 {
 	CVAR_REGISTER(&h9_rally);
+	CVAR_REGISTER(&h9_rally_debug);
 }
 
 int H9RallyCvarClass()
@@ -41,12 +51,18 @@ static int WantedClass()
 	return v > 0 ? v : RaceRallyClass();
 }
 
+// A number in this player's physinfo (0 when the key is not there).
+static int PhysInt(edict_t* ent, const char* key)
+{
+	char* info = (char*)g_engfuncs.pfnGetPhysicsInfoString(ent);
+	const char* v = g_engfuncs.pfnInfoKeyValue(info, key);
+	return v ? atoi(v) : 0;
+}
+
 // The class this player's physinfo says he is in.
 static int CurrentClass(edict_t* ent)
 {
-	char* info = (char*)g_engfuncs.pfnGetPhysicsInfoString(ent);
-	const char* v = g_engfuncs.pfnInfoKeyValue(info, "rally");
-	return v ? atoi(v) : 0;
+	return PhysInt(ent, "rally");
 }
 
 void H9RallyServerThink(CBasePlayer* pl)
@@ -70,6 +86,7 @@ void H9RallyServerThink(CBasePlayer* pl)
 		{
 			pev->flags &= ~FL_DUCKING;
 			pev->velocity = Vector(0, 0, 0);
+			pev->friction = 1.0f; // a stunt's friction stays on a player in multiplayer, and the car's pull is x friction
 		}
 		else if (want == 0)
 		{
@@ -77,9 +94,23 @@ void H9RallyServerThink(CBasePlayer* pl)
 			UTIL_SetSize(pev, VEC_HULL_MIN, VEC_HULL_MAX);
 			UTIL_SetOrigin(pev, pev->origin + Vector(0, 0, 36));
 			pev->view_ofs = VEC_VIEW;
+			pl->SetPlayerSpeed(GetSpeedBySlots(pl)); // the loadout's speed again (a car's maxspeed is 3000)
 			H9RallySoundStop(pl); // the mode went off (the cvar to 0, or the race's vehicle changed): no loop is left
 			return;
 		}
+	}
+
+	// the debug line's switch
+	const int wantDebug = h9_rally_debug.value != 0 ? 1 : 0;
+	if (PhysInt(pl->edict(), "rdbg") != wantDebug)
+		g_engfuncs.pfnSetPhysicsKeyValue(pl->edict(), "rdbg", wantDebug ? "1" : "0");
+
+	// nothing of the loadout holds a car: a sane maxspeed for pev and for the client's prediction (a player with every item
+	// gone can be left with 0, and TS only sets it on loadout events). The slow motion's factor (fuser1) is ignored by pmove.
+	if (pev->maxspeed != H9RALLY_MAXSPEED)
+	{
+		pev->maxspeed = H9RALLY_MAXSPEED;
+		g_engfuncs.pfnSetClientMaxspeed(pl->edict(), H9RALLY_MAXSPEED);
 	}
 
 	// in the car: no weapons, and the car's size for whatever else in the world touches the player

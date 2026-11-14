@@ -7,13 +7,23 @@
 *  points around its outline, the texture under it picks the surface). The code, names and comments are ours; HL Rally's
 *  source has no licence and none of it is copied. The handling itself is in h9_rally.h.
 *
+*  One command, in HL Rally's order: where the car stands (a trace 2 down, 16 when it is at rest: any hit is ground), the
+*  ground's handling or the air's gravity, the body against the world at the place the move is going to (PM_Crash), the
+*  move (a straight trace; a kerb or a wall: the slide against the step-up along the car's up, the stepped one winning a
+*  tie), and where the car stands now.
+*
 *  What it keeps from one frame to the next: only the player's own origin, velocity and the command's view angles,
-*  which the engine already predicts. No statics, no iuser/fuser/vuser. The mode is on while the physinfo key "rally" is
-*  a car class (1 on), which the server sets (dlls/h9_rally_glue in player.cpp) and the engine sends to the client in
-*  the client data's physinfo string, the way TS's "mj" reaches pmove.
+*  which the engine already predicts. No statics that change the movement, no iuser/fuser/vuser. The mode is on while the
+*  physinfo key "rally" is a car class (1 on), which the server sets (dlls/h9_rally_srv.cpp) and the engine sends to the
+*  client in the client data's physinfo string, the way TS's "mj" reaches pmove. The key "rdbg" (1) turns on the debug line.
+*
+*  What does NOT limit a car here, so that nothing of The Specialists' on-foot movement holds it: the car's wish speed is
+*  its own stat (h9_rally.h), never pmove->maxspeed (the loadout changes that); the time scale (fuser1, TS's slow motion)
+*  is ignored; water is only a level, it changes nothing; the held state is FL_FROZEN alone.
 *
 *  The hull: the point hull (usehull 2). Whatever hull sizes a map was compiled with, the world is then exact to the
 *  point, and the body's 45 x 18 x 16 outline is the traces below, not a box: HL Rally's own maps drive unmodified.
+*  Other players are physents with boxes: the cars are boxes to each other, as in HL Rally (its players are SOLID_SLIDEBOX).
 ***/
 #include "Platform.h"
 #include <assert.h>
@@ -27,8 +37,11 @@
 #include "in_buttons.h"
 #include "h9_rally.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static_assert(H9R_FL_FROZEN == FL_FROZEN, "h9_rally.h's copy of FL_FROZEN");
 
 // pm_shared.cpp's own functions (not static there)
 int PM_FlyMove();
@@ -43,7 +56,7 @@ bool PM_AddToTouched(pmtrace_t tr, Vector impactvelocity);
 
 namespace
 {
-const float kFloorNormal = 0.55f; // a plane flatter than this is ground (about 56 degrees)
+const float kFloorNormal = 0.55f; // a plane flatter than this is flat enough to average with its neighbours for the car's tilt
 
 inline float Dot3(const Vector& a, const Vector& b)
 {
@@ -66,13 +79,36 @@ inline Vector MA(const Vector& a, float s, const Vector& b)
 	return Vector(a[0] + s * b[0], a[1] + s * b[1], a[2] + s * b[2]);
 }
 
+inline float Len3(const Vector& v)
+{
+	return sqrtf(Dot3(v, v));
+}
+
 pmtrace_t Trace(const Vector& a, const Vector& b)
 {
 	Vector s = a, e = b;
 	return pmove->PM_PlayerTrace(s, e, PM_NORMAL, -1);
 }
 
-// the water at the wheels (waterlevel 1) and with the body in it (2)
+// What one command did, for the debug line (physinfo "rdbg" 1, server only). Nothing here reaches the movement.
+struct Dbg
+{
+	bool stuck = false, freed = false, lifted = false;
+	bool pushed = false;
+	float pushDist = 0;
+	float wanted = 0, got = 0; // the last move: the distance the velocity asked for and the origin covered
+	bool grounded = false;
+	float gap = 0;
+	Vector normal = Vector(0, 0, 1);
+	char tex[20] = "";
+	int surface = 0;
+	float pull = 1.0f;
+	bool stepped = false;
+	float fuser1 = 1.0f, engineFrametime = 0;
+	float dt = 0;
+};
+
+// the water at the wheels (waterlevel 1) and with the body in it (2): only the level, nothing in the movement reads it
 void CheckWater()
 {
 	pmove->waterlevel = 0;
@@ -91,145 +127,378 @@ void CheckWater()
 	}
 }
 
-// Where the car stands: the plane under it (from four traces under the body's corners, as HL Rally reads the
-// terrain, falling back to the one under the middle), and whether it is ground at all.
-struct Under
+// Where the car stands (HL Rally's PM_CatagorizePosition): a trace from the origin 2 down (16 when the car is at rest or
+// under 5 u/s); any hit that is not a wall is ground, a trace that starts in something too, and a car going up faster than
+// 1800 is in the air.
+struct Cat
 {
 	bool ground = false;
+	bool hit = false;     // a real hit (not a trace that started solid)
 	Vector normal = Vector(0, 0, 1);
+	Vector endpos;
+	float gap = 0;        // how far below the origin the ground is
 	int ent = -1;
 };
 
-Under LookDown(const Vector& heading)
+Cat Categorize()
 {
-	Under u;
-	const Vector& o = pmove->origin;
-	pmtrace_t mid = Trace(Vector(o[0], o[1], o[2] + 2.0f), Vector(o[0], o[1], o[2] - 3.0f));
-	if (mid.fraction >= 1.0f || mid.startsolid || mid.plane.normal[2] < kFloorNormal)
-		return u;
-	u.ground = true;
-	u.ent = mid.ent;
-	u.normal = mid.plane.normal;
+	Cat c;
+	c.endpos = pmove->origin;
+	const float reach = H9RallyGroundReach(Len3(pmove->velocity));
+	const Vector o = pmove->origin;
+	pmtrace_t t = Trace(o, Vector(o[0], o[1], o[2] - reach));
+	if (!H9RallyIsGround(t.startsolid != 0 || t.allsolid != 0, t.fraction, t.plane.normal[2], pmove->velocity[2]))
+		return c;
+	c.ground = true;
+	if (t.startsolid || t.allsolid)
+	{
+		c.ent = t.ent >= 0 ? t.ent : 0;
+		return c;
+	}
+	c.hit = true;
+	c.ent = t.ent;
+	c.normal = t.plane.normal;
+	c.endpos = t.endpos;
+	c.gap = t.fraction * reach;
+	return c;
+}
 
-	// the average of the planes under four points of the body, when each is ground
+// The plane under the car as it tilts: the middle's (from Categorize), averaged with the planes under four points of the body
+// when they are all ground and agree (HL Rally reads the terrain with four traces).
+Vector GroundNormal(const Cat& cat, const Vector& heading)
+{
+	if (!cat.hit)
+		return Vector(0, 0, 1);
+	Vector n = cat.normal;
+	if (n[2] < kFloorNormal)
+		return n;
+	const Vector& o = pmove->origin;
 	const Vector left = Vector(-heading[1], heading[0], 0);
-	Vector sum = u.normal;
-	int n = 1;
+	Vector sum = n;
 	for (int i = 0; i < 4; i++)
 	{
 		const float fx = (i & 1) ? 1.0f : -1.0f, fy = (i & 2) ? 1.0f : -1.0f;
 		Vector p = MA(MA(o, fx * H9R_LENGTH * 0.4f, heading), fy * H9R_WIDTH * 0.4f, left);
 		pmtrace_t t = Trace(Vector(p[0], p[1], p[2] + 6.0f), Vector(p[0], p[1], p[2] - 8.0f));
 		if (t.fraction < 1.0f && !t.startsolid && t.plane.normal[2] >= kFloorNormal)
-		{
 			sum = sum + Vector(t.plane.normal[0], t.plane.normal[1], t.plane.normal[2]);
-			n++;
-		}
 	}
 	const Vector avg = Unit(sum);
-	if (Dot3(avg, u.normal) > 0.8f) // a trace that found a different thing altogether is not the ground's tilt
-		u.normal = avg;
-	return u;
+	if (Dot3(avg, n) > 0.8f) // a trace that found a different thing altogether is not the ground's tilt
+		n = avg;
+	return n;
 }
 
-// The car's body against the world: traces from the body's middle out to points on its outline, only on the sides
-// the car is moving toward. The deepest one pushes the car out and takes the speed that went into the wall.
-void BodyAgainstWorld(const Vector& heading, const Vector& up, bool grounded)
+// The car's body against the world (HL Rally's PM_Crash + PM_CarWorldCollision), before the move: the outline is traced at the
+// place the move is going to (origin + velocity * dt), from the body's middle (8 above) out to the points of h9_rally.h's grid
+// (heights 4 and 12), on the sides the car goes toward (all four at rest, or at 10 u/s and under). The nearest hit is the
+// wall: on the ground every plane counts, in the air a plane flatter than 0.3 is ground to land on and passes. The car's
+// speed into the wall is taken out (HL Rally's reflection), and the origin is pushed back by how far the outline reached into
+// it, no further: a car that touches a wall without being in it is left alone, so it can drive away.
+void BodyAgainstWorld(const Vector& heading, const Vector& up, bool grounded, float dt, Dbg& d)
 {
+	const Vector v = pmove->velocity;
+	const Vector dest = MA(pmove->origin, dt, v);
 	const Vector left = Unit(Cross3(up, heading));
 	const Vector fwd = Cross3(left, up);
-	const Vector center = MA(pmove->origin, 8.0f, up);
-	const float L = H9R_LENGTH * 0.5f, W = H9R_WIDTH * 0.5f;
-	const float heights[2] = {H9R_STEP_UP - 8.0f, 12.0f - 8.0f}; // from the step height up, in steps of 8, about the centre
+	const Vector center = MA(dest, 8.0f, up);
 
-	const float vf = Dot3(pmove->velocity, fwd), vl = Dot3(pmove->velocity, left);
-	const bool moving = sqrtf(vf * vf + vl * vl) > 8.0f;
-	const bool front = !moving || vf >= 0, back = !moving || vf <= 0;
-	const bool lft = !moving || vl >= 0, rgt = !moving || vl <= 0;
+	const H9RallySides sides = H9RallyCrashSides(Dot3(v, fwd), Dot3(v, left), Len3(v));
+	float pts[64][3];
+	const int np = H9RallyCrashPoints(sides, pts, 64);
 
-	float best = 1.0f;
-	float bestPen = 0;
-	Vector bestN(0, 0, 0);
-
-	// points on the outline: (along the nose, across it)
-	float pts[64][2];
-	int np = 0;
-	if (front || back)
+	pmtrace_t best;
+	bool have = false;
+	Vector bestPoint;
+	float bestFrac = 1.0f;
+	for (int i = 0; i < np; i++)
 	{
-		for (float y = -W; y <= W + 0.1f; y += W * 0.5f)
+		const Vector p = MA(MA(MA(dest, pts[i][0], fwd), pts[i][1], left), pts[i][2], up);
+		pmtrace_t t = Trace(center, p);
+		if (t.allsolid || t.startsolid) // the middle itself in something: no plane to push from (the stuck check's business)
+			continue;
+		if (t.fraction < bestFrac)
 		{
-			if (front && np < 60)
-			{
-				pts[np][0] = L;
-				pts[np++][1] = y;
-			}
-			if (back && np < 60)
-			{
-				pts[np][0] = -L;
-				pts[np++][1] = y;
-			}
+			bestFrac = t.fraction;
+			best = t;
+			bestPoint = p;
+			have = true;
 		}
 	}
-	for (float x = -L + L * 0.25f; x <= L - L * 0.25f + 0.1f; x += L * 0.5f)
-	{
-		if (lft && np < 60)
-		{
-			pts[np][0] = x;
-			pts[np++][1] = W;
-		}
-		if (rgt && np < 60)
-		{
-			pts[np][0] = x;
-			pts[np++][1] = -W;
-		}
-	}
-
-	for (int h = 0; h < 2; h++)
-	{
-		for (int i = 0; i < np; i++)
-		{
-			Vector p = MA(MA(MA(center, pts[i][0], fwd), pts[i][1], left), heights[h], up);
-			pmtrace_t t = Trace(center, p);
-			if (t.fraction >= 1.0f || t.allsolid || t.startsolid)
-				continue;
-			// a plane a car can drive on is the road, not a wall (a ramp met nose first, a bump under a corner); in the air
-			// anything flatter than 0.3 is ground to land on (HL Rally's rule)
-			if (t.plane.normal[2] > (grounded ? 0.7f : 0.3f))
-				continue;
-			if (t.fraction < best)
-			{
-				best = t.fraction;
-				const Vector d = p - center;
-				bestPen = (1.0f - t.fraction) * sqrtf(Dot3(d, d));
-				bestN = t.plane.normal;
-			}
-		}
-	}
-	if (best >= 1.0f)
+	if (!have)
+		return;
+	const Vector n = best.plane.normal;
+	if (H9RallyCrashIgnores(grounded, n[2]))
 		return;
 
-	// out of the wall, as far as the world lets it go
-	const Vector want = MA(pmove->origin, bestPen + 0.5f, bestN);
-	pmtrace_t push = Trace(pmove->origin, want);
-	pmove->origin = push.endpos;
-
-	const float vn = Dot3(pmove->velocity, bestN);
+	// the speed into the wall: HL Rally's v - 1.2 (v.n) n, then the whole scaled by (2 + cos) / 3. (Ours: only when the car goes
+	// into the wall; HL Rally also reflects a velocity that leaves it, which only happens to a car already in the wall.)
+	const float vn = Dot3(v, n);
 	if (vn < 0)
 	{
-		// HL Rally's crash: the part into the wall is taken out with 20% coming back (v - 1.2 (v.n) n), then the whole
-		// is scaled by (2 + cos) / 3, cos being between the old direction and the new: a third kept head on, all grazing
-		const Vector old = pmove->velocity;
-		const Vector turned = MA(old, -vn * (1.0f + H9R_WALL_BOUNCE), bestN);
-		const float lo = sqrtf(Dot3(old, old)), ln = sqrtf(Dot3(turned, turned));
-		const float c = (lo > 1e-3f && ln > 1e-3f) ? Dot3(old, turned) / (lo * ln) : 1.0f;
+		const Vector turned = MA(v, -vn * (1.0f + H9R_WALL_BOUNCE), n);
+		const float lo = Len3(v), ln = Len3(turned);
+		const float c = (lo > 1e-3f && ln > 1e-3f) ? Dot3(v, turned) / (lo * ln) : 1.0f;
 		const float keep = H9RallyCrashKeep(c);
 		pmove->velocity = Vector(turned[0] * keep, turned[1] * keep, turned[2] * keep);
 	}
+
+	// out of the wall by the depth the outline went into it
+	const Vector pene(best.endpos[0] - bestPoint[0], best.endpos[1] - bestPoint[1], best.endpos[2] - bestPoint[2]);
+	const Vector want = Vector(pmove->origin[0] + pene[0], pmove->origin[1] + pene[1], pmove->origin[2] + pene[2]);
+	pmtrace_t push = Trace(pmove->origin, want);
+	d.pushed = Len3(pene) > 0.01f;
+	d.pushDist = Len3(pene);
+	pmove->origin = push.endpos;
 }
 
-bool CarHeld()
+// Inside something (a sliver of the map under the road, a seam, another car's box): the stock check only tries an eighth of a
+// unit around. The car is lifted out, as far up as its own height and a little more, else moved out sideways, and drives on.
+bool FreeTheCar(Dbg& d)
 {
-	return (pmove->flags & FL_FROZEN) != 0 || pmove->maxspeed < 2.0f;
+	for (float lift = 1.0f; lift <= H9R_HEIGHT + 2.0f; lift += 1.0f)
+	{
+		Vector test = pmove->origin;
+		test[2] += lift;
+		pmtrace_t tr;
+		if (pmove->PM_TestPlayerPosition(test, &tr) == -1)
+		{
+			pmove->origin = test;
+			d.lifted = true;
+			return true;
+		}
+	}
+	for (float r = 4.0f; r <= 32.0f; r *= 2.0f)
+	{
+		for (int k = 0; k < 8; k++)
+		{
+			const float a = (float)k * (float)(M_PI / 4.0);
+			Vector test = pmove->origin;
+			test[0] += cosf(a) * r;
+			test[1] += sinf(a) * r;
+			pmtrace_t tr;
+			if (pmove->PM_TestPlayerPosition(test, &tr) == -1)
+			{
+				pmove->origin = test;
+				d.lifted = true;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+float Dist2XY(const Vector& a, const Vector& b)
+{
+	return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+}
+
+// The move (HL Rally's PM_MoveToDest): straight to the place when nothing is in the way; else, on the ground, the slide and the
+// same move from a step up along the car's up, whichever went farther, the stepped one on a tie.
+void MoveCar(bool grounded, const Vector& up, float dt, Dbg& d)
+{
+	const Vector org0 = pmove->origin;
+	const Vector vel0 = pmove->velocity;
+	const Vector dest = MA(org0, dt, vel0);
+	pmtrace_t tr = Trace(org0, dest);
+	if (tr.fraction >= 1.0f && !tr.allsolid)
+	{
+		pmove->origin = tr.endpos;
+		return;
+	}
+	if (!grounded)
+	{
+		PM_FlyMove();
+		return;
+	}
+
+	PM_FlyMove(); // the slide
+	const Vector slideOrg = pmove->origin, slideVel = pmove->velocity;
+	pmove->origin = org0;
+	pmove->velocity = vel0;
+
+	pmtrace_t upTr = Trace(org0, MA(org0, H9R_STEP_UP, up));
+	if (!upTr.startsolid && !upTr.allsolid)
+		pmove->origin = upTr.endpos;
+	PM_FlyMove(); // the same from the step
+	pmtrace_t downTr = Trace(pmove->origin, MA(pmove->origin, -H9R_STEP_UP, up));
+	if (!downTr.startsolid && !downTr.allsolid)
+		pmove->origin = downTr.endpos;
+
+	if (H9RallySteppedWins(Dist2XY(slideOrg, org0), Dist2XY(pmove->origin, org0)))
+	{
+		pmove->velocity[2] = slideVel[2]; // the stepped move's own velocity, the slide's climb or fall
+		d.stepped = true;
+	}
+	else
+	{
+		pmove->origin = slideOrg;
+		pmove->velocity = slideVel;
+	}
+}
+
+void DebugLine(const Dbg& d, bool held, const Vector& org0)
+{
+	static float s_next[33]; // debug only: when each player's next line is due
+	const int who = pmove->player_index >= 0 && pmove->player_index < 33 ? pmove->player_index : 0;
+	const float now = (float)pmove->Sys_FloatTime();
+	if (now < s_next[who] && now > s_next[who] - 5.0f)
+		return;
+	s_next[who] = now + 0.5f;
+	const Vector& o = pmove->origin;
+	const Vector& v = pmove->velocity;
+	pmove->Con_Printf("rallydbg p%d t=%.2f org=(%.1f %.1f %.1f) spd=%.1f vz=%.1f gnd=%d gap=%.1f n=(%.2f %.2f %.2f) tex=%s surf=%s "
+					  "water=%d held=%d hull=%d maxspd=%.0f cmaxspd=%.0f ft=%.4f(eng %.4f) fuser1=%.2f fric=%.2f pull=%.2f stuck=%d freed=%d "
+					  "lift=%d want=%.2f got=%.2f stepped=%d pushed=%d(%.2f) org0z=%.1f\n",
+					  who, now, o[0], o[1], o[2], sqrtf(v[0] * v[0] + v[1] * v[1]), v[2], d.grounded ? 1 : 0, d.gap, d.normal[0], d.normal[1],
+					  d.normal[2], d.tex, g_h9RallySurfaces[d.surface].name, pmove->waterlevel, held ? 1 : 0, pmove->usehull, pmove->maxspeed,
+					  pmove->clientmaxspeed, d.dt, d.engineFrametime, d.fuser1, pmove->friction, d.pull, d.stuck ? 1 : 0, d.freed ? 1 : 0,
+					  d.lifted ? 1 : 0, d.wanted, d.got, d.stepped ? 1 : 0, d.pushed ? 1 : 0, d.pushDist, org0[2]);
+}
+
+void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
+{
+	const H9RallyCar& car = H9RallyCarByClass(H9RallyClass());
+	d.fuser1 = pmove->fuser1;
+	d.engineFrametime = pmove->frametime;
+
+	// the time scale is not the car's: TS's slow motion (fuser1, 0 freezes) scales frametime before we are called, so the
+	// command's own length is used
+	const float dt = pmove->cmd.msec * 0.001f;
+	pmove->frametime = dt;
+	d.dt = dt;
+
+	pmove->usehull = 2; // the point hull
+	pmove->flags &= ~FL_DUCKING;
+	pmove->bInDuck = false;
+	pmove->view_ofs[2] = H9R_VIEW_HEIGHT;
+	org0Out = pmove->origin;
+
+	const bool held = H9RallyHeld(pmove->flags);
+	heldOut = held;
+
+	if (dt <= 0)
+		return;
+	if (PM_CheckStuck())
+	{
+		d.stuck = true;
+		d.freed = FreeTheCar(d);
+		if (!d.freed)
+		{
+			pmove->velocity = Vector(0, 0, 0); // nothing around is free: the race's own watch puts the car back on the track
+			return;
+		}
+	}
+
+	// the heading: the view's yaw, as HL Rally. (The client turns it with the steering keys: cl_dll/input.cpp.)
+	const float yaw = pmove->cmd.viewangles[1] * (float)(M_PI / 180.0);
+	const Vector heading(cosf(yaw), sinf(yaw), 0);
+	pmove->angles[1] = pmove->cmd.viewangles[1];
+
+	// the pedals (PM_CheckParamters has scaled forwardmove by maxspeed, so the buttons are what is trusted)
+	H9RallyInput in;
+	if (!held)
+	{
+		in.forward = (pmove->cmd.buttons & IN_FORWARD) != 0;
+		in.back = (pmove->cmd.buttons & IN_BACK) != 0;
+		in.hand = (pmove->cmd.buttons & IN_JUMP) != 0;
+		in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0; // the client sets these for the side keys too
+	}
+	// a held car (the countdown, after the finish) stands on its handbrake, and a slope does not roll it off the grid
+	if (held)
+		in.hand = true;
+
+	CheckWater();
+	const float grav = H9R_GRAVITY * (pmove->gravity != 0 ? pmove->gravity : 1.0f); // not sv_gravity: the car falls as in HL Rally
+
+	// --- where the car stands ---------------------------------------------------------------------------------
+	const Cat cat = Categorize();
+	const bool grounded = cat.ground;
+	d.grounded = grounded;
+	d.gap = cat.gap;
+	Vector up(0, 0, 1);
+	if (grounded)
+		up = GroundNormal(cat, heading);
+	d.normal = up;
+	const Vector preVelocity = pmove->velocity;
+
+	if (grounded)
+	{
+		const Vector n = up;
+		const Vector f = Unit(MA(heading, -Dot3(heading, n), n));
+		const Vector l = Unit(Cross3(n, f));
+
+		// the surface from the texture's name under the car
+		H9RallyGround g;
+		const char* tex = pmove->PM_TraceTexture(cat.ent >= 0 ? cat.ent : 0, Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] + 1.0f),
+												 Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] - 64.0f));
+		if (tex)
+		{
+			if (*tex == '-' || *tex == '+')
+				tex += 2;
+			snprintf(d.tex, sizeof d.tex, "%s", tex);
+			g.surface = H9RallySurfaceByName(tex, &g.extraDrag);
+		}
+		d.surface = g.surface;
+		g.pullScale = H9RClamp(pmove->friction, 0.1f, 2.0f); // func_friction: HL Rally's pull is x pmove->friction (a stuck 0 would stop a car)
+		d.pull = g.pullScale;
+
+		const Vector gv(0, 0, -grav);
+		const Vector gt = MA(gv, -Dot3(gv, n), n); // gravity along the plane
+		g.slopeF = Dot3(gt, f);
+		g.slopeS = Dot3(gt, l);
+		if (held)
+			g.slopeF = g.slopeS = 0;
+
+		const float vn0 = Dot3(pmove->velocity, n);
+		float vf = Dot3(pmove->velocity, f), vs = Dot3(pmove->velocity, l);
+		H9RallyGroundStep(vf, vs, in, g, car, dt);
+		// across the plane: the ground holds the car, but a car that is leaving it (a ramp's lip, a crest) keeps going away, with
+		// gravity's share on it; a car that is 2 or more above it (the long reach at rest) falls
+		float vn = 0;
+		if (vn0 > 0)
+			vn = fmaxf(0.0f, vn0 - grav * n[2] * dt);
+		if (cat.gap > H9R_FOLLOW + 0.5f)
+			vn = fminf(vn0, 0.0f) - grav * dt;
+		pmove->velocity = MA(MA(Vector(f[0] * vf, f[1] * vf, f[2] * vf), vs, l), vn, n);
+	}
+	else
+	{
+		// in the air: nothing drives it and nothing slows it (HL Rally has no friction off the ground); gravity
+		pmove->velocity[2] -= grav * dt;
+	}
+
+	PM_CheckVelocity();
+
+	// --- the body against the world, then the move ------------------------------------------------------------
+	BodyAgainstWorld(heading, up, grounded, dt, d);
+
+	const Vector org1 = pmove->origin;
+	const Vector vel1 = pmove->velocity;
+	MoveCar(grounded, up, dt, d);
+	d.wanted = Len3(vel1) * dt;
+	d.got = Len3(Vector(pmove->origin[0] - org1[0], pmove->origin[1] - org1[1], pmove->origin[2] - org1[2]));
+
+	// --- where the car stands now: ground it hugs (at most 2 units, and only moving away slowly) or lands on ---
+	const Cat now = Categorize();
+	bool nowGround = now.ground;
+	if (now.hit && now.gap <= H9R_FOLLOW + 0.001f)
+	{
+		const float vn = Dot3(pmove->velocity, now.normal);
+		if (vn < H9R_FOLLOW_VN)
+		{
+			pmove->origin = now.endpos;
+			if (vn != 0)
+				pmove->velocity = MA(pmove->velocity, -vn, now.normal);
+		}
+	}
+	(void)preVelocity;
+
+	PM_CheckVelocity();
+	pmove->onground = nowGround ? (now.ent >= 0 ? now.ent : 0) : -1;
+	if (nowGround)
+		pmove->waterjumptime = 0;
+	CheckWater();
 }
 } // namespace
 
@@ -252,208 +521,14 @@ bool H9RallyActive()
 // One command of driving: the whole of the car's movement.
 void H9RallyMove()
 {
-	const H9RallyCar& car = H9RallyCarByClass(H9RallyClass());
-	const float dt = pmove->frametime;
-
-	pmove->usehull = 2; // the point hull
-	pmove->flags &= ~FL_DUCKING;
-	pmove->bInDuck = false;
-	pmove->view_ofs[2] = H9R_VIEW_HEIGHT;
-
-	if (dt <= 0)
-		return;
-	if (PM_CheckStuck())
+	Dbg d;
+	bool held = false;
+	Vector org0 = pmove->origin;
+	MoveInner(d, held, org0);
+	if (pmove->server)
 	{
-		// Inside something solid (a sliver of the map under the road, a seam): the stock check only tries an eighth of a unit around.
-		// A car is lifted out, as far up as its own height, and drives on; only when nothing above is free does it stand still
-		// (the race's own watch then puts it back on the track: race.cpp).
-		bool freed = false;
-		for (float lift = 1.0f; lift <= H9R_HEIGHT && !freed; lift += 1.0f)
-		{
-			Vector test = pmove->origin;
-			test[2] += lift;
-			pmtrace_t tr;
-			if (pmove->PM_TestPlayerPosition(test, &tr) == -1)
-			{
-				pmove->origin = test;
-				freed = true;
-			}
-		}
-		if (!freed)
-		{
-			pmove->velocity = Vector(0, 0, 0);
-			return;
-		}
+		const char* dbg = pmove->PM_Info_ValueForKey(pmove->physinfo, "rdbg");
+		if (dbg && atoi(dbg) != 0)
+			DebugLine(d, held, org0);
 	}
-
-	// the heading: the view's yaw, as HL Rally. (The client turns it with the steering keys: cl_dll/input.cpp.)
-	const float yaw = pmove->cmd.viewangles[1] * (float)(M_PI / 180.0);
-	const Vector heading(cosf(yaw), sinf(yaw), 0);
-	pmove->angles[1] = pmove->cmd.viewangles[1];
-
-	// the pedals
-	H9RallyInput in;
-	if (!CarHeld())
-	{
-		in.forward = (pmove->cmd.buttons & IN_FORWARD) != 0 || pmove->cmd.forwardmove > 10;
-		in.back = (pmove->cmd.buttons & IN_BACK) != 0 || pmove->cmd.forwardmove < -10;
-		in.hand = (pmove->cmd.buttons & IN_JUMP) != 0;
-		in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0; // the client sets these for the side keys too
-	}
-
-	// a held car (the countdown, after the finish) stands on its handbrake, and a slope does not roll it off the grid
-	const bool held = CarHeld();
-	if (held)
-		in.hand = true;
-
-	CheckWater();
-	const float grav = H9R_GRAVITY * (pmove->gravity != 0 ? pmove->gravity : 1.0f); // not sv_gravity: the car falls as in HL Rally
-
-	// --- where the car stands, and whether the ground still holds it ---------------------------------------
-	Under under = LookDown(heading);
-	bool grounded = under.ground;
-	if (grounded && pmove->velocity[2] > H9R_LIFT_VZ)
-		grounded = false; // going up this fast it has left the ground (HL Rally's rule)
-	const Vector preVelocity = pmove->velocity;
-
-	if (pmove->waterlevel >= 2)
-	{
-		// the body in water: it floats and sinks slowly, drags hard and the engine hardly pushes it
-		const float keep = expf(-H9R_WATER_DEEP_DRAG * dt);
-		pmove->velocity[0] *= keep;
-		pmove->velocity[1] *= keep;
-		pmove->velocity[2] = pmove->velocity[2] * keep - grav * H9R_WATER_DEEP_GRAV * dt;
-		const float vf = Dot3(pmove->velocity, heading);
-		const float push = (in.forward ? 1.0f : 0.0f) - (in.back ? 1.0f : 0.0f);
-		if (push != 0 && fabsf(vf) < 100.0f)
-		{
-			pmove->velocity[0] += heading[0] * push * H9R_WATER_THRUST * dt;
-			pmove->velocity[1] += heading[1] * push * H9R_WATER_THRUST * dt;
-		}
-		grounded = false;
-	}
-	else if (grounded)
-	{
-		const Vector n = under.normal;
-		const Vector f = Unit(MA(heading, -Dot3(heading, n), n));
-		const Vector l = Unit(Cross3(n, f));
-
-		// the surface from the texture's name under the car
-		H9RallyGround g;
-		const char* tex = pmove->PM_TraceTexture(under.ent, Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] + 1.0f),
-												 Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] - 64.0f));
-		if (tex)
-		{
-			if (*tex == '-' || *tex == '+')
-				tex += 2;
-			g.surface = H9RallySurfaceByName(tex, &g.extraDrag);
-		}
-		if (pmove->waterlevel >= 1)
-		{
-			g.extraDrag += H9R_WATER_WHEELS_DRAG;
-			g.latScale = H9R_WATER_WHEELS_GRIP;
-		}
-
-		const Vector gv(0, 0, -grav);
-		const Vector gt = MA(gv, -Dot3(gv, n), n); // gravity along the plane
-		g.slopeF = Dot3(gt, f);
-		g.slopeS = Dot3(gt, l);
-		if (held)
-			g.slopeF = g.slopeS = 0;
-
-		float vf = Dot3(pmove->velocity, f), vs = Dot3(pmove->velocity, l);
-		H9RallyGroundStep(vf, vs, in, g, car, dt);
-		pmove->velocity = MA(Vector(f[0] * vf, f[1] * vf, f[2] * vf), vs, l);
-	}
-	else
-	{
-		// in the air: nothing drives it and nothing slows it (HL Rally has no friction off the ground); gravity
-		pmove->velocity[2] -= grav * dt;
-	}
-
-	PM_CheckVelocity();
-
-	// --- the move -----------------------------------------------------------------------------------------
-	const Vector org0 = pmove->origin;
-	const Vector vel0 = pmove->velocity;
-	PM_FlyMove();
-
-	const float wanted = sqrtf(vel0[0] * vel0[0] + vel0[1] * vel0[1]) * dt;
-	const float got = sqrtf((pmove->origin[0] - org0[0]) * (pmove->origin[0] - org0[0]) + (pmove->origin[1] - org0[1]) * (pmove->origin[1] - org0[1]));
-	if (grounded && got < wanted * 0.98f)
-	{
-		// Something in the way. A kerb: try again from H9R_STEP_UP higher and take whichever goes farther along the ground.
-		const Vector flatOrg = pmove->origin, flatVel = pmove->velocity;
-		pmove->origin = org0;
-		pmove->velocity = vel0;
-		pmtrace_t up = Trace(org0, Vector(org0[0], org0[1], org0[2] + H9R_STEP_UP));
-		if (!up.startsolid && !up.allsolid)
-		{
-			pmove->origin = up.endpos;
-			PM_FlyMove();
-			pmtrace_t down = Trace(pmove->origin, Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] - H9R_STEP_UP - 2.0f));
-			bool good = !down.startsolid && !down.allsolid;
-			if (good && down.fraction < 1.0f && down.plane.normal[2] < kFloorNormal)
-				good = false; // came down on a wall's top edge
-			if (good)
-				pmove->origin = down.endpos;
-			const float dFlat = (flatOrg[0] - org0[0]) * (flatOrg[0] - org0[0]) + (flatOrg[1] - org0[1]) * (flatOrg[1] - org0[1]);
-			const float dUp = (pmove->origin[0] - org0[0]) * (pmove->origin[0] - org0[0]) + (pmove->origin[1] - org0[1]) * (pmove->origin[1] - org0[1]);
-			if (!good || dFlat >= dUp)
-			{
-				pmove->origin = flatOrg;
-				pmove->velocity = flatVel;
-			}
-		}
-		else
-		{
-			pmove->origin = flatOrg;
-			pmove->velocity = flatVel;
-		}
-	}
-
-	// --- ground again: stay on it down a slope, land from the air ----------------------------------------
-	bool nowGround = false;
-	Vector nowNormal(0, 0, 1);
-	int nowEnt = -1;
-	{
-		const float reach = grounded ? H9R_STEP_UP + 2.0f : 2.0f; // down the step height, and the 2 units the engine's ground test uses
-		pmtrace_t t = Trace(Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] + 1.0f),
-							Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] - reach));
-		if (t.fraction < 1.0f && !t.startsolid && !t.allsolid && t.plane.normal[2] >= kFloorNormal)
-		{
-			const Vector n = t.plane.normal;
-			const float away = Dot3(pmove->velocity, n);
-			if (grounded)
-			{
-				if (pmove->velocity[2] <= H9R_LIFT_VZ)
-				{
-					nowGround = true;
-					pmove->origin = t.endpos;
-					if (away < 0)
-						pmove->velocity = MA(pmove->velocity, -away, n);
-				}
-			}
-			else
-			{
-				const float impact = -Dot3(preVelocity, n);
-				if (impact > 0 || away <= 0)
-				{
-					nowGround = true;
-					pmove->velocity = MA(pmove->velocity, -fminf(0.0f, away), n); // no landing penalty: HL Rally has none
-					pmove->origin = t.endpos;
-				}
-			}
-			nowNormal = n;
-			nowEnt = t.ent;
-		}
-	}
-
-	BodyAgainstWorld(heading, nowGround ? nowNormal : Vector(0, 0, 1), nowGround);
-
-	PM_CheckVelocity();
-	pmove->onground = nowGround ? nowEnt : -1;
-	if (nowGround)
-		pmove->waterjumptime = 0;
-	CheckWater();
 }

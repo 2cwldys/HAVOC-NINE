@@ -1201,7 +1201,7 @@ void CRaceRules::DriveState(CBasePlayer* pPlayer, float& speed, float& slip, flo
 	{
 		const RaceRallyDrive d = RaceRallyDriveOf(pPlayer->pev->velocity.x, pPlayer->pev->velocity.y, pPlayer->pev->v_angle.y, false,
 			false, false, 0);
-		speed = d.speed;
+		speed = RaceRallyGaugeSpeed(d.speed);
 		slip = d.slip;
 		top = RaceRallyTopSpeed(RaceRallyClass());
 		return;
@@ -1230,8 +1230,8 @@ void CRaceRules::RallySeats()
 }
 
 // Held or not: the movement of a car that is held is refused in pmove on both sides (CarHeld in pm_shared/h9_rally.cpp
-// reads FL_FROZEN or maxspeed < 2). FL_FROZEN is in clientdata's `flags` (game/ts/delta.lst, 32 bits), so the client's
-// pmove has it; the maxspeed, which the client takes from pfnSetClientMaxspeed too, is not touched.
+// reads FL_FROZEN only: the loadout's maxspeed is nothing to it). FL_FROZEN is in clientdata's `flags` (game/ts/delta.lst, 32
+// bits), so the client's pmove has it.
 void CRaceRules::RallyHold(int index, CBasePlayer* pPlayer, bool held)
 {
 	Seat& seat = m_seats[index];

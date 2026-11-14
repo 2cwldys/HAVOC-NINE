@@ -63,7 +63,7 @@ struct PlayerSnd
 	// the engine
 	bool loop = false;
 	float loopAt = 0; // the engine loop starts then (after the starter), or at once on a throttle press
-	float revs = 0;
+	RallySndGearbox box; // HL Rally's automatic gearbox: the gear and the revs
 	int sentPitch = 0;
 	float sentVol = 0;
 	// the skid
@@ -255,11 +255,10 @@ void H9RallySoundThink(CBasePlayer* pl, int carClass)
 	}
 	s->wasThrottle = throttle;
 
-	// the revs, from the gearbox
-	const float target = RallySndRevs(speed, top, throttle);
-	s->revs = RallySndApproach(target, s->revs, dt);
-	const int pitch = RallySndPitch(s->revs);
-	const float vol = RallySndVolume(s->revs, throttle);
+	// the revs, from the gearbox (h9_rally_snd.h)
+	RallySndGearStep(s->box, speed, throttle, grounded, dt);
+	const int pitch = RallySndPitch(s->box.rpm);
+	const float vol = RallySndVolume(s->box.rpm, throttle);
 
 	if (!s->loop && g_engine && (now >= s->loopAt || throttle))
 	{

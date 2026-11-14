@@ -98,6 +98,13 @@ static inline RaceRallyDrive RaceRallyDriveOf(float vx, float vy, float yawDegre
 	return d;
 }
 
+// The speed the gauge is sent: the speed along the nose, but negative (the HUD's REVERSE) only when it is clearly backwards, below
+// -5 u/s: a bounce off a wall or a tilt of the nose for a frame is not a reverse.
+static inline float RaceRallyGaugeSpeed(float alongNose)
+{
+	return alongNose > -5.0f && alongNose < 0.0f ? 0.0f : alongNose;
+}
+
 // The gauge's end for a car class: the speed the engine's pull meets the drag at on a road (HL Rally's fastest ground).
 static inline float RaceRallyTopSpeed(int cls)
 {

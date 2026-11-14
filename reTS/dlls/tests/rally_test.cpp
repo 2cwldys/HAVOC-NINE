@@ -489,63 +489,90 @@ int main()
 	{
 		const float top = RaceRallyTopSpeed(1);
 		Check(fabsf(top - 680.0f) < 1.0f, "sound: the Xsara's road top speed, the gearbox's range, is 680");
-		float f = 0;
-		Check(RallySndGear(0, top, &f) == 0 && f == 0, "sound: at a standstill, first gear, no way through it");
-		Check(RallySndGear(top, top, &f) == 5 && f > 0.999f, "sound: at the road's top speed, sixth gear, at its end");
-		Check(RallySndGear(top * 2, top, &f) == 5 && f == 1.0f, "sound: past the range stays in sixth");
-		Check(RallySndGear(-100, top, &f) == RallySndGear(100, top, &f), "sound: reversing is the same gears");
-		bool mono = true;
-		int last = 0;
-		for (float v = 0; v <= top; v += 1.0f)
+		// HL Rally's gearbox: the shifts, driven by a speed that rises and one that falls
 		{
-			const int g = RallySndGear(v, top, 0);
-			mono = mono && g >= last;
-			last = g;
-		}
-		Check(mono, "sound: the gear never goes down as the speed rises");
-		// every gear is visited, and the revs rise within a gear and fall at each shift
-		int visited = 0, shifts = 0, risesInGear = 0, wrong = 0;
-		float prev = RallySndRevs(30, top, true);
-		int prevGear = 0;
-		for (float v = 30.5f; v <= top; v += 0.5f)
-		{
-			const int g = RallySndGear(v, top, 0);
-			const float r = RallySndRevs(v, top, true);
-			if (g != prevGear)
+			RallySndGearbox up;
+			float shiftAt[8] = {0};
+			int prevGear = 0, maxGear = 0;
+			bool rpmOk = true, gearsOk = true;
+			float lastRpm = 0;
+			float gearAt[3] = {0, 0, 0}; // the gear at 100 u/s, at flat out on sand and on neutral ground, going up
+			for (float v = 0; v <= 700.0f; v += 0.5f)
 			{
-				shifts++;
-				visited |= 1 << g;
-				if (r >= prev - 0.2f)
-					wrong++; // a shift must drop by a good part
+				RallySndGearStep(up, v, true, true, 0.005f);
+				if (up.gear != prevGear)
+				{
+					gearsOk = gearsOk && up.gear == prevGear + 1;
+					if (up.gear < 8)
+						shiftAt[up.gear] = v;
+					prevGear = up.gear;
+				}
+				maxGear = up.gear > maxGear ? up.gear : maxGear;
+				rpmOk = rpmOk && up.rpm >= RSND_RPM_MIN - 0.01f && up.rpm <= RSND_RPM_MAX + 0.01f;
+				if (v == 100.0f)
+					gearAt[0] = (float)up.gear;
+				if (v == 340.0f)
+					gearAt[1] = (float)up.gear;
+				if (v == 408.0f)
+					gearAt[2] = (float)up.gear;
+				lastRpm = up.rpm;
 			}
-			else if (r > prev)
-				risesInGear++;
-			else if (r < prev - 1e-6f)
-				wrong++;
-			prev = r;
-			prevGear = g;
+			Check(maxGear == 6 && gearsOk && rpmOk, "sound: the box climbs one gear at a time to sixth and the revs stay 15 to 250");
+			bool nearShift = true;
+			for (int g = 2; g <= 6; g++)
+				nearShift = nearShift && fabsf(shiftAt[g] - 380.0f * (float)(g - 1) / 3.25f) < 6.0f;
+			Check(nearShift, "sound: it shifts up near 117 u/s a gear (cs / (gear * 2) above 190, cs = speed * 3.25)");
+			Check(lastRpm > 150 && lastRpm < 200, "sound: flat out in sixth at 700 u/s the revs are the speed's (about 190)");
+			Check(gearAt[1] == 3 && gearAt[2] == 4, "sound: flat out on sand (340) is third gear, on neutral ground (408) fourth");
+
+			RallySndGearbox down;
+			down.gear = 6;
+			float downAt[8] = {0};
+			int dg = 6;
+			float v100 = 0;
+			for (float v = 700.0f; v >= 0.0f; v -= 0.5f)
+			{
+				RallySndGearStep(down, v, false, true, 0.005f);
+				if (down.gear != dg)
+				{
+					if (dg < 8 && down.gear == dg - 1)
+						downAt[dg] = v;
+					dg = down.gear;
+				}
+				if (v == 100.0f)
+					v100 = (float)down.gear;
+			}
+			Check(fabsf(downAt[6] - 240.0f * 6 / 3.25f) < 6.0f && fabsf(downAt[3] - 240.0f * 3 / 3.25f) < 6.0f,
+				"sound: coming down above cs 550 it drops a gear at cs under 240 x gear (443 u/s from sixth)");
+			Check(gearAt[0] == 1 && v100 == 2, "sound: and there is hysteresis: 100 u/s is first gear going up, second coming down");
+			Check(down.gear == 0, "sound: at a standstill the box is in neutral");
 		}
-		Check(shifts == 5 && (visited | 1) == 63, "sound: six gears over the speed range, five shifts");
-		Check(wrong == 0 && risesInGear > 100, "sound: the revs rise within a gear and drop at each shift");
-		Check(RallySndRevs(top, top, true) > 0.99f && RallySndRevs(0, top, false) == 0.0f, "sound: flat out at the top, idle standing");
-		bool coast = true;
-		for (float v = 0; v <= top; v += 10.0f)
-			coast = coast && RallySndRevs(v, top, true) >= RallySndRevs(v, top, false);
-		Check(coast, "sound: the revs are higher with the throttle down than coasting");
-		Check(RallySndRevs(0, top, true) > 0.3f, "sound: the throttle at a standstill revs the engine");
-		Check(RallySndVolume(0.5f, false) < RallySndVolume(0.5f, true), "sound: a little quieter coasting");
-		Check(RallySndPitch(0) == 60 && RallySndPitch(1) == 200 && RallySndPitch(5) == 200, "sound: pitch runs 60 to 200");
-		// the speed range's own meaning: sand and snow reach gear 4, neutral gear 5
-		const float sandTop = H9R_ACCELERATE * H9RallyWish(g_h9RallyCars[0]) / (H9R_FRICTION + 0.05f);
-		const float neutralTop = H9R_ACCELERATE * H9RallyWish(g_h9RallyCars[0]) / H9R_FRICTION;
-		Check(fabsf(sandTop - 340) < 1 && RallySndGear(sandTop, top, 0) == 3, "sound: flat out on sand (340) is fourth gear");
-		Check(fabsf(neutralTop - 408) < 1 && RallySndGear(neutralTop, top, 0) == 4, "sound: flat out on neutral ground (408) is fifth gear");
-		// the smoothing
-		float r = 0;
-		for (int i = 0; i < 10; i++)
-			r = RallySndApproach(1.0f, r, 0.05f);
-		Check(r > 0.9f && r <= 1.0f, "sound: the smoothed revs reach the target in about a second");
-		Check(RallySndApproach(0.0f, 1.0f, 0.05f) < 0.75f, "sound: and a shift's drop is heard within a few frames");
+		{
+			RallySndGearbox b;
+			for (int i = 0; i < 200; i++)
+				RallySndGearStep(b, 0, true, true, 0.01f);
+			Check(b.rpm > 200, "sound: the throttle at a standstill revs the engine up");
+			for (int i = 0; i < 400; i++)
+				RallySndGearStep(b, 0, false, true, 0.01f);
+			Check(b.rpm <= RSND_RPM_MIN + 0.1f, "sound: and letting go drops it to idle");
+			RallySndGearbox a;
+			a.gear = 4;
+			for (int i = 0; i < 100; i++)
+				RallySndGearStep(a, 400, true, false, 0.01f);
+			Check(a.rpm > 200, "sound: in the air the needle runs free with the throttle");
+		}
+		Check(RallySndPitch(RSND_RPM_MIN) == 60 && RallySndPitch(RSND_RPM_MAX) == 200 && RallySndPitch(500) == 200 && RallySndPitch(0) == 60,
+			"sound: pitch runs 60 at 15 revs to 200 at 250");
+		Check(RallySndPitch(82.0f) >= 99 && RallySndPitch(82.0f) <= 101, "sound: pitch 100 (the sample's own rate) is at 82 revs, first gear at about 50 u/s");
+		{
+			bool mono = true;
+			for (float r = 15; r < 250; r += 1)
+				mono = mono && RallySndPitch(r + 1) >= RallySndPitch(r);
+			Check(mono, "sound: the pitch rises with the revs");
+		}
+		Check(fabsf(RallySndVolume(190, true) - 0.9f) < 0.001f && fabsf(RallySndVolume(120, false) - 0.4f) < 0.001f,
+			"sound: volume is 40 + rpm/2 on the throttle, 20 + rpm/3 off it, over 150");
+		Check(RallySndVolume(100, false) < RallySndVolume(100, true), "sound: a little quieter coasting");
 		// the skid
 		Check(RallySndSkid(false, true, 300, 0.4f, false), "sound: a slide at speed starts the skid");
 		Check(!RallySndSkid(false, true, 300, 0.1f, false), "sound: no slide, no skid");
@@ -577,6 +604,75 @@ int main()
 		Check(fabsf(1.0f / RSND_GAP - 10.0f) < 0.01f, "sound: at most ten sound-change messages a second a player");
 		Check(!RallySndWorthSending(100, 101, 0.5f, 0.51f, 2, 0.04f) && RallySndWorthSending(100, 103, 0.5f, 0.5f, 2, 0.04f),
 			"sound: a change too small to hear is not sent");
+	}
+
+	// --- the decisions pmove makes (pm_shared/h9_rally.h) ---------------------------------------------------------
+	{
+		Check(!H9RallyHeld(0) && H9RallyHeld(H9R_FL_FROZEN) && H9RallyHeld(H9R_FL_FROZEN | 0x1) && !H9RallyHeld(~H9R_FL_FROZEN),
+			"held: FL_FROZEN holds a car and nothing else does (maxspeed is not even an argument)");
+		Check(H9RallyGroundReach(0) == 16.0f && H9RallyGroundReach(5.0f) == 16.0f && H9RallyGroundReach(5.1f) == 2.0f && H9RallyGroundReach(700) == 2.0f,
+			"ground: the reach is 16 at rest (5 u/s or under) and 2 above");
+		Check(H9RallyIsGround(false, 0.5f, 1.0f, 0) && H9RallyIsGround(false, 0.5f, 0.97f, 180) && H9RallyIsGround(false, 0.5f, 0.7f, 0),
+			"ground: any flat enough hit is ground, going up at 180 included (the old limit)");
+		Check(H9RallyIsGround(false, 0.5f, 1.0f, 1800) && !H9RallyIsGround(false, 0.5f, 1.0f, 1800.5f), "ground: only above 1800 up is the car in the air");
+		Check(H9RallyIsGround(true, 0.0f, 0.0f, 0), "ground: a trace that starts inside something is ground, not air");
+		Check(!H9RallyIsGround(false, 1.0f, 1.0f, 0) && !H9RallyIsGround(false, 0.5f, 0.2f, 0), "ground: no hit is air, and a wall is not ground");
+		Check(H9RallySteppedWins(10, 10) && H9RallySteppedWins(5, 10) && !H9RallySteppedWins(10.5f, 10), "kerb: the stepped move wins a tie, the slide only if it went farther");
+		Check(!H9RallyCrashIgnores(true, 1.0f) && !H9RallyCrashIgnores(true, 0.9f) && H9RallyCrashIgnores(false, 0.5f) && !H9RallyCrashIgnores(false, 0.2f),
+			"crash: on the ground no plane passes; in the air a landing plane (nz over 0.3) does");
+		{
+			const H9RallySides rest = H9RallyCrashSides(3, 2, 3.6f);
+			const H9RallySides fl = H9RallyCrashSides(200, 50, 206.0f);
+			const H9RallySides br = H9RallyCrashSides(-200, -50, 206.0f);
+			const H9RallySides edge = H9RallyCrashSides(7, 7, 10.0f);
+			Check(rest.front && rest.back && rest.left && rest.right && edge.front && edge.back && edge.left && edge.right,
+				"crash: at 10 u/s and under all four sides are traced");
+			Check(fl.front && !fl.back && fl.left && !fl.right && br.back && !br.front && br.right && !br.left,
+				"crash: above it only the sides the car goes toward");
+			float p[64][3];
+			const int nAll = H9RallyCrashPoints(rest, p, 64);
+			float lowest = 1000, hz4 = 0, hz12 = 0;
+			bool inside = true;
+			for (int i = 0; i < nAll; i++)
+			{
+				lowest = fminf(lowest, p[i][2]);
+				inside = inside && fabsf(p[i][0]) <= H9R_LENGTH * 0.5f + 0.01f && fabsf(p[i][1]) <= H9R_WIDTH * 0.5f + 0.01f;
+				if (p[i][2] == 4.0f)
+					hz4++;
+				if (p[i][2] == 12.0f)
+					hz12++;
+			}
+			const int nTwo = H9RallyCrashPoints(fl, p, 64);
+			Check(nAll == 2 * (4 + 4 + 5 + 5) && nTwo == 2 * (4 + 5), "crash: 4 points on a front or back, 5 on a side, at two heights");
+			Check(inside && hz4 == hz12 && hz4 + hz12 == (float)nAll, "crash: the points are on the 45 x 18 outline at heights 4 and 12");
+			// the body's middle is 8 above the origin and every point 4 or more: a trace never goes below 4 above the origin, so a road
+			// strip 1 or 2 units higher than the road under the car is not in the way of any of them
+			Check(lowest >= 4.0f && lowest > 2.0f, "crash: no trace goes lower than 4 above the origin (a 1-2 unit raised strip is no wall)");
+		}
+		// the pull is x pmove->friction
+		{
+			H9RallyGround g1, g2;
+			g2.pullScale = 0.5f;
+			float a1 = 0, s1 = 0, a2 = 0, s2 = 0;
+			H9RallyInput in;
+			in.forward = true;
+			for (int i = 0; i < 20; i++)
+			{
+				H9RallyGroundStep(a1, s1, in, g1, g_h9RallyCars[0], 0.01f);
+				H9RallyGroundStep(a2, s2, in, g2, g_h9RallyCars[0], 0.01f);
+			}
+			Check(a1 > 0 && a2 > 0.4f * a1 && a2 < 0.6f * a1, "friction: half pmove->friction gives about half the engine's pull");
+		}
+		// the gauge's speed
+		{
+			Check(RaceRallyGaugeSpeed(300) == 300 && RaceRallyGaugeSpeed(-4.9f) == 0 && RaceRallyGaugeSpeed(0.5f) == 0.5f,
+				"gauge: positive nose-first, zero in the dead band");
+			Check(RaceRallyGaugeSpeed(-30) == -30 && RaceRallyGaugeSpeed(-5.1f) == -5.1f, "gauge: negative only below -5 u/s");
+			const RaceRallyDrive d = RaceRallyDriveOf(100, 0, 0, false, false, false, 0);
+			Check(d.speed == 100, "gauge: moving along the nose reads positive");
+			const RaceRallyDrive e = RaceRallyDriveOf(-3, 1, 0, false, false, false, 0);
+			Check(RaceRallyGaugeSpeed(e.speed) == 0, "gauge: 3 u/s backwards (a wall's bounce) does not read REVERSE");
+		}
 	}
 
 	// --- numbers for the report -------------------------------------------------------------------------------------

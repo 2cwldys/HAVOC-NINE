@@ -3,17 +3,15 @@
 *  dlls/h9_rally_snd.cpp plays them; dlls/tests/rally_test.cpp drives this file alone.
 *
 *  The same set as the old vehicle's (dlls/h9_car.cpp, whose defines below are copied, not shared: that file is frozen),
-*  but the revs come from a gearbox, as HL Rally's cars have: six gears over the car's real speed range (the road's top
-*  speed, race_rally.h's RaceRallyTopSpeed: 680 for the Xsara; sand and snow top out near 340, neutral ground near 408,
-*  which is gear 4 and 5 of six). Within a gear the revs rise with the speed, at each shift they drop.
+*  but the revs come from HL Rally's own automatic gearbox (up above 190, down below 120 or 80, on the speed x 3.25 over
+*  gear x 2: the shifts are near 117 u/s a gear), its revs 15..250, its volume rule and a straight pitch line over the revs.
+*  Within a gear the revs rise with the speed, at each shift they drop.
 ***/
 #pragma once
 
 #include "race_rally.h" // H9RALLY_MATHS_ONLY: pm_shared/h9_rally.h's tuning table, RaceRallyDriveOf, RaceRallyTopSpeed
 
 // ---- copied from dlls/h9_car.cpp (same values, same names with an RSND prefix) ----
-#define RSND_PITCH_IDLE 60       // the engine loop's pitch (100 = as recorded) at idle revs
-#define RSND_PITCH_TOP 200       // and flat out
 #define RSND_GAP 0.1f            // seconds between two sound-change messages of one player (10 a second)
 #define RSND_PITCH_STEP 2        // a pitch change smaller than this is not sent
 #define RSND_VOL_STEP 0.04f      // nor a volume change smaller than this
@@ -34,74 +32,99 @@
 #define RSND_HAND_SPEED 80.0f    // the handbrake skids from this speed (it holds to half of it)
 #define RSND_HIT_MIN 100.0f      // the speed one frame must take off the car, on the ground, for a wall hit (u/s)
 #define RSND_HIT_SHARE 0.2f      // and this share of the speed it had
-#define RSND_REV_UP 5.0f         // revs a second the smoothed revs gain
-#define RSND_REV_DOWN 6.0f       // and lose (a shift's drop is heard)
-#define RSND_COAST 0.8f          // coasting revs are this share of the throttle's
-#define RSND_LAUNCH 0.35f        // revs of the throttle pressed at a standstill
-#define RSND_SHIFT_DROP 0.35f    // revs just after a shift (the first gear starts at 0)
+// ---- the gearbox: HL Rally's (cl_dll/Rally_Effects.cpp renderCalculateRPMs), as numbers; the code is ours ----
+#define RSND_SPEED_TO_CS 3.25f   // HLR: its "current speed" is the ground speed x 3.25
 #define RSND_GEARS 6
+#define RSND_UP 190.0f           // HLR: shift up when cs / (gear * 2) is above this ...
+#define RSND_DOWN 120.0f         // ... down when it is below this and cs is over RSND_DOWN_FAST_CS ...
+#define RSND_DOWN_LOW 80.0f      // ... or, at or under RSND_DOWN_FAST_CS, below this (so the low gears do not toggle)
+#define RSND_DOWN_FAST_CS 550.0f
+#define RSND_MOVING_CS 5.0f      // HLR: at or under this the box is in neutral (gear 0)
+#define RSND_RPM_MIN 15.0f       // HLR: the revs are kept between 15 and 250
+#define RSND_RPM_MAX 250.0f
+#define RSND_RPM_RISE 1100.0f    // HLR: revs a second with the throttle down off the ground (or in neutral)
+#define RSND_RPM_FALL 400.0f     // HLR: revs a second lost with it up
+#define RSND_RPM_DELTA 550.0f    // HLR: the most the revs follow the speed by, a second
+// ---- ours: the pitch of engine_loop.wav (100 = the wav's own rate) over HL Rally's revs. HL Rally plays its sample at
+// 2000 + 260 * rpm Hz, which is a straight line in the revs; that line is laid from pitch 60 at the lowest revs (15) to 200
+// at the highest (250), so pitch 100 is at rpm 82: a car in first gear going 50 u/s, the sample's own rate (the old table
+// had the sample's rate low in the first gear too). A gear's shifts are at 190 down to 95..158, so a shift is 30 to 60 points.
+#define RSND_PITCH_IDLE 60
+#define RSND_PITCH_TOP 200
 
-// The speed at which each gear ends, as a share of the top speed: the lower gears are shorter.
-static const float g_rsndGearEnd[RSND_GEARS] = {0.12f, 0.25f, 0.38f, 0.52f, 0.72f, 1.0f};
-
-// The gear (0..5) for a speed, and how far through it (0..1) the speed is.
-static inline int RallySndGear(float speed, float top, float* frac)
+struct RallySndGearbox
 {
-	if (speed < 0)
-		speed = -speed;
-	const float share = top > 1 ? speed / top : 0;
-	float lo = 0;
-	for (int g = 0; g < RSND_GEARS; g++)
+	int gear = 0;
+	float rpm = RSND_RPM_MIN;
+	float old = RSND_RPM_MIN;
+};
+
+// The automatic gearbox for one frame: the ground speed (u/s), the throttle, whether the wheels are on the ground, the frame's
+// length. Moves `gear` (0..6) and `rpm` (15..250).
+static inline void RallySndGearStep(RallySndGearbox& b, float speed, bool throttle, bool grounded, float dt)
+{
+	const float cs = (speed < 0 ? -speed : speed) * RSND_SPEED_TO_CS;
+	if (b.gear > 0)
 	{
-		const float hi = g_rsndGearEnd[g];
-		if (share < hi || g == RSND_GEARS - 1)
+		const float a = cs / ((float)b.gear * 2.0f);
+		if (a > RSND_UP)
+			b.gear++;
+		else if (a < RSND_DOWN)
 		{
-			if (frac)
-				*frac = H9RClamp((share - lo) / (hi - lo), 0.0f, 1.0f);
-			return g;
+			if (cs > RSND_DOWN_FAST_CS)
+				b.gear--;
+			else if (a < RSND_DOWN_LOW)
+				b.gear--;
 		}
-		lo = hi;
 	}
-	return RSND_GEARS - 1;
-}
+	if (b.gear > RSND_GEARS)
+		b.gear = RSND_GEARS;
+	if (b.gear < 1)
+		b.gear = cs > RSND_MOVING_CS ? 1 : 0;
 
-// The revs wanted (0 idle .. 1 flat out): the gear's share, lower while coasting, up to a launch's with the throttle
-// pressed at a standstill. `speed` is the car's speed over the ground (either way), `top` RaceRallyTopSpeed.
-static inline float RallySndRevs(float speed, float top, bool throttle)
-{
-	float frac = 0;
-	const int gear = RallySndGear(speed, top, &frac);
-	float revs = gear == 0 ? frac : RSND_SHIFT_DROP + (1.0f - RSND_SHIFT_DROP) * frac;
-	if (!throttle)
-		return revs * RSND_COAST;
-	const float a = speed < 0 ? -speed : speed;
-	if (a < 25.0f) // the throttle at a standstill revs the engine, the less as the car gets going
+	float rpm = b.rpm;
+	if (!grounded || b.gear == 0 || cs < RSND_MOVING_CS)
+		rpm += (throttle ? RSND_RPM_RISE : -RSND_RPM_FALL) * dt; // the needle runs free
+	else
+		rpm = cs / ((float)b.gear * 2.0f); // on the ground the revs are the speed's
+	if (rpm < RSND_RPM_MIN)
 	{
-		const float launch = RSND_LAUNCH * (1.0f - a / 25.0f);
-		if (revs < launch)
-			revs = launch;
+		b.old = RSND_RPM_MIN;
+		rpm = RSND_RPM_MIN;
 	}
-	return revs;
+	else
+	{
+		if (rpm > RSND_RPM_MAX)
+			rpm = RSND_RPM_MAX;
+		// follow the target at most RSND_RPM_DELTA a second, and a quarter of the way a frame (HLR's average)
+		float delta = rpm - b.old;
+		const float cap = RSND_RPM_DELTA * dt;
+		if (delta > cap)
+			delta = cap;
+		else if (delta < -cap)
+			delta = -cap;
+		rpm = (b.old + (b.old + delta) * 3.0f) * 0.25f;
+		if (rpm < RSND_RPM_MIN)
+			rpm = RSND_RPM_MIN;
+		else if (rpm > RSND_RPM_MAX)
+			rpm = RSND_RPM_MAX;
+	}
+	b.rpm = rpm;
+	b.old = rpm;
 }
 
-static inline float RallySndApproach(float target, float value, float dt)
+// The sample's pitch (100 = as recorded) for the revs.
+static inline int RallySndPitch(float rpm)
 {
-	const float step = (target > value ? RSND_REV_UP : RSND_REV_DOWN) * dt;
-	if (value < target)
-		return value + step < target ? value + step : target;
-	return value - step > target ? value - step : target;
+	const float t = H9RClamp((rpm - RSND_RPM_MIN) / (RSND_RPM_MAX - RSND_RPM_MIN), 0.0f, 1.0f);
+	return RSND_PITCH_IDLE + (int)((RSND_PITCH_TOP - RSND_PITCH_IDLE) * t + 0.5f);
 }
 
-static inline int RallySndPitch(float revs)
+// HL Rally's volume in percent-like units: 40 + rpm / 2 on the throttle, 20 + rpm / 3 without; here over 150 as 0..1.
+static inline float RallySndVolume(float rpm, bool throttle)
 {
-	return RSND_PITCH_IDLE + (int)((RSND_PITCH_TOP - RSND_PITCH_IDLE) * H9RClamp(revs, 0.0f, 1.0f) + 0.5f);
-}
-
-// A little lower when coasting.
-static inline float RallySndVolume(float revs, bool throttle)
-{
-	const float v = 0.45f + 0.45f * H9RClamp(revs, 0.0f, 1.0f);
-	return throttle ? v : v * 0.85f;
+	const float v = throttle ? 40.0f + rpm * 0.5f : 20.0f + rpm * (1.0f / 3.0f);
+	return H9RClamp(v / 150.0f, 0.15f, 0.95f);
 }
 
 // The skid loop for a surface byte (race_rally.h's RaceSurfaceByte): 0 hard ground, 1 loose ground, 2 snow and ice.

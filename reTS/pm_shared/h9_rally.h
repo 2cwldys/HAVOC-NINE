@@ -22,8 +22,10 @@
 *                80) while the speed along the nose is below it; no engine at all above the top gear's range
 *    reverse     the back key below 40 u/s drives backwards with the same pull; at 40 it is a brake again, so reverse
 *                tops out near 40 (and HL Rally's pull would stop at 100 in any case)
-*    steering    the view yaw turns 400 degrees a second with the steering keys, at any speed (cl_yawspeed 500
-*                capped at 400): so the heading is the command's view yaw
+*    steering    the heading is the command's view yaw. HL Rally's client does not send the raw keys' turn: it filters the
+*                steering heavily (its cl_dll/input.cpp) before the yaw is sent, so how fast the nose turns is the client's
+*                to decide (cl_dll/input.cpp here); pmove only reads the yaw it is given. H9RallySteer below is the plain
+*                400 degrees a second the old client used, kept for anything that still calls it
 *  Top speed is therefore where the engine's pull meets the drag: pull / (0.25 + the surface's drag).
 *
 *  Units are Half-Life's (units, units a second). Left is positive: a heading's yaw grows to the left, and the
@@ -31,7 +33,7 @@
 *
 *  Everything the movement needs from one frame to the next is the player's own velocity, origin and view yaw,
 *  which the engine already carries and predicts. Nothing is kept in a static or in an iuser/fuser/vuser field.
-*  The only thing the server tells the client is the physinfo key "rally" (a car class number, 0 off).
+*  The only things the server tells the client are the physinfo key "rally" (a car class number, 0 off) and, for the debug line, "rdbg".
 *
 *  Where this file deliberately does NOT do as HL Rally does is marked "ours" below and listed in the commit.
 ***/
@@ -68,18 +70,21 @@
 // The world
 #define H9R_GRAVITY 520.0f       // HLR rally.cfg sv_gravity: the car falls at this whatever sv_gravity is
 #define H9R_STEP_UP 4.0f         // HLR rally.cfg sv_stepsize: the highest kerb driven over
-#define H9R_LIFT_VZ 180.0f       // HLR pm_shared.c: going up faster than this the car is off the ground
+#define H9R_LIFT_VZ 1800.0f      // HLR pm_shared.c PM_CatagorizePosition: going up faster than this the car is off the ground
+#define H9R_FL_FROZEN (1 << 12)  // const.h's FL_FROZEN: the race's hold. The only thing that holds a car (h9_rally.cpp asserts it)
+#define H9R_GROUND_REACH 2.0f    // HLR PM_CatagorizePosition: the ground is looked for this far below the origin ...
+#define H9R_GROUND_REACH_SLOW 16.0f // ... and this far when the car is (nearly) at rest
+#define H9R_SLOW_SPEED 5.0f      // HLR: at or under this speed the longer reach is used
+#define H9R_GROUND_MIN_NORMAL 0.3f // ours: a hit flatter than this (nz) is a wall, not ground; HLR takes any hit
+#define H9R_FOLLOW 2.0f          // ours: a car that hugs the ground follows it at most this far down (HLR: no follow at all)
+#define H9R_FOLLOW_VN 40.0f      // ours: ... and only while it moves away from the ground slower than this (a ramp's lip flies)
+#define H9R_CRASH_SPEED 10.0f    // HLR PM_CarWorldCollision: sides away from the velocity are culled only above this speed
 #define H9R_WALL_BOUNCE 0.2f     // HLR rally.c PM_Crash: the speed into a wall comes back at 0.2 (v - 1.2 (v.n) n)
 // and the crash keeps (2 + cos(angle the wall turned the car)) / 3 of the speed: 1/3 head on, all of it grazing
 #define H9R_AIR_DRAG 0.0f        // HLR: no friction off the ground
 #define H9R_AIR_PULL_SPEED 0.0f  // HLR: forwardmove is 0 in the air, so sv_airaccelerate 0.1 gives nothing
-
-// Ours: things HL Rally has no number for.
-#define H9R_WATER_WHEELS_DRAG 1.1f // ours: 1/s extra drag, wheels in water (HL Rally has no water handling)
-#define H9R_WATER_WHEELS_GRIP 0.5f // ours: the sideways hold with the wheels in water
-#define H9R_WATER_DEEP_DRAG 2.6f   // ours: 1/s drag with the body in water
-#define H9R_WATER_DEEP_GRAV 0.25f  // ours: gravity's share on a car floating
-#define H9R_WATER_THRUST 40.0f     // ours: u/s^2 the engine gives a floating car
+// Water: HL Rally has none (its PM_CheckWater call is commented out), so a car in water drives as on dry ground. The movement
+// still sets pmove->waterlevel, which the server's 3-second deep-water watch and the splash sound read.
 
 // The body, for the ground's tilt and for what a wall can touch. HL Rally's car is 45 long, 18 wide, 16 high.
 #define H9R_LENGTH 45.0f
@@ -258,8 +263,9 @@ struct H9RallyInput
 struct H9RallyGround
 {
 	int surface = H9RS_NEUTRAL;
-	float extraDrag = 0;  // 1/s added to the surface's: HL Rally's road rule on top of a looser surface, water
-	float latScale = 1;   // water on the wheels
+	float extraDrag = 0;  // 1/s added to the surface's: HL Rally's road rule on top of a looser surface
+	float latScale = 1;   // a scale of the sideways hold (1: none)
+	float pullScale = 1;  // pmove->friction: HL Rally multiplies the engine's pull by it (func_friction areas)
 	float slopeF = 0;     // u/s^2 gravity pulls along the nose (negative uphill)
 	float slopeS = 0;     // and across it, positive to the left
 };
@@ -361,7 +367,7 @@ static inline H9RallyResult H9RallyGroundStep(float& vf, float& vs, const H9Rall
 				const float addspeed = wish - vf;
 				if (addspeed > 0)
 				{
-					float pull = H9R_ACCELERATE * wish * h;
+					float pull = H9R_ACCELERATE * wish * h * g.pullScale;
 					if (pull > addspeed)
 						pull = addspeed;
 					vf += pull;
@@ -375,7 +381,7 @@ static inline H9RallyResult H9RallyGroundStep(float& vf, float& vs, const H9Rall
 				const float addspeed = wish + vf; // the speed along the wish direction (backwards) is -vf
 				if (addspeed > 0)
 				{
-					float pull = H9R_ACCELERATE * wish * h;
+					float pull = H9R_ACCELERATE * wish * h * g.pullScale;
 					if (pull > addspeed)
 						pull = addspeed;
 					vf -= pull;
@@ -392,9 +398,9 @@ static inline H9RallyResult H9RallyGroundStep(float& vf, float& vs, const H9Rall
 	return res;
 }
 
-// How far the heading turns this frame, in degrees (positive: to the left): the view yaw's own turn, 400 degrees a
-// second at any speed (HL Rally's CL_AdjustAngles). `steerInput` is the keys: left 1, right -1, or in between when a
-// key was pressed or let go within the frame. The client adds it to the view yaw while the steering keys are down.
+// How far the heading turns this frame, in degrees (positive: to the left), by the plain rule of 400 degrees a second at any
+// speed (HL Rally's CL_AdjustAngles before its client filters the steering: that filter is the client's, cl_dll/input.cpp).
+// `steerInput` is the keys: left 1, right -1, or in between when a key was pressed or let go within the frame.
 static inline float H9RallySteer(float steerInput, float dt)
 {
 	return steerInput * H9R_STEER_RATE * dt;
@@ -405,6 +411,118 @@ static inline float H9RallySteer(float steerInput, float dt)
 static inline float H9RallyCrashKeep(float cosTurned)
 {
 	return (cosTurned + 2.0f) / 3.0f;
+}
+
+// ------------------------------------------------------------------------------------------------------------
+//  The decisions the pmove side makes, as plain functions (so rally_test drives them with no engine).
+// ------------------------------------------------------------------------------------------------------------
+
+// Held (the countdown, after the finish): the race's FL_FROZEN, and nothing else. HL Rally rewrites maxspeed every frame; The
+// Specialists changes it with the loadout, so a low or zero maxspeed says nothing about the race.
+static inline bool H9RallyHeld(int flags)
+{
+	return (flags & H9R_FL_FROZEN) != 0;
+}
+
+// How far below the origin the ground is looked for (HL Rally's PM_CatagorizePosition).
+static inline float H9RallyGroundReach(float speed)
+{
+	return speed > H9R_SLOW_SPEED ? H9R_GROUND_REACH : H9R_GROUND_REACH_SLOW;
+}
+
+// Is this trace ground? HL Rally: any hit is, none when the car is shooting up faster than 1800. Ours: a trace that starts
+// inside something is ground too (the car is on a sliver; the stuck check frees it), and a hit flatter than
+// H9R_GROUND_MIN_NORMAL is a wall.
+static inline bool H9RallyIsGround(bool startsolid, float fraction, float normalZ, float velocityZ)
+{
+	if (velocityZ > H9R_LIFT_VZ)
+		return false;
+	if (startsolid)
+		return true;
+	return fraction < 1.0f && normalZ >= H9R_GROUND_MIN_NORMAL;
+}
+
+// The kerb retry: the slide's and the stepped-up move's distances (squared, in the plane). HL Rally keeps the slide only when it
+// went farther: on a tie the stepped move wins.
+static inline bool H9RallySteppedWins(float slideDist2, float steppedDist2)
+{
+	return !(slideDist2 > steppedDist2);
+}
+
+// A body contact HL Rally's PM_Crash lets pass: in the air, a plane a car could land on (nz > 0.3). On the ground nothing passes.
+static inline bool H9RallyCrashIgnores(bool grounded, float normalZ)
+{
+	return !grounded && normalZ > 0.3f;
+}
+
+// The sides of the body whose traces are made. At rest (3-D speed 10 or less) all four; above it, the front or the back (the
+// one the car goes toward) and the left or the right. `vf` is the velocity along the nose (positive forward), `vl` across it
+// (positive to the left), `speed3` the whole velocity's length. HL Rally culls the front when v.forward < 0 else the back, and
+// the right when v.right < 0 (moving left) else the left.
+struct H9RallySides
+{
+	bool front = true, back = true, left = true, right = true;
+};
+static inline H9RallySides H9RallyCrashSides(float vf, float vl, float speed3)
+{
+	H9RallySides s;
+	if (speed3 > H9R_CRASH_SPEED)
+	{
+		if (vf < 0)
+			s.front = false;
+		else
+			s.back = false;
+		if (vl > 0)
+			s.right = false;
+		else
+			s.left = false;
+	}
+	return s;
+}
+
+// The points the body is traced out to, from its middle (8 above the origin): (along the nose, to the left, height above the
+// origin). HL Rally's grid: along the front and the back 4.8 apart at 25.2 wide (4 points, the corner's 2 in), along the sides 8
+// apart over 37 (5 points), at the heights 4 and 12. Returns how many were written.
+static inline int H9RallyCrashPoints(const H9RallySides& sides, float out[][3], int maxPoints)
+{
+	int n = 0;
+	const float half = H9R_LENGTH * 0.5f, halfW = H9R_WIDTH * 0.5f;
+	for (int h = 0; h < 2; h++)
+	{
+		const float z = H9R_STEP_UP + 8.0f * (float)h;
+		for (int u = 0; u < 4; u++)
+		{
+			if (sides.front && n < maxPoints)
+			{
+				out[n][0] = half;
+				out[n][1] = halfW - 2.0f - 4.8f * (float)u;
+				out[n++][2] = z;
+			}
+			if (sides.back && n < maxPoints)
+			{
+				out[n][0] = -half;
+				out[n][1] = -halfW + 2.0f + 4.8f * (float)u;
+				out[n++][2] = z;
+			}
+		}
+		for (int u = 0; u < 5; u++)
+		{
+			const float x = -half + 8.0f + 8.0f * (float)u;
+			if (sides.right && n < maxPoints)
+			{
+				out[n][0] = x;
+				out[n][1] = -halfW;
+				out[n++][2] = z;
+			}
+			if (sides.left && n < maxPoints)
+			{
+				out[n][0] = x;
+				out[n][1] = halfW;
+				out[n++][2] = z;
+			}
+		}
+	}
+	return n;
 }
 
 // ------------------------------------------------------------------------------------------------------------
