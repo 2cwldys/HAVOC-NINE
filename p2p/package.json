@@ -1,0 +1,13 @@
+{
+  "name": "h9-p2p",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "The P2P join path: a token-gated rendezvous and relay service (h9rv, with a public list of games) and the Node helper (h9p2p) for joining a listen server without port forwarding. No dependencies.",
+  "engines": { "node": ">=20" },
+  "bin": { "h9rv": "bin/h9rv.js", "h9p2p": "bin/h9p2p.js" },
+  "scripts": {
+    "start": "node bin/h9rv.js --config relay.config.json",
+    "test": "node --test --test-timeout=60000 \"test/*.test.js\""
+  }
+}

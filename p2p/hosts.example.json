@@ -1,0 +1,4 @@
+{
+  "_note": "One entry per host who may open a game on this relay. Make a real one with:  node bin/h9rv.js token Mike --hosts hosts.json  (run.sh and run.bat do it as: run.sh token Mike). It replaces the example entry below and prints the token once; this file keeps only the token's hash. Keys that start with an underscore are notes.",
+  "CHANGE-ME-make-a-token-with-h9rv": { "id": 1, "name": "example host" }
+}
