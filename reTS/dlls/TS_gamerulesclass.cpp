@@ -23,6 +23,7 @@
 #include "ts_gun.h"             // CTSGun (RestartRound's loadout refund)
 #include "ts_mechrocket.h"      // TSMechRocketSyncCvars
 #include "game.h"          // g_flWeaponCheat (sv_cheats as the map started)
+#include "h9_rally_srv.h" // H9RallyJoinMessages (the rally car menu at join)
 
 
 // Defined in ts_objectives.cpp — fire the objective manager's targetontimeleft on round timeout.
@@ -1476,6 +1477,9 @@ void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
 	// that also drops a deadline left from the previous map's clock (cont.96).
 	pPlayer->m_flTSRespawnTime = 0.0f;
 	pPlayer->TSEnterSpectate();
+
+	// H9 rally race map: his $600, no parts, no car chosen, and the rally main menu (the joiner is an observer until he chooses a car)
+	H9RallyJoinMessages(pPlayer);
 
 	// @0x69592: in the objective modes (g_teamplay 2 or 3 in the original; reTS keeps the mode in
 	// m_iGameMode, its rules+0 copy, and g_teamplay as a bool) the random model index is cleared and

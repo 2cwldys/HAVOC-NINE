@@ -17,6 +17,8 @@
 #include "util.h"
 #include "client.h"
 #include "game.h"
+#include "race.h"
+#include "h9_rally_srv.h"
 #include "filesystem_utils.h"
 #include "cbase.h"
 #include "ts_gamerules.h" // TSGameRules/WeaponRestrictionByID (cmd_weaponrestriction)
@@ -267,6 +269,8 @@ void GameDLLInit()
 		return;
 	}
 
+	RaceRegisterCvars(); // H9 race mode: mp_racelaps, mp_racewarmup (race.cpp)
+	H9RallyRegisterCvars(); // H9 rally mode: h9_rally (h9_rally_srv.cpp)
 	CVAR_REGISTER(&displaysoundlist);
 
 	CVAR_REGISTER(&teamplay);

@@ -34,6 +34,7 @@ const float* TS_PlayerGunAtt(int idx, int n)
 	return fallback;
 }
 #include "GameStudioModelRenderer.h"
+#include "h9_rallyfx.h" // H9RallyFx_NoteExhaust
 
 extern cvar_t* tfc_newmodels;
 
@@ -1017,6 +1018,16 @@ void CStudioModelRenderer::StudioSetupBones()
 		}
 	}
 
+	// H9 rally: the local car's suspension (HL Rally, StudioModelRenderer.cpp:896-915): four bones found by their names get the trace's offset along z
+	if (m_carShockOn)
+	{
+		static const char* const names[4] = {"SHOCK-RghFron", "SHOCK-LefFron", "SHOCK-LefBack", "SHOCK-RghBack"}; // = rallycam::kShockBone
+		for (i = 0; i < m_pStudioHeader->numbones; i++)
+			for (int k = 0; k < 4; k++)
+				if (0 == stricmp(pbones[i].name, names[k]))
+					pos[i][2] += m_carShock[k];
+	}
+
 	for (i = 0; i < m_pStudioHeader->numbones; i++)
 	{
 		const int parent = pbones[i].parent;
@@ -1309,6 +1320,26 @@ bool CStudioModelRenderer::StudioDrawModel(int flags)
 		IEngineStudio.StudioSetRemapColors(m_nTopColor, m_nBottomColor);
 
 		StudioRenderModel();
+
+		// H9 rally mode: the interior's windscreen overlay, drawn again over the view model, added, on the same bones (HL Rally's rally_chrome,
+		// StudioModelRenderer.cpp:2585-2627). Only for the interior the weapon's slot holds in a car.
+		if (m_pCurrentEntity == gEngfuncs.GetViewModel())
+		{
+			model_t* chrome = H9RallyCam_InteriorChrome(m_pRenderModel);
+			if (chrome != NULL)
+			{
+				studiohdr_t* chromeHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(chrome);
+				if (chromeHeader != NULL)
+				{
+					IEngineStudio.GL_SetRenderMode(kRenderTransAdd);
+					m_pStudioHeader = chromeHeader;
+					IEngineStudio.StudioSetHeader(m_pStudioHeader);
+					StudioMergeBones(chrome); // snaps to the bones of the model drawn (by name)
+					StudioRenderModel();
+					IEngineStudio.GL_SetRenderMode(kRenderNormal);
+				}
+			}
+		}
 	}
 
 	return true;
@@ -1507,6 +1538,19 @@ bool CStudioModelRenderer::StudioDrawPlayer(int flags, entity_state_t* pplayer)
 	if (m_nPlayerIndex < 0 || m_nPlayerIndex >= gEngfuncs.GetMaxClients())
 		return false;
 
+	// H9 rally mode: a player whose box is a car's is drawn as the car (no human, no weapon); if the car's model cannot be had he is
+	// drawn as a human as before.
+	// (the state the engine hands over for a player is not always the one with his box: the local player's is the predicted one,
+	// which HUD_ProcessPlayerState fills without mins and maxs, so the entity's own state and the local player's mode are asked too)
+	cl_entity_t* h9Local = gEngfuncs.GetLocalPlayer();
+	const bool h9LocalCar = h9Local != NULL && m_pCurrentEntity != NULL && h9Local->index == m_pCurrentEntity->index && H9RallyCam_LocalIsCar();
+	if (h9LocalCar || H9RallyCar_IsCarState(pplayer) || H9RallyCar_IsCarEntity(m_pCurrentEntity))
+	{
+		H9RallyCarDraw car;
+		if (H9RallyCar_Pose(m_pCurrentEntity, pplayer, car))
+			return StudioDrawCar(flags, pplayer, car);
+	}
+
 	// TS DEATH CAM: the LOCAL player's body is built from PREDICTION (the live view angles),
 	// so a server-side angle pin can't stop the dead body swiveling with the mouse — freeze
 	// the drawn angles CLIENT-side at the death pose until the observer snap (round 8).
@@ -1681,6 +1725,134 @@ bool CStudioModelRenderer::StudioDrawPlayer(int flags, entity_state_t* pplayer)
 		}
 	}
 
+	return true;
+}
+
+/*
+====================
+StudioDrawCar
+
+H9 rally mode. The player's entity drawn as the car's model, the way StudioDrawModel draws any model: the entity is copied, given the
+car's model, angles, controllers and frame for the duration of the draw, and put back after, so nothing else that reads the player's
+entity (the prediction, the view, the other HUD code) sees the car's values. The wheels turn by the frame (one turn over the whole
+sequence, set from the distance driven) and steer by the two controllers.
+====================
+*/
+bool CStudioModelRenderer::StudioDrawCar(int flags, entity_state_t* pplayer, const H9RallyCarDraw& car)
+{
+	alight_t lighting;
+	Vector dir;
+
+	m_pPlayerInfo = NULL;
+	if ((flags & STUDIO_RENDER) == 0)
+		return true; // nothing of a car is needed for events or attachments
+
+	const cl_entity_t saved = *m_pCurrentEntity;
+	cl_entity_t* ent = m_pCurrentEntity;
+
+	ent->model = car.model;
+	ent->player = 0;
+	VectorCopy(car.origin, ent->origin);
+	for (int i = 0; i < 3; i++)
+	{
+		ent->angles[i] = car.angles[i];
+		ent->curstate.angles[i] = car.angles[i];
+		ent->latched.prevangles[i] = car.angles[i];
+	}
+	ent->curstate.movetype = MOVETYPE_NONE; // the angles above, as they stand
+	ent->curstate.eflags &= ~EFLAG_SLERP;
+	ent->curstate.sequence = 0;
+	ent->curstate.framerate = 0;
+	ent->curstate.frame = car.phase * 255.99f;
+	ent->curstate.animtime = 0;
+	ent->curstate.body = 0;
+	ent->curstate.colormap = 0;
+	ent->curstate.rendermode = kRenderNormal;
+	ent->curstate.renderamt = 255;
+	ent->curstate.renderfx = kRenderFxNone;
+	for (int i = 0; i < 4; i++)
+	{
+		const byte c = (i < 2) ? (byte)car.steerByte : (byte)127;
+		ent->curstate.controller[i] = c;
+		ent->latched.prevcontroller[i] = c;
+	}
+	ent->curstate.blending[0] = ent->curstate.blending[1] = 0;
+	ent->latched.prevblending[0] = ent->latched.prevblending[1] = 0;
+	ent->latched.sequencetime = 0;
+	ent->latched.prevsequence = 0;
+	ent->latched.prevframe = ent->curstate.frame;
+
+	m_pRenderModel = car.model;
+	m_pStudioHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(m_pRenderModel);
+	if (m_pStudioHeader == NULL)
+	{
+		*m_pCurrentEntity = saved;
+		return false;
+	}
+	ent->curstate.skin = (car.skin >= 0 && car.skin < m_pStudioHeader->numskinfamilies) ? car.skin : 0;
+	IEngineStudio.StudioSetHeader(m_pStudioHeader);
+	IEngineStudio.SetRenderModel(m_pRenderModel);
+
+	StudioSetUpTransform(false);
+
+	if (0 == IEngineStudio.StudioCheckBBox())
+	{
+		*m_pCurrentEntity = saved;
+		return false;
+	}
+	(*m_pModelsDrawn)++;
+	(*m_pStudioModelCount)++; // render data cache cookie
+
+	if (m_pStudioHeader->numbodyparts != 0)
+	{
+		m_carShockOn = car.hasShock;
+		for (int i = 0; i < 4; i++)
+			m_carShock[i] = car.shock[i];
+		StudioSetupBones();
+		m_carShockOn = false;
+		StudioSaveBones();
+
+		lighting.plightvec = dir;
+		IEngineStudio.StudioDynamicLight(m_pCurrentEntity, &lighting);
+		IEngineStudio.StudioEntityLight(&lighting);
+		IEngineStudio.StudioSetupLighting(&lighting);
+		IEngineStudio.StudioSetRemapColors(0, 0);
+
+		StudioRenderModel();
+
+		// the exhaust's place (the model's attachment 0) for the backfire's flame (h9_rallyfx.cpp), as HL Rally reads it
+		cl_entity_t* h9me = gEngfuncs.GetLocalPlayer();
+		if (m_pStudioHeader->numattachments > 0 && h9me != NULL && h9me->index == saved.index)
+		{
+			const mstudioattachment_t* att = (mstudioattachment_t*)((byte*)m_pStudioHeader + m_pStudioHeader->attachmentindex);
+			float at[3];
+			VectorTransform(att[0].org, (*m_pbonetransform)[att[0].bone], at);
+			H9RallyFx_NoteExhaust(saved.index, at);
+		}
+
+		// The body's chrome overlay, the car being a player: HL Rally's rally_chrome (StudioModelRenderer.cpp:2390-2427). A second model, drawn after the
+		// first, added (kRenderTransAdd, :2408), on the first one's bones (StudioMergeBones, :2413), with 24 of ambient so the car shines a little in the
+		// dark (:2416-2419), then the render mode back to normal (:2425). HL Rally asks for models/player/<model>/<model>_chrome.mdl; this car has the one
+		// model, so its overlay is models/h9/the class's brand chrome (rc_rally_<brand>_xs_chrome.mdl, else rc_rally_xs_chrome.mdl; h9_rallyfx.cpp), found by H9RallyFx_CarChrome while cl_h9_rally_chrome (rally_chrome) is on.
+		model_t* h9Chrome = H9RallyFx_CarChrome(car.carClass);
+		if (h9Chrome != NULL)
+		{
+			studiohdr_t* chromeHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(h9Chrome);
+			if (chromeHeader != NULL)
+			{
+				gEngfuncs.pTriAPI->RenderMode(kRenderTransAdd);
+				m_pStudioHeader = chromeHeader;
+				IEngineStudio.StudioSetHeader(m_pStudioHeader);
+				StudioMergeBones(h9Chrome);
+				lighting.ambientlight = 24;
+				IEngineStudio.StudioSetupLighting(&lighting);
+				StudioRenderModel();
+				gEngfuncs.pTriAPI->RenderMode(kRenderNormal);
+			}
+		}
+	}
+
+	*m_pCurrentEntity = saved;
 	return true;
 }
 

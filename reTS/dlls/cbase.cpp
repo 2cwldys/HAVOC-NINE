@@ -22,6 +22,7 @@
 #include "gamerules.h"
 #include "game.h"
 #include "pm_shared.h"
+#include "h9_rally_srv.h" // H9RallyPMMove
 
 void EntvarsKeyvalue(entvars_t* pev, KeyValueData* pkvd);
 
@@ -74,7 +75,7 @@ static DLL_FUNCTIONS gFunctionTable =
 
 		Sys_Error, //pfnSys_Error				Called when engine has encountered an error
 
-		PM_Move,			//pfnPM_Move
+		H9RallyPMMove,		//pfnPM_Move (PM_Move, then the rally log's line: dlls/h9_rally_srv.cpp)
 		PM_Init,			//pfnPM_Init				Server version of player movement initialization
 		PM_FindTextureType, //pfnPM_FindTextureType
 

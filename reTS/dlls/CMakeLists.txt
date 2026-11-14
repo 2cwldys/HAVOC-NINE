@@ -81,6 +81,15 @@ target_sources(hl PRIVATE
 	ts_func_break.cpp
 	ts_gun.cpp
 	ts_mechrocket.cpp
+	h9_car.cpp
+	race.cpp
+	h9_rally_srv.cpp
+	h9_rally_car.cpp
+	h9_rally_snd.cpp
+	race.h
+	race_book.cpp
+	race_book.h
+	race_rally.h
 	ts_deadcorpse.cpp
 	TS_combat.cpp
 	TS_entities.cpp
@@ -108,6 +117,7 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_math.cpp
 	../pm_shared/TS_pm_shared.cpp
 	../pm_shared/pm_shared.cpp
+	../pm_shared/h9_rally.cpp
 
 	../public/interface.cpp
 
@@ -199,5 +209,27 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_movevars.h
 	../pm_shared/TS_pm_shared.h
 	../pm_shared/pm_shared.h
+	../pm_shared/h9_rally.h
+	h9_rally_srv.h
+	h9_rally_snd.h
 
 	../public/interface.h)
+
+# The race's bookkeeping alone, with no engine: a scripted race that checks order, laps, places and times.
+#   cmake --build <dir> --target race_test --config Release, then run race_test
+add_executable(race_test EXCLUDE_FROM_ALL
+	tests/race_test.cpp
+	race_book.cpp
+	race_book.h
+	race_rally.h
+	race_rally.h
+	../pm_shared/h9_rally.h)
+
+# Rally mode handling maths alone, with no engine (pm_shared/h9_rally.h): top speeds by surface, slides, the
+# handbrake, stopping, symmetry, the texture-name rules.
+#   cmake --build <dir> --target rally_test --config Release, then run rally_test
+add_executable(rally_test EXCLUDE_FROM_ALL
+	tests/rally_test.cpp
+	h9_rally_snd.h
+	race_rally.h
+	../pm_shared/h9_rally.h)

@@ -184,6 +184,14 @@ target_sources(client PRIVATE
 	h9_arpctx.cpp
 	h9_arpinv.cpp
 	h9_buywindow.cpp
+	h9_racefx.cpp
+	h9_rallyfx.cpp
+	h9_rallycar.cpp
+	h9_keymap.cpp
+	h9_rallysnd.cpp
+	h9_racehud.cpp
+	h9_rallyhud.cpp
+	h9_carmenu.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
 	h9_tts_kokoro.cpp
@@ -237,6 +245,7 @@ target_sources(client PRIVATE
 	vgui_ClassMenu.cpp
 	vgui_CustomObjects.cpp
 	vgui_H9Panel.cpp
+	vgui_H9RallyMenu.cpp
 	vgui_int.cpp
 	vgui_MOTDWindow.cpp
 	vgui_SchemeManager.cpp
@@ -279,6 +288,7 @@ target_sources(client PRIVATE
 	../pm_shared/pm_math.cpp
 	../pm_shared/TS_pm_shared.cpp
 	../pm_shared/pm_shared.cpp
+	../pm_shared/h9_rally.cpp
 
 	../public/interface.cpp
 
@@ -300,6 +310,23 @@ target_sources(client PRIVATE
 	h9_arpinv_model.h
 	h9_arpinv_ui.h
 	h9_buywindow.h
+	h9_racefx.h
+	h9_rallycar.h
+	h9_keymap.h
+	h9_keymap_calc.h
+	h9_rallysnd.h
+	h9_rallysnd_calc.h
+	h9_rallycam_calc.h
+	h9_rallysteer_calc.h
+	h9_racefx_calc.h
+	h9_rallyfx.h
+	h9_rallyfx_calc.h
+	h9_racehud.h
+	h9_racehud_draw.h
+	h9_rallyhud.h
+	h9_carmenu.h
+	h9_carmenu_calc.h
+	h9_rallyhud_draw.h
 	h9_chatbubble.h
 	h9_tts.h
 	h9_tts_catalogue.h
@@ -329,6 +356,7 @@ target_sources(client PRIVATE
 	StudioModelRenderer.h
 	tri.h
 	vgui_H9Panel.h
+	vgui_H9RallyMenu.h
 	vgui_int.h
 	vgui_SchemeManager.h
 	vgui_ScorePanel.h
@@ -401,5 +429,59 @@ target_sources(client PRIVATE
 	../pm_shared/pm_movevars.h
 	../pm_shared/TS_pm_shared.h
 	../pm_shared/pm_shared.h
+	../pm_shared/h9_rally.h
 
 	../public/interface.h)
+
+# The race HUD's arithmetic and layout alone, with no engine; given a folder it also draws the HUD into PNG pictures there.
+#   cmake --build <dir> --target racehud_test --config Release, then run racehud_test [<folder> [<a .map>]]
+add_executable(racehud_test EXCLUDE_FROM_ALL
+	tests/racehud_test.cpp
+	h9_racehud_draw.h
+	h9_rallyhud_draw.h
+	../dlls/race.h)
+target_include_directories(racehud_test PRIVATE ../dlls)
+
+# The race's visual effects' arithmetic alone (tyre marks on a snow circle, none in the air, the ring, the fade, the spray's budget).
+#   cmake --build <dir> --target racefx_test --config Release, then run racefx_test
+add_executable(racefx_test EXCLUDE_FROM_ALL
+	tests/racefx_test.cpp
+	tests/racefx_rally_checks.h
+	h9_racefx_calc.h
+	h9_rallyfx_calc.h
+	h9_rallysnd_calc.h)
+
+# Rally mode's cameras and the car's tilt, arithmetic alone: the tilt from four heights held to the studio's matrix, the chase and the
+# driver's camera, their frame-rate independence, the pull-in, the steering and the wheels.
+#   cmake --build <dir> --target rallycam_test --config Release, then run rallycam_test
+add_executable(rallycam_test EXCLUDE_FROM_ALL
+	tests/rallycam_test.cpp
+	h9_rallycam_calc.h)
+
+# Rally mode's steering, arithmetic alone: the heading's rate at 30 to 200 frames a second against HL Rally's per-frame filter at 99, the
+# speed gate, reverse, a slide's damping, the handbrake's and the power's kick, the wheel and the gearbox.
+#   cmake --build <dir> --target rallysteer_test --config Release, then run rallysteer_test
+add_executable(rallysteer_test EXCLUDE_FROM_ALL
+	tests/rallysteer_test.cpp
+	h9_rallysteer_calc.h)
+
+# The per-gamemode key layouts' logic alone: key names against keydefs.h, bind-line parsing, press, repeat and release, held keys, the shipped files.
+#   cmake --build <dir> --target keymap_test --config Release, then run keymap_test
+add_executable(keymap_test EXCLUDE_FROM_ALL
+	tests/keymap_test.cpp
+	h9_keymap_calc.h)
+
+# The rally car menu and shop's arithmetic alone: the layout in HL Rally's units, the two-stage queue, the money and the bars with the parts added,
+# the text formats, the showroom car's place, spin, drag and shadow, and the shipped key files' `m` key.
+#   cmake --build <dir> --target carmenu_test --config Release, then run carmenu_test
+add_executable(carmenu_test EXCLUDE_FROM_ALL
+	tests/carmenu_test.cpp
+	h9_carmenu_calc.h
+	../pm_shared/h9_rally_shop.h)
+
+# Rally mode's sounds on the client, arithmetic alone: HL Rally's pitch and volume lines for the local car, the whine, the other cars' guessed revs and
+# the four nearest, the squeal's gate and its half second, the backfire's window, the wall, the horn, the file headers' rates.
+#   cmake --build <dir> --target rallysnd_test --config Release, then run rallysnd_test
+add_executable(rallysnd_test EXCLUDE_FROM_ALL
+	tests/rallysnd_test.cpp
+	h9_rallysnd_calc.h)

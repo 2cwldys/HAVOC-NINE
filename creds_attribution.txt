@@ -17,3 +17,6 @@ laser rifle sounds and sprites - made for havoc 9 team elimination mode
 kokoro text to speech model and voices (ts\h9tts) - hexgrad, kokoro-82m (apache 2.0), 8-bit onnx build from onnx-community/Kokoro-82M-v1.0-ONNX
 text to speech phoneme dictionaries and algorithm - misaki by hexgrad (apache 2.0), pronunciations partly derived from CMUdict (carnegie mellon university)
 onnx runtime - microsoft (mit)
+race and rally modes (reTS game and client code, the rally cars, the rally interior, the rc_rally01 map with its props, textures and sky, the rally sounds and hud sprites) - deoroot, made with the studio maker asset kit
+rally mode's driving, cameras and car menu - behaviour studied from hl rally by the hl rally team (read for method and numbers only; no code, text, models, sounds or pictures taken)
+h9_car's driving model - method studied from diffusion's func_car by aynekko (no code taken)

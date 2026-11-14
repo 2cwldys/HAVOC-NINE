@@ -3152,6 +3152,98 @@
 
 
 ===============================================================================
+ RACE AND RALLY MODE  (reTS's game library and H9's client.dll)
+===============================================================================
+
+ Race maps (race_rules, race_checkpoint) and rally mode, where the player is the
+ car. The server's cvars are set in server.cfg or a map's own config; the
+ client's are the player's, typed in the console and saved with config.cfg
+ unless said otherwise.
+
+ SERVER
+
+ h9_rally 0..10                  rally mode for every player on the map: 0 is off (the default), 1 to
+                                 10 turns it on and the player drives as that car class (1 rally, 2
+                                 sprint, 3 heavy); a map with race_rules and "vehicle" "rally" turns it
+                                 on by itself as class 1. While it is on, the server's movement
+                                 settings are HL Rally's (sv_friction, sv_accelerate, sv_gravity,
+                                 sv_stepsize), put back when it goes off
+ h9_rally_debug 0|1              1: each rally player's movement prints one line every half second to
+                                 the server console (0)
+ h9_rally_log 0|1                1: every rally car's movement command is written as a CSV line to
+                                 rallylog/srv_<map>_<date-time>.txt in the game folder (0)
+ mp_racelaps <n>                 the laps of a race: 0 (the default) takes the map's own (race_rules
+                                 laps); 1 or more overrides it
+ mp_racewarmup <seconds>         the wait before each countdown, once a player is in (10)
+ mp_joinmidrace 0|1              a player who picks a car while a race runs joins it from lap 0 (1);
+                                 0: he waits for the next race. HL Rally's cvar of the same name;
+                                 saved
+
+ SERVER COMMANDS A PLAYER TYPES  (only on a rally race map; elsewhere TS's own commands)
+
+ changecar <class>               change to the car of that class: the money stays, the parts bought
+                                 are lost; an unknown class is ignored
+ spectate                        become an observer, out of the next race as well
+ selectcar                       leave the race that is running for the car menu, and sit out the
+                                 rest of it; ignored when no race runs
+ buy <part>                      buy a part for the car with the race money (the car menu's rows)
+
+ CLIENT
+
+ cl_h9_racehud 0|1               the race HUD (lap, place, times, the results board) drawn by this
+                                 game (1); 0 gives the server's text lines instead. The game tells the
+                                 server in _h9race
+ _h9race                         1 while this game draws the race HUD, else 0; set by the game from
+                                 cl_h9_racehud, never typed (userinfo)
+ cl_h9_racefx 0|1                the master switch of the race effects (1): skid marks, tyre spray,
+                                 shadow and lights; 0 draws none of them
+ cl_h9_racefx_marks 0|1          the skid marks the cars leave (1), HL Rally's rally_skid
+ cl_h9_racefx_spray 0|1          the dust and spray the wheels throw up (1)
+ cl_h9_racefx_shadow 0|1         the shadow under a car (1)
+ cl_h9_racefx_lights 0|1         the brake lights and headlights of the cars (1)
+ cl_h9_racefx_debug 0|1          1: once a second the console says what the effects see (cars, marks,
+                                 sprites); for finding why an effect is missing (0; not saved)
+ cl_h9_raceweather 0|1|2         snow or rain drawn over the map outside rally mode: 0 none (the
+                                 default), 1 snow, 2 rain; a map's config sets it, not saved
+ cl_h9_rallyfx_skidtime <sec>    how long a rally car's skid mark stays on the ground (45), HL Rally's
+                                 rally_skidmarktime
+ cl_h9_rallyfx_shadowdiv <n>     the subdivisions of a rally car's shadow (4), HL Rally's
+                                 rally_shadows; a value under 1 draws no shadow
+ cl_h9_rallysnd_3dchannels <n>   how many other cars at most have their engine heard from where they
+                                 are (4), HL Rally's rally_sound_3dchannels
+ cl_h9_rallyview 0..4            the camera on a rally car: 0 chase, 1 TV, 2 bonnet, 3 side, 4 interior
+                                 (the default is 4; a new map sets it back to 4); not saved. The
+                                 interior falls back to the chase camera where there is no interior
+                                 model
+ cl_h9_rallycam_dist <units>     how far behind the car the chase camera is (40), HL Rally's
+                                 cam_wishdist
+ cl_h9_rallycam_pivot <units>    the height above the car's origin the chase camera pivots on (10)
+ cl_h9_rallycam_pitch <degrees>  how far down the chase camera looks, on top of the slope of the
+                                 car's velocity (15)
+ cl_h9_rallycam_fov <degrees>    the field of view while driving (90); 0 leaves the player's own
+ cl_h9_rally_mouse <scale>       the mouse's steering is multiplied by this (1.0)
+ cl_h9_rally_rearview 0|1        the mirror in the interior view (1), HL Rally's rally_rearview
+ cl_h9_rally_chrome 0|1          the windscreen's overlay in the interior view (1), HL Rally's
+                                 rally_chrome
+ cl_h9_rally_manual 0|1          the driver shifts the gears himself with h9_gearup and h9_geardown
+                                 (0), HL Rally's rally_manual
+ cl_h9_rally_log 0|1             1: the input model's frames (keys, throttle, steering) are written to
+                                 rallylog/cl_<map>_<date-time>.txt in the game folder (0)
+ cl_h9_keys_rally <name>         the key layout used while driving a rally car (rally): the file
+                                 h9/keys/<name>.txt of the game folder, whose keys run its commands in
+                                 place of the player's own binds and are never written to the config;
+                                 rally.txt and rally_wasd.txt ship with the game, "" turns it off
+ h9_gearup                       one gear up while cl_h9_rally_manual is 1
+ h9_geardown                     one gear down while cl_h9_rally_manual is 1
+ h9_rallycam                     the next camera: chase, bonnet, side, TV, interior (HL Rally's
+                                 changeview)
+ h9_rallycam_zoom                the chase camera's distance in turn 70, 100, 35 and round (HL Rally's
+                                 changedistance)
+ +h9_camdistance                 held: the mouse moves the chase camera in and out and does not steer;
+ -h9_camdistance                 released: it steers again (HL Rally's +camdistance)
+
+
+===============================================================================
  WHEN SOMETHING IS WRONG -- WHAT TO RUN FIRST
 ===============================================================================
 

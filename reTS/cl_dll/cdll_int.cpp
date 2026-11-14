@@ -44,6 +44,10 @@ TeamFortressViewport* gViewPort = NULL;
 
 #include "particleman.h"
 #include "ts_emitter.h" // TSEmitter_Frame
+#include "h9_rallysnd.h" // H9RallySnd_Frame
+#include "h9_keymap.h" // H9Keys_Frame
+#include "pm_defs.h"
+extern float g_h9RallyCrashAmount; // pm_shared/h9_rally.cpp
 IParticleMan* g_pParticleMan = nullptr;
 
 void CL_LoadParticleMan();
@@ -108,6 +112,12 @@ void DLLEXPORT HUD_PlayerMove(struct playermove_s* ppmove, int server)
 	//	RecClClientMove(ppmove, server);
 
 	PM_Move(ppmove, server);
+	// H9 rally: the wall-hit sound, from the movement's own crash amount (HL Rally's cdll_int.cpp:195-204)
+	if (!server && g_h9RallyCrashAmount != 0)
+	{
+		H9RallySnd_Crash(g_h9RallyCrashAmount, ppmove->time, ppmove->origin);
+		g_h9RallyCrashAmount = 0;
+	}
 }
 
 static bool CL_InitClient()
@@ -264,6 +274,8 @@ void DLLEXPORT HUD_Frame(double time)
 
 	GetClientVoiceMgr()->Frame(time);
 	TSEmitter_Frame(time); // client.dll HUD_Frame -> FUN_1003ab40: the map's ts_emitter effects
+	H9Keys_Frame(); // H9 key layouts: a mode that has ended lets go of the keys it holds (h9_keymap.cpp)
+	H9RallySnd_Frame(); // H9 rally mode: the engine loops, the squeal and the backfire of the cars (h9_rallysnd.cpp)
 	gHUD.m_TSPowerUp.InterpolateSlow((float)time); // 0x10055ae0, the slow factor's easing
 	extern bool g_bTSKeyBound;
 	g_bTSKeyBound = false; // 0x1001ab27

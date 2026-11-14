@@ -25,6 +25,7 @@
 #include "../public/keydefs.h"
 #include "view.h"
 #include "Exports.h"
+#include "h9_rallycar.h" // H9RallySteer_*: rally mode's mouse
 #include "h9_arpinv.h" // H9 ARP inventory: its window takes the mouse buttons while the cursor is up
 #include "h9_arpctx.h" // H9 ARP context menu: it takes them before the inventory window
 
@@ -655,7 +656,19 @@ void IN_MouseMove(float frametime, usercmd_t* cmd)
 		mx_accum = 0;
 		my_accum = 0;
 
-		if (m_filter && 0 != m_filter->value)
+		// H9 rally mode, HL Rally's +camdistance: the mouse moves the camera's distance and nothing else (its iMouseInUse)
+		if (H9RallyCam_ZoomHeld())
+		{
+			H9RallyCam_ZoomMouse(pos.y);
+			pos.x = 0;
+			pos.y = 0;
+			old_mouse_x = 0;
+			old_mouse_y = 0;
+		}
+
+		// H9 rally mode: the mouse is an input to the car's steering, averaged with the last frame's as HL Rally's m_filter 1 does
+		const bool rallyMouse = H9RallySteer_MouseActive();
+		if ((m_filter && 0 != m_filter->value) || rallyMouse)
 		{
 			mouse_x = (pos.x + old_mouse_x) * 0.5;
 			mouse_y = (pos.y + old_mouse_y) * 0.5;
@@ -671,6 +684,22 @@ void IN_MouseMove(float frametime, usercmd_t* cmd)
 
 		// Apply mouse scaling/acceleration (the raw int deltas carry the sign for the accel term)
 		IN_ScaleMouse(pos.x, pos.y, &mouse_x, &mouse_y);
+
+		if (rallyMouse)
+		{
+			// HL Rally: no mouse steering in the air, and no more than 550 (scaled) in a frame; cl_h9_rally_mouse scales the lot
+			if (!H9RallySteer_OnGround())
+				mouse_x = 0.0f;
+			// the steering's gain was tuned in HL Rally for its own shipped sensitivity (15): the player's own (3 here, for aiming)
+			// would make the mouse five times weaker than theirs, so the steering is brought to theirs whatever he aims with
+			if (sensitivity != NULL && sensitivity->value > 0.01f)
+				mouse_x *= 15.0f / sensitivity->value;
+			mouse_x *= H9RallySteer_MouseScale();
+			if (mouse_x > 550.0f)
+				mouse_x = 550.0f;
+			else if (mouse_x < -550.0f)
+				mouse_x = -550.0f;
+		}
 
 		// add mouse X/Y movement to cmd: client.dll's IN_MouseMove (0x100277c0) always yaws by the mouse
 		// (it has no +strafe or +mlook commands and never reads m_side) and pitches unless in_strafe is

@@ -21,6 +21,9 @@
 #include "Exports.h"
 
 int CL_IsThirdPerson();
+#include "h9_rallycar.h" // H9RallyCam_Apply: rally mode's two cameras
+#include "h9_rallyhud.h" // H9RallyHud_NoteView: the camera for the countdown's numerals
+#include "h9_carmenu.h" // H9CarMenu_ApplyCamera: the rally menus' camera
 void CL_CameraOffset(float* ofs);
 
 void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams);
@@ -758,6 +761,10 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 	Vector camAngles, camForward, camRight, camUp;
 	cl_entity_t* pwater;
 
+	// H9 rally mode: the player is a car; H9RallyCam_Apply (below) sets the view, so TS's own third-person camera and the local
+	// model's tweaks stay out of it
+	const bool rallyCam = H9RallyCam_LocalIsCar();
+
 	V_DriftPitch(pparams);
 
 	// TS aim-recoil: ease the per-shot kick into the actual aim (persistent). Must run before the aim is
@@ -806,7 +813,7 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 			// Hard-reset ALSO fires in FIRST person (the original's FUN_1004c250 gate is spectator
 			// OR !thirdperson) — and it does NOT touch the smoothed alpha (DAT_10097214 persists).
 			if (0 != gEngfuncs.IsSpectateOnly() || 0 != g_iUser1 || gHUD.m_Health.m_iHealth <= 0 ||
-				0 == CL_IsThirdPerson())
+				0 == CL_IsThirdPerson() || rallyCam)
 			{
 				lp->curstate.rendermode = kRenderNormal; // 0 — opaque hard-reset
 				lp->curstate.renderamt = 255;
@@ -953,7 +960,7 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 	// player's origin (the origin itself when that point is in solid) to it pulls the eye in to 4 units
 	// off the wall it hits, 1 higher. The local model's height then eases toward its origin at 16 a
 	// second.
-	if (0 != CL_IsThirdPerson())
+	if (0 != CL_IsThirdPerson() && !rallyCam)
 	{
 		static float s_flCamUp = 0, s_flCamBack = 0, s_flModelZ = 0;
 		Vector camOfs;
@@ -1186,18 +1193,23 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 		}
 	}
 
+	// H9 rally mode: the chase or the driver's camera in place of everything above (origin, angles, no weapon)
+	H9RallyCam_Apply(pparams, view); // (does nothing, and gives the weapon's model back, when the player is not a car)
+	H9CarMenu_ApplyCamera(pparams);  // H9 rally menus: while one is up the view is the map's info_vgui_start (nothing otherwise, or without that entity)
+	H9RallyHud_NoteView(pparams);    // H9 rally HUD: where the camera is now, for the countdown's numerals (h9_rallyhud.cpp)
+
 	// Store off v_angles before munging for third person
 	v_angles = pparams->viewangles;
 	v_client_aimangles = pparams->cl_viewangles;
 	v_lastAngles = pparams->viewangles;
 	//	v_cl_angles = pparams->cl_viewangles;	// keep old user mouse angles !
-	if (0 != CL_IsThirdPerson())
+	if (0 != CL_IsThirdPerson() && !rallyCam)
 	{
 		VectorCopy(camAngles, pparams->viewangles);
 	}
 
 	// client.dll slams the local model's pitch from the camera's only in third person (0x10068a2c)
-	if (0 != CL_IsThirdPerson())
+	if (0 != CL_IsThirdPerson() && !rallyCam)
 	{
 		float pitch = pparams->viewangles[0];
 
@@ -2091,11 +2103,26 @@ void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams)
 	else if (0 != pparams->spectator || 0 != g_iUser1) // g_iUser true if in spectator mode
 	{
 		V_CalcSpectatorRefdef(pparams);
+		// H9 rally menus: a player who has just joined is a spectator, and the normal refdef (where the menu's camera is set) is not run
+		if (H9CarMenu_ApplyCamera(pparams))
+		{
+			VectorCopy(pparams->viewangles, v_angles);
+			VectorCopy(pparams->vieworg, v_origin);
+		}
 	}
 	else if (0 == pparams->paused)
 	{
 		g_tspLocalSimVel = pparams->simvel; // client.dll keeps it in its normal refdef (0x1006789f)
-		V_CalcNormalRefdef(pparams);
+		// H9 rally mode, the interior's rear-view mirror: the engine's second pass (nextView 1) is the mirror, turned round and in its own
+		// rectangle, with the first pass's origin as it was left (HL Rally's view.cpp:1257-1330)
+		if (pparams->nextView == 1 && H9RallyCam_MirrorPass(pparams))
+		{
+		}
+		else
+		{
+			V_CalcNormalRefdef(pparams);
+			H9RallyCam_MirrorBegin(pparams);
+		}
 	}
 
 	// The screen fade, set every frame (client.dll 0x10069bd0..0x10069e1e): the slow motion tint while

@@ -28,6 +28,8 @@
 
 #include "cbase.h"
 #include "player.h"
+#include "race.h"
+#include "h9_rally_srv.h"
 #include "trains.h"
 #include "nodes.h"
 #include "weapons.h"
@@ -467,6 +469,9 @@ void CBasePlayer::TraceAttack(entvars_t* pevAttacker, float flDamage, Vector vec
 
 bool CBasePlayer::TakeDamage(entvars_t* pevInflictor, entvars_t* pevAttacker, float flDamage, int bitsDamageType)
 {
+	// H9: nobody is hurt in a race map (race.cpp); a rally car never is (HL Rally's CBasePlayer::TakeDamage returns 0 first thing)
+	if (RaceActive() || H9RallyIsCar(edict()))
+		return false;
 	// have suit diagnose the problem - ie: report damage type
 	int bitsDamage = bitsDamageType;
 	bool ffound = true;
@@ -1522,7 +1527,8 @@ void CBasePlayer::StartObserver(Vector vecPosition, Vector vecViewAngle)
 	// @0x8999d..0x899ba: the last mode StopObserver saved, or chase (OBS_CHASE_FREE) when there is
 	// none yet, so a joiner starts out chasing a player (Observer_SetMode falls back to roaming
 	// when there is nobody to chase).
-	Observer_SetMode(m_iObserverLastMode != 0 ? m_iObserverLastMode : OBS_CHASE_FREE);
+	// H9 rally mode: HL Rally's observer is always the freely-looking chase (rally_spectate.cpp:83)
+	Observer_SetMode(RaceRallyMode() ? OBS_CHASE_FREE : (m_iObserverLastMode != 0 ? m_iObserverLastMode : OBS_CHASE_FREE));
 
 	// @0x899c2: everyone is told he spectates (Spectator {idx, 1}). Sent here, so a teamplay joiner's
 	// team change, which calls StartObserver alone, sends one too (two for him, as TS 3.0).
@@ -1756,6 +1762,11 @@ void CBasePlayer::Jump()
 	Vector vecWallCheckDir; // direction we're tracing a line to find a wall when walljumping
 	Vector vecAdjustedVelocity;
 	Vector vecSpot;
+
+	// H9 rally mode: the jump button is the car's handbrake (pm_shared/h9_rally.cpp); no jump, no stunt (TS's double-tap wheel
+	// would set stunt bits that stop the throttle)
+	if (H9RallyIsCar(edict()))
+		return;
 	TraceResult tr;
 
 	if (FBitSet(pev->flags, FL_WATERJUMP))
@@ -2023,7 +2034,8 @@ void CBasePlayer::PreThink()
 	// dive/prone hull + low view + dive/wall launch velocity — which the DLL alone could never
 	// make stick (the predictor recomputed the hull every frame). +alt1 = dive / bullet-time,
 	// double-jump into a wall = wall-climb / wall-jump.
-	m_TSStunt.Play(); // @0x80b32
+	if (!H9RallyIsCar(edict())) // H9 rally mode: a car does no stunts (HL Rally has none)
+		m_TSStunt.Play(); // @0x80b32
 
 	m_TSAnim.UpdateTimers(this); // TS: decay the gait aim/leg/grenade hold timers (@0x80b42)
 
@@ -2942,6 +2954,8 @@ void CBasePlayer::UpdatePlayerSound()
 
 void CBasePlayer::PostThink()
 {
+	H9RallyServerThink(this); // H9 rally mode: the player as a car (h9_rally_srv.cpp); nothing while h9_rally is 0
+
 	if (g_fGameOver)
 		goto pt_end; // intermission or finale
 

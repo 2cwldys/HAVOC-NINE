@@ -24,6 +24,7 @@
 #include "UserMessages.h"
 #include "gamerules.h"
 #include "ts_gamerules.h"
+#include "race.h" // RaceRallyMode
 
 // @0x89b0c Observer_FindNextPlayer — the next (or, reversed, the previous) client to watch: alive, in
 // play (iuser1 0) and drawn. In the objective modes (2/3) and in last man standing a spectator whose
@@ -102,6 +103,24 @@ void CBasePlayer::Observer_HandleButtons()
 {
 	if (m_flNextObserverInput > gpGlobals->time)
 		return;
+
+	// H9 rally mode, HL Rally's observer (dlls/rally_spectate.cpp:229-262): no mode change (its jump is commented out: "No choice for
+	// HLRally"; always the freely-looking chase, the TV camera on the client), IN_ATTACK (a fresh press) to the next player and IN_ATTACK2 to
+	// the previous, 0.2 s apart. The forward and back keys of TS's own observer are not used here.
+	if (RaceRallyMode())
+	{
+		if ((m_afButtonPressed & IN_ATTACK) != 0 && pev->iuser1 != OBS_ROAMING)
+		{
+			Observer_FindNextPlayer(false);
+			m_flNextObserverInput = gpGlobals->time + 0.2;
+		}
+		if ((m_afButtonPressed & IN_ATTACK2) != 0 && pev->iuser1 != OBS_ROAMING)
+		{
+			Observer_FindNextPlayer(true);
+			m_flNextObserverInput = gpGlobals->time + 0.2;
+		}
+		return;
+	}
 
 	if ((pev->button & IN_JUMP) != 0)
 	{

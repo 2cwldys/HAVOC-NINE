@@ -16,6 +16,8 @@
 #include "Exports.h"
 #include "ts_motionblur.h" // TS_UpdateMotionBlur (the TSMBlur ghost spawner)
 #include "h9_chatbubble.h" // H9ChatBubble_HideEntity, H9ChatBubble_NoteEntity (the typing sprite over a player writing)
+#include "h9_racefx.h" // H9RaceFx_NoteEntity (a race car this frame, for its marks, spray and lights)
+#include "h9_rallycar.h" // H9RallyCar_AddEntity (rally mode: a player that is a car, its tilt and wheels)
 
 #include "particleman.h"
 extern IParticleMan* g_pParticleMan;
@@ -41,6 +43,8 @@ int DLLEXPORT HUD_AddEntity(int type, struct cl_entity_s* ent, const char* model
 	if (H9ChatBubble_HideEntity(modelname))
 		return 0;
 	H9ChatBubble_NoteEntity(ent, modelname);
+	H9RaceFx_NoteEntity(ent, modelname);
+	H9RallyCar_AddEntity(type, ent); // H9 rally mode: a player that is a car (its box says so)
 
 	switch (type)
 	{

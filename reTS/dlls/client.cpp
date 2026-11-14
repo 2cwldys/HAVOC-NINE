@@ -42,6 +42,10 @@
 #include "teamplay_gamerules.h" // R1: jointeam dispatches to the TS-patched ChangePlayerTeam // TSGameRules (the `motd` re-send passthrough)
 #include "ts_utils.h"     // TSPlayerDisconnect (ClientDisconnected)
 #include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
+#include "h9_rally_car.h" // H9RallyCarPrecache
+#include "h9_rally_snd.h" // H9RallySoundStop
+#include "h9_rally_srv.h" // H9RallyClientData, H9RallyIsCar
+#include "race.h" // RaceRallyAskPut
 #include "game.h"
 #include "customentity.h"
 #include "weapons.h"
@@ -122,6 +126,8 @@ GLOBALS ASSUMED SET:  g_fGameOver
 */
 void ClientDisconnect(edict_t* pEntity)
 {
+	H9RallyShopLeave(ENTINDEX(pEntity)); // H9 rally: his money, car and parts go with him
+
 	// TS: drive the ts_playeramount relays (per-event counter -> disconnecttarget on == clients).
 	CBaseEntity* pRelay = nullptr;
 	while ((pRelay = UTIL_FindEntityByClassname(pRelay, "ts_playeramount")) != nullptr)
@@ -138,6 +144,20 @@ void ClientDisconnect(edict_t* pEntity)
 	WRITE_BYTE(ENTINDEX(pEntity));
 	WRITE_STRING(text);
 	MESSAGE_END();
+
+	// H9: a driver who quits lets go of his car first (h9_car), so that it is not left with a ghost at the wheel
+	// and he is not put back beside it as a solid body
+	{
+		CBasePlayer* pLeaver = static_cast<CBasePlayer*>(CBaseEntity::Instance(pEntity));
+		if (pLeaver && pLeaver->m_pTank != NULL)
+		{
+			pLeaver->m_pTank->Use(pLeaver, pLeaver, USE_OFF, 0);
+			pLeaver->m_pTank = NULL;
+		}
+	}
+
+	// H9: a rally car's engine and skid loops stop with him
+	H9RallySoundStop(static_cast<CBasePlayer*>(CBaseEntity::Instance(pEntity)));
 
 	// since the edict doesn't get deleted, fix it so it doesn't interfere.
 	pEntity->v.takedamage = DAMAGE_NO; // don't attract autoaim
@@ -194,6 +214,10 @@ void ClientKill(edict_t* pEntity)
 	if (pev->iuser1 != 0)
 		return;
 
+	// H9 rally mode: HL Rally's `kill` puts the car back on the road (its client.cpp ClientKill), it does not kill
+	if (H9RallyIsCar(pEntity) && RaceRallyAskPut(ENTINDEX(pEntity)))
+		return;
+
 	if (pl->m_fNextSuicideTime > 0.001f)
 		return; // already pending
 
@@ -228,6 +252,9 @@ void ClientPutInServer(edict_t* pEntity)
 	int cash = 0;
 	sscanf(initial_cash.string, "%i", &cash);
 	pPlayer->GiveCash(cash);
+
+	// H9 rally: his own money ($600 every map), no car chosen, no parts (never TS's m_iCash)
+	H9RallyShopJoin(ENTINDEX(pEntity));
 
 	// @0x9cf44: a plain Spawn — the joiner is a live player until his first UpdateClientData, where
 	// CTSGameRules::InitHUD sends him to spectate (StartObserver @0x694c8). No spectate flag here,
@@ -654,7 +681,11 @@ void ClientCommand(edict_t* pEntity)
 		// sentinel — LMS lockout / round logic; NEVER set in plain DM). Firing during a normal
 		// countdown is SILENT (neither branch). The wait line is 1 Hz-throttled off the same
 		// +0x754 clock as the countdown.
-		if (player->pev->iuser1 != 0) // @0x9da2a: a player in any spectator mode
+		if (H9RallyRespawnRefused(player))
+		{
+			// H9 rally race map: nobody plays before he has chosen a car (the main menu opens again), nor in a race he sits out
+		}
+		else if (player->pev->iuser1 != 0) // @0x9da2a: a player in any spectator mode
 		{
 			if (player->m_flTSRespawnTime < 0)
 			{
@@ -671,6 +702,9 @@ void ClientCommand(edict_t* pEntity)
 				player->pev->impulse = 0;
 			}
 		}
+	}
+	else if (H9RallyCommand(player, pcmd)) // H9 rally race map: changecar <class>, spectate, selectcar, buy <part> (pm_shared/h9_rally_shop.h)
+	{
 	}
 	else if (FStrEq(pcmd, "motd")) // TS: re-send the MOTD to this client
 	{
@@ -1019,6 +1053,7 @@ void StartFrame()
 
 void ClientPrecache()
 {
+	H9RallyCarPrecache(); // H9 rally mode: the car's model for the clients (h9_rally_car.cpp); the car model and the rally sounds, whatever the map
 	// setup precaches always needed
 	PRECACHE_SOUND("player/sprayer.wav"); // spray paint sound for PreAlpha
 
@@ -1533,6 +1568,16 @@ int AddToFullPack(struct entity_state_s* state, int e, edict_t* ent, edict_t* ho
 		//
 		state->usehull = (ent->v.flags & FL_DUCKING) != 0 ? 1 : 0;
 		state->health = ent->v.health;
+
+		// H9 rally mode: the other clients draw this car with its class's brand model (cl_dll/h9_rallycar.cpp), so the class rides in the player's
+		// playerclass (4 bits in delta.lst's entity_state_player_t; classes are 1..10). Not to the car's own client: that one reads its physinfo,
+		// and a playerclass of its own would reach g_iPlayerClass (the stock class menus).
+		if (ent != host)
+		{
+			const int rallyClass = H9RallyCurrentClass(ent);
+			if (rallyClass > 0 && rallyClass <= 15)
+				state->playerclass = rallyClass;
+		}
 	}
 
 	CBaseEntity* pEntity = static_cast<CBaseEntity*>(GET_PRIVATE(ent));
@@ -1994,6 +2039,8 @@ void UpdateClientData(const edict_t* ent, int sendweapons, struct clientdata_s* 
 	// The stunt flags, sent whether or not the client predicts weapons (0xa0406). TS_pm_shared reads
 	// pmove->iuser4 for every stunt (prone, slide, dive, wall jump, stop, stand up).
 	cd->iuser4 = pev->iuser4;
+
+	H9RallyClientData(ent, cd); // H9 rally mode: a car's tilt rides vuser3.x and vuser4 (a car holds no weapon, whose channel they are)
 
 
 

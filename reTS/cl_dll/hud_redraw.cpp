@@ -19,6 +19,7 @@
 #include "cl_util.h"
 
 #include "vgui_TeamFortressViewport.h"
+#include "h9_rallycar.h" // H9RallyCam_LocalIsCar
 
 #define MAX_LOGO_FRAMES 56
 
@@ -176,6 +177,11 @@ bool CHud::Redraw(float flTime, bool intermission)
 	// draw all registered HUD elements. client.dll's Redraw (0x10021aa0) has no HUD-off gate: nohud is
 	// tested by the elements it hides (TSHud_NoHud, ts_hud.h).
 	{
+		const bool rallyCar = H9RallyCam_LocalIsCar();
+		auto IsRallyHidden = [this](const CHudBase* p) {
+			return p == &m_Ammo || p == &m_Health || p == &m_Geiger || p == &m_Battery || p == &m_Flash || p == &m_AmmoSecondary ||
+				   p == &m_StatusBar || p == &m_TSStatus || p == &m_TSAmmo || p == &m_TSWeaponBar || p == &m_TSPowerUp || p == &m_TSReticle;
+		};
 		HUDLIST* pList = m_pHudList;
 
 		while (pList)
@@ -183,7 +189,12 @@ bool CHud::Redraw(float flTime, bool intermission)
 			if (!intermission)
 			{
 				if ((pList->p->m_iFlags & HUD_ACTIVE) != 0 && (m_iHideHUDDisplay & HIDEHUD_ALL) == 0)
-					pList->p->Draw(flTime);
+				{
+					// H9 rally mode: the player is a car; TS's gun, health and stamina parts mean nothing in it (the race HUD, the
+					// chat and the messages stay)
+					if (!(rallyCar && IsRallyHidden(pList->p)))
+						pList->p->Draw(flTime);
+				}
 			}
 			else
 			{ // it's an intermission,  so only draw hud elements that are set to draw during intermissions
