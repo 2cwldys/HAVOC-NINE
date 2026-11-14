@@ -183,7 +183,7 @@ rally mode as car class 1 (rally), 2 (sprint) or 3 (heavy); 0 is TS 3.0's own mo
 (the class, 0 or absent off), which reaches the client in the client data's physinfo string, the way `mj` does. In the mode
 `PM_PlayerMove` calls `H9RallyMove` (`pm_shared/h9_rally.cpp`) instead of the walking code, on the server and in the client's
 prediction: the point hull, the heading the command's view yaw, the handling in `pm_shared/h9_rally.h` (its tuning table is
-the top of that file). It keeps no state of its own: no static and no iuser/fuser/vuser field, only the origin, velocity and
+the top of that file; the numbers are HL Rally's own, measured from its rally.cfg, carinfo.txt and source). It keeps no state of its own: no static and no iuser/fuser/vuser field, only the origin, velocity and
 view angles pmove already carries. The client turns its view yaw with the side keys (`cl_dll/input.cpp`). The method follows
 HL Rally's; the code is ours. Weapons are removed while the mode is on.
 

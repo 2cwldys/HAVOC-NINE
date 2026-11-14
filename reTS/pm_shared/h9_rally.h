@@ -3,12 +3,28 @@
 *  surface-by-texture-name rules. This file knows nothing of the engine: dlls/tests/rally_test.cpp compiles it
 *  alone and drives it. The part that moves the player through the world is pm_shared/h9_rally.cpp.
 *
-*  The method follows HL Rally's (a player who drives is moved by pmove itself, so the server runs it and the
-*  client predicts it, with no input lag; the car's heading is the player's view yaw; two speeds, along the nose
-*  and across it, with the sideways one eaten by a friction that depends on the surface, on the pedals and on how
-*  far the car already slides; a handbrake that lets that friction go; the texture under the car picks the
-*  surface). The code, the structure, the names and every comment are ours, written from reading how it behaves,
-*  not copied from it. HL Rally's source carries no licence, so nothing of it is in this file.
+*  The method follows HL Rally's, and so do its numbers: they were measured from how HL Rally behaves with the
+*  server's own settings (rally.cfg: sv_friction 0.25, sv_accelerate 0.085, sv_gravity 520, sv_airaccelerate 0.1,
+*  sv_stepsize 4, sv_maxspeed 3000; config.cfg: cl_forwardspeed 10000; carinfo.txt: Acceleration/Handling/TopSpeed in
+*  %). Behaviour and constants are facts about that game; the code, the structure, the names and every comment are
+*  ours, and none of HL Rally's source (which carries no licence) is copied.
+*
+*  The handling, as differential equations (v is the velocity in the ground's plane, F the nose, R the right):
+*    drag        dv = -0.25 v                        (sv_friction, on the ground only; none in the air)
+*    sideways    the part of v along R decays at LAT per second, LAT = min(75, 75 * 30 / |v| * mods), where
+*                mods = brake pedal 0.3, handbrake 0.05, throttle 0.85, throttle with a steering key 0.8 * align,
+*                align^3, the car's handling factor |Handling - 40| / 50, the surface's grip; align = cos of the
+*                slip angle, at least 0.05. The speed that took is given back along the nose.
+*    slide       dv = -0.25 (1 - align) v, and the surface's own drag (dirt .04, grass .075, sand .05, snow .05,
+*                road/street/rock -0.10), per second of the whole velocity
+*    brakes      with the back key or the handbrake and no reverse: |v| falls by 150 * align a second
+*    engine      the wish speed is TopSpeed * 15 (1200 for 80); the throttle adds 0.085 * that a second (102 for
+*                80) while the speed along the nose is below it; no engine at all above the top gear's range
+*    reverse     the back key below 40 u/s drives backwards with the same pull; at 40 it is a brake again, so reverse
+*                tops out near 40 (and HL Rally's pull would stop at 100 in any case)
+*    steering    the view yaw turns 400 degrees a second with the steering keys, at any speed (cl_yawspeed 500
+*                capped at 400): so the heading is the command's view yaw
+*  Top speed is therefore where the engine's pull meets the drag: pull / (0.25 + the surface's drag).
 *
 *  Units are Half-Life's (units, units a second). Left is positive: a heading's yaw grows to the left, and the
 *  sideways speed `side` is positive to the left of the nose.
@@ -16,6 +32,8 @@
 *  Everything the movement needs from one frame to the next is the player's own velocity, origin and view yaw,
 *  which the engine already carries and predicts. Nothing is kept in a static or in an iuser/fuser/vuser field.
 *  The only thing the server tells the client is the physinfo key "rally" (a car class number, 0 off).
+*
+*  Where this file deliberately does NOT do as HL Rally does is marked "ours" below and listed in the commit.
 ***/
 #pragma once
 
@@ -23,108 +41,118 @@
 #include <string.h>
 
 // ------------------------------------------------------------------------------------------------------------
-//  THE TUNING TABLE. Every number that changes how the car drives is in this block.
+//  THE TUNING TABLE. Every number that changes how the car drives is in this block. "HLR" is a value HL Rally
+//  has (the file it comes from is named); "ours" is ours, with the reason.
 // ------------------------------------------------------------------------------------------------------------
 
-// What every car shares.
-#define H9R_TRACTION 1100.0f    // u/s^2 of push (any direction) the tyres give at grip 1.0 (the traction circle's radius)
-#define H9R_GRIP_AT_TOP 0.75f   // the share of the tyres' hold left at top speed: grip eases with speed
-#define H9R_TAPER 0.35f         // the engine's pull falls off linearly over the last this-much of the top speed
-#define H9R_COAST 50.0f         // u/s^2, the slowing with the throttle up ...
-#define H9R_COAST_LIN 0.12f     // ... plus this much per second of the speed (engine braking, air)
-#define H9R_BRAKE_TRACTION 0.95f // the brakes and the engine can use this much of the traction circle
-#define H9R_REVERSE_PULL 0.55f  // reverse's pull, as a share of the engine's
-#define H9R_REVERSE_ENTER 30.0f // S held at less than this speed forward stops braking and starts reversing
-#define H9R_HAND_LAT 0.10f      // the sideways hold that is left with the handbrake on (HL Rally: 0.05)
-#define H9R_HAND_BRAKE 260.0f   // u/s^2 the handbrake slows the car along its path, times the surface's grip
-#define H9R_BRAKE_LAT 0.70f     // the sideways hold with the brake pedal down (the weight is forward, tyres lock)
-#define H9R_SLIDE_LAT 0.70f     // the sideways hold once the car slides all the way (slip angle past ~50 degrees)
-#define H9R_LAT_FLOOR 0.20f     // power never takes more than this share of the sideways hold away
-#define H9R_STEER_MIN 0.35f     // the steering a standing car has, as a share of the full rate
-#define H9R_STEER_FULL_SPEED 140.0f // speed at which the steering is full
-#define H9R_STEER_AT_TOP 0.45f  // the steering left at top speed, as a share (a driver gives less lock)
-#define H9R_STEER_HAND 1.7f     // the handbrake lets the tail round: steering is this much quicker, and does not ease
-#define H9R_STEER_SLIDE 0.65f   // a sliding car's steering loses up to this share ...
-#define H9R_STEER_SLIDE_FROM 25.0f // ... between this slip angle (degrees) and 45 degrees more
-#define H9R_STEER_ICE 0.65f     // front wheels on a surface with no grip turn the car less (scale on mu below 1)
+// Ground and engine
+#define H9R_FRICTION 0.25f       // HLR rally.cfg sv_friction: 1/s of the whole velocity, on the ground
+#define H9R_ACCELERATE 0.085f    // HLR rally.cfg sv_accelerate: the pull is this * the wish speed, per second
+#define H9R_WISH_PER_STAT 15.0f  // HLR pm_shared.c: the wish speed (maxspeed) is the TopSpeed stat * 15
+#define H9R_GEAR_CAP 738.0f      // HLR: past this (gear 6 at 200 rpm) the client's gearbox sends no throttle: the pull stops
+#define H9R_LAT_MAX 75.0f        // HLR rally.c: sv_friction * 300, 1/s
+#define H9R_LAT_SPEED 30.0f      // HLR rally.c: the sideways rate is LAT_MAX * 30 / speed, so it eases as speed grows
+#define H9R_LAT_BRAKE 0.3f       // HLR rally.c: the sideways hold with the back key down
+#define H9R_LAT_HAND 0.05f       // HLR rally.c: with the handbrake (the jump key)
+#define H9R_LAT_THROTTLE 0.85f   // HLR rally.c: with the throttle down
+#define H9R_LAT_THROTTLE_STEER 0.8f // HLR rally.c: with the throttle and a steering key, times the alignment
+#define H9R_ALIGN_MIN 0.05f      // HLR rally.c: the alignment is never less than this
+#define H9R_HANDLING_REF 40.0f   // HLR rally.c: the handling factor is |Handling - 40| / 50
+#define H9R_HANDLING_DIV 50.0f
+#define H9R_SLIDE_DRAG 0.25f     // HLR rally.c: a slide costs this * (1 - align) of the velocity a second
+#define H9R_BRAKE_DECEL 150.0f   // HLR rally.c: u/s^2 * align of extra slowing with the back key or the handbrake
+#define H9R_REVERSE_ENTER 40.0f  // HLR input.cpp: the back key means reverse below this speed, a brake above
+#define H9R_REVERSE_PULL_LIMIT 100.0f // HLR rally.c PM_Accelerate: no pull backwards once the speed is past this
+#define H9R_STEER_RATE 400.0f    // HLR input.cpp: cl_yawspeed 500, capped at 400; degrees a second, whatever the speed
 
-// Air, landing, water, walls, slopes.
-#define H9R_AIR_DRAG 0.03f      // 1/s lost in the air
-#define H9R_AIR_STEER 0.30f     // the share of the steering that works in the air
-#define H9R_STICK_NORMAL 130.0f // u/s a car may lift off the ground's normal before it is airborne (a crest throws it)
-#define H9R_STEP_UP 8.0f        // the highest kerb the car drives up without stopping (the body check is above it)
-#define H9R_LAND_LOSS 0.00020f  // the speed lost on landing: this much per u/s of the impact above H9R_LAND_SOFT, as a share
-#define H9R_LAND_SOFT 220.0f
-#define H9R_LAND_MAX 0.30f      // at most this share of the speed
-#define H9R_WALL_BOUNCE 0.18f   // how much of the speed into a wall comes back out
-#define H9R_WALL_SCRAPE 0.55f   // the share of the along-wall speed kept when hit square (a glancing hit keeps nearly all)
-#define H9R_WATER_WHEELS_DRAG 1.1f // 1/s extra drag, wheels in water
-#define H9R_WATER_DEEP_DRAG 2.6f   // 1/s drag with the body in water
-#define H9R_WATER_DEEP_GRAV 0.25f  // gravity's share on a car floating (it sinks slowly)
+// The world
+#define H9R_GRAVITY 520.0f       // HLR rally.cfg sv_gravity: the car falls at this whatever sv_gravity is
+#define H9R_STEP_UP 4.0f         // HLR rally.cfg sv_stepsize: the highest kerb driven over
+#define H9R_LIFT_VZ 180.0f       // HLR pm_shared.c: going up faster than this the car is off the ground
+#define H9R_WALL_BOUNCE 0.2f     // HLR rally.c PM_Crash: the speed into a wall comes back at 0.2 (v - 1.2 (v.n) n)
+// and the crash keeps (2 + cos(angle the wall turned the car)) / 3 of the speed: 1/3 head on, all of it grazing
+#define H9R_AIR_DRAG 0.0f        // HLR: no friction off the ground
+#define H9R_AIR_PULL_SPEED 0.0f  // HLR: forwardmove is 0 in the air, so sv_airaccelerate 0.1 gives nothing
+
+// Ours: things HL Rally has no number for.
+#define H9R_WATER_WHEELS_DRAG 1.1f // ours: 1/s extra drag, wheels in water (HL Rally has no water handling)
+#define H9R_WATER_WHEELS_GRIP 0.5f // ours: the sideways hold with the wheels in water
+#define H9R_WATER_DEEP_DRAG 2.6f   // ours: 1/s drag with the body in water
+#define H9R_WATER_DEEP_GRAV 0.25f  // ours: gravity's share on a car floating
+#define H9R_WATER_THRUST 40.0f     // ours: u/s^2 the engine gives a floating car
 
 // The body, for the ground's tilt and for what a wall can touch. HL Rally's car is 45 long, 18 wide, 16 high.
 #define H9R_LENGTH 45.0f
 #define H9R_WIDTH 18.0f
 #define H9R_HEIGHT 16.0f
-#define H9R_VIEW_HEIGHT 14.0f   // the eye above the wheels' ground, until the chase camera of the car model takes over
+#define H9R_VIEW_HEIGHT 14.0f   // ours: the eye above the wheels' ground, until the chase camera of the car model takes over
 
-// The cars. The class number is the physinfo value ("rally" "1" is the first), top speeds in HL Rally's range.
+// The cars: HL Rally's stat triples (carinfo.txt, in %). Acceleration is read by nothing in HL Rally's movement and
+// by nothing here. The class number is the physinfo value ("rally" "1" is the first).
 struct H9RallyCar
 {
 	const char* name;
-	float top;       // u/s on tarmac, the most the engine takes the car to
-	float engine;    // u/s^2, the pull from rest
-	float brake;     // u/s^2 the brakes slow the car at the tyres' limit
-	float reverseTop;
-	float steerRate; // degrees a second at full steering
-	float grip;      // scale on every surface's hold
+	float accelStat;    // carinfo.txt Acceleration: unused by HL Rally's movement, kept for the record
+	float handlingStat; // carinfo.txt Handling: the sideways hold is x |Handling - 40| / 50
+	float topStat;      // carinfo.txt TopSpeed: the wish speed is x 15
 };
 #define H9R_NUM_CARS 3
 static const H9RallyCar g_h9RallyCars[H9R_NUM_CARS] = {
-	{"rally", 1150.0f, 320.0f, 1000.0f, 330.0f, 105.0f, 1.00f},
-	{"sprint", 1350.0f, 350.0f, 1000.0f, 340.0f, 115.0f, 0.94f}, // fastest, a nervous one
-	{"heavy", 1050.0f, 290.0f, 1050.0f, 300.0f, 95.0f, 1.08f},   // slowest, holds best
+	{"xsara", 80.0f, 80.0f, 80.0f},   // carinfo.txt Xsara, 80/80/80
+	{"accent", 85.0f, 75.0f, 80.0f},  // carinfo.txt Accent, 85/75/80: looser
+	{"locust", 80.0f, 90.0f, 70.0f},  // carinfo.txt Locust, 80/90/70: holds best, slowest
 };
 
-// The surfaces. mu: the tyres' hold (1 tarmac). roll: extra slowing, 1/s of the speed. top: the share of the car's top
-// speed it reaches here. scrub: 1/s of the speed a slide costs, per unit of sin(slip angle).
+static inline float H9RallyWish(const H9RallyCar& c)
+{
+	return c.topStat * H9R_WISH_PER_STAT;
+}
+static inline float H9RallyHandling(const H9RallyCar& c)
+{
+	return fabsf(c.handlingStat - H9R_HANDLING_REF) / H9R_HANDLING_DIV;
+}
+
+// The surfaces. lat: the sideways hold's scale. drag: extra 1/s of the velocity (negative speeds the car up).
+// The first four rows are HL Rally's (rally.c, by substring of the texture name); the others are ours, placed between.
 enum H9RallySurfaceId
 {
-	H9RS_TARMAC = 0,
-	H9RS_CONCRETE,
-	H9RS_METAL,
-	H9RS_PACKED,
-	H9RS_GRAVEL,
-	H9RS_DIRT,
-	H9RS_GRASS,
-	H9RS_SNOW,
-	H9RS_ICE,
-	H9RS_SAND,
+	H9RS_NEUTRAL = 0, // HLR: any other name: no change
+	H9RS_ROAD,        // HLR: "road", "street", "rock": drag -0.10
+	H9RS_DIRT,        // HLR: "dirt", "mud": lat 0.5, drag +0.04
+	H9RS_GRASS,       // HLR: "gras": lat 0.35, drag +0.075
+	H9RS_SAND,        // HLR: "sand", "desert": lat 0.4, drag +0.05
+	H9RS_SNOW,        // HLR: "snow": lat 0.315, drag +0.05
+	H9RS_CONCRETE,    // ours
+	H9RS_METAL,       // ours
+	H9RS_PACKED,      // ours
+	H9RS_GRAVEL,      // ours
+	H9RS_ICE,         // ours
 	H9RS_COUNT
 };
 struct H9RallySurface
 {
 	const char* name;
-	float mu, roll, top, scrub;
+	float lat, drag;
 };
 static const H9RallySurface g_h9RallySurfaces[H9RS_COUNT] = {
-	{"tarmac", 1.00f, 0.00f, 1.00f, 0.55f},
-	{"concrete", 0.95f, 0.00f, 1.00f, 0.55f},
-	{"metal plate", 0.70f, 0.00f, 1.00f, 0.50f}, // slick: wet steel
-	{"packed dirt", 0.62f, 0.05f, 0.96f, 0.65f},
-	{"gravel", 0.50f, 0.12f, 0.90f, 0.70f},
-	{"dirt", 0.50f, 0.17f, 0.90f, 0.70f},  // HL Rally: lateral friction x0.5
-	{"grass", 0.35f, 0.30f, 0.85f, 0.85f}, // HL Rally: x0.35 and the most drag after sand
-	{"snow", 0.32f, 0.18f, 0.90f, 0.70f},  // HL Rally: x0.315
-	{"ice", 0.12f, 0.02f, 1.00f, 0.25f},   // not in HL Rally: nearly nothing to hold on to
-	{"sand", 0.40f, 0.65f, 0.62f, 0.95f},  // HL Rally: x0.4; soft, so slow and it digs in
+	{"neutral", 1.00f, 0.00f},
+	{"road", 1.00f, -0.10f},
+	{"dirt", 0.50f, 0.04f},
+	{"grass", 0.35f, 0.075f},
+	{"sand", 0.40f, 0.05f},
+	{"snow", 0.315f, 0.05f},
+	{"concrete", 1.00f, -0.05f},  // ours: a hard road, a little less rolling-free than "road"
+	{"metal plate", 0.70f, 0.00f}, // ours: slick, between neutral and dirt
+	{"packed dirt", 0.70f, 0.02f}, // ours: between neutral and dirt
+	{"gravel", 0.55f, 0.035f},     // ours: just looser than dirt's 0.5 on grip, a little less drag
+	{"ice", 0.08f, 0.00f},         // ours: nearly nothing to hold on to (snow is 0.315), and no extra drag
 };
 
 // ------------------------------------------------------------------------------------------------------------
-//  The surface a texture name stands for. HL Rally's maps use these (substrings, any case): "dirt" and "mud",
-//  "gras", "sand" and "desert", "snow"; "road", "street" and "rock" are hard ground. The winter set's "wntr_*"
-//  is snow except "wntr_cliff" (rock). New: "ice", "gravel", "pack", "conc", "metal"/"plate"; a name that matches
-//  nothing is tarmac. The marks a name may begin with are passed over first ("{", "!", "~", "+0", "-0").
+//  The surface a texture name stands for. HL Rally's rules, substrings in any case, tried in its order: "dirt" or
+//  "mud", "gras", "sand" or "desert", "snow"; then, on top of whichever matched, "road", "street" or "rock" take 0.10
+//  off the drag. Ours, tried first: "ice" (as a word), "metal"/"plate"/"steel", "pack", "grav"/"pebb", "conc". A name
+//  that matches nothing is neutral. The marks a name may begin with are passed over first ("{", "!", "~", "+0", "-0").
 // ------------------------------------------------------------------------------------------------------------
 static inline bool H9RallyHas(const char* lower, const char* needle)
 {
@@ -145,12 +173,15 @@ static inline bool H9RallyWord(const char* lower, const char* word)
 	return false;
 }
 
-static inline int H9RallySurfaceByName(const char* name)
+// Returns the surface; `extraDrag` (may be null) gets the drag HL Rally's road/street/rock rule adds on top of it.
+static inline int H9RallySurfaceByName(const char* name, float* extraDrag = 0)
 {
 	char low[40];
 	int n = 0;
+	if (extraDrag)
+		*extraDrag = 0;
 	if (!name)
-		return H9RS_TARMAC;
+		return H9RS_NEUTRAL;
 	while (*name)
 	{
 		const char c = *name;
@@ -166,30 +197,35 @@ static inline int H9RallySurfaceByName(const char* name)
 		low[n++] = (*name >= 'A' && *name <= 'Z') ? (char)(*name + 32) : *name;
 	low[n] = 0;
 
+	const bool roadish = H9RallyHas(low, "road") || H9RallyHas(low, "street") || H9RallyHas(low, "rock");
+	int id = -1;
 	if (H9RallyWord(low, "ice"))
-		return H9RS_ICE;
-	if (H9RallyHas(low, "sand") || H9RallyHas(low, "desert"))
-		return H9RS_SAND;
-	if (H9RallyHas(low, "snow"))
-		return H9RS_SNOW;
-	if (H9RallyHas(low, "metal") || H9RallyWord(low, "plate") || H9RallyHas(low, "steel"))
-		return H9RS_METAL;
-	if (H9RallyHas(low, "pack"))
-		return H9RS_PACKED;
-	if (H9RallyHas(low, "dirt") || H9RallyHas(low, "mud"))
-		return H9RS_DIRT;
-	if (H9RallyHas(low, "gras") || H9RallyHas(low, "verge") || H9RallyHas(low, "hill"))
-		return H9RS_GRASS;
-	if (H9RallyHas(low, "gravel") || H9RallyHas(low, "grav") || H9RallyHas(low, "pebb"))
-		return H9RS_GRAVEL;
-	if (H9RallyHas(low, "conc"))
-		return H9RS_CONCRETE;
-	if (H9RallyHas(low, "road") || H9RallyHas(low, "street") || H9RallyHas(low, "rock") || H9RallyHas(low, "tarmac") ||
-		H9RallyHas(low, "asph"))
-		return H9RS_TARMAC;
-	if (strncmp(low, "wntr", 4) == 0)
-		return H9RallyHas(low, "cliff") ? H9RS_TARMAC : H9RS_SNOW;
-	return H9RS_TARMAC;
+		id = H9RS_ICE;
+	else if (H9RallyHas(low, "metal") || H9RallyWord(low, "plate") || H9RallyHas(low, "steel"))
+		id = H9RS_METAL;
+	else if (H9RallyHas(low, "pack"))
+		id = H9RS_PACKED;
+	else if (H9RallyHas(low, "grav") || H9RallyHas(low, "pebb"))
+		id = H9RS_GRAVEL;
+	else if (H9RallyHas(low, "conc"))
+		id = H9RS_CONCRETE;
+	else if (H9RallyHas(low, "dirt") || H9RallyHas(low, "mud"))
+		id = H9RS_DIRT;
+	else if (H9RallyHas(low, "gras"))
+		id = H9RS_GRASS;
+	else if (H9RallyHas(low, "sand") || H9RallyHas(low, "desert"))
+		id = H9RS_SAND;
+	else if (H9RallyHas(low, "snow"))
+		id = H9RS_SNOW;
+	if (id < 0)
+	{
+		if (roadish || H9RallyHas(low, "tarmac") || H9RallyHas(low, "asph")) // ours: tarmac and asphalt are roads
+			return H9RS_ROAD;
+		return H9RS_NEUTRAL;
+	}
+	if (roadish && extraDrag)
+		*extraDrag = -0.10f;
+	return id;
 }
 
 // ------------------------------------------------------------------------------------------------------------
@@ -212,39 +248,32 @@ static inline const H9RallyCar& H9RallyCarByClass(int cls) // cls is the physinf
 
 struct H9RallyInput
 {
-	float throttle = 0;   // 1 forward key, -1 back key (brake, then reverse), 0 neither
-	float steer = 0;      // 1 left, -1 right (only the steering function reads it)
-	bool handbrake = false;
+	bool forward = false;  // the throttle key
+	bool back = false;     // the back key: a brake above H9R_REVERSE_ENTER, reverse below it
+	bool hand = false;     // the handbrake (the jump key)
+	bool steering = false; // a steering key is down (left or right)
 };
 
 // The ground under the car, as the frame sees it.
 struct H9RallyGround
 {
-	int surface = H9RS_TARMAC;
+	int surface = H9RS_NEUTRAL;
+	float extraDrag = 0;  // 1/s added to the surface's: HL Rally's road rule on top of a looser surface, water
+	float latScale = 1;   // water on the wheels
 	float slopeF = 0;     // u/s^2 gravity pulls along the nose (negative uphill)
 	float slopeS = 0;     // and across it, positive to the left
-	float extraDrag = 0;  // 1/s, water on the wheels
-	float topScale = 1;   // the share of the speed the surface may be driven at (water), times the surface's own
-	float gripScale = 1;  // the share of the surface's hold (water on the road)
 };
 
-// What one frame did, for sounds and smoke.
+// What a frame did, for sounds and smoke.
 struct H9RallyResult
 {
-	float slip = 0;       // 0 gripping .. 1 sliding fully
-	float tractionUsed = 0;
+	float lat = 0; // the sideways rate used last, 1/s
 };
 
-// The traction the tyres have at this speed (u/s^2).
-static inline float H9RallyTraction(const H9RallyCar& car, float mu, float speed)
-{
-	const float easing = 1.0f - (1.0f - H9R_GRIP_AT_TOP) * H9RClamp(speed / car.top, 0, 1);
-	return H9R_TRACTION * mu * car.grip * easing;
-}
-
 // One frame on the ground. `vf` is the speed along the nose (negative backwards) and `vs` the speed across it
-// (positive to the left), both in the ground's plane. The frame is cut into steps of 5 ms at most so that a
-// slow frame gives the same car as a fast one.
+// (positive to the left), both in the ground's plane. The frame is cut into steps of 5 ms at most: HL Rally's own
+// steps are its frames' lengths and a long one overshoots (ours: the sideways decay is exponential, so a slow frame
+// gives the same car as a fast one).
 static inline H9RallyResult H9RallyGroundStep(float& vf, float& vs, const H9RallyInput& in, const H9RallyGround& g,
 											   const H9RallyCar& car, float dt)
 {
@@ -256,167 +285,126 @@ static inline H9RallyResult H9RallyGroundStep(float& vf, float& vs, const H9Rall
 		steps = 40;
 	const float h = dt / (float)steps;
 
-	const int sid = (g.surface >= 0 && g.surface < H9RS_COUNT) ? g.surface : H9RS_TARMAC;
+	const int sid = (g.surface >= 0 && g.surface < H9RS_COUNT) ? g.surface : H9RS_NEUTRAL;
 	const H9RallySurface& su = g_h9RallySurfaces[sid];
-	const float mu = su.mu * g.gripScale;
-	const float topHere = car.top * su.top * g.topScale;
+	const float wish = H9RallyWish(car);
+	const float handling = H9RallyHandling(car);
+	const float surfDrag = su.drag + g.extraDrag;
 
 	for (int k = 0; k < steps; k++)
 	{
-		const float speed = sqrtf(vf * vf + vs * vs);
-		const float traction = H9RallyTraction(car, mu, speed);
-		const float usable = traction * H9R_BRAKE_TRACTION;
+		const float s0 = sqrtf(vf * vf + vs * vs);
+		// the client sends the back key as "reverse" while it is nearly at rest, and not otherwise
+		const bool reversing = in.back && !in.forward && s0 < H9R_REVERSE_ENTER;
 
-		// --- along the nose: the engine, the brakes, the coast ---------------------------------------------
-		float along = 0; // u/s^2 the pedals ask for, signed
-		bool braking = false;
-		if (in.throttle > 0)
-		{
-			if (vf < -H9R_REVERSE_ENTER)
-			{
-				along = car.brake; // W while rolling backwards: the brakes
-				braking = true;
-			}
-			else if (vf < topHere)
-			{
-				const float taper = H9RClamp((topHere - vf) / (H9R_TAPER * topHere), 0, 1);
-				along = car.engine * taper;
-			}
-		}
-		else if (in.throttle < 0)
-		{
-			if (vf > H9R_REVERSE_ENTER)
-			{
-				along = -car.brake;
-				braking = true;
-			}
-			else
-			{
-				const float rt = car.reverseTop * su.top;
-				const float taper = H9RClamp((rt + vf) / (H9R_TAPER * rt), 0, 1);
-				along = -car.engine * H9R_REVERSE_PULL * taper;
-			}
-		}
-		else
-		{
-			// nothing pressed: the car coasts
-			const float c = (H9R_COAST + H9R_COAST_LIN * fabsf(vf));
-			along = vf > 0 ? -c : (vf < 0 ? c : 0);
-			if (fabsf(along) * h > fabsf(vf))
-				along = -vf / h;
-		}
-		along = H9RClamp(along, -usable, usable);
-		if (in.handbrake && vf != 0)
-		{
-			const float hb = H9R_HAND_BRAKE * mu;
-			along += vf > 0 ? -hb : hb;
-		}
-		float vfNew = vf + along * h;
-		// brakes and the handbrake stop the car, they do not push it backwards
-		if ((braking || in.handbrake || in.throttle == 0) && vf != 0 && ((vf > 0) != (vfNew > 0)))
-			vfNew = 0;
-		vf = vfNew;
+		// alignment: the cosine of the slip angle, at least 0.05 (and the car's reverse counts as straight)
+		float align = s0 > 1.0f ? (reversing ? fabsf(vf) : vf) / s0 : 1.0f;
+		align = H9RClamp(align, H9R_ALIGN_MIN, 1.0f);
 
-		// rolling resistance and the soft ground: proportional to speed, on both axes
-		const float res_rate = su.roll + g.extraDrag;
-		if (res_rate > 0)
+		// --- the sideways rate (HL Rally's LATERAL_FRICTION) ---
+		float mods = 1.0f;
+		if (in.back)
+			mods *= H9R_LAT_BRAKE;
+		if (in.hand)
+			mods *= H9R_LAT_HAND;
+		if (in.forward)
+			mods *= H9R_LAT_THROTTLE;
+		if (in.forward && in.steering)
+			mods *= H9R_LAT_THROTTLE_STEER * align;
+		mods *= align * align * align;
+		mods *= handling;
+		mods *= su.lat * g.latScale;
+		float lat = s0 > 0.001f ? H9R_LAT_MAX * H9R_LAT_SPEED / s0 * mods : H9R_LAT_MAX;
+		if (lat > H9R_LAT_MAX)
+			lat = H9R_LAT_MAX;
+		res.lat = lat;
+
+		// --- ground drag ---
+		const float dragKeep = expf(-H9R_FRICTION * h);
+		vf *= dragKeep;
+		vs *= dragKeep;
+
+		// --- the sideways speed decays; what it took is given back along the nose ---
+		const float s1 = sqrtf(vf * vf + vs * vs);
+		vs *= expf(-lat * h);
+		const float s2 = sqrtf(vf * vf + vs * vs);
+		vf += s1 - s2;
+
+		// --- a slide, and the surface ---
+		const float keep = expf(-(H9R_SLIDE_DRAG * (1.0f - align) + surfDrag) * h);
+		vf *= keep;
+		vs *= keep;
+
+		// --- the brakes: the back key above reverse speed, or the handbrake ---
+		if ((in.back && !reversing) || in.hand)
 		{
-			const float keep = expf(-res_rate * h);
-			vf *= keep;
-			vs *= keep;
+			const float s = sqrtf(vf * vf + vs * vs);
+			if (s > 0.0001f)
+			{
+				const float cut = H9R_BRAKE_DECEL * align * h;
+				const float f = cut >= s ? 0.0f : (s - cut) / s;
+				vf *= f;
+				vs *= f;
+			}
 		}
 
-		// the slope's pull (gravity along the plane)
+		// --- the slope ---
 		vf += g.slopeF * h;
 		vs += g.slopeS * h;
 
-		// --- across the nose: the tyres hold the car's path to its heading -----------------------------------
-		const float sp = sqrtf(vf * vf + vs * vs);
-		const float slipSin = sp > 1.0f ? fabsf(vs) / sp : 0.0f;
-		// slip: 0 under sin 0.25 (about 15 degrees), 1 from sin 0.75
-		const float slip = H9RClamp((slipSin - 0.25f) / 0.5f, 0, 1);
-		float latMul = 1.0f - (1.0f - H9R_SLIDE_LAT) * slip;
-		if (in.handbrake)
-			latMul *= H9R_HAND_LAT;
-		else if (braking)
-			latMul *= H9R_BRAKE_LAT;
-		const float latLimit = traction * latMul;
-		// power and brakes use the same tyre: the sideways hold is what the circle has left
-		const float used = fabsf(along);
-		float lat = sqrtf(fmaxf(0.0f, latLimit * latLimit - used * used));
-		if (lat < latLimit * H9R_LAT_FLOOR)
-			lat = latLimit * H9R_LAT_FLOOR;
-		res.slip = slip > res.slip ? slip : res.slip;
-		res.tractionUsed = used / (traction + 1e-3f);
-
-		const float vs0 = vs;
-		const float dv = lat * h;
-		if (fabsf(vs) <= dv)
-			vs = 0;
-		else
-			vs += vs > 0 ? -dv : dv;
-
-		// The sideways speed that was eaten turned the path toward the nose: it did not vanish. The path keeps the
-		// speed it had, less what a slide costs (scrub, by the surface), and never more than it had.
-		if (vs0 != vs && sp > 1.0f)
+		// --- the engine (HL Rally's PM_Accelerate after the friction) ---
+		const float sh = sqrtf(vf * vf + vs * vs);
+		if (in.forward)
 		{
-			const float pure = sqrtf(vf * vf + vs * vs);
-			float target = sp * (1.0f - su.scrub * h * slipSin);
-			if (target > sp)
-				target = sp;
-			if (target > pure)
+			if (sh < H9R_GEAR_CAP)
 			{
-				const float room = target * target - vs * vs;
-				const float nf = sqrtf(room > 0 ? room : 0);
-				vf = vf < 0 || (vf == 0 && in.throttle < 0) ? -nf : nf;
+				const float addspeed = wish - vf;
+				if (addspeed > 0)
+				{
+					float pull = H9R_ACCELERATE * wish * h;
+					if (pull > addspeed)
+						pull = addspeed;
+					vf += pull;
+				}
 			}
+		}
+		else if (reversing)
+		{
+			if (sh <= H9R_REVERSE_PULL_LIMIT)
+			{
+				const float addspeed = wish + vf; // the speed along the wish direction (backwards) is -vf
+				if (addspeed > 0)
+				{
+					float pull = H9R_ACCELERATE * wish * h;
+					if (pull > addspeed)
+						pull = addspeed;
+					vf -= pull;
+				}
+			}
+		}
+		else if (!in.back && !in.hand && sh < 1.0f)
+		{
+			// nothing pressed and nearly stopped: HL Rally does not move a car slower than 1 u/s
+			vf = 0;
+			vs = 0;
 		}
 	}
 	return res;
 }
 
-// How far the heading turns this frame, in degrees (positive: to the left). `vf` is the speed along the nose, `vs` across it.
-// The client turns its view yaw by this while the steering keys are down; the server then reads the heading
-// from the command's view angles, like HL Rally. Nothing in it needs the ground.
-static inline float H9RallySteer(float vf, float vs, float steerInput, bool handbrake, bool backing, const H9RallyCar& car, float dt)
+// How far the heading turns this frame, in degrees (positive: to the left): the view yaw's own turn, 400 degrees a
+// second at any speed (HL Rally's CL_AdjustAngles). `steerInput` is the keys: left 1, right -1, or in between when a
+// key was pressed or let go within the frame. The client adds it to the view yaw while the steering keys are down.
+static inline float H9RallySteer(float steerInput, float dt)
 {
-	if (steerInput == 0)
-		return 0;
-	const float speed = fabsf(vf);
-	float rate = car.steerRate;
-	rate *= H9R_STEER_MIN + (1.0f - H9R_STEER_MIN) * H9RClamp(speed / H9R_STEER_FULL_SPEED, 0, 1);
-	if (handbrake)
-		rate *= H9R_STEER_HAND;
-	else
-	{
-		rate *= 1.0f - (1.0f - H9R_STEER_AT_TOP) * H9RClamp(speed / car.top, 0, 1);
-		// a car that already slides sideways answers the wheel less (the front tyres have little left to give)
-		const float slipDeg = (speed + fabsf(vs)) > 40.0f ? fabsf(atan2f(vs, fabsf(vf))) * 57.29578f : 0.0f;
-		rate *= 1.0f - H9R_STEER_SLIDE * H9RClamp((slipDeg - H9R_STEER_SLIDE_FROM) / 45.0f, 0, 1);
-	}
-	float delta = steerInput * rate * dt;
-	if (backing && vf < -5.0f) // backing up on purpose (the back key down): the nose goes the other way
-		delta = -delta;
-	return delta;
+	return steerInput * H9R_STEER_RATE * dt;
 }
 
-// The surface's effect on the steering: wheels without grip turn the car less (the client cannot know the surface,
-// so this is for the server's own use and tests).
-static inline float H9RallySteerGripScale(float mu)
+// What a wall does to a car (HL Rally's PM_Crash). `vn` is the velocity's part along the wall's normal (negative:
+// into the wall). Returns the new velocity's share kept, given the cosine between the new direction and the old.
+static inline float H9RallyCrashKeep(float cosTurned)
 {
-	return mu >= 1.0f ? 1.0f : H9R_STEER_ICE + (1.0f - H9R_STEER_ICE) * H9RClamp(mu, 0, 1);
-}
-
-// The speed lost landing: `impact` is how fast the car came onto the ground, u/s, along its normal. Returns the
-// share of its speed to keep.
-static inline float H9RallyLandKeep(float impact)
-{
-	if (impact <= H9R_LAND_SOFT)
-		return 1.0f;
-	float loss = (impact - H9R_LAND_SOFT) * H9R_LAND_LOSS;
-	if (loss > H9R_LAND_MAX)
-		loss = H9R_LAND_MAX;
-	return 1.0f - loss;
+	return (cosTurned + 2.0f) / 3.0f;
 }
 
 // ------------------------------------------------------------------------------------------------------------

@@ -138,9 +138,9 @@ void BodyAgainstWorld(const Vector& heading, const Vector& up, bool grounded)
 {
 	const Vector left = Unit(Cross3(up, heading));
 	const Vector fwd = Cross3(left, up);
-	const Vector center = MA(pmove->origin, 12.0f, up);
+	const Vector center = MA(pmove->origin, 8.0f, up);
 	const float L = H9R_LENGTH * 0.5f, W = H9R_WIDTH * 0.5f;
-	const float heights[2] = {9.0f - 12.0f, 15.0f - 12.0f};
+	const float heights[2] = {H9R_STEP_UP - 8.0f, 12.0f - 8.0f}; // from the step height up, in steps of 8, about the centre
 
 	const float vf = Dot3(pmove->velocity, fwd), vl = Dot3(pmove->velocity, left);
 	const bool moving = sqrtf(vf * vf + vl * vl) > 8.0f;
@@ -192,8 +192,9 @@ void BodyAgainstWorld(const Vector& heading, const Vector& up, bool grounded)
 			pmtrace_t t = Trace(center, p);
 			if (t.fraction >= 1.0f || t.allsolid || t.startsolid)
 				continue;
-			// a plane a car can drive on is the road, not a wall (a ramp met nose first, a bump under a corner)
-			if (t.plane.normal[2] > 0.7f)
+			// a plane a car can drive on is the road, not a wall (a ramp met nose first, a bump under a corner); in the air
+			// anything flatter than 0.3 is ground to land on (HL Rally's rule)
+			if (t.plane.normal[2] > (grounded ? 0.7f : 0.3f))
 				continue;
 			if (t.fraction < best)
 			{
@@ -215,13 +216,15 @@ void BodyAgainstWorld(const Vector& heading, const Vector& up, bool grounded)
 	const float vn = Dot3(pmove->velocity, bestN);
 	if (vn < 0)
 	{
-		const float speed = sqrtf(Dot3(pmove->velocity, pmove->velocity));
-		const float into = speed > 1.0f ? -vn / speed : 0; // 0 glancing .. 1 square on
-		const float keep = 1.0f - (1.0f - H9R_WALL_SCRAPE) * into;
-		const Vector tangent = MA(pmove->velocity, -vn, bestN);
-		pmove->velocity = MA(Vector(tangent[0] * keep, tangent[1] * keep, tangent[2] * keep), -vn * H9R_WALL_BOUNCE, bestN);
+		// HL Rally's crash: the part into the wall is taken out with 20% coming back (v - 1.2 (v.n) n), then the whole
+		// is scaled by (2 + cos) / 3, cos being between the old direction and the new: a third kept head on, all grazing
+		const Vector old = pmove->velocity;
+		const Vector turned = MA(old, -vn * (1.0f + H9R_WALL_BOUNCE), bestN);
+		const float lo = sqrtf(Dot3(old, old)), ln = sqrtf(Dot3(turned, turned));
+		const float c = (lo > 1e-3f && ln > 1e-3f) ? Dot3(old, turned) / (lo * ln) : 1.0f;
+		const float keep = H9RallyCrashKeep(c);
+		pmove->velocity = Vector(turned[0] * keep, turned[1] * keep, turned[2] * keep);
 	}
-	(void)grounded;
 }
 
 bool CarHeld()
@@ -274,25 +277,20 @@ void H9RallyMove()
 	H9RallyInput in;
 	if (!CarHeld())
 	{
-		if (pmove->cmd.buttons & IN_FORWARD)
-			in.throttle += 1;
-		if (pmove->cmd.buttons & IN_BACK)
-			in.throttle -= 1;
-		if (pmove->cmd.forwardmove > 10 && in.throttle == 0)
-			in.throttle = 1;
-		if (pmove->cmd.forwardmove < -10 && in.throttle == 0)
-			in.throttle = -1;
-		in.handbrake = (pmove->cmd.buttons & IN_JUMP) != 0;
+		in.forward = (pmove->cmd.buttons & IN_FORWARD) != 0 || pmove->cmd.forwardmove > 10;
+		in.back = (pmove->cmd.buttons & IN_BACK) != 0 || pmove->cmd.forwardmove < -10;
+		in.hand = (pmove->cmd.buttons & IN_JUMP) != 0;
+		in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0; // the client sets these for the side keys too
 	}
 
 	CheckWater();
-	const float grav = pmove->movevars->gravity * (pmove->gravity != 0 ? pmove->gravity : 1.0f);
+	const float grav = H9R_GRAVITY * (pmove->gravity != 0 ? pmove->gravity : 1.0f); // not sv_gravity: the car falls as in HL Rally
 
 	// --- where the car stands, and whether the ground still holds it ---------------------------------------
 	Under under = LookDown(heading);
 	bool grounded = under.ground;
-	if (grounded && Dot3(pmove->velocity, under.normal) > H9R_STICK_NORMAL)
-		grounded = false; // a crest throws it
+	if (grounded && pmove->velocity[2] > H9R_LIFT_VZ)
+		grounded = false; // going up this fast it has left the ground (HL Rally's rule)
 	const Vector preVelocity = pmove->velocity;
 
 	if (pmove->waterlevel >= 2)
@@ -303,11 +301,11 @@ void H9RallyMove()
 		pmove->velocity[1] *= keep;
 		pmove->velocity[2] = pmove->velocity[2] * keep - grav * H9R_WATER_DEEP_GRAV * dt;
 		const float vf = Dot3(pmove->velocity, heading);
-		const float lim = car.top * 0.2f;
-		if (in.throttle != 0 && fabsf(vf) < lim)
+		const float push = (in.forward ? 1.0f : 0.0f) - (in.back ? 1.0f : 0.0f);
+		if (push != 0 && fabsf(vf) < 100.0f)
 		{
-			pmove->velocity[0] += heading[0] * in.throttle * car.engine * 0.5f * dt;
-			pmove->velocity[1] += heading[1] * in.throttle * car.engine * 0.5f * dt;
+			pmove->velocity[0] += heading[0] * push * H9R_WATER_THRUST * dt;
+			pmove->velocity[1] += heading[1] * push * H9R_WATER_THRUST * dt;
 		}
 		grounded = false;
 	}
@@ -325,13 +323,12 @@ void H9RallyMove()
 		{
 			if (*tex == '-' || *tex == '+')
 				tex += 2;
-			g.surface = H9RallySurfaceByName(tex);
+			g.surface = H9RallySurfaceByName(tex, &g.extraDrag);
 		}
 		if (pmove->waterlevel >= 1)
 		{
-			g.extraDrag = H9R_WATER_WHEELS_DRAG;
-			g.gripScale = 0.5f;
-			g.topScale = 0.55f;
+			g.extraDrag += H9R_WATER_WHEELS_DRAG;
+			g.latScale = H9R_WATER_WHEELS_GRIP;
 		}
 
 		const Vector gv(0, 0, -grav);
@@ -345,10 +342,7 @@ void H9RallyMove()
 	}
 	else
 	{
-		// in the air: nothing drives or steers it; gravity and a little air
-		const float keep = expf(-H9R_AIR_DRAG * dt);
-		pmove->velocity[0] *= keep;
-		pmove->velocity[1] *= keep;
+		// in the air: nothing drives it and nothing slows it (HL Rally has no friction off the ground); gravity
 		pmove->velocity[2] -= grav * dt;
 	}
 
@@ -398,7 +392,7 @@ void H9RallyMove()
 	Vector nowNormal(0, 0, 1);
 	int nowEnt = -1;
 	{
-		const float reach = grounded ? 6.0f : 2.0f;
+		const float reach = grounded ? H9R_STEP_UP + 2.0f : 2.0f; // down the step height, and the 2 units the engine's ground test uses
 		pmtrace_t t = Trace(Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] + 1.0f),
 							Vector(pmove->origin[0], pmove->origin[1], pmove->origin[2] - reach));
 		if (t.fraction < 1.0f && !t.startsolid && !t.allsolid && t.plane.normal[2] >= kFloorNormal)
@@ -407,7 +401,7 @@ void H9RallyMove()
 			const float away = Dot3(pmove->velocity, n);
 			if (grounded)
 			{
-				if (away <= H9R_STICK_NORMAL)
+				if (pmove->velocity[2] <= H9R_LIFT_VZ)
 				{
 					nowGround = true;
 					pmove->origin = t.endpos;
@@ -421,11 +415,7 @@ void H9RallyMove()
 				if (impact > 0 || away <= 0)
 				{
 					nowGround = true;
-					const float keep = H9RallyLandKeep(impact);
-					pmove->velocity = MA(pmove->velocity, -fminf(0.0f, away), n);
-					pmove->velocity[0] *= keep;
-					pmove->velocity[1] *= keep;
-					pmove->velocity[2] *= keep;
+					pmove->velocity = MA(pmove->velocity, -fminf(0.0f, away), n); // no landing penalty: HL Rally has none
 					pmove->origin = t.endpos;
 				}
 			}

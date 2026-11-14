@@ -4,7 +4,10 @@
 *    cmake --build build-win32 --target rally_test --config Release
 *    build-win32/dlls/Release/rally_test.exe
 *
-*  A flat plane, a car, a heading that the steering turns: the scenarios the owner's test will feel, as numbers.
+*  A flat plane, a car, a heading that the steering turns. Besides the checks of what the car should do, a small
+*  reference integrator (Ref below) written straight from the description at the top of h9_rally.h, in world
+*  coordinates with 1 ms steps and none of the header's structure, is run beside the header's model: its speed
+*  against time on a straight, and the slip angle in a full-lock turn, must agree within 5%.
 *  It prints one line a check and ends with "PASS: n checks" (exit 0) or "FAIL: n of m checks" (exit 1).
 ***/
 #define H9RALLY_MATHS_ONLY
@@ -28,10 +31,11 @@ static void Check(bool ok, const char* what)
 	printf("%s  %s\n", ok ? "ok  " : "FAIL", what);
 }
 
+// The model under test: the header's body-axis step, with the nose turned by the header's steering.
 struct Sim
 {
 	const H9RallyCar* car = &g_h9RallyCars[0];
-	int surface = H9RS_TARMAC;
+	int surface = H9RS_NEUTRAL;
 	float vf = 0, vs = 0;  // body-axis speeds
 	float heading = 0;     // degrees, left positive
 	float x = 0, y = 0;    // the path
@@ -40,17 +44,18 @@ struct Sim
 	float slopeF = 0;
 	float dt = 0.01f;
 
-	void Step(float throttle, float steer, bool hand)
+	void Step(bool forward, bool back, float steer, bool hand)
 	{
 		H9RallyInput in;
-		in.throttle = throttle;
-		in.steer = steer;
-		in.handbrake = hand;
+		in.forward = forward;
+		in.back = back;
+		in.hand = hand;
+		in.steering = steer != 0;
 		H9RallyGround g;
 		g.surface = surface;
 		g.slopeF = slopeF;
 		// the nose turns; the car's velocity does not, so it is now at an angle to the nose
-		const float dpsi = H9RallySteer(vf, vs, steer, hand, throttle < 0, *car, dt);
+		const float dpsi = H9RallySteer(steer, dt);
 		heading += dpsi;
 		{
 			const float a = dpsi * (float)(M_PI / 180.0);
@@ -66,227 +71,337 @@ struct Sim
 		x += wx * dt;
 		y += wy * dt;
 		time += dt;
-		if (fabsf(vf) > 50.0f)
+		if (Speed() > 50.0f)
 		{
 			const float slip = SlipDeg();
 			if (slip > maxSlipDeg)
 				maxSlipDeg = slip;
 		}
 	}
-	void Run(float seconds, float throttle, float steer, bool hand)
+	void Run(float seconds, bool forward, bool back, float steer, bool hand)
 	{
 		const int n = (int)(seconds / dt + 0.5f);
 		for (int i = 0; i < n; i++)
-			Step(throttle, steer, hand);
+			Step(forward, back, steer, hand);
 	}
 	float Speed() const { return sqrtf(vf * vf + vs * vs); }
-	// the angle between the path and the nose, degrees
+	// the angle between the path and the nose, degrees, 0 to 180
 	float SlipDeg() const { return fabsf(atan2f(vs, vf)) * 180.0f / (float)M_PI; }
 };
 
-static bool Finite(float v)
+// The reference: HL Rally's ground physics as the description gives them, in world coordinates, Euler steps of 1 ms.
+// Written from the description alone (not from the header's code): it shares no function with the model above.
+struct Ref
 {
-	return std::isfinite(v);
-}
+	double vx = 0, vy = 0, heading = 0; // degrees
+	double latSurf, dragSurf;
+	double wish, handling;
+	double t = 0;
+	Ref(int surface, const H9RallyCar& car)
+	{
+		const double lat[] = {1, 1, 0.5, 0.35, 0.4, 0.315};
+		const double drag[] = {0, -0.10, 0.04, 0.075, 0.05, 0.05};
+		latSurf = lat[surface];
+		dragSurf = drag[surface];
+		wish = car.topStat * 15.0;
+		handling = fabs(car.handlingStat - 40.0) / 50.0;
+	}
+	double Speed() const { return sqrt(vx * vx + vy * vy); }
+	double SlipDeg() const
+	{
+		const double h = heading * M_PI / 180.0;
+		const double vf = vx * cos(h) + vy * sin(h), vl = -vx * sin(h) + vy * cos(h);
+		return fabs(atan2(vl, vf)) * 180.0 / M_PI;
+	}
+	void Step(double dt, bool throttle, double steerKeys)
+	{
+		// the view turns
+		heading += steerKeys * 400.0 * dt;
+		const double h = heading * M_PI / 180.0;
+		const double fx = cos(h), fy = sin(h);  // the nose
+		const double rx = sin(h), ry = -cos(h); // the right
+		const double speed0 = sqrt(vx * vx + vy * vy);
+		double align = speed0 > 1 ? (vx * fx + vy * fy) / speed0 : 1.0;
+		if (align < 0.05) align = 0.05;
+		if (align > 1) align = 1;
+		double lat = (speed0 > 0.001 ? 75.0 * 30.0 / speed0 : 1e9);
+		if (throttle) lat *= 0.85;
+		if (throttle && steerKeys != 0) lat *= 0.8 * align;
+		lat *= align * align * align;
+		lat *= handling;
+		lat *= latSurf;
+		if (lat > 75.0) lat = 75.0;
+		// friction
+		vx -= vx * 0.25 * dt;
+		vy -= vy * 0.25 * dt;
+		// sideways
+		const double before = sqrt(vx * vx + vy * vy);
+		const double side = vx * rx + vy * ry;
+		vx -= rx * side * lat * dt;
+		vy -= ry * side * lat * dt;
+		const double extra = before - sqrt(vx * vx + vy * vy);
+		vx += fx * extra;
+		vy += fy * extra;
+		// slide and surface
+		const double k = 1.0 - (0.25 * (1.0 - align) + dragSurf) * dt;
+		vx *= k;
+		vy *= k;
+		// engine
+		if (throttle)
+		{
+			const double add = wish - (vx * fx + vy * fy);
+			double pull = 0.085 * wish * dt;
+			if (pull > add) pull = add;
+			if (add > 0 && sqrt(vx * vx + vy * vy) < 738.0)
+			{
+				vx += fx * pull;
+				vy += fy * pull;
+			}
+		}
+		t += dt;
+	}
+};
 
 int main()
 {
-	// --- top speed on tarmac, by car ---------------------------------------------------------------------
-	for (int c = 0; c < H9R_NUM_CARS; c++)
-	{
-		Sim s;
-		s.car = &g_h9RallyCars[c];
-		float t90 = -1;
-		for (int i = 0; i < 2500; i++)
-		{
-			s.Step(1, 0, false);
-			if (t90 < 0 && s.vf >= 0.9f * s.car->top)
-				t90 = s.time;
-		}
-		char what[160];
-		snprintf(what, sizeof what, "car %s: tarmac top speed within 3%% of %.0f (got %.0f)", s.car->name, s.car->top, s.vf);
-		Check(s.vf > s.car->top * 0.97f && s.vf <= s.car->top + 0.5f, what);
-		snprintf(what, sizeof what, "car %s: 90%% of top in 3 to 10 seconds (%.1f s)", s.car->name, t90);
-		Check(t90 > 3.0f && t90 < 10.0f, what);
-		snprintf(what, sizeof what, "car %s: top speed in HL Rally's range 1050 to 1350", s.car->name);
-		Check(s.car->top >= 1050 && s.car->top <= 1350, what);
-	}
+	char what[256];
+	const H9RallyCar& xsara = g_h9RallyCars[0];
 
-	// --- the surfaces: top speed and the order of grip -----------------------------------------------------
+	// --- top speed: the pull meets the drag --------------------------------------------------------------
+	// expected = wish * 0.085 / (0.25 + the surface's drag); the pull is 102 u/s^2 for 80
+	printf("      top speed (u/s) and time to 90%% of it, after 60 s, Xsara:\n");
 	float topOn[H9RS_COUNT];
 	for (int su = 0; su < H9RS_COUNT; su++)
 	{
 		Sim s;
 		s.surface = su;
-		s.Run(40, 1, 0, false);
+		float t90 = -1;
+		float want = H9RallyWish(xsara) * H9R_ACCELERATE / (H9R_FRICTION + g_h9RallySurfaces[su].drag);
+		for (int i = 0; i < 6000; i++)
+		{
+			s.Step(true, false, 0, false);
+			if (t90 < 0 && s.vf >= 0.9f * want)
+				t90 = s.time;
+		}
 		topOn[su] = s.vf;
+		snprintf(what, sizeof what, "%-12s top %6.1f (pull/drag says %6.1f), 90%% in %4.1f s", g_h9RallySurfaces[su].name, s.vf, want, t90);
+		printf("      %s\n", what);
+		Check(fabsf(s.vf - want) < 0.03f * want, what);
 	}
-	Check(topOn[H9RS_SAND] < 0.75f * topOn[H9RS_TARMAC], "sand: top speed under 75% of tarmac's");
-	Check(topOn[H9RS_SAND] < topOn[H9RS_GRASS] && topOn[H9RS_GRASS] < topOn[H9RS_DIRT], "sand slower than grass, grass slower than dirt");
-	Check(topOn[H9RS_GRAVEL] < topOn[H9RS_TARMAC] && topOn[H9RS_SNOW] < topOn[H9RS_TARMAC], "gravel and snow slower than tarmac");
-	Check(g_h9RallySurfaces[H9RS_TARMAC].mu >= g_h9RallySurfaces[H9RS_CONCRETE].mu &&
-			  g_h9RallySurfaces[H9RS_CONCRETE].mu > g_h9RallySurfaces[H9RS_PACKED].mu &&
-			  g_h9RallySurfaces[H9RS_PACKED].mu > g_h9RallySurfaces[H9RS_DIRT].mu &&
-			  g_h9RallySurfaces[H9RS_DIRT].mu > g_h9RallySurfaces[H9RS_GRASS].mu &&
-			  g_h9RallySurfaces[H9RS_SNOW].mu > g_h9RallySurfaces[H9RS_ICE].mu,
-		  "grip order: tarmac, concrete, packed dirt, dirt, grass, snow, ice");
+	Check(fabsf(topOn[H9RS_NEUTRAL] - 408.0f) < 3.0f, "neutral surface: top speed 408 u/s (102 / 0.25), the 400 HL Rally drives at");
+	Check(fabsf(topOn[H9RS_SNOW] - 340.0f) < 3.0f, "snow: 340 u/s (102 / 0.30)");
+	Check(fabsf(topOn[H9RS_ROAD] - 680.0f) < 8.0f, "road: 680 u/s (102 / 0.15)");
+	Check(fabsf(topOn[H9RS_SAND] - 340.0f) < 3.0f, "sand: 340 u/s (HL Rally's sand: drag +0.05)");
+	Check(topOn[H9RS_GRASS] < topOn[H9RS_SAND] && topOn[H9RS_SAND] <= topOn[H9RS_DIRT] && topOn[H9RS_DIRT] < topOn[H9RS_NEUTRAL] &&
+			  topOn[H9RS_NEUTRAL] < topOn[H9RS_ROAD],
+		  "top speed order: grass < sand < dirt < neutral < road");
+	Check(topOn[H9RS_GRAVEL] < topOn[H9RS_NEUTRAL] && topOn[H9RS_PACKED] < topOn[H9RS_NEUTRAL] && topOn[H9RS_CONCRETE] > topOn[H9RS_NEUTRAL] &&
+			  topOn[H9RS_CONCRETE] < topOn[H9RS_ROAD],
+		  "our extra surfaces sit between HL Rally's: gravel and packed dirt under neutral, concrete between neutral and road");
+
+	for (int c = 0; c < H9R_NUM_CARS; c++)
 	{
-		Sim ice;
-		ice.surface = H9RS_ICE;
-		ice.Run(60, 1, 0, false);
-		Check(ice.vf > 0.8f * ice.car->top, "ice: it still gets to speed, slowly");
+		Sim s;
+		s.car = &g_h9RallyCars[c];
+		s.Run(60, true, false, 0, false);
+		const float want = H9RallyWish(*s.car) * H9R_ACCELERATE / H9R_FRICTION;
+		snprintf(what, sizeof what, "car %s (%.0f/%.0f/%.0f): neutral top %.0f, pull/drag says %.0f", s.car->name, s.car->accelStat,
+				 s.car->handlingStat, s.car->topStat, s.vf, want);
+		Check(fabsf(s.vf - want) < 0.02f * want, what);
 	}
 
-	// --- a turn at speed: ice slides more than tarmac ------------------------------------------------------
+	// --- speed against time on a straight, against the reference (5%) ----------------------------------------
+	{
+		const int surfaces[3] = {H9RS_NEUTRAL, H9RS_SNOW, H9RS_ROAD};
+		const float times[5] = {2, 5, 10, 20, 40};
+		for (int si = 0; si < 3; si++)
+		{
+			Sim m;
+			m.surface = surfaces[si];
+			Ref r(surfaces[si], xsara);
+			float worst = 0;
+			float t = 0;
+			for (int ti = 0; ti < 5; ti++)
+			{
+				while (t < times[ti] - 1e-6f)
+				{
+					for (int k = 0; k < 10; k++)
+						r.Step(0.001, true, 0);
+					m.Step(true, false, 0, false);
+					t += 0.01f;
+				}
+				const float err = fabsf(m.vf - (float)r.Speed()) / (float)r.Speed();
+				if (err > worst)
+					worst = err;
+			}
+			snprintf(what, sizeof what, "%s straight: speed at 2, 5, 10, 20 and 40 s within 5%% of the reference (worst %.2f%%, ours %.1f, reference %.1f at 40 s)",
+					 g_h9RallySurfaces[surfaces[si]].name, worst * 100.0f, m.vf, (float)r.Speed());
+			Check(worst < 0.05f, what);
+		}
+	}
+
+	// --- a full-lock turn with the throttle on: the slip angle against the reference ---------------------------
+	{
+		const int surfaces[2] = {H9RS_SNOW, H9RS_ROAD};
+		for (int si = 0; si < 2; si++)
+		{
+			Sim m;
+			m.surface = surfaces[si];
+			Ref r(surfaces[si], xsara);
+			// both start at the same moment: 300 u/s straight ahead, as a car in a corner's approach
+			m.vf = 300;
+			r.vx = 300;
+			float t = 0;
+			const float marks[4] = {0.1f, 0.25f, 0.5f, 1.0f};
+			char line[256] = "";
+			float worst = 0;
+			for (int mi = 0; mi < 4; mi++)
+			{
+				while (t < marks[mi] - 1e-6f)
+				{
+					for (int k = 0; k < 10; k++)
+						r.Step(0.001, true, 1.0);
+					m.Step(true, false, 1.0f, false);
+					t += 0.01f;
+				}
+				const float a = m.SlipDeg(), b = (float)r.SlipDeg();
+				const float err = fabsf(a - b) / fmaxf(b, 1.0f);
+				if (err > worst)
+					worst = err;
+				char one[48];
+				snprintf(one, sizeof one, " %.2fs: %.1f/%.1f", marks[mi], a, b);
+				strncat(line, one, sizeof line - strlen(line) - 1);
+			}
+			snprintf(what, sizeof what, "%s full lock, throttle on, slip (ours/reference):%s", g_h9RallySurfaces[surfaces[si]].name, line);
+			printf("      %s\n", what);
+			snprintf(what, sizeof what, "%s full lock with throttle: slip angle within 5%% of the reference (worst %.1f%%)", g_h9RallySurfaces[surfaces[si]].name, worst * 100.0f);
+			Check(worst < 0.05f, what);
+		}
+	}
+
+	// --- the turn: loose ground slides more --------------------------------------------------------------------
 	{
 		float slip[H9RS_COUNT];
-		float turned[H9RS_COUNT];
 		for (int su = 0; su < H9RS_COUNT; su++)
 		{
 			Sim s;
 			s.surface = su;
-			s.vf = 700.0f;
-			s.Run(1.5f, 1, 1, false); // power on, full left
-			slip[su] = s.maxSlipDeg;
-			turned[su] = s.heading;
+			s.vf = 300.0f;
+			s.Run(0.1f, true, false, 1, false);
+			slip[su] = s.SlipDeg();
 		}
-		char what[200];
-		snprintf(what, sizeof what, "turn at 700: ice slips %.0f deg, tarmac %.0f deg (ice more, over 20)", slip[H9RS_ICE], slip[H9RS_TARMAC]);
-		Check(slip[H9RS_ICE] > slip[H9RS_TARMAC] * 2.0f && slip[H9RS_ICE] > 20.0f, what);
-		snprintf(what, sizeof what, "turn at 700: grass %.0f and snow %.0f slip more than tarmac %.0f", slip[H9RS_GRASS], slip[H9RS_SNOW], slip[H9RS_TARMAC]);
-		Check(slip[H9RS_GRASS] > slip[H9RS_TARMAC] && slip[H9RS_SNOW] > slip[H9RS_TARMAC], what);
-		Check(slip[H9RS_TARMAC] < 20.0f, "turn at 700 on tarmac: the car grips (slip under 20 degrees)");
-		Check(turned[H9RS_TARMAC] > 20.0f, "turn at 700: the nose does come round");
+		snprintf(what, sizeof what, "after 0.1 s of full lock at 300: ice slips %.0f deg, snow %.0f, grass %.0f, sand %.0f, dirt %.0f, neutral %.0f, road %.0f",
+				 slip[H9RS_ICE], slip[H9RS_SNOW], slip[H9RS_GRASS], slip[H9RS_SAND], slip[H9RS_DIRT], slip[H9RS_NEUTRAL], slip[H9RS_ROAD]);
+		Check(slip[H9RS_ICE] > slip[H9RS_SNOW] && slip[H9RS_SNOW] > slip[H9RS_NEUTRAL] && slip[H9RS_GRASS] > slip[H9RS_DIRT] && slip[H9RS_DIRT] > slip[H9RS_NEUTRAL], what);
+		Check(slip[H9RS_SAND] > slip[H9RS_DIRT], "sand (lat 0.4) slides more than dirt (0.5)");
 	}
 
-	// --- the handbrake rotates the car ----------------------------------------------------------------------
+	// --- the handbrake ----------------------------------------------------------------------------------------
 	{
 		Sim a, b;
-		a.vf = b.vf = 800.0f;
-		a.Run(1.0f, 0, 1, false);
-		b.Run(1.0f, 0, 1, true);
-		char what[200];
-		snprintf(what, sizeof what, "handbrake turn: nose turns %.0f deg against %.0f without", b.heading, a.heading);
-		Check(b.heading > a.heading * 1.4f, what);
-		snprintf(what, sizeof what, "handbrake turn: the path trails the nose by up to %.0f deg (over 35); %.0f without", b.maxSlipDeg, a.maxSlipDeg);
-		Check(b.maxSlipDeg > 35.0f && b.maxSlipDeg > a.maxSlipDeg * 2, what);
-		Check(b.Speed() < a.Speed(), "handbrake turn: it costs speed");
+		a.vf = b.vf = 400.0f;
+		a.Run(0.1f, false, false, 1, false);
+		b.Run(0.1f, false, false, 1, true);
+		snprintf(what, sizeof what, "handbrake turn: the path trails the nose by %.0f deg against %.0f without it (and %.0f against %.0f u/s)", b.SlipDeg(), a.SlipDeg(), b.Speed(), a.Speed());
+		Check(b.SlipDeg() > a.SlipDeg() && b.Speed() < a.Speed(), what);
+		Sim t1, t2;
+		t1.surface = t2.surface = H9RS_ROAD;
+		t1.vf = t2.vf = 600;
+		t1.Run(0.4f, false, false, 1, false);
+		t2.Run(0.4f, false, false, 1, true);
+		Check(t2.maxSlipDeg > t1.maxSlipDeg, "handbrake lets the tail round on the road too");
 	}
 
-	// --- stopping --------------------------------------------------------------------------------------------
+	// --- stopping: handbrake or back key, against the reference ---------------------------------------------------
 	{
 		Sim t;
-		t.vf = t.car->top;
-		float x0 = t.x;
-		while (t.vf > 1.0f && t.time < 30)
-			t.Step(-1, 0, false);
-		const float d = t.x - x0;
-		char what[200];
-		snprintf(what, sizeof what, "braking from top on tarmac: %.0f units in %.1f s (300 to 1500, under 5 s)", d, t.time);
-		Check(d > 300.0f && d < 1500.0f && t.time < 5.0f, what);
-		Check(t.vf >= 0.0f && t.vf < 2.0f, "braking stops the car, it does not push it back");
-		Sim i;
-		i.surface = H9RS_ICE;
-		i.vf = i.car->top;
-		x0 = i.x;
-		while (i.vf > 1.0f && i.time < 60)
-			i.Step(-1, 0, false);
-		snprintf(what, sizeof what, "braking on ice takes %.0f units, over 3x tarmac's %.0f", i.x - x0, d);
-		Check(i.x - x0 > 3.0f * d, what);
-
+		t.surface = H9RS_NEUTRAL;
+		t.vf = 408;
+		while (t.vf > 2.0f && t.time < 30)
+			t.Step(false, false, 0, true);
+		const float dHand = t.x;
+		const float tHand = t.time;
+		// the reference: drag 0.25 and the 150 a second along the velocity (aligned: all of it)
+		double v = 408, x = 0, tt = 0;
+		while (v > 2.0 && tt < 30)
+		{
+			v -= v * 0.25 * 0.001;
+			v -= 150.0 * 0.001;
+			x += v * 0.001;
+			tt += 0.001;
+		}
+		snprintf(what, sizeof what, "handbrake stop from 408 on neutral: %.0f units in %.2f s (reference %.0f in %.2f s)", dHand, tHand, (float)x, (float)tt);
+		Check(fabsf(dHand - (float)x) < 0.05f * (float)x && dHand > 250 && dHand < 600, what);
+		Sim bk;
+		bk.vf = 408;
+		while (bk.vf > H9R_REVERSE_ENTER && bk.time < 30)
+			bk.Step(false, true, 0, false);
+		snprintf(what, sizeof what, "back key brakes while above %.0f u/s: from 408 it is down to %.0f in %.2f s over %.0f units", H9R_REVERSE_ENTER, bk.vf, bk.time, bk.x);
+		Check(bk.vf <= H9R_REVERSE_ENTER + 5 && bk.time < 3.5f, what);
 		Sim c;
-		c.vf = c.car->top;
-		c.Run(10, 0, 0, false);
-		char what2[120];
-		snprintf(what2, sizeof what2, "lifting off: after 10 s the car is at %.0f of %.0f (coasting, slower than braking)", c.vf, c.car->top);
-		Check(c.vf < c.car->top * 0.2f && c.vf > 0, what2);
+		c.vf = 408;
+		c.Run(10, false, false, 0, false);
+		snprintf(what, sizeof what, "lifting off: after 10 s the car has coasted from 408 to %.0f (exp(-0.25 t) says %.0f)", c.vf, 408.0f * expf(-2.5f));
+		Check(fabsf(c.vf - 408.0f * expf(-2.5f)) < 4.0f, what);
 	}
 
-	// --- reverse ---------------------------------------------------------------------------------------------
+	// --- reverse -------------------------------------------------------------------------------------------------
 	{
 		Sim r;
-		r.Run(12, -1, 0, false);
-		char what[160];
-		snprintf(what, sizeof what, "reverse from rest ends at %.0f, backwards, within %.0f", r.vf, r.car->reverseTop);
-		Check(r.vf < -0.9f * r.car->reverseTop && r.vf >= -r.car->reverseTop - 0.5f, what);
-		Sim fwd, rev;
-		fwd.vf = 300;
-		rev.vf = -300;
-		fwd.Run(0.5f, 0, 1, false);
-		rev.Run(0.5f, -1, 1, false);
-		Check(fwd.heading > 0 && rev.heading < 0, "backing up with the wheel left turns the nose to the right");
+		r.Run(12, false, true, 0, false);
+		snprintf(what, sizeof what, "reverse from rest ends at %.0f u/s, backwards, about 40 (the client sends reverse only below 40 u/s, and above it the back key brakes)", r.vf);
+		Check(r.vf < -35.0f && r.vf > -50.0f, what);
 	}
 
-	// --- steering ---------------------------------------------------------------------------------------------
+	// --- steering --------------------------------------------------------------------------------------------------
 	{
-		const H9RallyCar& car = g_h9RallyCars[0];
-		const float still = H9RallySteer(0, 0, 1, false, false, car, 1.0f);
-		const float mid = H9RallySteer(140, 0, 1, false, false, car, 1.0f);
-		const float top = H9RallySteer(car.top, 0, 1, false, false, car, 1.0f);
-		const float hand = H9RallySteer(car.top, 0, 1, true, false, car, 1.0f);
-		Check(still > 0 && still < mid, "steering: a standing car turns, slowly");
-		Check(top < mid && top > 0, "steering: less at top speed than at 140");
-		Check(hand > mid, "steering: the handbrake turns it faster than anything");
-		Check(H9RallySteer(500, 0, 0, false, false, car, 1.0f) == 0, "steering: no key, no turn");
-		Check(fabsf(H9RallySteer(500, 0, 1, false, false, car, 1.0f) + H9RallySteer(500, 0, -1, false, false, car, 1.0f)) < 1e-4f, "steering: left and right turn alike");
+		Check(fabsf(H9RallySteer(1, 0.01f) - 4.0f) < 1e-4f, "steering: 400 degrees a second, 4 degrees in a 10 ms frame, at any speed");
+		Check(H9RallySteer(0, 0.5f) == 0, "steering: no key, no turn");
+		Check(fabsf(H9RallySteer(1, 0.02f) + H9RallySteer(-1, 0.02f)) < 1e-5f, "steering: left and right turn alike");
 	}
 
-	// --- slopes -----------------------------------------------------------------------------------------------
+	// --- slopes --------------------------------------------------------------------------------------------------
 	{
-		Sim flat, up, down, flat8;
-		up.slopeF = -250.0f; // gravity along a climb
-		down.slopeF = 250.0f;
-		flat.Run(30, 1, 0, false);
-		up.Run(30, 1, 0, false);
-		down.Run(8, 1, 0, false);
-		flat8.Run(8, 1, 0, false);
-		Check(up.vf < flat.vf * 0.95f, "uphill: slower than the flat");
-		Check(down.vf > flat8.vf, "downhill: quicker away than the flat");
-		Sim glide;
-		glide.vf = 600;
-		glide.slopeF = 250;
-		glide.Run(2, 0, 0, false);
-		Check(glide.vf > 600.0f, "rolling down a slope with the throttle up: it speeds up");
+		Sim flat, up, down;
+		up.slopeF = -150.0f; // gravity along a climb (520 * sin 17 degrees)
+		down.slopeF = 150.0f;
+		flat.Run(60, true, false, 0, false);
+		up.Run(60, true, false, 0, false);
+		down.Run(60, true, false, 0, false);
+		Check(up.vf < flat.vf * 0.8f && down.vf > flat.vf * 1.2f, "slopes: uphill slower, downhill faster than the flat");
 	}
 
-	// --- left and right alike -------------------------------------------------------------------------------------
+	// --- left and right alike ------------------------------------------------------------------------------------
 	{
-		for (int su = 0; su < H9RS_COUNT; su += 3)
+		for (int su = 0; su < H9RS_COUNT; su += 2)
 		{
 			Sim l, r;
 			l.surface = r.surface = su;
-			l.vf = r.vf = 600;
-			l.Run(2.0f, 1, 1, false);
-			r.Run(2.0f, 1, -1, false);
-			char what[160];
+			l.vf = r.vf = 300;
+			l.Run(2.0f, true, false, 1, false);
+			r.Run(2.0f, true, false, -1, false);
 			snprintf(what, sizeof what, "left and right mirror each other (%s)", g_h9RallySurfaces[su].name);
 			Check(fabsf(l.vf - r.vf) < 0.01f && fabsf(l.vs + r.vs) < 0.01f && fabsf(l.heading + r.heading) < 0.001f &&
 					  fabsf(l.y + r.y) < 0.05f && fabsf(l.x - r.x) < 0.05f,
 				  what);
-			Sim lh, rh;
-			lh.surface = rh.surface = su;
-			lh.vf = rh.vf = 600;
-			lh.Run(1.5f, 0, 1, true);
-			rh.Run(1.5f, 0, -1, true);
-			snprintf(what, sizeof what, "left and right mirror each other with the handbrake (%s)", g_h9RallySurfaces[su].name);
-			Check(fabsf(lh.vf - rh.vf) < 0.01f && fabsf(lh.vs + rh.vs) < 0.01f, what);
 		}
 	}
 
-	// --- a frame's length does not change the car -----------------------------------------------------------------
+	// --- a frame's length does not change the car ----------------------------------------------------------------
 	{
 		Sim a, b;
 		a.dt = 0.005f;
 		b.dt = 0.025f;
-		a.vf = b.vf = 500;
-		a.Run(3, 1, 1, false);
-		b.Run(3, 1, 1, false);
-		char what[200];
-		snprintf(what, sizeof what, "5 ms and 25 ms frames agree (speed %.0f against %.0f, heading %.0f against %.0f)", a.vf, b.vf, a.heading, b.heading);
-		Check(fabsf(a.vf - b.vf) < 0.04f * a.vf && fabsf(a.heading - b.heading) < 0.06f * fabsf(a.heading) + 1.0f, what);
+		a.vf = b.vf = 300;
+		a.Run(1.0f, true, false, 1, false);
+		b.Run(1.0f, true, false, 1, false);
+		a.Run(2.0f, true, false, 0, false);
+		b.Run(2.0f, true, false, 0, false);
+		snprintf(what, sizeof what, "5 ms and 25 ms frames agree (speed %.0f against %.0f)", a.Speed(), b.Speed());
+		Check(fabsf(a.Speed() - b.Speed()) < 0.05f * a.Speed(), what);
 	}
 
-	// --- never NaN, never faster than it can be ------------------------------------------------------------------
+	// --- never NaN, never faster than it can be -----------------------------------------------------------------
 	{
 		srand(12345);
 		bool finite = true, bounded = true;
@@ -299,26 +414,26 @@ int main()
 			s.vs = (float)(rand() % 1200 - 600);
 			s.slopeF = (float)(rand() % 600 - 300);
 			const float start = s.Speed();
-						float tr = 0, st = 0;
-			const float base = fmaxf(start, s.car->top) * 1.06f;
-			bool hb = false;
+			const float base = fmaxf(start, 1350.0f * H9R_ACCELERATE / 0.14f) * 1.06f;
+			bool fw = false, bk = false, hb = false;
+			float st = 0;
 			for (int i = 0; i < 1500; i++)
 			{
 				if (i % 37 == 0)
 				{
-					tr = (float)(rand() % 3 - 1);
+					fw = (rand() % 2) == 0;
+					bk = !fw && (rand() % 2) == 0;
 					st = (float)(rand() % 3 - 1);
 					hb = (rand() % 4) == 0;
 					s.dt = 0.001f + (float)(rand() % 50) * 0.001f;
 				}
-				s.Step(tr, st, hb);
-				if (!Finite(s.vf) || !Finite(s.vs) || !Finite(s.heading) || !Finite(s.x) || !Finite(s.y))
+				s.Step(fw, bk, st, hb);
+				if (!std::isfinite(s.vf) || !std::isfinite(s.vs) || !std::isfinite(s.heading) || !std::isfinite(s.x) || !std::isfinite(s.y))
 					finite = false;
-				const float limit = base + fabsf(s.slopeF) * s.time + 1.0f;
-				if (s.Speed() > limit)
+				if (s.Speed() > base + fabsf(s.slopeF) * s.time + 1.0f)
 				{
 					if (bounded)
-						printf("     run %d step %d: speed %.0f over %.0f (start %.0f, surface %d, slope %.0f)\n", run, i, s.Speed(), limit, start, s.surface, s.slopeF);
+						printf("     run %d step %d: speed %.0f over %.0f (start %.0f, surface %d, slope %.0f)\n", run, i, s.Speed(), base + fabsf(s.slopeF) * s.time, start, s.surface, s.slopeF);
 					bounded = false;
 				}
 			}
@@ -327,45 +442,60 @@ int main()
 		Check(bounded, "the same drives never gain speed the engine and the slope cannot give");
 		Sim z;
 		z.dt = 0.0f;
-		z.Step(1, 1, true);
-		Check(Finite(z.vf) && Finite(z.heading), "a zero-length frame is harmless");
+		z.Step(true, false, 1, true);
+		Check(std::isfinite(z.vf) && std::isfinite(z.heading), "a zero-length frame is harmless");
 	}
 
-	// --- the texture names -----------------------------------------------------------------------------------------
+	// --- the texture names ---------------------------------------------------------------------------------------
 	{
 		struct
 		{
 			const char* name;
 			int want;
+			float drag;
 		} names[] = {
-			{"wntr_snow1", H9RS_SNOW}, {"wntr_cliff2", H9RS_TARMAC}, {"wntr_ground", H9RS_SNOW}, {"WNTR_SNOW", H9RS_SNOW},
-			{"sand01", H9RS_SAND}, {"desert_rock", H9RS_SAND}, {"{sand_dune", H9RS_SAND}, {"dirt2", H9RS_DIRT},
-			{"mud_brown", H9RS_DIRT}, {"gras03", H9RS_GRASS}, {"road_dash", H9RS_TARMAC}, {"street_a", H9RS_TARMAC},
-			{"rock_big", H9RS_TARMAC}, {"ice1", H9RS_ICE}, {"wntr_ice", H9RS_ICE}, {"gravel_a", H9RS_GRAVEL},
-			{"conc02", H9RS_CONCRETE}, {"metalplate01", H9RS_METAL}, {"plate_floor", H9RS_METAL}, {"pack_dirt", H9RS_PACKED},
-			{"+0snow", H9RS_SNOW}, {"-0sand", H9RS_SAND}, {"office01", H9RS_TARMAC}, {"police", H9RS_TARMAC},
-			{"template", H9RS_TARMAC}, {"asphalt", H9RS_TARMAC}, {"", H9RS_TARMAC}, {"unknown_wall", H9RS_TARMAC},
+			{"wntr_snow1", H9RS_SNOW, 0}, {"wntr_cliff2", H9RS_NEUTRAL, 0}, {"wntr_ground", H9RS_NEUTRAL, 0}, {"WNTR_SNOW", H9RS_SNOW, 0},
+			{"sand01", H9RS_SAND, 0}, {"desert_rock", H9RS_SAND, -0.10f}, {"{sand_dune", H9RS_SAND, 0}, {"dirt2", H9RS_DIRT, 0},
+			{"mud_brown", H9RS_DIRT, 0}, {"gras03", H9RS_GRASS, 0}, {"road_dash", H9RS_ROAD, 0}, {"street_a", H9RS_ROAD, 0},
+			{"rock_big", H9RS_ROAD, 0}, {"dirt_road", H9RS_DIRT, -0.10f}, {"ice1", H9RS_ICE, 0}, {"wntr_ice", H9RS_ICE, 0},
+			{"gravel_a", H9RS_GRAVEL, 0}, {"conc02", H9RS_CONCRETE, 0}, {"metalplate01", H9RS_METAL, 0}, {"plate_floor", H9RS_METAL, 0},
+			{"pack_dirt", H9RS_PACKED, 0}, {"+0snow", H9RS_SNOW, 0}, {"-0sand", H9RS_SAND, 0}, {"office01", H9RS_NEUTRAL, 0},
+			{"police", H9RS_NEUTRAL, 0}, {"template", H9RS_NEUTRAL, 0}, {"asphalt", H9RS_ROAD, 0}, {"", H9RS_NEUTRAL, 0},
+			{"unknown_wall", H9RS_NEUTRAL, 0},
 		};
 		bool all = true;
 		for (const auto& n : names)
 		{
-			const int got = H9RallySurfaceByName(n.name);
-			if (got != n.want)
+			float d = 0;
+			const int got = H9RallySurfaceByName(n.name, &d);
+			if (got != n.want || fabsf(d - n.drag) > 1e-5f)
 			{
 				all = false;
-				printf("     \"%s\": wanted %s, got %s\n", n.name, g_h9RallySurfaces[n.want].name, g_h9RallySurfaces[got].name);
+				printf("     \"%s\": wanted %s (+%.2f), got %s (+%.2f)\n", n.name, g_h9RallySurfaces[n.want].name, n.drag, g_h9RallySurfaces[got].name, d);
 			}
 		}
-		Check(all, "texture names map to surfaces (HL Rally's rules, the winter set and the new ones)");
-		Check(H9RallySurfaceByName(nullptr) == H9RS_TARMAC, "no name is tarmac");
+		Check(all, "texture names map to surfaces (HL Rally's rules, and the new ones)");
+		Check(H9RallySurfaceByName(nullptr) == H9RS_NEUTRAL, "no name is neutral");
 	}
 
-	// --- landing ---------------------------------------------------------------------------------------------------
+	// --- walls -----------------------------------------------------------------------------------------------------
 	{
-		Check(H9RallyLandKeep(100) == 1.0f, "a soft landing costs nothing");
-		const float hard = H9RallyLandKeep(800);
-		Check(hard < 1.0f && hard >= 1.0f - H9R_LAND_MAX - 1e-4f, "a hard landing costs speed, never more than the cap");
-		Check(H9RallyLandKeep(5000) >= 1.0f - H9R_LAND_MAX - 1e-4f, "the loss is capped");
+		Check(fabsf(H9RallyCrashKeep(-1.0f) - 1.0f / 3.0f) < 1e-5f, "a head-on crash keeps a third of the speed");
+		Check(fabsf(H9RallyCrashKeep(1.0f) - 1.0f) < 1e-5f, "grazing a wall keeps all of it");
+	}
+
+	// --- numbers for the report -------------------------------------------------------------------------------------
+	{
+		printf("      lap of 35500 units, throttle held, no corners (a lower bound), from a standing start:\n");
+		const int surfaces[3] = {H9RS_NEUTRAL, H9RS_SNOW, H9RS_ROAD};
+		for (int si = 0; si < 3; si++)
+		{
+			Sim s;
+			s.surface = surfaces[si];
+			while (s.x < 35500.0f && s.time < 600)
+				s.Step(true, false, 0, false);
+			printf("        %-8s %.0f s\n", g_h9RallySurfaces[surfaces[si]].name, s.time);
+		}
 	}
 
 	if (g_failed)

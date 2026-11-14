@@ -29,7 +29,6 @@
 
 
 extern bool g_iAlive;
-extern Vector g_tspLocalSimVel; // view.cpp: the local player's velocity (ref_params simvel)
 
 
 extern int g_weaponselect;
@@ -726,6 +725,8 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	float spd;
 	Vector viewangles;
 	static Vector oldangles;
+	int rallyClass = 0;          // H9 rally mode: the physinfo "rally" value, 0 off
+	bool rallySteerKeys = false; // and whether a side key is down
 
 	if (0 != active)
 	{
@@ -742,20 +743,15 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 		const float keyLeft = CL_KeyState(&in_moveleft);
 
 		// H9 rally mode (pm_shared/h9_rally.h): the player is a car and its heading is the view yaw, so the side keys
-		// steer by turning the view; the server then reads the heading from the command, as the client predicts it.
+		// steer by turning the view, 400 degrees a second at any speed as in HL Rally (its cl_yawspeed, capped at 400);
+		// the server then reads the heading from the command, and the client predicts the same.
 		{
 			const char* rallyKey = gEngfuncs.PhysInfo_ValueForKey("rally");
-			const int rallyClass = rallyKey ? atoi(rallyKey) : 0;
+			rallyClass = rallyKey ? atoi(rallyKey) : 0;
 			if (rallyClass > 0 && g_iAlive)
 			{
-				const float yawRad = viewangles[YAW] * (float)(M_PI / 180.0);
-				const float cy = cosf(yawRad), sy = sinf(yawRad);
-				const float vf = g_tspLocalSimVel[0] * cy + g_tspLocalSimVel[1] * sy;
-				const float vs = -g_tspLocalSimVel[0] * sy + g_tspLocalSimVel[1] * cy;
-				const float steer = keyLeft - keyRight;
-				const bool hand = (in_jump.state & 1) != 0;
-				const bool backing = (in_back.state & 1) != 0;
-				viewangles[YAW] = anglemod(viewangles[YAW] + H9RallySteer(vf, vs, steer, hand, backing, H9RallyCarByClass(rallyClass), frametime));
+				rallySteerKeys = keyLeft > 0 || keyRight > 0;
+				viewangles[YAW] = anglemod(viewangles[YAW] + H9RallySteer(keyLeft - keyRight, frametime));
 			}
 		}
 
@@ -816,6 +812,8 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	// set button and flag bits
 	//
 	cmd->buttons = CL_ButtonBits(true);
+	if (rallySteerKeys)
+		cmd->buttons |= IN_LEFT; // the handling reads "a steering key is down" from the buttons (either one will do)
 
 	// If they're in a modal dialog, ignore the attack button.
 	if (GetClientVoiceMgr()->IsInSquelchMode())
