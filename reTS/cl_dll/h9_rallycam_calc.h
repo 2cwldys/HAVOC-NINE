@@ -65,13 +65,13 @@ inline float Alpha(float dt, float tau)
 
 // ---- who is a car ------------------------------------------------------------------------------------------------------------
 
-// What every client can see of a player that is a car: its box. The server sets a player's box to (-16 -16 0) (16 16 16) in
-// rally mode (dlls/h9_rally_srv.cpp) and the engine sends mins and maxs for every player, so no field is added. A standing, ducked
-// or prone human is 36 or more high on one side of the origin or the other, and a box that starts at the origin is under 25 high
-// for nothing but a car.
+// What every client can see of a player that is a car: its box. The server sets a player's box to HL Rally's (-5 -5 -1) (5 5 1) in
+// rally mode (dlls/h9_rally_srv.cpp; the (-16 -16 0) (16 16 16) of the first version is still taken for one) and the engine sends mins
+// and maxs for every player, so no field is added. A standing, ducked or prone human is 18 or more high on one side of the origin or
+// the other (or 56 above it), and a box that starts at the origin (to 1 below) and is under 25 high is for nothing but a car.
 inline bool IsCarBox(const V3& mins, const V3& maxs)
 {
-	return mins.z > -0.5f && mins.z < 0.5f && maxs.z > 4.0f && maxs.z <= 24.0f && maxs.x > 4.0f && maxs.x <= 32.0f && mins.x < -4.0f && mins.x >= -32.0f;
+	return mins.z > -2.0f && mins.z < 0.5f && maxs.z > 0.5f && maxs.z <= 24.0f && maxs.x > 4.0f && maxs.x <= 32.0f && mins.x < -4.0f && mins.x >= -32.0f;
 }
 
 // ---- the car's tilt on the ground ----------------------------------------------------------------------------------------------

@@ -161,8 +161,8 @@ void H9RallyServerThink(CBasePlayer* pl)
 		pl->RemoveAllItems(false);
 	pev->viewmodel = 0;
 	pev->weaponmodel = 0;
-	if (pev->maxs.z != 16.0f || pev->maxs.x != 16.0f || pev->mins.z != 0.0f)
-		UTIL_SetSize(pev, Vector(-16, -16, 0), Vector(16, 16, 16));
+	if (pev->maxs.z != 1.0f || pev->maxs.x != 5.0f || pev->mins.z != -1.0f)
+		UTIL_SetSize(pev, Vector(-5, -5, -1), Vector(5, 5, 1)); // HL Rally's: VEC_HULL_MIN/MAX of its util.h
 
 	// his sounds: the engine by gear, skids, landings, walls, the horn (h9_rally_snd.cpp)
 	H9RallySoundThink(pl, want);

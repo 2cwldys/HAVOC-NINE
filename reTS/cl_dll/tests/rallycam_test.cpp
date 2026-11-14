@@ -41,7 +41,9 @@ static V3 NormalOn(const PlaneGround& g, float cx, float cy, float yaw, float hl
 int main()
 {
 	// ---- who is a car ----
-	CHECK(IsCarBox(V3(-16, -16, 0), V3(16, 16, 16)));           // rally mode's box (dlls/h9_rally_srv.cpp)
+	CHECK(IsCarBox(V3(-5, -5, -1), V3(5, 5, 1)));               // rally mode's box, HL Rally's (dlls/h9_rally_srv.cpp)
+	CHECK(IsCarBox(V3(-5.125f, -5, -1), V3(5, 4.875f, 1.125f))); // sent at 1/8 unit: still a car
+	CHECK(IsCarBox(V3(-16, -16, 0), V3(16, 16, 16)));           // the first version's box
 	CHECK(!IsCarBox(V3(-16, -16, -36), V3(16, 16, 36)));        // a standing player
 	CHECK(!IsCarBox(V3(-16, -16, -18), V3(16, 16, 18)));        // a ducked one
 	CHECK(!IsCarBox(V3(-16, -16, 0), V3(16, 16, 72)));          // the human hull
