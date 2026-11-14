@@ -114,11 +114,32 @@ A server that `servers.txt` names by a host name (`havoc9.org:27015`) and that h
 that name's address is the same entry, not a second one.
 
 Answers: 200 when the server answered its query, 401 for a wrong key (or no key while
-`open_heartbeats` is 0), 403 for a keyless heartbeat that names another address, 400 for a bad
+`open_heartbeats` is 0), 403 for a keyless heartbeat that names another address or for an address
+that `blacklisted.ini` names (below; the `error` says which), 400 for a bad
 address or port or a body that is not JSON, 422 when no server answered at that address
 (its UDP port is shut, say), the server runs another game folder, or a limit above is reached (the
 answer's `error` says which), and 429 for a keyless heartbeat past `heartbeats_per_minute` or an
 address that has sent too many wrong keys.
+
+## Keeping a server off the list
+
+`blacklisted.ini` names the servers the list will not list. `install.bat` makes it from
+`blacklisted.ini.example`, and it blacklists nothing until you add a line. It is git-ignored, because it names other
+people's servers. One entry to a line, and a `;` or `#` starts a comment, so a note can follow an entry:
+
+    203.0.113.7           every server at that address, on any port
+    203.0.113.7:27016     that one server
+    203.0.113.0/24        every address in a range (IPv4)
+    fake.example.com      every server that host name stands for (host:port for just one of them)
+
+The list reads the file when it starts and again whenever it changes, so an edit takes hold within `poll_seconds`
+with no restart. A line it cannot read is skipped and written to the log, and the rest still count.
+
+Every way onto the list is held to it, the heartbeat key, `servers.txt` and `/addserver` included, so a moderator
+cannot list a blacklisted server by mistake. A heartbeat from a blacklisted address is answered 403, and a server that is
+on the list when an entry names it is taken off at the next poll. A host name that stands for a blacklisted address is
+refused too. Take the line out and the server may list again. A refusal is written to the log once in ten minutes for
+each address. Like the other data files, the file sits in `H9_SERVERLIST_HOME` when that is set.
 
 ## For a website: the JSON list
 

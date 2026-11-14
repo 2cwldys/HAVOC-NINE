@@ -354,7 +354,7 @@ if (-not (Test-Path -LiteralPath $serversJson)) {
 } else { Note "$serversJson is kept as it is" }
 
 Say '4. the server list'
-Step "the list's code into $ListHome" { Copy-Mirror (Join-Path $Src 'serverlist-bot') $ListHome @('venv', '__pycache__') @('serverlist.cfg', 'serverlist.cfg.example', 'serverlist.ini', 'servers.txt', 'serverlist.log', '*.bat', '.gitignore') }
+Step "the list's code into $ListHome" { Copy-Mirror (Join-Path $Src 'serverlist-bot') $ListHome @('venv', '__pycache__') @('serverlist.cfg', 'serverlist.cfg.example', 'serverlist.ini', 'servers.txt', 'blacklisted.ini', 'serverlist.log', '*.bat', '.gitignore') }
 Step "its Python packages (requirements.txt) into $ListHome\venv" {
     if (-not (Test-Path -LiteralPath (Join-Path $ListHome 'venv\Scripts\python.exe'))) { Invoke-Native $Python @('-m', 'venv', (Join-Path $ListHome 'venv')) }
     Invoke-Native (Join-Path $ListHome 'venv\Scripts\python.exe') @('-m', 'pip', 'install', '-q', '--disable-pip-version-check', '--upgrade', '-r', (Join-Path $ListHome 'requirements.txt'))
@@ -365,6 +365,8 @@ foreach ($f in @('serverlist.ini', 'servers.txt')) {
 }
 $listCfg = Join-Path $ListData 'serverlist.cfg'
 if (-not (Test-Path -LiteralPath $listCfg)) { Step "make $listCfg (no heartbeat key, no Discord token yet)" { Copy-Item -LiteralPath (Join-Path $Src 'serverlist-bot\serverlist.cfg.example') -Destination $listCfg } }
+$listBlack = Join-Path $ListData 'blacklisted.ini'
+if (-not (Test-Path -LiteralPath $listBlack)) { Step "make $listBlack (it blacklists nothing until you add a line)" { Copy-Item -LiteralPath (Join-Path $Src 'serverlist-bot\blacklisted.ini.example') -Destination $listBlack } }
 
 $p2pReady = $false
 if ($P2P) {

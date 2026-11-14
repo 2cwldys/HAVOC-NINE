@@ -2,7 +2,8 @@ name: Patch notes
 
 # A change to the source a shipped binary is built from, or to that binary, needs the binary's .patch note changed with it
 # (docs/PATCH_NOTES_CHECK.txt; the rules are in tools/patch-notes-map.json). Any change to the note passes: the check asks that
-# the note was touched, and for the engine's patches which binary each lands in. A commit that says
+# the note was touched. A binary that changed without its note fails; a change to an engine patch alone is only reported as a notice.
+# A commit that says
 #   Patch-Notes: skip <the reason>
 # on a line of its own (a refactor, a comment, a rename) waives the check for the range. Nothing here edits the repository and
 # nothing uses a secret, so it runs for pull requests from forks too.

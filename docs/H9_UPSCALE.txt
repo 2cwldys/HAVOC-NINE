@@ -8,7 +8,9 @@
    stretches it to the window. The picture is nearly the same, and a weak graphics card has less to draw. The HUD, the menus and
    the console are drawn after that, at the window's own size, so they stay sharp.
 
-   TURN IT ON. Open the console (the ~ key) and type these two lines, in either order:
+   TURN IT ON. It is on already: h9_upscale 1 is the default. At r_scene_scale 1 (the window's full size) it only sharpens the
+   scene a little. To draw fewer pixels, open the console (the ~ key) and type these two lines, in either order (the second
+   only if you turned it off, or an old opengl.cfg keeps a 0):
 
        r_scene_scale 0.67        draws the 3D scene at 0.67 of the window's width and height. In a 1920x1080 window that is
                                  1286x724, 45 percent of the pixels.
@@ -24,7 +26,8 @@
    no sharpening and 1 is the strongest. If the edges look too hard, lower it.
 
    SAVED. h9_upscale, h9_upscale_sharp and r_scene_scale are saved in opengl.cfg, in the game's ts folder, when you quit the
-   game. The next start has them as you left them.
+   game. The next start has them as you left them. A player whose opengl.cfg already holds h9_upscale "0" keeps his 0: the
+   new default reaches only a game that has no saved value, and nothing rewrites a saved one.
 
    WHAT YOU SHOULD SEE. A 3D scene a little softer than at full size, but crisper than r_scene_scale alone gives. On still
    pictures of H9's maps at 0.67 the plain stretch keeps about six tenths of the full-size picture's edge strength and the
@@ -57,7 +60,7 @@
    counts a change, with no restart. COMMANDS.txt (H9XASH CLIENT) has the rows of the two new ones.
 
    h9_upscale                            (new: engine-h9-upscale.patch)
-       default 0.   Range 0 or 1: 1 or more is on, below 1 is off.   Saved in opengl.cfg.   Live: read every frame.
+       default 1.   Range 0 or 1: 1 or more is on, below 1 is off.   Saved in opengl.cfg.   Live: read every frame.
        1 draws the 3D scene to the window with FSR 1. 0 is the plain stretch, as before: no shader is built, no target is made
        and no GL call is added to the frame.
 
@@ -132,8 +135,8 @@
 
  2. THE TWO CVARS, AND WHAT A WEAK PC SHOULD SET
  -----------------------------------------------
-   h9_upscale 0|1         0 (the default) is the plain blit, exactly as before: no shader is compiled, no target is made and no
-                          GL call is added to the frame. 1 is on; a value above 1 acts as 1, one below 1 is off. Saved with the
+   h9_upscale 0|1         1 (the default) is on. 0 is the plain blit, exactly as before: no shader is compiled, no target is made
+                          and no GL call is added to the frame. A value above 1 acts as 1, one below 1 is off. Saved with the
                           renderer's settings (opengl.cfg, with r_scene_scale), and read every frame: typed in the console it
                           takes effect on the next frame, no restart.
    h9_upscale_sharp 0..1  how strongly RCAS sharpens (0.84). It is FSR's own constant: AMD sets it in "stops" of attenuation, 2 to

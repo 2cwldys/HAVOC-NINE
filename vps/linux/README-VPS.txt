@@ -67,7 +67,8 @@
    /opt/h9-serverlist         the list's code and its Python packages
    /var/lib/h9-serverlist     the list's serverlist.ini, serverlist.cfg (the
                               Discord token and heartbeat key), servers.txt,
-                              serverlist.log (the h9list user's only)
+                              blacklisted.ini (the servers the list will not
+                              list), serverlist.log (the h9list user's only)
    /var/www/havoc9.org        the site
    /var/www/havoc9.org/downloads   the downloads and their file index
                               (step 13)

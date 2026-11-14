@@ -293,6 +293,10 @@ if [ ! -f "$LIST_DATA/serverlist.cfg" ]; then
   install -m 600 -o h9list -g h9list "$SRC/serverlist-bot/serverlist.cfg.example" "$LIST_DATA/serverlist.cfg"
   note "made $LIST_DATA/serverlist.cfg (no heartbeat key, no Discord token yet: README-VPS.txt step 7)"
 fi
+if [ ! -f "$LIST_DATA/blacklisted.ini" ]; then
+  install -m 600 -o h9list -g h9list "$SRC/serverlist-bot/blacklisted.ini.example" "$LIST_DATA/blacklisted.ini"
+  note "made $LIST_DATA/blacklisted.ini (it blacklists nothing until you add a line: serverlist-bot/README.md)"
+fi
 chown -R h9list:h9list "$LIST_DATA"
 find "$LIST_DATA" -type f -exec chmod 600 {} +
 

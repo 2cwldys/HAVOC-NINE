@@ -82,7 +82,7 @@
    data\h9web\       h9web.db, secrets.json, data.key, modules\, backups\,
                      offsite\ (SYSTEM, Administrators and LocalService only)
    data\serverlist\  the list's serverlist.ini, serverlist.cfg (its secrets),
-                     servers.txt, serverlist.log
+                     servers.txt, blacklisted.ini, serverlist.log
    data\caddy\       the certificates
    services\         the service wrappers;  logs\  the services' logs
    downloads\        the checked downloads, kept for the next run
