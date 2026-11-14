@@ -48,6 +48,7 @@
 #include <amxmodx>
 #include <fakemeta>
 
+#define H9VGUI_FRESH_SECONDS 30.0 // after a player comes into a map, every menu goes out with its definition again for this long
 #define H9VGUI_PROTOCOL  1       // the version this include speaks; _h9vgui must be at least it
 #define H9VGUI_STATUS_PROTOCOL 2 // the first _h9vgui whose game draws a STATUS
 #define H9VGUI_MARK_PROTOCOL 3   // the first _h9vgui whose game draws a MARK
@@ -138,6 +139,9 @@ stock g_h9v_sent_sig[MAX_PLAYERS + 1];
 stock g_h9v_sent_uid[MAX_PLAYERS + 1];
 stock Float:g_h9v_sent_at[MAX_PLAYERS + 1];
 stock g_h9v_sent_id[MAX_PLAYERS + 1][24];
+// When a player came into this map, plus H9VGUI_FRESH_SECONDS. A map change keeps his game connected: its HUD data is reset when the game
+// library's InitHUD reaches it, and that forgets every menu definition it holds, which can be after the first menu of the map was sent.
+stock Float:g_h9v_fresh_until[MAX_PLAYERS + 1];
 
 // A player's h9vgui commands this second.
 stock Float:g_h9v_cmd_at[MAX_PLAYERS + 1];
@@ -159,6 +163,7 @@ stock h9vgui_init(const ns[])
 		g_h9v_cvar = register_cvar("h9_vgui", "1");
 	}
 	register_clcmd("h9vgui", "__h9vgui_cmd");
+	register_forward(FM_ClientPutInServer, "__h9vgui_putinserver", 1);
 }
 
 /// Whether this player's game draws H9 VGUI: _h9vgui in his userinfo, not a bot, h9_vgui 1.
@@ -254,7 +259,7 @@ stock h9vgui_menu_send(id, keys, const text[], time, const amx[])
 		new uid = get_user_userid(id);
 		new Float:now = get_gametime();
 		if (sig != g_h9v_sent_sig[id] || uid != g_h9v_sent_uid[id] || !equal(g_h9v_sent_id[id], g_h9v_menu_id)
-			|| now - g_h9v_sent_at[id] > 15.0 || now < g_h9v_sent_at[id])
+			|| now - g_h9v_sent_at[id] > 15.0 || now < g_h9v_sent_at[id] || now < g_h9v_fresh_until[id])
 		{
 			__h9vgui_send_def(id, keys, time);
 			g_h9v_sent_sig[id] = sig;
@@ -518,6 +523,14 @@ stock h9vgui_close(id, const panel[])
 
 /// "h9vgui <id> <control> <value>": this plugin's own ids go to its h9vgui_event(), at most ten
 /// a second from one player; any other id goes on to the next plugin's handler.
+public __h9vgui_putinserver(id)
+{
+	if (id >= 1 && id <= MAX_PLAYERS)
+	{
+		g_h9v_fresh_until[id] = get_gametime() + H9VGUI_FRESH_SECONDS;
+	}
+}
+
 public __h9vgui_cmd(id)
 {
 	new panel[32];

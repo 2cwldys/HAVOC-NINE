@@ -836,7 +836,7 @@ int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
 
 // ---- every frame ------------------------------------------------------------------------------
 
-void CloseAll()
+void CloseAll(bool forgetMenus = true)
 {
 	s_bLookMate = false;
 	s_bLookAll = false;
@@ -847,8 +847,9 @@ void CloseAll()
 		n.used = false;
 	for (PanelSlot& p : s_Panels)
 		ClosePanel(p);
-	for (H9MenuDef& m : s_Menus)
-		m.used = false;
+	if (forgetMenus)
+		for (H9MenuDef& m : s_Menus)
+			m.used = false;
 	for (H9Mark& m : s_Marks)
 		m.used = false;
 	s_iStripTall = 0;
@@ -1297,7 +1298,11 @@ public:
 	}
 	void InitHUDData() override
 	{
-		CloseAll(); // a new map, or a new server
+		// A new map, or a new server. The menu definitions stay: the server sends one once and re-offers the menu with only a TWIN while its
+		// cache holds (h9_vgui.inc), and a map change keeps this game connected, so the first menu of the new map can arrive BEFORE this
+		// InitHUD. Forgetting it here left that menu, and every re-offer, to the text menu. A new server starts with a cold cache and sends
+		// each definition again before its first TWIN.
+		CloseAll(false);
 	}
 };
 CHudH9Vgui s_Hud;

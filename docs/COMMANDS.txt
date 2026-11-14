@@ -2713,8 +2713,8 @@
 
  A side takes the enemy's flag by walking over it and scores by bringing it to
  its own pad, while its own flag is at its pad (tsm_cf_needhome). A flag
- changes colour with whoever has it: its own side's at its pad, the carrier's
- while carried, grey where it lies. A dropped flag is taken back at once by its
+ keeps its own side's colour at its pad and while it is carried, and is grey
+ where it lies. A dropped flag is taken back at once by its
  own side, or flies home after tsm_cf_return seconds. Every flag and pad is
  drawn on every player's screen through the walls: H9 games show badges
  (cl_h9_marks), any other game gets TS's own objective markers. The first

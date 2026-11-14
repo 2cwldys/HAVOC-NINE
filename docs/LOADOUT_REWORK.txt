@@ -95,8 +95,8 @@
    wallet. So "funded by the cash and credits system" cannot be enforced by
    TS: the existing comment that an empty wallet makes TS refuse a purchase is
    not what the source does (weaponrestriction 1 is what refuses). The rework
-   therefore keeps the account itself (section 4). reTS-proposals\
-   loadout-cash-economy.diff is the change that would make TS do it.
+   therefore keeps the account itself (section 4). loadout-cash-economy.diff is the
+   change that would make TS do it; it was kept in reTS-proposals\ and is in the git history (the folder left the tree).
 
  - tsm_block_buy 1 swallows tkw/tka/tki/rst_cfg/cashala in every state
    (cmd_blockbuy) and "13_3"-style names (client_command). Warmup buying was
@@ -485,12 +485,12 @@
 8. RETS PROPOSALS AND WHAT THE GAME LIBRARIES HOLD
 -------------------------------------------------------------------------------
 
- reTS-proposals\loadout-mech-nodisarm-nopickup.diff
+ loadout-mech-nodisarm-nopickup.diff (it was in reTS-proposals\, now in the git history)
      DropWeapon and PickUpWeapon refuse for a player the plugin marks in
      pev->fuser4, while tsm_loadoutrework is on. Taken into the game library
      (section 7) and into the plugin (lr_arm_begin writes the mark).
 
- reTS-proposals\loadout-cash-economy.diff
+ loadout-cash-economy.diff (it was in reTS-proposals\, now in the git history)
      CashBased() follows usecash, BuyWeapon charges, the client menu's budget is
      the wallet. Would let TS enforce the money, and the menu show the class's
      cash instead of its constant 30000. Not needed for the rework as built; it
