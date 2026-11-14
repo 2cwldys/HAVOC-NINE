@@ -28,7 +28,7 @@ static inline bool RaceVehicleKeyIsRally(const char* value)
 	return value[5] == 0;
 }
 
-// The car class a map's racers drive as (1..3), or 0 for the h9_car. The cvar h9_rally 1..3 forces rally in any race map
+// The car class a map's racers drive as (1..10, the first three as they were), or 0 for the h9_car. The cvar h9_rally 1..3 forces rally in any race map
 // and picks the class; with it 0 the map's key decides, and the class is 1.
 static inline int RaceRallyClassFor(bool keyIsRally, int cvarValue)
 {
@@ -61,13 +61,10 @@ static inline int RaceSurfaceByte(int rallySurface, bool water)
 	switch (rallySurface)
 	{
 	case H9RS_DIRT:
-	case H9RS_PACKED:
 	case H9RS_SAND: return 2;
-	case H9RS_GRAVEL: return 1;
 	case H9RS_GRASS: return 3;
 	case H9RS_SNOW: return 5;
-	case H9RS_ICE: return 6;
-	default: return 0; // road, concrete, metal, neutral
+	default: return 0; // road, neutral (gravel 1 and ice 6 are the effects' ids; HL Rally has no such surfaces)
 	}
 }
 
@@ -112,20 +109,19 @@ static inline float RaceRallyTopSpeed(int cls)
 	return H9R_ACCELERATE * H9RallyWish(car) / (H9R_FRICTION - 0.10f);
 }
 
-// The watch that puts a racer back on the track: out of the world (below it, at once; inside rock, `voidTime`) or in deep
-// water (`waterTime`). Update() answers true on the frame he is to be put back, and starts again.
-struct RaceStrandWatch
+// The put-back key (HL Rally's `k`, ClientKill): on the press, at once, and not again for a second after one that was taken
+// (a press inside that second does nothing and does not extend it). Holding the key does not repeat it.
+struct RacePutKey
 {
-	float water = 0, inRock = 0;
-	bool Update(bool belowWorld, bool inSolid, bool deepWater, float dt, float waterTime = 3.0f, float rockTime = 1.5f)
+	bool down = false;
+	float next = 0;
+	bool Press(bool pressed, float now)
 	{
-		water = deepWater ? water + dt : 0;
-		inRock = inSolid ? inRock + dt : 0;
-		if (belowWorld || water >= waterTime || inRock >= rockTime)
-		{
-			water = inRock = 0;
-			return true;
-		}
-		return false;
+		const bool edge = pressed && !down;
+		down = pressed;
+		if (!edge || now < next)
+			return false;
+		next = now + 1.0f;
+		return true;
 	}
 };

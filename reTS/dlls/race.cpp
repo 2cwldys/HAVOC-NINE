@@ -211,6 +211,7 @@ public:
 	RaceState State() const { return m_state; }
 	int Round() const { return m_iRound; }
 	bool Holds(CBasePlayer* pPlayer);
+	bool FinishedCar(CBasePlayer* pPlayer);
 	int SlotOf(CBasePlayer* pPlayer);
 	bool RespawnPoint(CBasePlayer* pPlayer, Vector& origin, Vector& angles);
 	void Placed(CBasePlayer* pPlayer);
@@ -247,8 +248,7 @@ private:
 		float nextStatus = 0, nextWarn = 0;
 		// rally mode
 		bool frozen = false;       // FL_FROZEN is set by the race
-		float resetHeld = 0;       // seconds the reset key has been down
-		RaceStrandWatch strand;
+		RacePutKey putKey;         // the put-back key (HL Rally's `k`): at once, then a second's rest
 		float nextLook = 0;        // when the surface under him is read again
 		int surface = 0;           // and what it was (the low 3 bits of blending[1])
 	};
@@ -321,7 +321,6 @@ private:
 	// rally mode
 	bool m_bWasRally = false;   // the mode the seats were made for
 	int m_iGrid = 0;            // grid slots the map has (1..m_iGrid, no gaps)
-	float m_flVoidZ = -99999;   // below this a racer is out of the world
 	float m_flRallyDt = 0;
 	void RallyRoster();
 	void RallyFrame(float dt);
@@ -583,19 +582,6 @@ void CRaceRules::Survey()
 		while (m_iGrid < RACE_MAX_PLAYERS && RaceGridSlot(m_iGrid + 1, o, a))
 			m_iGrid++;
 	}
-	m_flVoidZ = 99999;
-	for (int number = 0; number < m_iCheckpoints; number++)
-		if (m_checkpoints[number].mins.z < m_flVoidZ)
-			m_flVoidZ = m_checkpoints[number].mins.z;
-	const char* const placeNames[2] = {"race_grid", "race_respawn"};
-	for (const char* name : placeNames)
-	{
-		CBaseEntity* pPlace = NULL;
-		while ((pPlace = UTIL_FindEntityByClassname(pPlace, name)) != NULL)
-			if (pPlace->pev->origin.z < m_flVoidZ)
-				m_flVoidZ = pPlace->pev->origin.z;
-	}
-	m_flVoidZ -= 2000.0f;
 	if (Rally())
 	{
 		// the map's grid cars are not used: seen by nobody, touched by nobody, entered by nobody (race_rally guards in
@@ -1143,6 +1129,17 @@ bool CRaceRules::Holds(CBasePlayer* pPlayer)
 		return false;
 	if (m_state == RACE_COUNTDOWN || m_flResultsEnd > 0)
 		return true;
+	if (Rally())
+		return false; // a finished racer in rally mode is not held: his car brakes and coasts (pmove, key "rfin")
+	const RaceRacer* racer = m_book.Find(pPlayer->entindex());
+	return m_book.Running() && racer && (racer->finished || racer->retired);
+}
+
+// A rally racer who has crossed the finish or run out of time: his car brakes and then coasts, as HL Rally's does.
+bool CRaceRules::FinishedCar(CBasePlayer* pPlayer)
+{
+	if (!Valid() || !pPlayer || !Rally())
+		return false;
 	const RaceRacer* racer = m_book.Find(pPlayer->entindex());
 	return m_book.Running() && racer && (racer->finished || racer->retired);
 }
@@ -1332,25 +1329,15 @@ void CRaceRules::RallyFrame(float dt)
 		RallyHold(index, pPlayer, held);
 		pev->skin = RaceRallySkin(seat.slot);
 
-		// R held a second (the h9_car's reset): back on the race_respawn of his last checkpoint
-		seat.resetHeld = (!held && (pev->button & IN_RELOAD)) ? seat.resetHeld + dt : 0;
-		bool putBack = false;
-		if (seat.resetHeld >= 1.0f)
-		{
-			seat.resetHeld = 0;
-			putBack = true;
-		}
-		// out of the world, or in deep water 3 s
-		const bool belowWorld = pev->origin.z < m_flVoidZ;
-		const bool inRock = UTIL_PointContents(pev->origin) == CONTENTS_SOLID;
-		if (seat.strand.Update(belowWorld, inRock, pev->waterlevel >= 2, dt))
-			putBack = true;
-		if (putBack)
+		// the put-back key (HL Rally's `k`, ClientKill): at once on the press, a second's rest after one; the respawn of the
+		// last checkpoint passed, one unit up, at rest. There is no automatic put-back: a car that falls out of the world or
+		// into water stays there, as in HL Rally.
+		if (seat.putKey.Press((pev->button & IN_RELOAD) != 0, gpGlobals->time))
 		{
 			Vector origin, angles;
 			if (RespawnPoint(pPlayer, origin, angles))
 			{
-				RallyPut(pPlayer, origin, angles);
+				RallyPut(pPlayer, origin + Vector(0, 0, 1), angles);
 				Placed(pPlayer);
 			}
 		}
@@ -1740,6 +1727,11 @@ bool RaceRallyMode()
 bool RaceHolds(CBasePlayer* pPlayer)
 {
 	return RaceActive() && g_pRace->Holds(pPlayer);
+}
+
+bool RaceFinishedCar(CBasePlayer* pPlayer)
+{
+	return RaceActive() && g_pRace->FinishedCar(pPlayer);
 }
 
 int RacePlayerSlot(CBasePlayer* pPlayer)

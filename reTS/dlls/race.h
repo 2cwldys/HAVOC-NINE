@@ -27,6 +27,7 @@ int RaceRound();
 // True while this player must not drive: during the countdown, once he has finished or run out of time, and
 // while the results show.
 bool RaceHolds(CBasePlayer* pPlayer);
+bool RaceFinishedCar(CBasePlayer* pPlayer); // rally mode: this racer has finished or run out of time, and his car brakes and coasts
 
 // The player's grid slot, 1 = pole, given in the order players joined (the lowest slot free); 0 with no race.
 int RacePlayerSlot(CBasePlayer* pPlayer);

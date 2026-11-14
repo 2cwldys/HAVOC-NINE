@@ -155,7 +155,7 @@ int main()
 	Check(!RaceVehicleKeyIsRally("car") && !RaceVehicleKeyIsRally("") && !RaceVehicleKeyIsRally(nullptr) && !RaceVehicleKeyIsRally("rallye") && !RaceVehicleKeyIsRally("ral"), "car, nothing and near misses are the h9_car");
 	Check(RaceRallyClassFor(false, 0) == 0 && RaceRallyClassFor(true, 0) == 1, "no cvar: the key decides (car 0, rally class 1)");
 	Check(RaceRallyClassFor(false, 1) == 1 && RaceRallyClassFor(false, 3) == 3 && RaceRallyClassFor(true, 2) == 2, "h9_rally 1..3 forces rally, whatever the key, and picks the class");
-	Check(RaceRallyClassFor(false, 9) == 3 && RaceRallyClassFor(true, -1) == 1 && RaceRallyClassFor(false, -1) == 0, "an out-of-range cvar is clamped; a negative one is off");
+	Check(RaceRallyClassFor(false, 99) == 10 && RaceRallyClassFor(false, 9) == 9 && RaceRallyClassFor(true, -1) == 1 && RaceRallyClassFor(false, -1) == 0, "an out-of-range cvar is clamped; a negative one is off");
 
 	// slots: the lowest free, in the order players come and go
 	{
@@ -234,37 +234,24 @@ int main()
 		RaceRallyDrive g = RaceRallyDriveOf(10, 10, 0, false, false, false, 0);
 		Check(g.slip == 0, "below 30 u/s there is no slip to draw");
 	}
-	Check(RaceSurfaceByte(H9RS_ROAD, false) == 0 && RaceSurfaceByte(H9RS_NEUTRAL, false) == 0 && RaceSurfaceByte(H9RS_CONCRETE, false) == 0 &&
-		RaceSurfaceByte(H9RS_GRAVEL, false) == 1 && RaceSurfaceByte(H9RS_DIRT, false) == 2 && RaceSurfaceByte(H9RS_SAND, false) == 2 &&
-		RaceSurfaceByte(H9RS_GRASS, false) == 3 && RaceSurfaceByte(H9RS_SNOW, false) == 5 && RaceSurfaceByte(H9RS_ICE, false) == 6 &&
-		RaceSurfaceByte(H9RS_DIRT, true) == 4, "rally surfaces map to the effects' ids: tarmac 0, gravel 1, dirt 2, grass 3, water 4, snow 5, ice 6");
+	Check(RaceSurfaceByte(H9RS_ROAD, false) == 0 && RaceSurfaceByte(H9RS_NEUTRAL, false) == 0 && RaceSurfaceByte(H9RS_DIRT, false) == 2 &&
+		RaceSurfaceByte(H9RS_SAND, false) == 2 && RaceSurfaceByte(H9RS_GRASS, false) == 3 && RaceSurfaceByte(H9RS_SNOW, false) == 5 &&
+		RaceSurfaceByte(H9RS_DIRT, true) == 4, "rally surfaces map to the effects' ids: tarmac 0, dirt and sand 2, grass 3, water 4, snow 5");
 	Check(RaceSurfaceByte(H9RallySurfaceByName("road_main"), false) == 0 && RaceSurfaceByte(H9RallySurfaceByName("+0grass2"), false) == 3, "texture names go through to the same bytes");
 	{
 		const float top = RaceRallyTopSpeed(1);
 		Check(top > 679.0f && top < 681.0f, "the gauge's end for class 1 is the road's top speed, 680");
 	}
 
-	// the watch: deep water 3 s, rock 1.5 s, below the world at once
+	// the put-back key (HL Rally's `k`): at once on the press, a second's rest after one taken, no repeat while held, no automatic put-back
 	{
-		RaceStrandWatch w;
-		bool fired = false;
-		for (int i = 0; i < 299; i++)
-			fired |= w.Update(false, false, true, 0.01f);
-		Check(!fired, "2.99 s in deep water: not yet");
-		Check(w.Update(false, false, true, 0.02f), "3 s in deep water: put back");
-		Check(!w.Update(false, false, true, 0.01f), "and the clock starts again");
-		RaceStrandWatch v;
-		for (int i = 0; i < 200; i++)
-			v.Update(false, false, true, 0.01f);
-		v.Update(false, false, false, 0.01f);
-		Check(!v.Update(false, false, true, 1.0f), "leaving the water resets the 3 s");
-		RaceStrandWatch x;
-		Check(x.Update(true, false, false, 0.01f), "below the world's edge: put back at once");
-		RaceStrandWatch y;
-		bool rock = false;
-		for (int i = 0; i < 149; i++)
-			rock |= y.Update(false, true, false, 0.01f);
-		Check(!rock && y.Update(false, true, false, 0.02f), "inside rock 1.5 s: put back");
+		RacePutKey k;
+		Check(!k.Press(false, 10.0f), "put-back: no press, no put-back");
+		Check(k.Press(true, 10.0f), "put-back: the press puts the car back at once");
+		Check(!k.Press(true, 10.5f) && !k.Press(true, 12.0f), "put-back: holding the key does not repeat it");
+		Check(!k.Press(false, 10.6f) && !k.Press(true, 10.99f), "put-back: a press inside the second after one does nothing");
+		Check(!k.Press(false, 11.0f) && k.Press(true, 11.0f), "put-back: and from a second after the first it works again");
+		Check(!k.Press(false, 11.5f) && !k.Press(true, 11.9f), "put-back: the refused press at 10.99 did not push the next one back");
 	}
 
 	if (g_failed)
