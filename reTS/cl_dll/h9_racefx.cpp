@@ -727,7 +727,7 @@ void H9RaceFx_VidInit()
 	}
 }
 
-void H9RaceFx_NoteEntity(struct cl_entity_s* ent, const char* modelname)
+void H9RaceFx_NoteEntity(struct cl_entity_s* ent, const char* modelname, const struct model_s* model)
 {
 	if (ent == nullptr || modelname == nullptr || !Cv(s_cvMaster))
 		return;
@@ -746,10 +746,11 @@ void H9RaceFx_NoteEntity(struct cl_entity_s* ent, const char* modelname)
 	// the size, from the model's own bounds; the entity's box when the model has none (yet)
 	V3 mins, maxs;
 	bool fromModel = false;
-	if (ent->model != nullptr)
+	const model_t* sizeModel = model != nullptr ? model : ent->model;
+	if (sizeModel != nullptr)
 	{
-		mins = V3(ent->model->mins.x, ent->model->mins.y, ent->model->mins.z);
-		maxs = V3(ent->model->maxs.x, ent->model->maxs.y, ent->model->maxs.z);
+		mins = V3(sizeModel->mins.x, sizeModel->mins.y, sizeModel->mins.z);
+		maxs = V3(sizeModel->maxs.x, sizeModel->maxs.y, sizeModel->maxs.z);
 		fromModel = DimsFromBounds(mins, maxs).ok;
 	}
 	if (!fromModel)

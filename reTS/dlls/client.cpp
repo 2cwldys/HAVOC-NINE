@@ -42,6 +42,7 @@
 #include "teamplay_gamerules.h" // R1: jointeam dispatches to the TS-patched ChangePlayerTeam // TSGameRules (the `motd` re-send passthrough)
 #include "ts_utils.h"     // TSPlayerDisconnect (ClientDisconnected)
 #include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
+#include "h9_rally_car.h" // H9RallyCarPrecache
 #include "game.h"
 #include "customentity.h"
 #include "weapons.h"
@@ -1030,6 +1031,7 @@ void StartFrame()
 
 void ClientPrecache()
 {
+	H9RallyCarPrecache(); // H9 rally mode: the car's model for the clients (h9_rally_car.cpp); nothing while h9_rally is 0
 	// setup precaches always needed
 	PRECACHE_SOUND("player/sprayer.wav"); // spray paint sound for PreAlpha
 

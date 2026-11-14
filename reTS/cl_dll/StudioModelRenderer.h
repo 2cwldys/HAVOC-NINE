@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "h9_rallycar.h" // H9RallyCarDraw (rally mode: StudioDrawCar)
+
 /*
 ====================
 CStudioModelRenderer
@@ -27,6 +29,8 @@ public:
 	// Public Interfaces
 	virtual bool StudioDrawModel(int flags);
 	virtual bool StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
+	// H9 rally mode: a player that is a car is drawn as the car's model (see h9_rallycar.h)
+	bool StudioDrawCar(int flags, struct entity_state_s* pplayer, const struct H9RallyCarDraw& car);
 
 public:
 	// Local interfaces
