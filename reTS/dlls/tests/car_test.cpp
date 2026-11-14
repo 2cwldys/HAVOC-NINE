@@ -170,7 +170,7 @@ static void Corners(const H9CarTune& t, const char* title, const float* speeds, 
 			float radius, drift, held, slip;
 			Corner(t, surface, speeds[i], 0.01f, radius, drift, held, slip);
 			const float lock = t.maxTurn * (1 - 0.45f * H9Clamp(held / t.maxSpeed, 0, 1));
-			printf("  %-8s %6.0f | %8.0f %8.0f %7.1f° %6.2f | %.0f\n", g_h9Surfaces[surface].name, speeds[i], radius, held,
+			printf("  %-8s %6.0f | %8.0f %8.0f %7.1f deg %6.2f | %.0f\n", g_h9Surfaces[surface].name, speeds[i], radius, held,
 				-drift, slip, t.wheelbase / tanf(lock * H9_RAD));
 		}
 	}
@@ -200,7 +200,7 @@ static void Handbrake(const H9CarTune& t, int surface, float from, float held = 
 		car.Step(t, in, g, 0.01f);
 		bite += 0.01f;
 	}
-	printf("  %-8s %6.0f %4.1f s | %7.0f° %7.0f° %8.0f %8.0f %6.2f | %6.2f s %7.0f° %7.0f\n", g_h9Surfaces[surface].name, from, held, nose,
+	printf("  %-8s %6.0f %4.1f s | %7.0f deg %7.0f deg %8.0f %8.0f %6.2f | %6.2f s %7.0f deg %7.0f\n", g_h9Surfaces[surface].name, from, held, nose,
 		path, far, left, peakSlip, bite, car.yaw, car.Speed());
 	Expect(Finite(car), "a handbrake turn keeps every number finite");
 	Expect(nose > path + 10, "with the handbrake the nose comes round more than the path");
@@ -457,7 +457,7 @@ int main()
 		float radius, drift, held, slip;
 		Corner(stock, H9SURF_TARMAC, 540, 0.01f, radius, drift, held, slip);
 		const float old = stock.wheelbase / tanf(stock.maxTurn * (1 - 0.45f * 0.6f) * H9_RAD);
-		printf("\nAs before on tarmac: full lock at 540 (60%% of 900) turns on %.0f, the old car on %.0f; nose in %.2f°, slip %.2f\n",
+		printf("\nAs before on tarmac: full lock at 540 (60%% of 900) turns on %.0f, the old car on %.0f; nose in %.2f deg, slip %.2f\n",
 			radius, old, -drift, slip);
 		Expect(fabsf(radius - old) < old * 0.03f, "at 60% of top speed on tarmac the radius is the old car's");
 		Expect(fabsf(drift) < 0.5f && slip < 0.02f, "at 60% of top speed on tarmac nothing slides");
@@ -470,7 +470,7 @@ int main()
 		float radius[2], drift[2], held, slip;
 		Corner(race, surface, 600, 0.01f, radius[0], drift[0], held, slip);
 		Corner(race, surface, 600, 0.01f, radius[1], drift[1], held, slip, false);
-		printf("  %-8s | %9.1f° %10.0f | %9.1f° %10.0f\n", g_h9Surfaces[surface].name, -drift[0], radius[0], -drift[1], radius[1]);
+		printf("  %-8s | %9.1f deg %10.0f | %9.1f deg %10.0f\n", g_h9Surfaces[surface].name, -drift[0], radius[0], -drift[1], radius[1]);
 		if (surface == H9SURF_GRAVEL || surface == H9SURF_DIRT)
 			Expect(-drift[0] > -drift[1] + 1, "on gravel and dirt the rear steps out more with the power on");
 	}
@@ -499,8 +499,8 @@ int main()
 		// at 10 frames a second the car goes 120 units a frame and the ramp rises 43 under it: more than the wheels'
 		// traces reach up (maxstep), in the game as here, where the bumper rays would stop it as at a wall
 		if (dt < 0.05f)
-			Jump(race, "20° ramp, then nothing", Steep, 1200, dt);
-		Jump(race, "flat, then 10° down", Downhill, 1200, dt);
+			Jump(race, "20 deg ramp, then nothing", Steep, 1200, dt);
+		Jump(race, "flat, then 10 deg down", Downhill, 1200, dt);
 		Jump(race, "a kerb of 12, up, down", Kerbs, 600, dt);
 	}
 	Jump(race, "crest, backwards", Crest, 0, 0.01f, false);
@@ -514,7 +514,7 @@ int main()
 		{
 			float held, slip;
 			Corner(race, H9SURF_TARMAC, speed, dts[i], radius[i], drift[i], held, slip);
-			printf("  speed %4.0f dt %.3f: radius %6.0f, nose in %5.1f°\n", speed, dts[i], radius[i], -drift[i]);
+			printf("  speed %4.0f dt %.3f: radius %6.0f, nose in %5.1f deg\n", speed, dts[i], radius[i], -drift[i]);
 		}
 		Expect(fabsf(radius[0] - radius[2]) < radius[1] * 0.08f, "a corner is the same at 1000 frames a second as at 10");
 	}

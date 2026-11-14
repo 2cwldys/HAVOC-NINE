@@ -366,7 +366,7 @@ LINK_ENTITY_TO_CLASS(race_rules, CRaceRules);
 
 static CRaceRules* g_pRace = NULL; // the map's race_rules; the entity clears it when it goes
 
-// ── text ──
+// -- text --
 
 // m:ss.cc, or m:ss.t with `tenths` (a line sent four times a second cannot show hundredths honestly).
 static const char* RaceTime(float seconds, bool tenths = false)
@@ -433,7 +433,7 @@ static void RaceNote(CBaseEntity* pPlayer, int r, int g, int b, const char* text
 	RaceText(pPlayer, RACE_CHANNEL_NOTE, -1, 0.33f, r, g, b, 3.0f, text);
 }
 
-// ── who and where ──
+// -- who and where --
 
 // The connected player with this index, or NULL. A client's edict is never freed, so the engine is asked
 // whether somebody is on it.
@@ -456,7 +456,7 @@ static Vector RacePosition(CBasePlayer* pPlayer)
 	return pPlayer->pev->origin;
 }
 
-// ── the entity ──
+// -- the entity --
 
 CRaceRules::~CRaceRules()
 {
@@ -1277,7 +1277,7 @@ void CRaceRules::Placed(CBasePlayer* pPlayer)
 	m_book.Placed(index);
 }
 
-// ── rally mode: the racer is the player ──
+// -- rally mode: the racer is the player --
 
 // The speed along his nose, his slip (0..1) and his car's top speed: an h9_car's own numbers (fuser2, fuser4, fuser3), or
 // the player's, from his velocity and heading.
@@ -1463,7 +1463,7 @@ void CRaceRules::RallyFrame(float dt)
 	}
 }
 
-// ── the client's HUD (race.h lists the messages; cl_dll/h9_racehud.cpp reads them) ──
+// -- the client's HUD (race.h lists the messages; cl_dll/h9_racehud.cpp reads them) --
 
 int gmsgRallyLight = 0; // H9RLight: a rally car's headlights (byte entindex, byte on), HL Rally's Flashlight message
 int gmsgRaceStat = 0, gmsgRaceState = 0, gmsgRaceNote = 0, gmsgRaceLine = 0, gmsgRacePos = 0, gmsgRaceRes = 0;
@@ -1792,7 +1792,7 @@ void CRaceRules::HudNote(int index, CBasePlayer* pPlayer, int kind, int a, int b
 	MESSAGE_END();
 }
 
-// ── the face (race.h) ──
+// -- the face (race.h) --
 
 bool RaceRallyRunning()
 {

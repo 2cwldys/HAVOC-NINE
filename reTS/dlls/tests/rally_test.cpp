@@ -5,7 +5,7 @@
 *    build-win32/dlls/Release/rally_test.exe
 *
 *  A flat plane, a car, a heading that the steering turns. Every number a changed row expects is worked out from HL Rally's formula
-*  (the file and line it comes from are in the comment of the check, from the audit C:/tmp/h9/parity/movement.md), not read
+*  (the file and line it comes from are in the comment of the check, from an audit of HL Rally kept outside the repo), not read
 *  back from the header. A small reference integrator (Ref below) written straight from the description at the top of h9_rally.h,
 *  in world coordinates and none of the header's structure, is run beside the header's model: its speed against time on a
 *  straight, and the slip angle in a full-lock turn, must agree within 5%.

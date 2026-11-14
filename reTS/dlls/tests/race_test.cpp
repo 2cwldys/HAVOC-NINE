@@ -151,7 +151,7 @@ int main()
 	Check(!RaceSegmentInBox(before, before, mins, maxs), "standing outside does not");
 	Check(RaceSegmentInBox(after, before, mins, maxs), "the same move backwards meets it too");
 
-	// ── rally mode: the racer is the player (race_rally.h) ──
+	// -- rally mode: the racer is the player (race_rally.h) --
 	Check(RaceVehicleKeyIsRally("rally") && RaceVehicleKeyIsRally("Rally") && RaceVehicleKeyIsRally("RALLY"), "vehicle \"rally\" in any case is rally mode");
 	Check(!RaceVehicleKeyIsRally("car") && !RaceVehicleKeyIsRally("") && !RaceVehicleKeyIsRally(nullptr) && !RaceVehicleKeyIsRally("rallye") && !RaceVehicleKeyIsRally("ral"), "car, nothing and near misses are the h9_car");
 	Check(RaceRallyClassFor(false, 0) == 0 && RaceRallyClassFor(true, 0) == 1, "no cvar: the key decides (car 0, rally class 1)");

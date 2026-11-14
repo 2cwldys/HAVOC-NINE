@@ -348,7 +348,7 @@ static void Oval(MapData& out)
 
 // ---- scenes -----------------------------------------------------------------------------------------------------------------------
 
-static const char* const kNames[] = {"Deoroot", "xX_DriftKing_Xx", "Lena", "marek.cz", "A Very Long Player Name Indeed", "bot_07", "Nikos", "Q"};
+static const char* const kNames[] = {"Drifter", "xX_DriftKing_Xx", "Lena", "marek.cz", "A Very Long Player Name Indeed", "bot_07", "Nikos", "Q"};
 
 static void BaseModel(Model& m, const MapData& map, float now)
 {

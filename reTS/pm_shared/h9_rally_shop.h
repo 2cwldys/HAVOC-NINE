@@ -4,7 +4,7 @@
 *  HL Rally (read for behaviour and numbers only, no code or text copied): its main menu (Select Car, Customise, Spectate, Race),
 *  the car menu (make, then model; three stat bars), the Customise shop (four classes of parts, costs and effects from its
 *  customise.txt), money ($600 at join, cap $7000, +20 a checkpoint, +100 to the first car through one, 800/600/400/200 for
-*  places 1 to 4 and +600 to everybody at the finish). See C:/tmp/h9/parity/carselect.md.
+*  places 1 to 4 and +600 to everybody at the finish). The audit it follows is kept outside the repo.
 *
 *  Our own: the makes and model names (invented brands, no real-world trademarks), the parts' descriptions.
 *

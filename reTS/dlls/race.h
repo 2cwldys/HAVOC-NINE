@@ -77,7 +77,7 @@ bool RaceWaypoint(int number, Vector& origin, float& speed, float& spread);
 // Registers mp_racelaps and mp_racewarmup; called once from GameDLLInit.
 void RaceRegisterCvars();
 
-// ── The client's race HUD (cl_dll/h9_racehud.cpp draws it; race.cpp sends it). The client includes this file. ──
+// -- The client's race HUD (cl_dll/h9_racehud.cpp draws it; race.cpp sends it). The client includes this file. --
 //
 // A game that has the HUD says so with the userinfo key _h9race "1" (the way of _h9vgui and _h9arphud: nothing is
 // typed at the server, so a server without the race answers nothing). Such a player gets the six user messages

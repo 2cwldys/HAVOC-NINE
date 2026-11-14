@@ -67,6 +67,7 @@ OVERRIDES = {
     "cl_h9_vgui_g": "the green part (0 to 255) of the colour of H9's panels",
     "cl_h9_vgui_b": "the blue part (0 to 255) of the colour of H9's panels",
     "cl_h9_arphud_icon": "the picture of an item lying on the floor, above the notice that names it; 0 leaves the notice as text alone",
+    "_h9race": "the userinfo key through which the server learns whether this game draws the race HUD (set from cl_h9_racehud)",
     "_h9arpvgui": "the userinfo key through which the server learns whether this game draws Apollo RP's menus as panels (set from cl_h9_arpvgui)",
 }
 
@@ -180,7 +181,8 @@ def engine_cvars():
 # ---- 2. the module --------------------------------------------------------------------------------------------
 def module_cvars():
     rows = {}
-    server = re.compile(r'cvar_t\s+\w+\s*=\s*\{\s*"(h9[^"]*)"\s*,\s*"([^"]*)"')
+    # h9_* names, and the race mode's mp_* ones (TS's own mp_* cvars are not ours and are not listed)
+    server = re.compile(r'cvar_t\s+\w+\s*=\s*\{\s*"(h9[^"]*|mp_race[^"]*|mp_joinmidrace)"\s*,\s*"([^"]*)"')
     for path in tracked("reTS/dlls/*.cpp", "reTS/dlls/*.h"):
         source = text_of(path)
         for m in server.finditer(source):
@@ -189,9 +191,28 @@ def module_cvars():
                                        desc=code_comment(source, name)))
     create = re.compile(r'CVAR_CREATE\(\s*"([^"]+)"\s*,\s*([^,)]+?)\s*,\s*[^)]*\)\s*;?[ \t]*(?://+[ \t]*([^\n]*))?')
     indexed = re.compile(r'CVAR_CREATE\(\s*(\w+)\[\w+\]\s*,\s*"([^"]*)"')
+    # a registration that names its cvar by a #define ("CVAR_CREATE(RACE_HUD_INFOKEY, ...)"): the string is looked up in reTS's headers
+    macros = {}
+    for header in tracked("reTS/dlls/*.h", "reTS/cl_dll/*.h", "reTS/pm_shared/*.h"):
+        for m in re.finditer(r'^[ \t]*#define[ \t]+(\w+)[ \t]+"([^"]+)"', text_of(header), re.M):
+            macros.setdefault(m.group(1), m.group(2))
+    macro_create = re.compile(r'CVAR_CREATE\(\s*([A-Z][A-Z0-9_]*)\s*,([^;]*),[\w| ]+\)\s*;[ \t]*(?://+[ \t]*([^\n]*))?')
+    # a registration through a table ("CVAR_CREATE(s_modes[i].cvarName, s_modes[i].defFile, ...)"): the table's rows
+    # {"mode", "cvar name", "default", ...} are read, and the cvar name is the row's second string
+    member = re.compile(r'CVAR_CREATE\(\s*\w+\[\w+\]\.\w+\s*,')
     for path in tracked("reTS/cl_dll/*.cpp", "reTS/cl_dll/*.h"):
         source = text_of(path)
         rel = path.relative_to(ROOT).as_posix()
+        for m in macro_create.finditer(source):
+            name = macros.get(m.group(1), "")
+            if "h9" in name:
+                literal = re.fullmatch(r'"([^"]*)"', m.group(2).strip())  # a default that is a computed value is shown as 0
+                rows.setdefault(name, dict(name=name, default=literal.group(1) if literal else "0", where="client library", file=rel,
+                                           desc=(m.group(3) or "").strip() or code_comment(source, name)))
+        if member.search(source):
+            for row in re.finditer(r'\{\s*"[^"]*"\s*,\s*"([^"]*h9[^"]*)"\s*,\s*"([^"]*)"', source):
+                rows.setdefault(row.group(1), dict(name=row.group(1), default=row.group(2), where="client library", file=rel,
+                                                   desc=code_comment(source, row.group(1))))
         for m in create.finditer(source):
             name, default, trailing = m.group(1), m.group(2).strip().strip('"'), m.group(3) or ""
             if "h9" not in name:

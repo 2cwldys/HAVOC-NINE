@@ -16,15 +16,15 @@ Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 2026-11-02 are target hl alone (changes 7 and 8; the client is built
                 apart, its own client.dll.patch); the build of 2026-11-03 is both
                 (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11);
-                the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16); the build of 2026-11-10 01:16 is target hl alone (change 17)
-Size          : 1009664 bytes
-SHA256        : 605442C2BF214D53A9371056B2AD4103E31BB74EECCF4FE1DFC778462CA2DA87
-client.dll    : 935424 bytes (its own client.dll.patch)
-SHA256        : 8FA885BE1F272CCC70B3A3607AE29B35FCDF1236DA328D8C5FF1AD12BBD41BE2
+                the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16); the build of 2026-11-10 01:16 is target hl alone (change 17); the build of 2026-11-14 is both (change 20)
+Size          : 1118208 bytes
+SHA256        : 3445A4E43DEDD4382E479286A74A37A4D014D48616F1DA9E20F51E08CD5DE7E3
+client.dll    : 1395712 bytes (its own client.dll.patch)
+SHA256        : 1EB267EE86A143B60C21DDB15D86627F706C8E80D11B3C2B2E8C14A551A009C6
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the 128-slot build below (2026-11-01), changes 7 and 8
                 (2026-11-02), change 9 (2026-11-03), change 10 (2026-11-04), change 11 (2026-11-05) and changes 12 to 16
-                (2026-11-09) and change 17 (2026-11-10)
+                (2026-11-09) and change 17 (2026-11-10) and change 20 (2026-11-14)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -322,6 +322,28 @@ What the source build contains, beyond the release DLL
    skips the launcher, whose burst is its salvo. The fire mode key switches them; the client's ammo box says Volley and Single for this weapon (cl_dll\ts_ammo.cpp). (c)
    h9_mechrocket_speed 900 -> 1100. The client's weapon table is the same code: this pairs with client.dll change 40, and the two are deployed together. Described in
    reTS\reference\DEVIATIONS.md, COMMANDS.txt, docs\WEAPON_DAMAGES.txt, docs\GAME_MODES.txt.
+
+20. Race mode and rally mode (race_rules, race_checkpoint, race_respawn, race_gantry, h9_car; h9_rally, h9_rally_debug, h9_rally_log, mp_racelaps, mp_racewarmup, mp_joinmidrace)
+
+   A map with a race_rules entity is a race map: dlls\race.cpp and race_book.cpp run the race (warmup, countdown on the race_gantry's lamps, checkpoints in order, laps, places, a finish wait,
+   joining mid-race with mp_joinmidrace) and send the client its HUD (race.h lists the messages). race_rules' key vehicle picks how a racer moves: "car" puts him at the wheel of an h9_car
+   (dlls\h9_car.cpp, a drivable arcade car: speed, bicycle steering, bumper and wheel traces), "rally" makes the player himself the car.
+
+   Rally mode: the player's own movement is a rally car's (pm_shared\h9_rally.cpp and h9_rally.h, shared by the server and the client's prediction, hooked in pm_shared.cpp's PM_Move): engine
+   and gearbox, grip by surface (the texture's prefix: dirt_, gravel_, verge_ and the rest), tilt from four ground traces, air movement, the car's outline as traces. On a map whose race_rules
+   say vehicle "rally" the server sets physinfo rhull 1 and the car moves in BSP hull 1, which such a map compiles as a point hull (hlcsg -hullfile of zeros) with CLIP brushes as the invisible
+   walls of the road. The driving reproduces HL Rally's behaviour and numbers, studied from its source for method only: no code was taken (creds_attribution.txt).
+
+   Around it (dlls\h9_rally_srv.cpp, h9_rally_car.cpp, h9_rally_snd.cpp, h9_rally_shop_srv.h, race.cpp): ten car classes with three stat bars and invented makes (pm_shared\h9_rally_shop.h); the
+   car menu and the shop (client commands changecar, spectate, selectcar, buy; user messages H9RMoney, H9RParts, H9RCar; VGUIMenu MENU_INTRO on a rally map); money per checkpoint and at the
+   finish; the kill key puts the car back at the last checkpoint's race_respawn; a car takes no damage and does no stunt or jump; the class rides to the other clients in
+   entity_state.playerclass (AddToFullPack, never to the car's own client), so each car is drawn with its make's model; observers on a rally map follow the cars with the attack keys;
+   info_camera points exist for the client's TV camera. h9_rally_log 1 writes every car's movement to rallylog\ (off by default).
+
+   New files: dlls\race.cpp, race.h, race_book.cpp, race_book.h, race_rally.h, h9_car.cpp, h9_rally_car.cpp/.h, h9_rally_snd.cpp/.h, h9_rally_srv.cpp/.h, h9_rally_shop_srv.h;
+   pm_shared\h9_rally.cpp, h9_rally.h, h9_rally_shop.h, h9_rallylog.h, h9_rallymodel.h; tests dlls\tests\race_test.cpp and rally_test.cpp (and car_test.cpp). Hooks: client.cpp, player.cpp,
+   observer.cpp, cbase.cpp, game.cpp, UserMessages.cpp, TS_gamerulesclass.cpp, pm_shared.cpp, CMakeLists.txt. A map without race_rules is not touched. Described in reTS\reference\DEVIATIONS.md;
+   the cvars and commands in COMMANDS.txt (RACE AND RALLY MODE). The build of 2026-11-14 is both targets (client.dll item 43). The Linux ts_i386.so is not rebuilt in this change.
 
 Building and deploying
 ----------------------

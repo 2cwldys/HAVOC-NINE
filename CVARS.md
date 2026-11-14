@@ -73,6 +73,7 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | Cvar | Default | What it does | In |
 |---|---|---|---|
 | `_h9arpvgui` | `1` | the userinfo key through which the server learns whether this game draws Apollo RP's menus as panels (set from cl_h9_arpvgui) | client library |
+| `_h9race` | `0` | the userinfo key through which the server learns whether this game draws the race HUD (set from cl_h9_racehud) | client library |
 | `cl_h9_aimplaque` | `1` | the teammate under the crosshair as a plaque (his name, class, health and armour over a bar), with TS's own green name left out, on a server that sends it (tsm_hover_plaque; 1); 0 | client library |
 | `cl_h9_arphud` | `1` | Apollo RP's HUD as panels (1); 0: the server's text HUD instead, all of it, and the panels' other switches do nothing. | client library |
 | `cl_h9_arphud_icon` | `1` | the picture of an item lying on the floor, above the notice that names it; 0 leaves the notice as text alone | client library |
@@ -83,9 +84,31 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | `cl_h9_arpvgui` | `1` | Apollo RP's menus as panels (1); 0: its text menus, the other panels as they are. | client library |
 | `cl_h9_buyauto` | `1` | the equipment menu comes up by itself when the server opens a buy window (1), in the freeze of a round under tsm_loadoutrework 1; 0: only the buy key (bind one to "buy") | client library |
 | `cl_h9_ctxmenu` | `1` | the menu of the use key (E) on a player (1): a list of what you can do to him, with a cursor, in place of the exchange offer; greyed rows say why they cannot be chosen. | client library |
+| `cl_h9_keys_rally` | `rally` | the key layout used while driving a rally car (rally): the file h9/keys/&lt;name&gt;.txt of the game folder, whose keys run its commands in place of the player's own binds and are never written to the config; rally.txt and ... | client library |
 | `cl_h9_linkicons` | `1` | the scoreboard's link icons (1): a green chain on a proven havoc9.org account, a red broken one on anyone else, H9's grey helmet on a bot; 0 leaves them out. | client library |
 | `cl_h9_marks` | `1` | the marks a server shows through the walls (1): Assault's capture points, Capture the Uplink's zones and uplink, Capture the Flag's flags and pads, drawn on the screen | client library |
 | `cl_h9_marks_strip` | `1` | the row of those marks under the top notices (1) | client library |
+| `cl_h9_racefx` | `1` | the master switch of the race effects (1): skid marks, tyre spray, shadow and lights; 0 draws none of them | client library |
+| `cl_h9_racefx_debug` | `0` | 1: once a second the console says what the effects see (cars, marks, sprites); for finding why an effect is missing (0; not saved) | client library |
+| `cl_h9_racefx_lights` | `1` | the brake lights and headlights of the cars (1) | client library |
+| `cl_h9_racefx_marks` | `1` | the skid marks the cars leave (1), HL Rally's rally_skid | client library |
+| `cl_h9_racefx_shadow` | `1` | the shadow under a car (1) | client library |
+| `cl_h9_racefx_spray` | `1` | the dust and spray the wheels throw up (1) | client library |
+| `cl_h9_racehud` | `1` | the race HUD (lap, place, times, the results board) drawn by this game (1); 0 gives the server's text lines instead. | client library |
+| `cl_h9_raceweather` | `0` | snow or rain drawn over the map outside rally mode: 0 none (the default), 1 snow, 2 rain; a map's config sets it, not saved | client library |
+| `cl_h9_rally_chrome` | `1` | the windscreen's overlay in the interior view (1), HL Rally's rally_chrome | client library |
+| `cl_h9_rally_log` | `0` | 1: the input model's frames (keys, throttle, steering) are written to rallylog/cl_&lt;map&gt;_&lt;date-time&gt;.txt in the game folder (0) | client library |
+| `cl_h9_rally_manual` | `0` | the driver shifts the gears himself with h9_gearup and h9_geardown (0), HL Rally's rally_manual | client library |
+| `cl_h9_rally_mouse` | `1.0` | the mouse's steering is multiplied by this (1.0) | client library |
+| `cl_h9_rally_rearview` | `1` | the mirror in the interior view (1), HL Rally's rally_rearview | client library |
+| `cl_h9_rallycam_dist` | `40` | how far behind the car the chase camera is (40), HL Rally's cam_wishdist | client library |
+| `cl_h9_rallycam_fov` | `90` | the field of view while driving (90); 0 leaves the player's own | client library |
+| `cl_h9_rallycam_pitch` | `15` | how far down the chase camera looks, on top of the slope of the car's velocity (15) | client library |
+| `cl_h9_rallycam_pivot` | `10` | the height above the car's origin the chase camera pivots on (10) | client library |
+| `cl_h9_rallyfx_shadowdiv` | `4` | the subdivisions of a rally car's shadow (4), HL Rally's rally_shadows; a value under 1 draws no shadow | client library |
+| `cl_h9_rallyfx_skidtime` | `45` | how long a rally car's skid mark stays on the ground (45), HL Rally's rally_skidmarktime | client library |
+| `cl_h9_rallysnd_3dchannels` | `4` | how many other cars at most have their engine heard from where they are (4), HL Rally's rally_sound_3dchannels | client library |
+| `cl_h9_rallyview` | `4` | the camera on a rally car: 0 chase, 1 TV, 2 bonnet, 3 side, 4 interior (the default is 4; a new map sets it back to 4); not saved. | client library |
 | `cl_h9_scoreboard_scroll` | `1` | a scoreboard column too long for the board even at its shortest rows scrolls (1): the mouse wheel, or PgUp/PgDn, while the board is held open -- the column under the pointer, | client library |
 | `cl_h9_show_reinforce` | `1` | the line that counts down this side's next respawn wave (1); 0 hides it, whatever the server's tsm_show_reinforce says | client library |
 | `cl_h9_tts` | `1` | spoken chat (1): when a server has h9_texttospeech 1, what players near you say is read out by your own voices (Windows SAPI; the browser's in the web client). | client library |
@@ -127,6 +150,12 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | `h9_mechrocket_spread` | `2.5` | degrees the rockets after the first may stray from the aim (0 to 15); the first goes straight, so a salvo of one is exact | server library |
 | `h9_mechrocket_stagger` | `0.12` | seconds between two rockets of a salvo (0.03 to 1). | server library |
 | `h9_ppsh41` | `1` | present and 1 when the game library has the PPSh-41 (weapon 39), so a plugin can give a library without it another gun. | server library |
+| `h9_rally` | `0` | rally mode for every player on the map: 0 is off (the default), 1 to 10 turns it on and the player drives as that car class (1 rally, 2 sprint, 3 heavy); a map with race_rules and "vehicle" "rally" turns it on by itself as class ... | server library |
+| `h9_rally_debug` | `0` | 1: each rally player's movement prints one line every half second to the server console (0) | server library |
+| `h9_rally_log` | `0` | 1: every rally car's movement command is written as a CSV line to rallylog/srv_&lt;map&gt;_&lt;date-time&gt;.txt in the game folder (0) | server library |
+| `mp_joinmidrace` | `1` | a player who picks a car while a race runs joins it from lap 0 (1); 0: he waits for the next race. | server library |
+| `mp_racelaps` | `0` | the laps of a race: 0 (the default) takes the map's own (race_rules laps); 1 or more overrides it | server library |
+| `mp_racewarmup` | `10` | the wait before each countdown, once a player is in (10) | server library |
 
 ## Part 3: the plugins
 
