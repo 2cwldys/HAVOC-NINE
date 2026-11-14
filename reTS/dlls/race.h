@@ -52,6 +52,9 @@ bool RaceSeatFree(CBasePlayer* pPlayer);
 // The car class the race wants its players to drive as (1..3), 0 when the map's racers drive h9_cars or there is no
 // race_rules. h9_rally_srv.cpp sets the physinfo key from it.
 int RaceRallyClass();
+// True when the map's own race_rules say `vehicle "rally"` (not the cvar h9_rally forcing it): a map made for HL Rally's cars, compiled
+// with hull 1 as a point hull and clip brushes along its banks. h9_rally_srv.cpp sets the physinfo key "rhull" from it.
+bool RaceRallyMapKey();
 // True when the race is in rally mode (RaceRallyClass() > 0).
 bool RaceRallyMode();
 

@@ -25,16 +25,22 @@
 *  h9_rallysteer_calc.h, DriveStep); the buttons are read for the brake, the handbrake, the throttle and a steering key, as HL Rally's.
 *
 *  Where this is NOT HL Rally's: the tilt's fields. HL Rally uses vuser1 (pitch, yaw, roll as floats); vuser1 is TS's own client data
-*  channel, so the three angles go in vuser4 in half degrees with a mark in vuser3.x (see H9RallyTiltPack). When the mark is not there
+*  channel, so the three angles go in vuser4, as floats, with a mark in vuser3.x (see H9RallyTiltPack). When the mark is not there
 *  (a first command, an engine that does not carry the fields) the tilt is read again with four traces straight down, as it always was.
 *
 *  What does NOT limit a car here, so that nothing of The Specialists' on-foot movement holds it: the car's wish speed is
 *  its own stat (h9_rally.h), never pmove->maxspeed (the loadout changes that); the time scale (fuser1, TS's slow motion)
 *  is ignored; there is no water check at all (as HL Rally's: waterlevel stays 0); the held state is FL_FROZEN alone.
 *
-*  The hull: the point hull (usehull 2). Whatever hull sizes a map was compiled with, the world is then exact to the
-*  point, and the body's 45 x 18 x 16 outline is the traces below, not a box: HL Rally's own maps drive unmodified.
-*  Other players are physents with boxes: the cars are boxes to each other, as in HL Rally (its players are SOLID_SLIDEBOX).
+*  The hull. HL Rally's pmove never sets usehull (pm_shared.c:1627 is commented out), so the engine traces the world in BSP hull 1
+*  (usehull 0), and the engine's offset there is host.player_mins[0] minus that hull's own clip_mins, 0 (Xash pm_trace.c PM_HullForBsp,
+*  mod_bmodel.c Mod_SetupHull): the trace is a point in hull 1. HL Rally's maps compile hull 1 as a point hull with CLIP brushes along
+*  the banks (invisible walls), and that is what keeps its car on the road. So on a rally map (the physinfo key "rhull" 1, which the
+*  server sets for a map whose race_rules say `vehicle "rally"`, dlls/h9_rally_srv.cpp) the car's world is hull 1, usehull 0. On any
+*  other map (the cvar h9_rally on a map compiled with the standard hulls: hull 1 would be a 32 x 32 x 72 box) it is the point hull
+*  of the map's own geometry (usehull 2, BSP hull 0), without the clip brushes. The body's 45 x 18 x 16 outline is the traces below,
+*  not a box. Other players are physents with boxes: the cars are boxes to each other, as in HL Rally (its players are SOLID_SLIDEBOX);
+*  at usehull 0 the engine adds the standing player's half extents to such a box, as it does for HL Rally's own cars.
 ***/
 #include "Platform.h"
 #include <assert.h>
@@ -382,6 +388,20 @@ void MoveToDest(const Vector& up, Dbg& d)
 	}
 }
 
+// pm_shared.c PM_AirMove + PM_AirAccelerate (518-560, 648-690): the wish is the command's forward move along the horizontal forward
+// (its sign gives the direction), cut to the maxspeed (the car's), accelerated by sv_airaccelerate x the wish speed x the time x the
+// entity's friction, but only up to 30 u/s along the wish. The client builds a forward move on the ground only (HL Rally's client, input.cpp:942), so
+// it is 0 in the air for a car under HL Rally's own client, and this adds nothing; it is here for a command that carries one.
+void AirMove(const Axes& axF, float fmove, float maxSpeed)
+{
+	if (pmove->dead)
+		return;
+	float v[3] = {pmove->velocity[0], pmove->velocity[1], pmove->velocity[2]};
+	const float f[3] = {axF.fwd[0], axF.fwd[1], axF.fwd[2]};
+	H9RallyAirAccelerate(v, f, fmove, maxSpeed, pmove->movevars->airaccelerate, pmove->friction, pmove->frametime);
+	pmove->velocity = Vector(v[0], v[1], v[2]);
+}
+
 // PM_PushEntity: the origin goes as far along `push` as it can
 pmtrace_t PushEntity(const Vector& push)
 {
@@ -486,7 +506,8 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 	pmove->frametime = dt;
 	d.dt = dt;
 
-	pmove->usehull = 2; // the point hull
+	// HL Rally's pmove leaves usehull alone (0: BSP hull 1, a point hull with the map's clip brushes on its maps); see the top of the file
+	pmove->usehull = PhysInfoInt("rhull") != 0 ? 0 : 2;
 	pmove->flags &= ~FL_DUCKING;
 	pmove->bInDuck = false;
 	pmove->view_ofs[2] = H9R_VIEW_HEIGHT;
@@ -549,7 +570,12 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		pitch0 = yaw0 = roll0 = 0;
 	}
 	Axes ax0 = AxesOf(pitch0, yaw0, roll0); // the up that Categorize looks along and the axes of the tilt's traces: the kept angles, the kept yaw (vuser1)
-	const Axes axF = AxesOf(pitch0, yaw, roll0); // pmove->forward and ->right: the kept pitch and roll with this command's yaw (rally.c:338, pm_shared.c:1625)
+	// pmove->forward and ->right: HL Rally builds them at pm_shared.c:1635 (`AngleVectors (pmove->angles, pmove->forward, pmove->right,
+	// pmove->up)`) from pmove->angles, which there are the command's own view angles with PM_CheckParamters' yaw (pitch and roll are
+	// not set by it, its lines are commented out; the client leaves them 0), NOT the kept tilt: friction (rally.c:1151-1174) and the
+	// pull (rally.c:521-540) work along horizontal axes.
+	const float cmdPitch = pmove->cmd.viewangles[0], cmdRoll = pmove->cmd.viewangles[2];
+	const Axes axF = AxesOf(cmdPitch, yaw, cmdRoll);
 	pmove->angles[0] = pitch0;
 	pmove->angles[2] = roll0;
 
@@ -573,10 +599,14 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 	}
 	else
 	{
+		// the air (rally.c:254-255): the kept pitch and roll go to 0, the kept yaw stays; and pmove->angles stay what the command made them
+		// (HL Rally's lines that set them from vuser1 are commented out, rally.c:248-249), so the body is flat against the world
 		float mark, ang[3];
 		H9RallyTiltPack(0.0f, yaw0, 0.0f, &mark, ang);
 		pmove->vuser3[0] = mark;
 		pmove->vuser4 = Vector(ang[0], ang[1], ang[2]);
+		pmove->angles[0] = cmdPitch;
+		pmove->angles[2] = cmdRoll;
 	}
 	d.normal = stepUp;
 	const Axes axNow = AxesOf(pmove->angles[0], yaw, pmove->angles[2]); // the body's axes (the angles as they stand)
@@ -668,7 +698,9 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		}
 		else
 		{
-			// the air: nothing drives it and nothing slows it; the move, then the body against the world
+			// the air: nothing slows it; the forward move air-accelerates (pm_shared.c PM_AirMove, which HL Rally runs here: 1811), then the
+			// move and the body against the world
+			AirMove(axF, fmove, wish);
 			pmove->velocity = pmove->velocity + pmove->basevelocity;
 			const Vector org1 = pmove->origin;
 			d.wanted = Len3(pmove->velocity) * dt;

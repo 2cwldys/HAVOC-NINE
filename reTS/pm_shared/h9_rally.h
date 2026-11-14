@@ -53,6 +53,8 @@
 
 // The server's settings while a rally map runs (dlls/h9_rally_srv.cpp sets these cvars; pmove reads them live from
 // pmove->movevars, so a server that sets others drives with those). They are also what the gauge's top speed is worked out from.
+// sv_airaccelerate of rally.cfg (pm_shared.c PM_AirAccelerate)
+#define H9R_AIRACCELERATE 0.1f
 #define H9R_FRICTION 0.25f       // HLR rally.cfg sv_friction
 #define H9R_ACCELERATE 0.085f    // HLR rally.cfg sv_accelerate: the pull is this * the wish speed, per second
 #define H9R_GRAVITY 520.0f       // HLR rally.cfg sv_gravity
@@ -370,6 +372,34 @@ static inline void H9RallyAccelerate(float v[3], const float wishdir[3], float w
 		v[i] += pull * wishdir[i];
 }
 
+// HL Rally's PM_AirMove + PM_AirAccelerate (pm_shared.c:518-560, 648-690), which it runs when the car is not on the ground (1811): the
+// wish direction is the command's forward move along `fwd` flattened (z 0) and made unit, reversed by the move's sign; the wish speed
+// is |fmove| cut to `maxSpeed` (pmove->maxspeed); the pull is airAccel * wishspeed * dt * pmFriction up to what is missing of the
+// wish speed capped at 30 along the wish. A move of 0, or a nose straight up or down, adds nothing.
+static inline void H9RallyAirAccelerate(float v[3], const float fwd[3], float fmove, float maxSpeed, float airAccel, float pmFriction, float dt)
+{
+	if (fmove == 0.0f)
+		return;
+	float dir[3] = {fwd[0], fwd[1], 0.0f};
+	if (H9RNormalize(dir) <= 0.0f)
+		return;
+	if (fmove < 0)
+		for (int i = 0; i < 3; i++)
+			dir[i] = -dir[i];
+	float wishspeed = fmove < 0 ? -fmove : fmove;
+	if (wishspeed > maxSpeed)
+		wishspeed = maxSpeed;
+	const float wishspd = wishspeed > 30.0f ? 30.0f : wishspeed;
+	const float add = wishspd - H9RDot(v, dir);
+	if (add <= 0.0f)
+		return;
+	float pull = airAccel * wishspeed * dt * pmFriction;
+	if (pull > add)
+		pull = add;
+	for (int i = 0; i < 3; i++)
+		v[i] += pull * dir[i];
+}
+
 // The two halves of the gravity around the move (HLR pm_shared.c PM_AddCorrectGravity and PM_FixupGravityVelocity), and the base
 // velocity's z that is folded into the first.
 static inline float H9RallyGravityHalf(float vz, float entGravity, float mvGravity, float dt)
@@ -414,10 +444,12 @@ static inline void H9RallyTilt(const float f1[3], const float f2[3], const float
 // looks for the ground along them (rally.c PM_PlayerAngles:161), and its client reads them for the slip (input.cpp:1056). The fields
 // that are predicted and networked for a player and that nothing of The Specialists' reads in a car (no weapons) are vuser4 (the three
 // angles) and vuser3.x (a mark that says the angles are ours: dlls/h9_rally_srv.cpp copies both into the client data of a car). The
-// wire carries a field as a signed 10-bit integer (game/ts/delta.lst), so the angles go in half degrees (180 degrees is 360, inside
-// 511). `mark` and `ang` are the two fields as a pmove has them.
+// wire would carry a field as a signed 10-bit integer (game/ts/delta.lst), but the server sends a car's tilt to nobody
+// (dlls/h9_rally_srv.cpp, H9RallyClientData: HL Rally's vuser1 is sent to nobody either), so the angles are kept as floats, unrounded,
+// as HL Rally's vuser1 (the half-degree packing of an earlier version moved the ground's search axes by up to 0.25 degrees a command).
+// `mark` and `ang` are the two fields as a pmove has them.
 #define H9R_TILT_MARK 211.0f
-#define H9R_TILT_SCALE 2.0f
+#define H9R_TILT_SCALE 1.0f
 static inline float H9RallyWrap180(float a)
 {
 	a = fmodf(a, 360.0f);
@@ -430,9 +462,9 @@ static inline float H9RallyWrap180(float a)
 static inline void H9RallyTiltPack(float pitch, float yaw, float roll, float* mark, float ang[3])
 {
 	*mark = H9R_TILT_MARK;
-	ang[0] = floorf(H9RallyWrap180(pitch) * H9R_TILT_SCALE + 0.5f);
-	ang[1] = floorf(H9RallyWrap180(yaw) * H9R_TILT_SCALE + 0.5f);
-	ang[2] = floorf(H9RallyWrap180(roll) * H9R_TILT_SCALE + 0.5f);
+	ang[0] = H9RallyWrap180(pitch) * H9R_TILT_SCALE;
+	ang[1] = H9RallyWrap180(yaw) * H9R_TILT_SCALE;
+	ang[2] = H9RallyWrap180(roll) * H9R_TILT_SCALE;
 }
 // False when the fields are not a car's tilt (never written: a weapon's values, or zero).
 static inline bool H9RallyTiltUnpack(float mark, const float ang[3], float* pitch, float* yaw, float* roll)
@@ -573,44 +605,40 @@ static inline H9RallySides H9RallyCrashSides(float vf, float vl, float speed3)
 // The points the body is traced out to, from its middle (8 above the origin): (along the nose, to the left, height above the
 // origin). HL Rally's grid: along the front and the back 4.8 apart at 25.2 wide (4 points, the corner's 2 in), along the sides 8
 // apart over 37 (5 points), at the heights stepsize, stepsize + 8, ... while under the car's 16 (4 and 12 at sv_stepsize 4; none
-// from a stepsize of 16). Returns how many were written.
+// from a stepsize of 16). Returns how many were written. The half length is an int division, as HL Rally's `CarLength / 2` (rally.c:278,
+// :340, `#define CarLength 45`): 22, not 22.5.
 static inline int H9RallyCrashPoints(const H9RallySides& sides, float stepsize, float out[][3], int maxPoints)
 {
+	// The order is HL Rally's (rally.c PM_CarWorldCollision:452-495): side by side (front, right, back, left), each side row by row from
+	// the stepsize up, along the row from its start; the nearest hit is the first of equal fractions (`<`), so the order decides a tie.
 	int n = 0;
-	const float half = H9R_LENGTH * 0.5f, halfW = H9R_WIDTH * 0.5f;
-	int row = 0;
-	for (int v = (int)stepsize; v < (int)H9R_HEIGHT; v += (int)H9R_TRACE_GAP, row++)
+	const float half = (float)((int)H9R_LENGTH / 2), halfW = H9R_WIDTH * 0.5f;
+	for (int side = 0; side < 4; side++)
 	{
-		const float z = stepsize + H9R_TRACE_GAP * (float)row;
-		for (int u = 0; u < 4; u++)
+		const bool on = side == 0 ? sides.front : side == 1 ? sides.right : side == 2 ? sides.back : sides.left;
+		if (!on)
+			continue;
+		int row = 0;
+		for (int v = (int)stepsize; v < (int)H9R_HEIGHT; v += (int)H9R_TRACE_GAP, row++)
 		{
-			if (sides.front && n < maxPoints)
+			const float z = stepsize + H9R_TRACE_GAP * (float)row;
+			if (side == 0 || side == 2)
 			{
-				out[n][0] = half;
-				out[n][1] = halfW - 2.0f - 4.8f * (float)u;
-				out[n++][2] = z;
+				for (int u = 0; u < 4 && n < maxPoints; u++)
+				{
+					out[n][0] = side == 0 ? half : -half;
+					out[n][1] = side == 0 ? halfW - 2.0f - 4.8f * (float)u : -halfW + 2.0f + 4.8f * (float)u;
+					out[n++][2] = z;
+				}
 			}
-			if (sides.back && n < maxPoints)
+			else
 			{
-				out[n][0] = -half;
-				out[n][1] = -halfW + 2.0f + 4.8f * (float)u;
-				out[n++][2] = z;
-			}
-		}
-		for (int u = 0; u < 5; u++)
-		{
-			const float x = -half + 8.0f + 8.0f * (float)u;
-			if (sides.right && n < maxPoints)
-			{
-				out[n][0] = x;
-				out[n][1] = -halfW;
-				out[n++][2] = z;
-			}
-			if (sides.left && n < maxPoints)
-			{
-				out[n][0] = x;
-				out[n][1] = halfW;
-				out[n++][2] = z;
+				for (int u = 0; u < 5 && n < maxPoints; u++)
+				{
+					out[n][0] = -half + 8.0f + 8.0f * (float)u;
+					out[n][1] = side == 1 ? -halfW : halfW;
+					out[n++][2] = z;
+				}
 			}
 		}
 	}

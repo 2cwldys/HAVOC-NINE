@@ -50,9 +50,11 @@ static cvar_t h9_rally_debug = {"h9_rally_debug", "0", 0};
 // sv_stepsize again at every map load, so a restore only puts back a value that is still the rally one: a map's own is left alone.
 // sv_maxspeed is the fifth: PM_CheckParamters scales the command's forward move down to the movevars' maxspeed, and the car's move is the
 // client's gearbox number (up to 10000), so a server that kept The Specialists' 320 would cut every car to 320 u/s of wish.
-static const char* const kMoveVars[5] = {"sv_friction", "sv_accelerate", "sv_gravity", "sv_stepsize", "sv_maxspeed"};
-static const float kRallyValues[5] = {H9R_FRICTION, H9R_ACCELERATE, H9R_GRAVITY, H9R_STEP_UP, H9RALLY_MAXSPEED};
-static float s_savedValues[5];
+// sv_airaccelerate is the sixth: PM_AirMove (pm_shared.c:1811) air-accelerates a forward move with it (rally.cfg: 0.1).
+#define H9RALLY_NUM_MOVEVARS 6
+static const char* const kMoveVars[H9RALLY_NUM_MOVEVARS] = {"sv_friction", "sv_accelerate", "sv_gravity", "sv_stepsize", "sv_maxspeed", "sv_airaccelerate"};
+static const float kRallyValues[H9RALLY_NUM_MOVEVARS] = {H9R_FRICTION, H9R_ACCELERATE, H9R_GRAVITY, H9R_STEP_UP, H9RALLY_MAXSPEED, H9R_AIRACCELERATE};
+static float s_savedValues[H9RALLY_NUM_MOVEVARS];
 static bool s_movevarsApplied = false;
 
 static void ApplyMovevars(bool rally)
@@ -61,17 +63,17 @@ static void ApplyMovevars(bool rally)
 	{
 		if (!s_movevarsApplied)
 		{
-			for (int i = 0; i < 5; i++)
+			for (int i = 0; i < H9RALLY_NUM_MOVEVARS; i++)
 				s_savedValues[i] = CVAR_GET_FLOAT(kMoveVars[i]);
 			s_movevarsApplied = true;
 		}
-		for (int i = 0; i < 5; i++)
+		for (int i = 0; i < H9RALLY_NUM_MOVEVARS; i++)
 			if (CVAR_GET_FLOAT(kMoveVars[i]) != kRallyValues[i])
 				CVAR_SET_FLOAT(kMoveVars[i], kRallyValues[i]);
 	}
 	else if (s_movevarsApplied)
 	{
-		for (int i = 0; i < 5; i++)
+		for (int i = 0; i < H9RALLY_NUM_MOVEVARS; i++)
 			if (CVAR_GET_FLOAT(kMoveVars[i]) == kRallyValues[i])
 				CVAR_SET_FLOAT(kMoveVars[i], s_savedValues[i]);
 		s_movevarsApplied = false;
@@ -412,6 +414,9 @@ void H9RallyServerThink(CBasePlayer* pl)
 		const unsigned parts = ValidIndex(idx) ? s_shop[idx].parts : 0;
 		SetPhysInt(pl->edict(), "rh", RallyShopHandlingAdd(parts));
 		SetPhysInt(pl->edict(), "rt", RallyShopTopAdd(parts));
+		// the hull: BSP hull 1 (usehull 0) on a map made for HL Rally's cars, the point hull of the map's own shape elsewhere
+		// (pm_shared/h9_rally.cpp, top): the map's own key, not the cvar that forces rally on any map
+		SetPhysInt(pl->edict(), "rhull", RaceRallyMapKey() ? 1 : 0);
 	}
 
 	// the headlights: HL Rally's flashlight impulse (100; its player.cpp:3565-3595 tells every client), read here before

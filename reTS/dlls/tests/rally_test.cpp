@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -787,18 +788,18 @@ int main()
 	{
 		float mark, ang[3], p, y, r;
 		H9RallyTiltPack(-12.3f, 91.0f, 7.26f, &mark, ang);
-		Check(H9RallyTiltUnpack(mark, ang, &p, &y, &r) && fabsf(p - (-12.5f)) < 1e-4f && fabsf(y - 91.0f) < 1e-4f && fabsf(r - 7.5f) < 1e-4f,
-			  "tilt: pitch, yaw and roll survive the field in half degrees");
+		Check(H9RallyTiltUnpack(mark, ang, &p, &y, &r) && p == -12.3f && y == 91.0f && r == 7.26f,
+			  "tilt: pitch, yaw and roll are kept as floats, exact (HL Rally's vuser1; no half-degree packing)");
 		Check(!H9RallyTiltUnpack(0.0f, ang, &p, &y, &r) && !H9RallyTiltUnpack(1.0f, ang, &p, &y, &r), "tilt: a field that is not marked (a weapon's value, zero) is no tilt");
-		bool wire = true; // the wire carries a signed 10 bit integer (game/ts/delta.lst): -512 to 511
-		for (float yaw = -180.0f; yaw <= 180.0f; yaw += 7.0f)
+		bool exact = true; // no value is rounded: a fraction of a degree survives, whatever the angle
+		for (float yaw = -180.0f; yaw <= 180.0f; yaw += 7.13f)
 		{
-			H9RallyTiltPack(270.0f - yaw, yaw, yaw, &mark, ang);
-			for (int i = 0; i < 3; i++)
-				if (ang[i] < -512.0f || ang[i] > 511.0f || ang[i] != floorf(ang[i]))
-					wire = false;
+			H9RallyTiltPack(yaw * 0.31f, yaw, yaw * -0.17f, &mark, ang);
+			H9RallyTiltUnpack(mark, ang, &p, &y, &r);
+			if (p != yaw * 0.31f || y != yaw || r != yaw * -0.17f)
+				exact = false;
 		}
-		Check(wire && mark < 511.0f, "tilt: every packed value is an integer inside the wire's 10 bits, the mark too");
+		Check(exact, "tilt: a tilt of any fraction of a degree round-trips unrounded (the half degree moved the ground's search axes)");
 		H9RallyTiltPack(359.0f, -181.0f, 0.0f, &mark, ang);
 		H9RallyTiltUnpack(mark, ang, &p, &y, &r);
 		Check(fabsf(p - (-1.0f)) < 1e-4f && fabsf(y - 179.0f) < 1e-4f, "tilt: angles are wrapped to -180..180 before they are packed");
@@ -806,6 +807,59 @@ int main()
 		H9RallyTiltPack(0.0f, 33.0f, 0.0f, &mark, ang);
 		H9RallyTiltUnpack(mark, ang, &p, &y, &r);
 		Check(p == 0.0f && r == 0.0f && fabsf(y - 33.0f) < 1e-4f, "tilt: in the air pitch and roll are 0 and the yaw is kept");
+	}
+
+	// --- the air: PM_AirMove / PM_AirAccelerate (pm_shared.c:518-560, 648-690, 1811) and the axes the friction and the pull use --------------
+	{
+		const float horiz[3] = {1, 0, 0};
+		float v[3] = {0, 0, 0};
+		H9RallyAirAccelerate(v, horiz, 100.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(fabsf(v[0] - 0.1f * 100.0f * 0.01f) < 1e-6f && v[1] == 0 && v[2] == 0, "air: pull = sv_airaccelerate 0.1 * wishspeed * dt * friction along the nose");
+		v[0] = 29.95f;
+		H9RallyAirAccelerate(v, horiz, 1000.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(fabsf(v[0] - 30.0f) < 1e-5f, "air: the pull is cut to what is missing of 30 u/s along the wish, whatever the wish speed");
+		v[0] = 31.0f;
+		H9RallyAirAccelerate(v, horiz, 1000.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(v[0] == 31.0f, "air: a car already over 30 u/s along the wish gets nothing");
+		v[0] = 0; v[1] = 0; v[2] = 0;
+		H9RallyAirAccelerate(v, horiz, 0.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(v[0] == 0 && v[1] == 0 && v[2] == 0, "air: a forward move of 0 (the client builds one on the ground only) adds nothing");
+		H9RallyAirAccelerate(v, horiz, -100.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(v[0] < 0 && v[1] == 0 && v[2] == 0, "air: a negative move pulls backwards");
+		// the wish speed is cut to the maxspeed, the friction scales the pull, and a tilted nose is flattened
+		v[0] = v[1] = v[2] = 0;
+		const float tilted[3] = {0.6f, 0.0f, 0.8f};
+		H9RallyAirAccelerate(v, tilted, 100000.0f, 50.0f, H9R_AIRACCELERATE, 2.0f, 0.01f);
+		Check(fabsf(v[0] - 0.1f * 50.0f * 0.01f * 2.0f) < 1e-6f && v[2] == 0, "air: wish speed cut to maxspeed, pull x friction, the nose flattened (z 0, unit)");
+		v[0] = v[1] = v[2] = 0;
+		const float up[3] = {0, 0, 1};
+		H9RallyAirAccelerate(v, up, 100.0f, 3000.0f, H9R_AIRACCELERATE, 1.0f, 0.01f);
+		Check(v[0] == 0 && v[1] == 0 && v[2] == 0, "air: a nose straight up has no horizontal direction and adds nothing");
+		Check(H9R_AIRACCELERATE == 0.1f, "air: sv_airaccelerate is rally.cfg's 0.1");
+	}
+
+	// --- source pins of what only pmove itself does (the engine is not here): the axes, the hull ------------------------------------------------------
+	{
+		std::string src, path = __FILE__;
+		const size_t cut = path.find_last_of("/\\");
+		path = (cut == std::string::npos ? std::string() : path.substr(0, cut + 1)) + "../../pm_shared/h9_rally.cpp";
+		if (FILE* f = fopen(path.c_str(), "rb"))
+		{
+			char buf[4096];
+			size_t n;
+			while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+				src.append(buf, n);
+			fclose(f);
+		}
+		Check(!src.empty(), "pins: pm_shared/h9_rally.cpp was read");
+		Check(src.find("const Axes axF = AxesOf(cmdPitch, yaw, cmdRoll);") != std::string::npos &&
+				  src.find("const float cmdPitch = pmove->cmd.viewangles[0], cmdRoll = pmove->cmd.viewangles[2];") != std::string::npos,
+			  "axes: the friction's and the pull's axes are the command's angles (horizontal), not the kept tilt (pm_shared.c:1635)");
+		Check(src.find("pmove->usehull = PhysInfoInt(\"rhull\") != 0 ? 0 : 2;") != std::string::npos,
+			  "hull: BSP hull 1 (usehull 0) on a rally map (physinfo rhull), the point hull of hull 0 elsewhere");
+		Check(src.find("H9RallyAirAccelerate(") != std::string::npos && src.find("AirMove(axF, fmove, wish);") != std::string::npos,
+			  "air: the air branch air-accelerates the command's forward move");
+		Check(src.find("pmove->angles[0] = cmdPitch;") != std::string::npos, "axes: in the air the body is flat (the command's pitch and roll), not the kept tilt");
 	}
 
 	// --- row 58: the finish ----------------------------------------------------------------------------------------------------------------------------
@@ -917,6 +971,14 @@ int main()
 					hz12++;
 			}
 			const int nTwo = H9RallyCrashPoints(fl, 4.0f, p, 64);
+			float maxX = 0;
+			for (int i = 0; i < nAll; i++)
+				maxX = fmaxf(maxX, fabsf(p[i][0]));
+			Check(maxX == 22.0f, "crash: the half length is an int division, CarLength / 2 = 22 (rally.c:278, :340), not 22.5");
+			float po[64][3];
+			H9RallyCrashPoints(rest, 4.0f, po, 64);
+			Check(po[0][0] == 22.0f && po[7][0] == 22.0f && po[8][1] == -9.0f && po[18][0] == -22.0f && po[26][1] == 9.0f,
+				"crash: the points go side by side, front, right, back, left, each row by row (rally.c:452-495: the first of equal fractions wins a tie)");
 			Check(nAll == 2 * (4 + 4 + 5 + 5) && nTwo == 2 * (4 + 5), "crash: 4 points on a front or back, 5 on a side, at two heights");
 			Check(inside && hz4 == hz12 && hz4 + hz12 == (float)nAll, "crash: the points are on the 45 x 18 outline at heights 4 and 12");
 			Check(lowest >= 4.0f && lowest > 2.0f, "crash: no trace goes lower than 4 above the origin (a 1-2 unit raised strip is no wall)");

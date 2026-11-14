@@ -1823,6 +1823,11 @@ int RaceRallyClass()
 	return RaceRallyClassFor(g_pRace->RallyKey(), H9RallyCvarClass());
 }
 
+bool RaceRallyMapKey()
+{
+	return g_pRace != nullptr && g_pRace->RallyKey();
+}
+
 bool RaceRallyMode()
 {
 	return RaceRallyClass() > 0;
