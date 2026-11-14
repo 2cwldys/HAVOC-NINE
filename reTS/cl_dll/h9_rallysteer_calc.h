@@ -36,6 +36,7 @@ const float kStopSpeed = 5.0f; // at or under this horizontal speed (u/s) the ca
 const float kFullSpeed = 100.0f; // and it turns by speed / this up to it
 const float kWheelMax = 10.0f;   // steer_wheel_angle's limit, degrees
 const float kWheelCentre = 20.0f; // and its recentring, units a second
+const float kWheelThreshold = 12.0f; // cl_steer_threshold: the recentring acts only inside it (the wheel's limit is 10, so always)
 
 inline float Clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float Wrap360(float a)
@@ -163,10 +164,13 @@ inline void WheelStep(State& s, float inputLeft, float speedH, float dt)
 {
 	float w = s.wheel;
 	const float c = kWheelCentre * dt;
-	if (w > 0.0f)
-		w = w > c ? w - c : 0.0f;
-	else if (w < 0.0f)
-		w = w < -c ? w + c : 0.0f;
+	// HL Rally's two tests, one after the other and NOT clamped at 0 (input.cpp:1016-1021, cl_steer_center_speed 20, cl_steer_threshold 12):
+	// a wheel under one step from centre is taken across 0 by the first and brought back by the second, so it stays where it is; a wheel
+	// further out comes in by a step; and a small negative one is carried over to a small positive one.
+	if (w > 0.0f && w < kWheelThreshold)
+		w -= c;
+	if (w < 0.0f && w > -kWheelThreshold)
+		w += c;
 	const float accelRight = -inputLeft;
 	const float lowMul = fabsf(w) < 3.0f ? 1.5f : 1.0f;
 	if (speedH > 400.0f && !(w < 5.0f))
@@ -206,7 +210,11 @@ inline Output Step(State& s, const Input& in)
 	const float deltaBefore = s.delta;
 	if (in.onGround)
 	{
-		const float hy = s.heading * (3.14159265358979f / 180.0f);
+		// HL Rally measures the slide against viewangles[YAW] as it stands when the block runs: the heading plus THIS frame's input
+		// (input.cpp:1056-1074). The input of a reference frame is a_ref; at 99 frames a second that is this frame's, as there.
+		const float mRef = kRefFps * dt;
+		const float yawNow = s.heading + inputLeft / (mRef > 1e-6f ? mRef : 1.0f);
+		const float hy = yawNow * (3.14159265358979f / 180.0f);
 		const float fx = cosf(hy), fy = sinf(hy);   // the nose
 		const float rx = fy, ry = -fx;               // its right
 		float cosSlip = 0.0f, slideRear = 0.0f, slideFront = 0.0f;
@@ -216,7 +224,7 @@ inline Output Step(State& s, const Input& in)
 			cosSlip = (in.velX * fx + in.velY * fy) / speedH;
 			slideRear = (in.velX * rx + in.velY * ry) / speedH;
 			// the front wheels' slide: their direction is the heading turned by wheel * 2.5 (HL Rally adds it to the yaw as it stands)
-			const float fy2 = (s.heading + s.wheel * 2.5f) * (3.14159265358979f / 180.0f);
+			const float fy2 = (yawNow + s.wheel * 2.5f) * (3.14159265358979f / 180.0f);
 			slideFront = (in.velX * sinf(fy2) + in.velY * -cosf(fy2)) / speedH;
 		}
 		float slide = fabsf(slideFront) < fabsf(slideRear) ? slideFront : slideRear; // the smaller of the two
@@ -227,7 +235,9 @@ inline Output Step(State& s, const Input& in)
 		const float n = (float)(30 + skid);
 
 		float a = inputLeft; // degrees to the left this step
-		if (in.brake && !rev)
+		// input.cpp:1095 `if (g_braking && reversing != -1)`: g_braking is the back key, but 0 while the car starts in reverse (the back key
+		// held under 40 u/s with the forward key up: input.cpp:870-876, 942-945), so the brake's 1.5 needs 40 u/s or the forward key too
+		if (in.brake && !rev && (speedH >= 40.0f || in.throttle))
 			a *= 1.5f;
 
 		// the power oversteer's gate: the revs and the slip, HL Rally's bands (below 500 u/s one, above another)
@@ -284,7 +294,9 @@ inline Output Step(State& s, const Input& in)
 		s.tractionLoss = 0.0f;
 
 	// the heading: delta is degrees per reference frame, so kGain * delta degrees a second
-	const float turn = 0.5f * (deltaBefore + s.delta) * kGain * dt * turnGate;
+	// input.cpp:1228-1250: the NEW steer_delta alone (not the mean of the old and the new)
+	(void)deltaBefore;
+	const float turn = s.delta * kGain * dt * turnGate;
 	s.heading = Wrap360(s.heading + turn);
 
 	GearboxStep(s.box, speedH, in.onGround, in.throttle || (in.brake && speed3 < 40.0f), s.tractionLoss, dt);

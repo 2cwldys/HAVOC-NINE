@@ -2103,7 +2103,16 @@ void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams)
 	else if (0 == pparams->paused)
 	{
 		g_tspLocalSimVel = pparams->simvel; // client.dll keeps it in its normal refdef (0x1006789f)
-		V_CalcNormalRefdef(pparams);
+		// H9 rally mode, the interior's rear-view mirror: the engine's second pass (nextView 1) is the mirror, turned round and in its own
+		// rectangle, with the first pass's origin as it was left (HL Rally's view.cpp:1257-1330)
+		if (pparams->nextView == 1 && H9RallyCam_MirrorPass(pparams))
+		{
+		}
+		else
+		{
+			V_CalcNormalRefdef(pparams);
+			H9RallyCam_MirrorBegin(pparams);
+		}
 	}
 
 	// The screen fade, set every frame (client.dll 0x10069bd0..0x10069e1e): the slow motion tint while

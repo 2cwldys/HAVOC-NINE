@@ -1309,6 +1309,26 @@ bool CStudioModelRenderer::StudioDrawModel(int flags)
 		IEngineStudio.StudioSetRemapColors(m_nTopColor, m_nBottomColor);
 
 		StudioRenderModel();
+
+		// H9 rally mode: the interior's windscreen overlay, drawn again over the view model, added, on the same bones (HL Rally's rally_chrome,
+		// StudioModelRenderer.cpp:2585-2627). Only for the interior the weapon's slot holds in a car.
+		if (m_pCurrentEntity == gEngfuncs.GetViewModel())
+		{
+			model_t* chrome = H9RallyCam_InteriorChrome(m_pRenderModel);
+			if (chrome != NULL)
+			{
+				studiohdr_t* chromeHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(chrome);
+				if (chromeHeader != NULL)
+				{
+					IEngineStudio.GL_SetRenderMode(kRenderTransAdd);
+					m_pStudioHeader = chromeHeader;
+					IEngineStudio.StudioSetHeader(m_pStudioHeader);
+					StudioMergeBones(chrome); // snaps to the bones of the model drawn (by name)
+					StudioRenderModel();
+					IEngineStudio.GL_SetRenderMode(kRenderNormal);
+				}
+			}
+		}
 	}
 
 	return true;
