@@ -161,6 +161,20 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   (work folders, builds, caches, downloads, test copies) will be stored
   before it proceeds. Never assume %TEMP% or C:; drive space differs per
   machine and C: may be a small SSD.
+- Licenses: LICENSE.md at the root says which license covers which folder (the GPLv3 over the gamemode plugin code and the code
+  around it, the Half-Life SDK license over the mod code in reTS/ and its built libraries only; MIT and Apache 2.0 parts beside
+  them), and THIRD_PARTY_LICENSES/ holds a copy of each third-party license text. Whenever anything comes in from another project
+  (code, a library, a tool, a model, a sound, a data file, a patch to its source):
+  1. Find its license first, before the file goes in. No license file or header means no permission: stop and ask the owner.
+  2. It may join the plugin side (plugins, h9web, p2p, tools, docs, ...) only if the license is compatible with the GPLv3: MIT,
+     BSD, zlib, Apache 2.0 and the GPLv3 itself are. GPLv2-only, non-commercial, no-redistribution, "attribution and no
+     modification" and unlicensed material are not: stop and ask the owner rather than adding it.
+  3. Never put GPLv3 code, or anything whose license is not free-of-charge-compatible with the Half-Life SDK license, into
+     reTS/ (the mod code), and never copy Half-Life SDK code out of reTS/ into the plugin side: the two stay separate.
+  4. When it is compatible and goes in, in the same piece of work: its license text sits beside it, a copy goes into
+     THIRD_PARTY_LICENSES/, and LICENSE.md gets its row (what it is, where it lives, which license). A removed component loses
+     its row. A part of the repository that is another project's own repository is a git submodule, as SMAK is.
+  5. If the license does not fit, say so in plain words to the owner and do not add the file.
 - A third-party file (a binary, an include, a data file) ships with its license beside it,
   in every folder that holds a copy: `easy_http_LICENSE.txt` next to AmxxEasyHttp's module,
   CA bundle and include (compts, H9XASH, the Steam install, the git copy), and
