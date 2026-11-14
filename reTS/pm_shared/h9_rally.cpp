@@ -264,8 +264,26 @@ void H9RallyMove()
 		return;
 	if (PM_CheckStuck())
 	{
-		pmove->velocity = Vector(0, 0, 0);
-		return;
+		// Inside something solid (a sliver of the map under the road, a seam): the stock check only tries an eighth of a unit around.
+		// A car is lifted out, as far up as its own height, and drives on; only when nothing above is free does it stand still
+		// (the race's own watch then puts it back on the track: race.cpp).
+		bool freed = false;
+		for (float lift = 1.0f; lift <= H9R_HEIGHT && !freed; lift += 1.0f)
+		{
+			Vector test = pmove->origin;
+			test[2] += lift;
+			pmtrace_t tr;
+			if (pmove->PM_TestPlayerPosition(test, &tr) == -1)
+			{
+				pmove->origin = test;
+				freed = true;
+			}
+		}
+		if (!freed)
+		{
+			pmove->velocity = Vector(0, 0, 0);
+			return;
+		}
 	}
 
 	// the heading: the view's yaw, as HL Rally. (The client turns it with the steering keys: cl_dll/input.cpp.)
