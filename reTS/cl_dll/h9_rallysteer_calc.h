@@ -54,19 +54,42 @@ inline float Wrap180(float a)
 	return a;
 }
 
-// The gearbox and the revs that the power term reads, from the speed, as HL Rally's (Rally_Effects.cpp renderCalculateRPMs, automatic).
+// The gearbox and the revs that the throttle and the power term read, from the speed, as HL Rally's (Rally_Effects.cpp renderCalculateRPMs:
+// 252-377). The automatic box shifts by the speed (lines 270-301); the manual one (rally_manual) does not shift by itself: the gear is what
+// the gearup and geardown commands left it (input.cpp:471-486), -1 is reverse, 0 neutral, 1 to 6.
 struct Gearbox
 {
 	int gear = 0;
 	float rpm = 15.0f, oldRpm = 15.0f;
 };
 
-// One step. `speedH` the horizontal speed, `onGround`, `revving` the throttle is down (or the back key while reversing), `tractionLoss` 0..1
-// from the last steering step (the revs run free while the tyres slip).
-inline void GearboxStep(Gearbox& g, float speedH, bool onGround, bool revving, float tractionLoss, float dt)
+// The commands' own rules (input.cpp:471-486): only in the manual box; up to 6 and down to -1.
+inline bool GearUp(Gearbox& g, bool manual)
+{
+	if (manual && g.gear < 6)
+	{
+		g.gear++;
+		return true;
+	}
+	return false;
+}
+inline bool GearDown(Gearbox& g, bool manual)
+{
+	if (manual && g.gear > -1)
+	{
+		g.gear--;
+		return true; // (HL Rally also sets g_backfire = 2: the exhaust's pop, an effect)
+	}
+	return false;
+}
+
+// One step. `speedH` the horizontal speed, `onGround`, `revving` the throttle is down (HL Rally's g_accelerating, or the accelerator held
+// while reversing: g_reversing == 2), `tractionLoss` 0..1 from the last steering step (the revs run free while the tyres slip). `manual`
+// is rally_manual; `countdown` (the race's hold) puts the automatic box in neutral (:298-300).
+inline void GearboxStep(Gearbox& g, float speedH, bool onGround, bool revving, float tractionLoss, float dt, bool manual = false, bool countdown = false)
 {
 	const float cs = speedH * 3.25f; // "currentspeed"
-	const int oldGear = g.gear;
+	if (!manual)
 	{
 		const float autoSpeed = g.gear > 0 ? cs / (float)(g.gear * 2) : (cs > 0.0f ? 1e9f : 0.0f);
 		if (autoSpeed > 190.0f)
@@ -82,18 +105,19 @@ inline void GearboxStep(Gearbox& g, float speedH, bool onGround, bool revving, f
 			g.gear = 6;
 		else if (g.gear < 1)
 			g.gear = cs > 5.0f ? 1 : 0;
+		if (countdown)
+			g.gear = 0;
 	}
-	(void)oldGear;
 	float rpm = g.rpm;
 	if (!onGround || g.gear == 0 || tractionLoss > 0.0f || cs < 5.0f)
 	{
 		if (revving)
-			rpm += tractionLoss > 0.0f ? (15.0f + (tractionLoss / (float)(g.gear > 0 ? g.gear : 1)) * 300.0f) * dt : 1100.0f * dt;
+			rpm += tractionLoss > 0.0f ? (15.0f + (tractionLoss / (float)(g.gear != 0 ? g.gear : 1)) * 300.0f) * dt : 1100.0f * dt;
 		else
 			rpm -= 400.0f * dt;
 	}
 	else
-		rpm = cs / (float)(g.gear * 2);
+		rpm = g.gear == -1 ? cs : cs / (float)(g.gear * 2);
 	if (rpm < 10.0f)
 	{
 		g.oldRpm = 10.0f;
@@ -117,6 +141,96 @@ inline void GearboxStep(Gearbox& g, float speedH, bool onGround, bool revving, f
 	g.oldRpm = g.rpm;
 }
 
+// ---- the throttle: the forward move the client sends (input.cpp:869-1001) ----------------------------------------------------------
+//
+// HL Rally does not send "a key is down": it works the forward move out from the revs and the speed, every frame, on the ground, and the
+// movement (rally.c:518-537) reads its size as the wish speed and its sign as the direction. Every read of a key in input.cpp goes through
+// CL_KeyState, which gives 0.25 .. 0.75 for a press or a release inside the frame and CLEARS those impulses, so only the first read of
+// a key in a frame sees the fraction and every later one sees 1 if it is down and 0 if not. The first reads are the "is it pressed at all"
+// tests (:871, :877, :890); the reads that multiply the move (:948, :950, :998) come after them, so the fraction never reaches the move
+// (audit row 5 said it did: it does not). The caller gives both: `Frac` the first read, `Down` the one after it.
+struct DriveIn
+{
+	bool manual = false;     // rally_manual
+	bool onGround = true;    // pmove->onground != -1
+	bool klook = false;      // in_klook.state & 1 (the INS key: the forward key then looks)
+	int gear = 0;            // the gearbox's
+	float rpm = 15.0f;       // rpms
+	float speedH = 0.0f;     // the horizontal length of pmove->velocity
+	float backFrac = 0, backDown = 0, fwdFrac = 0, fwdDown = 0;
+	int reversing = 0;       // g_reversing as the last frame left it (it is not touched in the air)
+};
+struct DriveOut
+{
+	float forwardmove = 0.0f; // cmd->forwardmove before the maxspeed clip, signed
+	int reversing = 0;        // g_reversing: 0, 1 (the car is going backwards on the back key's say), 2 (and the accelerator is down)
+	bool accelerating = false; // g_accelerating: the throttle key is down (not in the manual box's reverse)
+	bool braking = false;     // g_braking
+	bool isReverse = false;
+};
+
+// What the move would be at `speedH` and `rpm` when the throttle key is down (input.cpp:985-990, cl_forwardspeed): 10000 from a stand;
+// below 50 u/s or with the revs under 200 the speed plus 30 * rpm * 78 / speed (a push that is large while the revs are high and the car
+// is slow); else the speed alone. Past the engine's limit this is the speed, and the movement has nothing to add.
+inline float ThrottleMove(float speedH, float rpm)
+{
+	if (speedH == 0.0f)
+		return 10000.0f;
+	if (rpm < 200.0f || speedH < 50.0f)
+		return speedH + (rpm * 30.0f) / (speedH / 78.0f);
+	return speedH;
+}
+
+inline DriveOut DriveStep(const DriveIn& in)
+{
+	DriveOut o;
+	o.reversing = in.reversing;
+	// :871-875: the back key is read here when the car is slow (the first read, so its fraction counts), the gear -1 of the manual box is
+	// reverse whatever the speed
+	const bool slow = in.speedH < 40.0f;
+	bool isReverse = (slow && in.backFrac > 0.0f && !in.manual) || (in.manual && in.gear == -1);
+	// :877: g_braking reads the back key again; when the slow test above already read it that is the second read
+	o.braking = (slow ? in.backDown : in.backFrac) > 0.0f;
+	// :890-902: the throttle key (its first read) overrides a reverse; in the manual box not in gear -1
+	if (in.fwdFrac > 0.0f && (!in.manual || in.gear != -1))
+	{
+		isReverse = false;
+		o.accelerating = true;
+	}
+	o.isReverse = isReverse;
+	if (!in.onGround)
+		return o; // :939: the air has no move at all (g_reversing keeps its value)
+
+	float move = 0.0f;
+	if (isReverse)
+	{
+		o.braking = false;
+		o.reversing = 1;
+		move -= 10000.0f * (in.manual ? in.fwdDown : in.backDown); // :948-950
+		if (in.manual && in.fwdDown > 0.0f)
+			o.reversing = 2;
+		else if (in.backDown > 0.0f)
+			o.reversing = 2;
+	}
+	else
+		o.reversing = 0;
+	// :965-1000: the automatic box always, the manual one in a forward gear; not with the forward key held as the look key
+	if (!in.klook && ((in.gear > 0 && in.manual) || !in.manual))
+	{
+		const float m = ThrottleMove(in.speedH, in.rpm) * in.fwdDown;
+		move += o.reversing != 0 ? m * 0.5f : m; // :994-999 (a reverse has the forward key up, so this is 0 there)
+	}
+	o.forwardmove = move;
+	return o;
+}
+
+// The short the usercmd carries: HL Rally adds a float to a short (a wrap for 20 000 and over, which the speed term reaches under 1.4 u/s
+// on a revving car); here the move is cut to the short's range instead of wrapped.
+inline float CmdForwardMove(float move)
+{
+	return Clampf(move, -32767.0f, 32767.0f);
+}
+
 struct State
 {
 	bool init = false;
@@ -125,6 +239,7 @@ struct State
 	float wheel = 0;    // the steering wheel's angle as HL Rally keeps it: positive to the RIGHT, +-10
 	float tractionLoss = 0;
 	Gearbox box;
+	int reversing = 0; // g_reversing (input.cpp:944-963), kept from frame to frame: the air does not touch it
 };
 
 struct Input
@@ -134,9 +249,17 @@ struct Input
 	float mouseYaw = 0; // and the mouse (already zero in the air)
 	float velX = 0, velY = 0, velZ = 0; // the car's velocity, predicted
 	bool onGround = true;
-	bool throttle = false; // the forward key
-	bool brake = false;    // the back key
+	bool throttle = false; // g_accelerating: the forward key is down (not in the manual box's reverse)
+	bool brake = false;    // g_braking (DriveStep: the back key, but not while the car starts in reverse)
 	bool handbrake = false; // the jump key
+	// the revs' inputs (the throttle, DriveStep): the accelerator as the gearbox reads it, the box's mode and the race's hold
+	bool revving = false;   // g_accelerating, or the accelerator down while reversing (g_reversing == 2)
+	bool manual = false;    // rally_manual
+	bool countdown = false; // the race's hold: the automatic box is in neutral
+	// the car's tilt as the last command left it (HL Rally's pmove->vuser1, read at input.cpp:1056), degrees, in AngleVectors' convention;
+	// without it the car is taken as level
+	bool haveTilt = false;
+	float tiltPitch = 0, tiltRoll = 0;
 };
 
 struct Output
@@ -180,6 +303,22 @@ inline void WheelStep(State& s, float inputLeft, float speedH, float dt)
 	s.wheel = Clampf(w, -kWheelMax, kWheelMax);
 }
 
+// The car's nose and right for angles (pitch, yaw, roll) in degrees: GoldSrc's AngleVectors (pitch positive looks down). HL Rally takes the slip
+// against these (input.cpp:1056-1068: tangles = pmove->vuser1 with the yaw of the view, then AngleVectors).
+inline void AxesOfAngles(float pitch, float yaw, float roll, float f[3], float r[3])
+{
+	const float k = 3.14159265358979f / 180.0f;
+	const float sy = sinf(yaw * k), cy = cosf(yaw * k);
+	const float sp = sinf(pitch * k), cp = cosf(pitch * k);
+	const float sr = sinf(roll * k), cr = cosf(roll * k);
+	f[0] = cp * cy;
+	f[1] = cp * sy;
+	f[2] = -sp;
+	r[0] = -sr * sp * cy + cr * sy;
+	r[1] = -sr * sp * sy - cr * cy;
+	r[2] = -sr * cp;
+}
+
 // One step of the steering. Returns the new heading in out.heading.
 inline Output Step(State& s, const Input& in)
 {
@@ -214,18 +353,18 @@ inline Output Step(State& s, const Input& in)
 		// (input.cpp:1056-1074). The input of a reference frame is a_ref; at 99 frames a second that is this frame's, as there.
 		const float mRef = kRefFps * dt;
 		const float yawNow = s.heading + inputLeft / (mRef > 1e-6f ? mRef : 1.0f);
-		const float hy = yawNow * (3.14159265358979f / 180.0f);
-		const float fx = cosf(hy), fy = sinf(hy);   // the nose
-		const float rx = fy, ry = -fx;               // its right
+		// the nose and the right of the car's own, tilted axes, and the whole (three-dimensional) velocity: on a slope the slide share is
+		// the smaller by the slope's cosine, as in HL Rally. Without a tilt the car is level.
+		const float tp = in.haveTilt ? in.tiltPitch : 0.0f, tr = in.haveTilt ? in.tiltRoll : 0.0f;
+		float fN[3], rN[3], fF[3], rF[3];
+		AxesOfAngles(tp, yawNow, tr, fN, rN);
+		AxesOfAngles(tp, yawNow + s.wheel * 2.5f, tr, fF, rF); // the front wheels: the heading turned by wheel * 2.5 (HL Rally adds it to the yaw as it stands)
 		float cosSlip = 0.0f, slideRear = 0.0f, slideFront = 0.0f;
-		if (speedH > 1e-3f)
+		if (speed3 > 1e-3f)
 		{
-			// HL Rally measures against the full velocity; the horizontal part is what the car's heading can say anything about
-			cosSlip = (in.velX * fx + in.velY * fy) / speedH;
-			slideRear = (in.velX * rx + in.velY * ry) / speedH;
-			// the front wheels' slide: their direction is the heading turned by wheel * 2.5 (HL Rally adds it to the yaw as it stands)
-			const float fy2 = (yawNow + s.wheel * 2.5f) * (3.14159265358979f / 180.0f);
-			slideFront = (in.velX * sinf(fy2) + in.velY * -cosf(fy2)) / speedH;
+			cosSlip = (in.velX * fN[0] + in.velY * fN[1] + in.velZ * fN[2]) / speed3;
+			slideRear = (in.velX * rN[0] + in.velY * rN[1] + in.velZ * rN[2]) / speed3;
+			slideFront = (in.velX * rF[0] + in.velY * rF[1] + in.velZ * rF[2]) / speed3;
 		}
 		float slide = fabsf(slideFront) < fabsf(slideRear) ? slideFront : slideRear; // the smaller of the two
 		const bool rev = cosSlip < 0.0f;
@@ -235,9 +374,8 @@ inline Output Step(State& s, const Input& in)
 		const float n = (float)(30 + skid);
 
 		float a = inputLeft; // degrees to the left this step
-		// input.cpp:1095 `if (g_braking && reversing != -1)`: g_braking is the back key, but 0 while the car starts in reverse (the back key
-		// held under 40 u/s with the forward key up: input.cpp:870-876, 942-945), so the brake's 1.5 needs 40 u/s or the forward key too
-		if (in.brake && !rev && (speedH >= 40.0f || in.throttle))
+		// input.cpp:1095 `if (g_braking && reversing != -1)`: `brake` here is g_braking (DriveStep's), which is 0 while the car starts in reverse
+		if (in.brake && !rev)
 			a *= 1.5f;
 
 		// the power oversteer's gate: the revs and the slip, HL Rally's bands (below 500 u/s one, above another)
@@ -299,9 +437,20 @@ inline Output Step(State& s, const Input& in)
 	const float turn = s.delta * kGain * dt * turnGate;
 	s.heading = Wrap360(s.heading + turn);
 
-	GearboxStep(s.box, speedH, in.onGround, in.throttle || (in.brake && speed3 < 40.0f), s.tractionLoss, dt);
+	GearboxStep(s.box, speedH, in.onGround, in.revving, s.tractionLoss, dt, in.manual, in.countdown);
 	out.heading = s.heading;
 	return out;
+}
+
+// After the race's finish HL Rally's CL_CreateMove skips its whole drive block (input.cpp:818-835: no steering, no move, the view angles
+// as they stand), but its renderer still turns the revs by the speed (renderCalculateRPMs). This is that and nothing else.
+inline void FrozenStep(State& s, float velX, float velY, bool onGround, float dt, bool manual, bool countdown)
+{
+	if (!s.init)
+		return;
+	if (dt > 0.1f)
+		dt = 0.1f;
+	GearboxStep(s.box, sqrtf(velX * velX + velY * velY), onGround, false, s.tractionLoss, dt, manual, countdown);
 }
 
 } // namespace rallysteer

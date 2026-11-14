@@ -14,15 +14,19 @@
 *  the world; where the car stands now; the other half of the gravity. Everything is applied once per command with the command's
 *  own length: there are no sub-steps and no snapping to the ground.
 *
-*  What it keeps from one frame to the next: only the player's own origin, velocity and the command's view angles,
-*  which the engine already predicts. No statics that change the movement, no iuser/fuser/vuser. The mode is on while the
+*  What it keeps from one frame to the next: the player's own origin, velocity and the command's view angles, which the engine
+*  already predicts, and the car's tilt, in pmove's vuser4 and vuser3.x as HL Rally keeps it in vuser1 (h9_rally.h, H9RallyTiltPack).
+*  No statics that change the movement. The mode is on while the
 *  physinfo key "rally" is a car class (1 on), which the server sets (dlls/h9_rally_srv.cpp) and the engine sends to the
 *  client in the client data's physinfo string, the way TS's "mj" reaches pmove. The key "rdbg" (1) turns on the debug line;
 *  "rfin" (1) says the car has finished its race.
 *
-*  Where this is NOT HL Rally's (the one difference): HL Rally remembers the car's tilt from the frame before (in vuser1 and in
-*  the angles) and looks for the ground along it. pmove here keeps no state, so the "frame before" tilt is read again with
-*  the same four traces made straight down from the car's place, and the ground is looked for along that.
+*  The forward move is the command's (cmd.forwardmove, signed), worked out by the client from its gearbox (cl_dll/input.cpp and
+*  h9_rallysteer_calc.h, DriveStep); the buttons are read for the brake, the handbrake, the throttle and a steering key, as HL Rally's.
+*
+*  Where this is NOT HL Rally's: the tilt's fields. HL Rally uses vuser1 (pitch, yaw, roll as floats); vuser1 is TS's own client data
+*  channel, so the three angles go in vuser4 in half degrees with a mark in vuser3.x (see H9RallyTiltPack). When the mark is not there
+*  (a first command, an engine that does not carry the fields) the tilt is read again with four traces straight down, as it always was.
 *
 *  What does NOT limit a car here, so that nothing of The Specialists' on-foot movement holds it: the car's wish speed is
 *  its own stat (h9_rally.h), never pmove->maxspeed (the loadout changes that); the time scale (fuser1, TS's slow motion)
@@ -107,6 +111,7 @@ struct Dbg
 	bool toss = false;
 	float fuser1 = 1.0f, engineFrametime = 0;
 	float dt = 0;
+	float wishspeed = 0;
 };
 
 // The car's own axes for a heading and a tilt (HLR keeps them in pmove->forward, ->right and the angles). `right` is HL's right.
@@ -502,31 +507,48 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		return;
 	}
 
-	// the keys: the client's decisions, as HL Rally's server reads them
+	// the keys and the forward move: the client's decisions, as HL Rally's server reads them. The buttons are the command's own (IN_BACK
+	// and IN_JUMP and IN_FORWARD and IN_LEFT / IN_RIGHT: rally.c:1054-1105, 1184, set by the client from its key states, input.cpp:1359-1391),
+	// and the forward move is the command's, signed (rally.c:518): the client works it out from its gearbox (DriveStep in
+	// cl_dll/h9_rallysteer_calc.h) and PM_CheckParamters has only scaled it by the movevars' maxspeed.
 	const float speed0H = sqrtf(pmove->velocity[0] * pmove->velocity[0] + pmove->velocity[1] * pmove->velocity[1]);
 	H9RallyInput in;
 	in.forward = (pmove->cmd.buttons & IN_FORWARD) != 0;
 	in.back = (pmove->cmd.buttons & IN_BACK) != 0;
 	in.hand = (pmove->cmd.buttons & IN_JUMP) != 0;
-	in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0; // the client sets these for the side keys too
+	in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0;
+	float fmove = pmove->cmd.forwardmove;
 	const char* fin = pmove->PM_Info_ValueForKey(pmove->physinfo, "rfin");
 	if (fin && atoi(fin) != 0)
-		in = H9RallyFinishKeys(speed0H); // the finish: the back key while it is over 20 u/s, then nothing
+	{
+		in = H9RallyFinishKeys(speed0H); // the finish: the back key while it is over 20 u/s, then nothing; and no forward move
+		fmove = 0.0f;
+	}
 	if (held)
+	{
 		in = H9RallyInput(); // a held car is not driven
-	const float fmove = H9RallyForwardMove(in, speed0H);
+		fmove = 0.0f;
+	}
 
-	// the tilt as the frame before left it (see the top of the file), and the axes from it with this command's yaw
-	float pitch0 = 0, roll0 = 0;
-	ReadTilt(AxesOf(0, yaw, 0), yaw, pitch0, roll0);
-	Axes ax0 = AxesOf(pitch0, yaw, roll0); // pmove->forward and ->right, and the up that Categorize looks along
+	// the tilt of the command before (HL Rally's vuser1, see the top of the file): the axes the ground is looked for along, with the
+	// yaw that command had. A car that has none yet (its first command, or the engine did not carry the fields) reads it from
+	// four traces straight down, as an earlier version of this file always did.
+	float pitch0 = 0, yaw0 = yaw, roll0 = 0;
+	if (!H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], &pitch0, &yaw0, &roll0))
+	{
+		yaw0 = yaw;
+		ReadTilt(AxesOf(0, yaw, 0), yaw, pitch0, roll0);
+	}
+	Axes ax0 = AxesOf(pitch0, yaw0, roll0); // the up that Categorize looks along and the axes of the tilt's traces: the kept angles, the kept yaw (vuser1)
+	const Axes axF = AxesOf(pitch0, yaw, roll0); // pmove->forward and ->right: the kept pitch and roll with this command's yaw (rally.c:338, pm_shared.c:1625)
 	pmove->angles[0] = pitch0;
 	pmove->angles[2] = roll0;
 
 	// --- where the car stands ---------------------------------------------------------------------------------
 	d.gap = Categorize(ax0.up);
 
-	// --- the tilt of the ground (PM_PlayerAngles): on the ground it is read again, in the air it is flat ---------------
+	// --- the tilt of the ground (PM_PlayerAngles): on the ground it is read again and kept with this command's yaw, in the air the
+	//     kept pitch and roll are cleared (the yaw stays) ---------------
 	Vector stepUp = Vector(0, 0, 1);
 	if (pmove->onground != -1)
 	{
@@ -535,6 +557,17 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		pmove->angles[0] = pitch;
 		pmove->angles[2] = roll;
 		stepUp = AxesOf(pitch, yaw, roll).up;
+		float mark, ang[3];
+		H9RallyTiltPack(pitch, yaw, roll, &mark, ang);
+		pmove->vuser3[0] = mark;
+		pmove->vuser4 = Vector(ang[0], ang[1], ang[2]);
+	}
+	else
+	{
+		float mark, ang[3];
+		H9RallyTiltPack(0.0f, yaw0, 0.0f, &mark, ang);
+		pmove->vuser3[0] = mark;
+		pmove->vuser4 = Vector(ang[0], ang[1], ang[2]);
 	}
 	d.normal = stepUp;
 	const Axes axNow = AxesOf(pmove->angles[0], yaw, pmove->angles[2]); // the body's axes (the angles as they stand)
@@ -568,7 +601,7 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		Surface();
 		d.pull = pmove->friction;
 		float v[3] = {pmove->velocity[0], pmove->velocity[1], pmove->velocity[2]};
-		const float f[3] = {ax0.fwd[0], ax0.fwd[1], ax0.fwd[2]}, r[3] = {ax0.right[0], ax0.right[1], ax0.right[2]};
+		const float f[3] = {axF.fwd[0], axF.fwd[1], axF.fwd[2]}, r[3] = {axF.right[0], axF.right[1], axF.right[2]};
 		H9RallyFriction(v, f, r, in, fmove, su.lat, su.drag + extraDrag, H9RallyHandling(car), friction, dt);
 		pmove->velocity = Vector(v[0], v[1], v[2]);
 	};
@@ -599,17 +632,21 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 		{
 			Crash(axNow, d);
 
-			// the drive: the engine's pull, the base velocity, and the move (not under 1 u/s)
-			const float hs = sqrtf(pmove->velocity[0] * pmove->velocity[0] + pmove->velocity[1] * pmove->velocity[1]);
-			if (fmove != 0 && !(fmove > 0 && hs >= H9R_GEAR_CAP))
+			// the drive (rally.c PM_DriveMove:505-553): the wish speed is the size of the command's forward move (cut to the car's top
+			// speed), the wish direction the nose or its opposite by the move's sign; then the engine's pull, the base velocity, and the
+			// move (not under 1 u/s). A move of 0 has no wish speed and no pull. There is no gearbox rule here: the client's move is
+			// the horizontal speed once the revs are up (rpms >= 200 and 50 u/s), which leaves nothing to add.
+			const float wishspeed = H9RallyWishSpeed(fmove, wish);
+			d.wishspeed = wishspeed;
+			if (wishspeed > 0.0f)
 			{
 				float v[3] = {pmove->velocity[0], pmove->velocity[1], pmove->velocity[2]};
-				float dir[3] = {ax0.fwd[0], ax0.fwd[1], ax0.fwd[2]};
+				float dir[3] = {axF.fwd[0], axF.fwd[1], axF.fwd[2]};
 				H9RNormalize(dir);
 				if (fmove < 0)
 					for (int i = 0; i < 3; i++)
 						dir[i] = -dir[i];
-				H9RallyAccelerate(v, dir, wish, pmove->movevars->accelerate, pmove->friction, dt, fmove);
+				H9RallyAccelerate(v, dir, wishspeed, pmove->movevars->accelerate, pmove->friction, dt, fmove);
 				pmove->velocity = Vector(v[0], v[1], v[2]);
 			}
 			pmove->velocity = pmove->velocity + pmove->basevelocity;
@@ -647,6 +684,13 @@ int H9RallyClass()
 {
 	const char* v = pmove->PM_Info_ValueForKey(pmove->physinfo, "rally");
 	return v ? atoi(v) : 0;
+}
+
+bool H9RallyStoredTilt(float* pitch, float* yaw, float* roll)
+{
+	if (pmove == nullptr)
+		return false;
+	return H9RallyTiltUnpack(pmove->vuser3[0], &pmove->vuser4[0], pitch, yaw, roll);
 }
 
 bool H9RallyActive()

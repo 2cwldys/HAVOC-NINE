@@ -44,6 +44,7 @@
 #include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
 #include "h9_rally_car.h" // H9RallyCarPrecache
 #include "h9_rally_snd.h" // H9RallySoundStop
+#include "h9_rally_srv.h" // H9RallyClientData
 #include "game.h"
 #include "customentity.h"
 #include "weapons.h"
@@ -2011,6 +2012,8 @@ void UpdateClientData(const edict_t* ent, int sendweapons, struct clientdata_s* 
 	// The stunt flags, sent whether or not the client predicts weapons (0xa0406). TS_pm_shared reads
 	// pmove->iuser4 for every stunt (prone, slide, dive, wall jump, stop, stand up).
 	cd->iuser4 = pev->iuser4;
+
+	H9RallyClientData(ent, cd); // H9 rally mode: a car's tilt rides vuser3.x and vuser4 (a car holds no weapon, whose channel they are)
 
 
 

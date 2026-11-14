@@ -24,6 +24,7 @@
 #include "h9_rally_car.h"
 #include "race.h"
 #include "h9_rally.h" // the settings HL Rally's server runs with
+#include "entity_state.h" // clientdata_s
 
 float GetSpeedBySlots(CBasePlayer* pPlayer); // ts_gun.cpp
 
@@ -42,9 +43,11 @@ static cvar_t h9_rally_debug = {"h9_rally_debug", "0", 0};
 
 // The movement cvars HL Rally's rally.cfg sets, and the values they had when the mode came on. world.cpp sets sv_gravity and
 // sv_stepsize again at every map load, so a restore only puts back a value that is still the rally one: a map's own is left alone.
-static const char* const kMoveVars[4] = {"sv_friction", "sv_accelerate", "sv_gravity", "sv_stepsize"};
-static const float kRallyValues[4] = {H9R_FRICTION, H9R_ACCELERATE, H9R_GRAVITY, H9R_STEP_UP};
-static float s_savedValues[4];
+// sv_maxspeed is the fifth: PM_CheckParamters scales the command's forward move down to the movevars' maxspeed, and the car's move is the
+// client's gearbox number (up to 10000), so a server that kept The Specialists' 320 would cut every car to 320 u/s of wish.
+static const char* const kMoveVars[5] = {"sv_friction", "sv_accelerate", "sv_gravity", "sv_stepsize", "sv_maxspeed"};
+static const float kRallyValues[5] = {H9R_FRICTION, H9R_ACCELERATE, H9R_GRAVITY, H9R_STEP_UP, H9RALLY_MAXSPEED};
+static float s_savedValues[5];
 static bool s_movevarsApplied = false;
 
 static void ApplyMovevars(bool rally)
@@ -53,17 +56,17 @@ static void ApplyMovevars(bool rally)
 	{
 		if (!s_movevarsApplied)
 		{
-			for (int i = 0; i < 4; i++)
+			for (int i = 0; i < 5; i++)
 				s_savedValues[i] = CVAR_GET_FLOAT(kMoveVars[i]);
 			s_movevarsApplied = true;
 		}
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 5; i++)
 			if (CVAR_GET_FLOAT(kMoveVars[i]) != kRallyValues[i])
 				CVAR_SET_FLOAT(kMoveVars[i], kRallyValues[i]);
 	}
 	else if (s_movevarsApplied)
 	{
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < 5; i++)
 			if (CVAR_GET_FLOAT(kMoveVars[i]) == kRallyValues[i])
 				CVAR_SET_FLOAT(kMoveVars[i], s_savedValues[i]);
 		s_movevarsApplied = false;
@@ -101,6 +104,14 @@ static int PhysInt(edict_t* ent, const char* key)
 static int CurrentClass(edict_t* ent)
 {
 	return PhysInt(ent, "rally");
+}
+
+void H9RallyClientData(const edict_t* ent, struct clientdata_s* cd)
+{
+	if (ent == nullptr || cd == nullptr || CurrentClass(const_cast<edict_t*>(ent)) <= 0)
+		return;
+	cd->vuser3.x = ent->v.vuser3.x;
+	cd->vuser4 = ent->v.vuser4;
 }
 
 void H9RallyServerThink(CBasePlayer* pl)

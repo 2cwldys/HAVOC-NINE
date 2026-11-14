@@ -236,16 +236,15 @@ inline int CarSteerByte(float wheelRight)
 }
 
 // The tyres' turn of the local car, as a multiple of the turn the distance driven gives (HL Rally's StudioProcessGait, StudioModelRenderer.cpp:2086-2110, which
-// sets the wheel sequence's fps to the horizontal speed / 2.5): 1 and braketime 0 unless the back key is down and the forward key is not;
-// then braketime counts a frame at a time (99 a second) and takes one fps off a frame, so the tyres come to a stop after speed / 2.5 frames
-// (a factor 1 - 2.5 braketime / speed); reversing (the back key held under 40 u/s, the car starting backwards) turns them back; the handbrake
-// stops them; a loss of traction spins them five times as fast. `braketime` is kept by the caller.
-inline float WheelSpinFactor(float& braketime, float speedH, bool backKey, bool forwardKey, bool handbrake, float tractionLoss, float dt)
+// sets the wheel sequence's fps to the horizontal speed / 2.5). The flags are HL Rally's globals as the steering leaves them (DriveStep):
+// `braking` g_braking (the back key, not while starting in reverse), `accelerating` g_accelerating, `reversing` g_reversing (non-zero).
+// Not braking, or accelerating: 1 and braketime 0. Else braketime counts a frame at a time (99 a second) and takes one fps off a frame, so
+// the tyres come to a stop after speed / 2.5 frames (a factor 1 - 2.5 braketime / speed); reversing turns them back; the handbrake stops
+// them; a loss of traction spins them five times as fast. `braketime` is kept by the caller.
+inline float WheelSpinFactor(float& braketime, float speedH, bool braking, bool accelerating, bool reversing, bool handbrake, float tractionLoss, float dt)
 {
-	const bool reversing = backKey && !forwardKey && speedH < 40.0f;
-	const bool braking = backKey && !reversing; // g_braking is zeroed while the car starts in reverse
 	float f = 1.0f;
-	if (!braking || forwardKey)
+	if (!braking || accelerating)
 		braketime = 0.0f;
 	else
 	{
@@ -262,7 +261,16 @@ inline float WheelSpinFactor(float& braketime, float speedH, bool backKey, bool 
 	return f;
 }
 
-// How far the tyres have turned, as a share of a turn, for a distance rolled along the nose. The sequence is one turn over its whole length.
+// How fast the tyres turn for the speed. HL Rally plays its wheel sequence (whlRotate: 19 frames, one full turn of the WHEEL bones over the
+// 19, measured on models/player/xsara/xsara.mdl) at fps = speed / 2.5 frames a second (StudioModelRenderer.cpp:2091, :2125-2128), so a
+// turn takes 19 * 2.5 = 47.5 units of speed-seconds: 360 / 47.5 = 7.579 degrees a second for each unit a second, a turn in 47.5 units of
+// road, whatever the car's size. (Its steps are not all equal, 18 to 22 degrees a frame, which the mean here does not follow.)
+const float kWheelFramesPerTurn = 19.0f;
+const float kWheelFpsPerSpeed = 1.0f / 2.5f;
+const float kWheelCircumference = kWheelFramesPerTurn / kWheelFpsPerSpeed; // 47.5
+inline float WheelDegPerSecPerSpeed() { return 360.0f * kWheelFpsPerSpeed / kWheelFramesPerTurn; }
+
+// How far the tyres have turned, as a share of a turn, for a distance rolled along the nose. Our wheel sequence is one turn over its whole length.
 inline float RollPhase(float phase, float distance, float circumference)
 {
 	if (!(circumference > 1e-3f))
@@ -271,6 +279,21 @@ inline float RollPhase(float phase, float distance, float circumference)
 	phase -= floorf(phase);
 	return phase;
 }
+
+// ---- the suspension (StudioModelRenderer.cpp:896-915 and :1449-1463, :1483-1497) -------------------------------------------------------
+//
+// HL Rally moves four bones of the local car's model by code, each along its own z by (fraction - 0.5) * 4: `fraction` is how far along a
+// trace of 4 units (from 2 over to 2 under the car's origin, along the car's up, at the same four places the tilt is read: 8 to the side and 12 to
+// the front or the back) the ground is met, so +-2 units. Its origin is a unit over the floor (a hull of +-1); ours is on it, so the trace
+// here starts 3 over and ends 1 under, which is the same trace from where HL Rally's origin would be.
+const float kShockFrom = 3.0f, kShockTo = 1.0f;
+inline float ShockOffset(float fraction)
+{
+	return (fraction - 0.5f) * 4.0f;
+}
+// Bone names the code looks for (compared without case), in the order frontRight, frontLeft, backLeft, backRight; the trace of each is the one at
+// the car's front right, front left, back left, back right (the tilt's f1, f2, b2, b1).
+const char* const kShockBone[4] = {"SHOCK-RghFron", "SHOCK-LefFron", "SHOCK-LefBack", "SHOCK-RghBack"};
 
 // ---- the cameras ---------------------------------------------------------------------------------------------------------------
 

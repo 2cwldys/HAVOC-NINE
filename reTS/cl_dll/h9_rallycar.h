@@ -19,6 +19,8 @@ struct H9RallyCarDraw
 	int skin;
 	int steerByte; // both steering controllers
 	float phase;   // the tyres' turn, 0..1 of the roll sequence
+	bool hasShock; // the local car: the four suspension offsets below are to be applied (h9_rallycam_calc.h kShockBone)
+	float shock[4]; // frontRight, frontLeft, backLeft, backRight: added to the z of SHOCK-RghFron, SHOCK-LefFron, SHOCK-LefBack, SHOCK-RghBack
 };
 
 void H9RallyCam_Init();   // from CHud::Init: cl_h9_rallycam*, the command h9_rallycam
@@ -60,8 +62,34 @@ struct H9RallyKeys
 {
 	float frametime;
 	float left, right; // the side keys (A, D and the arrows), 0..1
-	bool throttle, brake, handbrake;
+	bool throttle, brake, handbrake; // the keys: the forward key, the back key, the jump key
+	// HL Rally's globals as DriveStep leaves them this frame (the steering, the wheels, the sounds read these, not the keys)
+	bool accelerating; // g_accelerating
+	bool braking;      // g_braking
+	int reversing;     // g_reversing
 };
+
+// ---- the throttle (h9_rallysteer_calc.h DriveStep; input.cpp's half of HL Rally's CL_CreateMove:869-1001) -------------------------------
+// CL_CreateMove, while the local player is a car on the ground-and-air of a race: the forward move the command carries is worked out from the
+// gearbox and the speed, as HL Rally does, not from "a key is down". The keys are given as HL Rally's reads of them see them: `Frac` is the
+// first CL_KeyState of a frame (0.25 .. 0.75 for a tap or an edge), `Down` the next one (1 if down, 0 if not).
+struct H9RallyDriveKeys
+{
+	float backFrac, backDown, fwdFrac, fwdDown;
+	bool klook;
+};
+struct H9RallyDriveResult
+{
+	float forwardmove; // before the maxspeed clip; 0 in the air
+	bool accelerating, braking;
+	int reversing;
+};
+H9RallyDriveResult H9RallyDrive_Move(const H9RallyDriveKeys& keys);
+// After the finish (physinfo "rfin"): the heading is left as it stands and nothing is pressed; only the revs follow the speed.
+void H9RallyDrive_Frozen(float frametime);
+// The race's finish for this car (physinfo "rfin").
+bool H9RallyDrive_Finished();
+
 
 // Before the mouse is read: the heading the view's yaw is to hold now. `viewYaw` is what the engine holds (it differs from what was last
 // written when the server forced the angles: the car is then started again from it).
@@ -94,5 +122,7 @@ struct H9RallyDriveNote
 	int carClass; // the physinfo "rally" value, 1..3
 	bool onGround;
 	bool throttle, brake, handbrake;
+	bool manual;   // cl_h9_rally_manual: the gear is the driver's (h9_gearup, h9_geardown), -1 reverse, 0 neutral
+	int reversing; // HL Rally's g_reversing (0, 1, 2)
 };
 bool H9RallyCar_DriveNote(H9RallyDriveNote& out);

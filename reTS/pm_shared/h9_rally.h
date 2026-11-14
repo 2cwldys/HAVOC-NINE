@@ -38,7 +38,7 @@
 *  Units are Half-Life's (units, units a second). Left is positive: a heading's yaw grows to the left.
 *
 *  Everything the movement needs from one frame to the next is the player's own velocity, origin and view yaw,
-*  which the engine already carries and predicts. Nothing is kept in a static or in an iuser/fuser/vuser field.
+*  which the engine already carries and predicts, and the car's tilt (vuser4 and vuser3.x, H9RallyTiltPack). Nothing is kept in a static.
 *  The only things the server tells the client are the physinfo keys "rally" (a car class number, 0 off), "rfin" (1: this
 *  car has finished its race) and, for the debug line, "rdbg".
 ***/
@@ -60,8 +60,6 @@
 
 // The car
 #define H9R_WISH_PER_STAT 15.0f  // HLR pm_shared.c: the wish speed (maxspeed) is the TopSpeed stat * 15
-#define H9R_GEAR_CAP 738.0f      // ours (audit row 4, not changed): past this (gear 6 at 200 rpm) the client's gearbox sends no throttle
-#define H9R_FMOVE 10000.0f       // HLR config.cfg cl_forwardspeed: the forward move a held key sends; the wish speed clamps it
 #define H9R_LAT_MAX_PER_FRICTION 300.0f // HLR rally.c: LAT_MAX = sv_friction * 300
 #define H9R_LAT_SPEED 30.0f      // HLR rally.c: the sideways rate is LAT_MAX * 30 / speed, so it eases as speed grows
 #define H9R_LAT_BRAKE 0.3f       // HLR rally.c: the sideways hold with the back key down
@@ -255,20 +253,18 @@ struct H9RallyInput
 	bool steering = false; // a steering key is down (left or right)
 };
 
-// The forward move the client would send (HLR input.cpp): the throttle key sends a big positive one, the back key below 40 u/s of
-// horizontal speed a big negative one (the throttle key overrides it), the back key above that none (it is only the button).
-// pmove clamps its size to the car's wish speed, so only its sign and zero matter. Decided once per command, on the speed the car
-// has as the command starts.
-static inline float H9RallyForwardMove(const H9RallyInput& in, float horizontalSpeed)
+// The pull's wish speed (HLR rally.c PM_DriveMove:518-537): the size of the command's forward move (wishvel = forward * fmove, wishspeed =
+// its length), cut to the server's top speed. HL Rally cuts to pmove->maxspeed, which it sets to the car's TopSpeed * 15; here the car's
+// own wish is the cut (a loadout's maxspeed says nothing about a car), so the two are the same number. The command's forwardmove is the
+// client's (cl_dll/h9_rallysteer_calc.h DriveStep), as in HL Rally; pmove does not invent one from the buttons.
+static inline float H9RallyWishSpeed(float forwardmove, float carWish)
 {
-	if (in.forward)
-		return H9R_FMOVE;
-	if (in.back && horizontalSpeed < H9R_REVERSE_ENTER)
-		return -H9R_FMOVE;
-	return 0.0f;
+	const float w = fabsf(forwardmove);
+	return w > carWish ? carWish : w;
 }
 
-// What the finish does to the keys (HLR input.cpp): the back key alone while the car is over 20 u/s, then nothing at all.
+// What the finish does to the keys (HLR input.cpp:818-835): the back key alone while the car is over 20 u/s, then nothing at all. The
+// client sends no forward move after the finish (its whole drive block is skipped), so the server takes it as 0.
 static inline H9RallyInput H9RallyFinishKeys(float horizontalSpeed)
 {
 	H9RallyInput in;
@@ -402,6 +398,42 @@ static inline void H9RallyTilt(const float f1[3], const float f2[3], const float
 	*pitch = (float)((atan2(r2, r0) * rad - 90.0) * -1.0);
 	*roll = (float)(atan2(r2, r1) * rad - 90.0);
 }
+
+// The tilt kept from one command to the next. HL Rally keeps the car's angles (pitch, yaw, roll) of the command before in vuser1 and
+// looks for the ground along them (rally.c PM_PlayerAngles:161), and its client reads them for the slip (input.cpp:1056). The fields
+// that are predicted and networked for a player and that nothing of The Specialists' reads in a car (no weapons) are vuser4 (the three
+// angles) and vuser3.x (a mark that says the angles are ours: dlls/h9_rally_srv.cpp copies both into the client data of a car). The
+// wire carries a field as a signed 10-bit integer (game/ts/delta.lst), so the angles go in half degrees (180 degrees is 360, inside
+// 511). `mark` and `ang` are the two fields as a pmove has them.
+#define H9R_TILT_MARK 211.0f
+#define H9R_TILT_SCALE 2.0f
+static inline float H9RallyWrap180(float a)
+{
+	a = fmodf(a, 360.0f);
+	if (a > 180.0f)
+		a -= 360.0f;
+	else if (a < -180.0f)
+		a += 360.0f;
+	return a;
+}
+static inline void H9RallyTiltPack(float pitch, float yaw, float roll, float* mark, float ang[3])
+{
+	*mark = H9R_TILT_MARK;
+	ang[0] = floorf(H9RallyWrap180(pitch) * H9R_TILT_SCALE + 0.5f);
+	ang[1] = floorf(H9RallyWrap180(yaw) * H9R_TILT_SCALE + 0.5f);
+	ang[2] = floorf(H9RallyWrap180(roll) * H9R_TILT_SCALE + 0.5f);
+}
+// False when the fields are not a car's tilt (never written: a weapon's values, or zero).
+static inline bool H9RallyTiltUnpack(float mark, const float ang[3], float* pitch, float* yaw, float* roll)
+{
+	if (fabsf(mark - H9R_TILT_MARK) > 0.01f)
+		return false;
+	*pitch = ang[0] / H9R_TILT_SCALE;
+	*yaw = ang[1] / H9R_TILT_SCALE;
+	*roll = ang[2] / H9R_TILT_SCALE;
+	return true;
+}
+// What the stored tilt is in the air (rally.c PM_PlayerAngles:254-255): pitch and roll cleared, the yaw left as it was.
 
 // A plane clips a velocity (HLR PM_ClipVelocity): the part into the plane, times the overbounce, comes off. No epsilon: a small
 // component is left as it is.
@@ -581,4 +613,6 @@ static inline int H9RallyCrashPoints(const H9RallySides& sides, float stepsize, 
 int H9RallyClass();    // the physinfo "rally" value read in pmove: 0 off, 1.. a car class
 bool H9RallyActive();  // rally mode, for this player, this command
 void H9RallyMove();    // the command's whole movement
+// The car's tilt as the last command left it (H9RallyTiltPack's fields of the predicted pmove): for the client's slip share. False when none.
+bool H9RallyStoredTilt(float* pitch, float* yaw, float* roll);
 #endif

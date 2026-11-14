@@ -27,6 +27,8 @@
 #include "r_studioint.h"
 #include "ref_params.h"
 #include "pm_defs.h"
+#include "pm_shared.h"
+#include "h9_rally.h"
 #include "pmtrace.h"
 #include "event_api.h"
 #include "entity_types.h"
@@ -51,7 +53,7 @@ const char* const INTERIOR_MODEL = "models/h9/rally_interior.mdl";
 const char* const CHROME_MODEL = "models/h9/rally_interior_chrome.mdl";
 const int MAX_SLOTS = 66;
 
-cvar_t *s_cvView, *s_cvBack, *s_cvPivot, *s_cvPitch, *s_cvFov, *s_cvMouse, *s_cvRear, *s_cvChrome;
+cvar_t *s_cvView, *s_cvBack, *s_cvPivot, *s_cvPitch, *s_cvFov, *s_cvMouse, *s_cvRear, *s_cvChrome, *s_cvManual;
 
 model_t* s_model = nullptr;
 float s_nextModelTry = 0;
@@ -76,6 +78,8 @@ struct Slot
 	bool rawValid;
 	float rawPitch, rawRoll;
 	float mulInterior; // the interior's roughness over this surface
+	bool hasShock;     // the local car's suspension (HL Rally keeps these in statics, from the last frame it ran)
+	float shock[4];
 };
 Slot s_slot[MAX_SLOTS];
 
@@ -91,9 +95,11 @@ struct Dyn
 	bool handbrake;
 	float traction; // g_tractionloss, 0..1
 	float wheel;    // HL Rally's steer_wheel_angle, positive to the right, +-10
+	bool gbraking;  // g_braking alone (the tyres lock under it; `braking` above also has the handbrake, which squats the body)
+	int reversing;  // g_reversing
 };
-Dyn s_dyn = {false, 0, false, false, false, false, 0, 0};
-H9RallyKeys s_lastKeys = {0, 0, 0, false, false, false}; // the keys of the last CL_CreateMove (the sounds read them: h9_rallysnd.cpp)
+Dyn s_dyn = {false, 0, false, false, false, false, 0, 0, false, 0};
+H9RallyKeys s_lastKeys = {0, 0, 0, false, false, false, false, false, 0}; // the keys of the last CL_CreateMove (the sounds read them: h9_rallysnd.cpp)
 
 // The local car's predicted state, from the refdef of the last frame (what CL_CreateMove of the next one reads).
 struct Note
@@ -128,6 +134,9 @@ float s_rallyTime = -1.0f;
 int s_rallyClass = 0;
 
 bool Cv(cvar_t* c) { return c != nullptr && c->value >= 0.5f; }
+
+// The race's hold (the grid, the countdown): the client data's flags carry FL_FROZEN, and pmove has them.
+bool Held() { return pmove != nullptr && H9RallyHeld(pmove->flags); }
 float CvF(cvar_t* c, float def) { return c != nullptr ? c->value : def; }
 
 int LocalRallyClass()
@@ -278,12 +287,13 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 	// the tyres' turn
 	if (!fresh)
 	{
-		const float circ = 0.5f * len; // the tyres' circumference is about half the car's length
+		(void)len;
+		const float circ = kWheelCircumference; // HL Rally's wheel sequence turns once per 47.5 units of speed-seconds (h9_rallycam_calc.h)
 		if (local && dyn != nullptr && dyn->have)
 		{
 			// HL Rally's rules for its own car (StudioProcessGait): by the horizontal speed, locked by the brake, stopped by the handbrake,
 			// turned back when starting in reverse, five times as fast in a slide
-			const float f = WheelSpinFactor(s.braketime, vh, dyn->back, dyn->throttle, dyn->handbrake, dyn->traction, dt);
+			const float f = WheelSpinFactor(s.braketime, vh, dyn->gbraking, dyn->throttle, dyn->reversing != 0, dyn->handbrake, dyn->traction, dt);
 			s.phase = RollPhase(s.phase, f * vh * dt, circ);
 		}
 		else
@@ -373,6 +383,30 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 		}
 	}
 
+	if (local)
+	{
+		// the suspension's four traces, along the filtered tilt's axes (StudioModelRenderer.cpp:1440-1463, and :1483-1497 in the air)
+		const Axes ax = EntityMatrixColumns(s.tilt.pitch, yaw, s.tilt.roll);
+		const V3 u = ax.n, f = ax.f, r = ax.l * -1.0f;
+		const V3 corner[4] = {f * kProbeForward + r * kProbeRight,   // front right
+							  f * -kProbeForward + r * -kProbeRight, // back left
+							  f * kProbeForward + r * -kProbeRight,  // front left
+							  f * -kProbeForward + r * kProbeRight}; // back right
+		float val[4]; // in the tilt's order: FR, BL, FL, BR
+		for (int i = 0; i < 4; i++)
+		{
+			float frac = TraceShare(org + u * kShockFrom + corner[i], org - u * kShockTo + corner[i]); // 1 when nothing is hit, -1 when it starts inside
+			if (frac < 0.0f)
+				frac = 0.0f; // HL Rally's trace.fraction is 0 then
+			val[i] = ShockOffset(frac);
+		}
+		s.shock[0] = val[0]; // frontRight
+		s.shock[1] = val[2]; // frontLeft
+		s.shock[2] = val[1]; // backLeft
+		s.shock[3] = val[3]; // backRight
+		s.hasShock = true;
+	}
+
 	s.have = true;
 	s.time = time;
 	s.org = org;
@@ -412,6 +446,16 @@ void Cmd_Zoom()
 	gEngfuncs.Con_Printf("h9_rallycam_zoom: %.0f units behind the car\n", next);
 }
 
+// h9_gearup, h9_geardown: HL Rally's gearup and geardown (input.cpp:471-486), which only do anything in the manual box (up to 6, down to -1).
+void Cmd_GearUp()
+{
+	rallysteer::GearUp(s_steer.box, Cv(s_cvManual));
+}
+void Cmd_GearDown()
+{
+	rallysteer::GearDown(s_steer.box, Cv(s_cvManual));
+}
+
 // The local driver's inputs of this frame, or none when the steering has not run lately.
 const Dyn* DynPtr()
 {
@@ -440,6 +484,9 @@ void H9RallyCam_Init()
 	s_cvMouse = CVAR_CREATE("cl_h9_rally_mouse", "1.0", FCVAR_ARCHIVE);   // scales the mouse's steering
 	s_cvRear = CVAR_CREATE("cl_h9_rally_rearview", "1", FCVAR_ARCHIVE);   // HL Rally's rally_rearview: the mirror, in the interior view
 	s_cvChrome = CVAR_CREATE("cl_h9_rally_chrome", "1", FCVAR_ARCHIVE);   // HL Rally's rally_chrome: the windscreen's overlay in the interior view
+	s_cvManual = CVAR_CREATE("cl_h9_rally_manual", "0", FCVAR_ARCHIVE);   // HL Rally's rally_manual: the gearbox is the driver's (h9_gearup, h9_geardown)
+	gEngfuncs.pfnAddCommand("h9_gearup", Cmd_GearUp);
+	gEngfuncs.pfnAddCommand("h9_geardown", Cmd_GearDown);
 	gEngfuncs.pfnAddCommand("h9_rallycam", Cmd_View);
 	gEngfuncs.pfnAddCommand("h9_rallycam_zoom", Cmd_Zoom);
 }
@@ -547,6 +594,9 @@ bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw&
 	out.skin = st->skin & 255;
 	out.steerByte = dyn != nullptr ? CarSteerByte(dyn->wheel) : 127; // another car's wheels are straight
 	out.phase = s.phase;
+	out.hasShock = isLocal && s.hasShock;
+	for (int i = 0; i < 4; i++)
+		out.shock[i] = s.shock[i];
 	return true;
 }
 
@@ -763,9 +813,18 @@ float H9RallySteer_End(float viewYaw, const H9RallyKeys& k)
 	in.dt = k.frametime;
 	in.keyYaw = kKeyRate * k.frametime * (Clampf(k.left, 0.0f, 1.0f) - Clampf(k.right, 0.0f, 1.0f));
 	in.mouseYaw = Wrap180(viewYaw - s_steerBegin); // the mouse turned the view this far to the left
-	in.throttle = k.throttle;
-	in.brake = k.brake;
+	in.throttle = k.accelerating;
+	in.brake = k.braking;
 	in.handbrake = k.handbrake;
+	in.revving = k.accelerating || k.reversing == 2; // renderCalculateRPMs:318-331: the accelerator, or the accelerator held while reversing
+	in.manual = Cv(s_cvManual);
+	in.countdown = Held();
+	{
+		float tp, ty, tr;
+		in.haveTilt = H9RallyStoredTilt(&tp, &ty, &tr); // the last command's tilt, as HL Rally reads vuser1 (input.cpp:1056)
+		in.tiltPitch = tp;
+		in.tiltRoll = tr;
+	}
 	const bool fresh = FreshNote();
 	in.onGround = !fresh || s_note.onGround;
 	if (fresh)
@@ -781,14 +840,55 @@ float H9RallySteer_End(float viewYaw, const H9RallyKeys& k)
 	s_mouseActive = false;
 	s_dyn.have = true;
 	s_dyn.time = gEngfuncs.GetClientTime();
-	s_dyn.braking = k.brake || k.handbrake;
-	s_dyn.throttle = k.throttle;
+	s_dyn.braking = k.braking || k.handbrake;
+	s_dyn.gbraking = k.braking;
+	s_dyn.throttle = k.accelerating;
+	s_dyn.reversing = k.reversing;
 	s_dyn.back = k.brake;
 	s_dyn.handbrake = k.handbrake;
 	s_dyn.traction = s_steer.tractionLoss;
 	s_dyn.wheel = s_steer.wheel;
 	s_lastKeys = k;
 	return out.heading;
+}
+
+// ---- the throttle -------------------------------------------------------------------------------------------------------------------
+
+bool H9RallyDrive_Finished()
+{
+	const char* k = gEngfuncs.PhysInfo_ValueForKey("rfin");
+	return k != nullptr && atoi(k) != 0;
+}
+
+H9RallyDriveResult H9RallyDrive_Move(const H9RallyDriveKeys& k)
+{
+	rallysteer::DriveIn in;
+	in.manual = Cv(s_cvManual);
+	in.klook = k.klook;
+	in.gear = s_steer.box.gear;
+	in.rpm = s_steer.box.rpm;
+	const bool fresh = FreshNote();
+	in.onGround = !fresh || s_note.onGround;
+	in.speedH = fresh ? sqrtf(s_note.vel.x * s_note.vel.x + s_note.vel.y * s_note.vel.y) : 0.0f;
+	in.backFrac = k.backFrac;
+	in.backDown = k.backDown;
+	in.fwdFrac = k.fwdFrac;
+	in.fwdDown = k.fwdDown;
+	in.reversing = s_steer.reversing;
+	const rallysteer::DriveOut o = rallysteer::DriveStep(in);
+	s_steer.reversing = o.reversing;
+	H9RallyDriveResult r;
+	r.forwardmove = rallysteer::CmdForwardMove(o.forwardmove);
+	r.accelerating = o.accelerating;
+	r.braking = o.braking;
+	r.reversing = o.reversing;
+	return r;
+}
+
+void H9RallyDrive_Frozen(float frametime)
+{
+	const bool fresh = FreshNote();
+	rallysteer::FrozenStep(s_steer, fresh ? s_note.vel.x : 0.0f, fresh ? s_note.vel.y : 0.0f, !fresh || s_note.onGround, frametime, Cv(s_cvManual), Held());
 }
 
 bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose)
@@ -829,6 +929,8 @@ bool H9RallyCar_DriveNote(H9RallyDriveNote& o)
 	}
 	o.heading = s_steer.heading;
 	o.carClass = LocalRallyClass();
+	o.manual = Cv(s_cvManual);
+	o.reversing = s_steer.reversing;
 	o.throttle = s_lastKeys.throttle;
 	o.brake = s_lastKeys.brake;
 	o.handbrake = s_lastKeys.handbrake;

@@ -129,15 +129,21 @@ int main()
 
 	// ---- I12: the brake's 1.5 is not applied while the car starts in reverse (back key, under 40 u/s, forward key up: input.cpp:870-876, 1095) ----
 	{
+		// g_braking and g_accelerating come from DriveStep (the back key and the forward key held, on the ground, at this horizontal speed)
 		auto Delta = [&](float speed, bool brake, bool throttle) {
+			DriveIn di;
+			di.speedH = speed;
+			di.backFrac = di.backDown = brake ? 1.0f : 0.0f;
+			di.fwdFrac = di.fwdDown = throttle ? 1.0f : 0.0f;
+			const DriveOut d = DriveStep(di);
 			State a;
 			Reset(a, 0.0f);
 			Input in;
 			in.dt = 1.0f / 99.0f;
 			in.mouseYaw = 0.5f;
 			in.velX = speed;
-			in.brake = brake;
-			in.throttle = throttle;
+			in.brake = d.braking;
+			in.throttle = d.accelerating;
 			Step(a, in);
 			return a.delta;
 		};
@@ -467,6 +473,195 @@ int main()
 		Gearbox z;
 		GearboxStep(z, 0.0f, true, false, 0, 1.0f / 99.0f);
 		CHECK(z.gear == 0);
+	}
+
+	// ---- rows 3, 4, 5, I14: the throttle, the forward move the client sends (input.cpp:869-1001) ----
+	{
+		// the number a held throttle key makes (:985-990)
+		CHECK(Near(ThrottleMove(0.0f, 15.0f), 10000.0f, 1e-3f));                      // from a stand: 10000 (:985-986)
+		CHECK(Near(ThrottleMove(30.0f, 100.0f), 30.0f + 100.0f * 30.0f / (30.0f / 78.0f), 0.01f)); // under 200 revs: 30 + 7800 = 7830 (:987-988)
+		CHECK(Near(ThrottleMove(30.0f, 100.0f), 7830.0f, 0.01f));
+		CHECK(Near(ThrottleMove(400.0f, 108.3f), 400.0f + 108.3f * 30.0f * 78.0f / 400.0f, 0.01f)); // gear 6 at 400 u/s: about 1032, below the 1200 wish (audit row 4)
+		CHECK(Near(ThrottleMove(300.0f, 201.0f), 300.0f, 1e-3f));                     // revs 200 and up with 50 u/s: the speed alone (:989-990)
+		CHECK(Near(ThrottleMove(40.0f, 250.0f), 40.0f + 250.0f * 30.0f * 78.0f / 40.0f, 0.1f)); // under 50 u/s the revs term stays even at 250 (:987)
+		CHECK(Near(ThrottleMove(50.0f, 199.0f), 50.0f + 199.0f * 30.0f / (50.0f / 78.0f), 0.1f) && Near(ThrottleMove(50.0f, 200.0f), 50.0f, 1e-4f));
+		CHECK(Near(ThrottleMove(49.9f, 250.0f), 49.9f + 250.0f * 30.0f / (49.9f / 78.0f), 0.5f));
+
+		DriveIn d;
+		d.rpm = 100.0f;
+		d.speedH = 30.0f;
+		d.fwdFrac = d.fwdDown = 1.0f;
+		DriveOut o = DriveStep(d);
+		CHECK(Near(o.forwardmove, 7830.0f, 0.01f) && o.accelerating && o.reversing == 0);
+		// row 5 as audited was wrong: CL_KeyState clears the impulses at its first read (:612 key->state &= 1), and the first read is the `> 0` test
+		// (:890), so the read that multiplies the move (:998) sees 1 or 0, never 0.25, 0.5 or 0.75. A key pressed and held this frame gives the whole move
+		d.fwdFrac = 0.5f;
+		d.fwdDown = 1.0f;
+		o = DriveStep(d);
+		CHECK(Near(o.forwardmove, 7830.0f, 0.01f)); // not half
+		// pressed and released inside the frame: counted as pressed (g_accelerating) but its move is 0
+		d.fwdFrac = 0.25f;
+		d.fwdDown = 0.0f;
+		o = DriveStep(d);
+		CHECK(o.forwardmove == 0.0f && o.accelerating);
+		// released this frame: first read 0
+		d.fwdFrac = d.fwdDown = 0.0f;
+		o = DriveStep(d);
+		CHECK(o.forwardmove == 0.0f && !o.accelerating);
+
+		// reverse: the back key below 40 u/s, forward key up (:871, :942-950): -10000, g_braking off, g_reversing 2 (the back key is down)
+		DriveIn r;
+		r.speedH = 10.0f;
+		r.backFrac = r.backDown = 1.0f;
+		DriveOut ro = DriveStep(r);
+		CHECK(Near(ro.forwardmove, -10000.0f, 1e-3f) && ro.reversing == 2 && !ro.braking && ro.isReverse);
+		// from 40 u/s the back key is the brake: no move, g_braking on
+		r.speedH = 40.0f;
+		ro = DriveStep(r);
+		CHECK(ro.forwardmove == 0.0f && ro.braking && ro.reversing == 0 && !ro.isReverse);
+		// the forward key overrides the back key's reverse (:890-893), the move is the throttle's
+		r.speedH = 10.0f;
+		r.fwdFrac = r.fwdDown = 1.0f;
+		r.rpm = 100.0f;
+		ro = DriveStep(r);
+		CHECK(ro.forwardmove > 0.0f && !ro.isReverse && ro.accelerating && ro.reversing == 0);
+		// a tap of the back key under 40 u/s: reverse is chosen (first read 0.25) but the key is not down for the multiply: move 0, g_reversing 1
+		DriveIn t;
+		t.speedH = 10.0f;
+		t.backFrac = 0.25f;
+		t.backDown = 0.0f;
+		const DriveOut to = DriveStep(t);
+		CHECK(to.forwardmove == 0.0f && to.reversing == 1);
+		// in the air: no move at all (:939), g_reversing is left as it was, g_braking and g_accelerating are still set
+		DriveIn a;
+		a.onGround = false;
+		a.speedH = 200.0f;
+		a.rpm = 100.0f;
+		a.fwdFrac = a.fwdDown = 1.0f;
+		a.backFrac = a.backDown = 1.0f;
+		a.reversing = 1;
+		const DriveOut ao = DriveStep(a);
+		CHECK(ao.forwardmove == 0.0f && ao.reversing == 1 && ao.accelerating && ao.braking);
+		// the INS key (+klook): no throttle move (:965)
+		DriveIn k;
+		k.speedH = 10.0f;
+		k.fwdFrac = k.fwdDown = 1.0f;
+		k.klook = true;
+		CHECK(DriveStep(k).forwardmove == 0.0f);
+		// the move is a short in the command: held to its range here (HL Rally's float to short wraps)
+		CHECK(Near(CmdForwardMove(35100.0f), 32767.0f, 1e-3f) && Near(CmdForwardMove(-35100.0f), -32767.0f, 1e-3f) && Near(CmdForwardMove(1200.0f), 1200.0f, 1e-3f));
+	}
+
+	// ---- I15: the manual gearbox (rally_manual, gearup, geardown: input.cpp:471-486, 871-872, 890-891, 947-957, 965-975; Rally_Effects.cpp:268-301, 333-336) ----
+	{
+		Gearbox g;
+		CHECK(!GearUp(g, false) && g.gear == 0 && !GearDown(g, false) && g.gear == 0); // only in the manual box
+		for (int i = 0; i < 8; i++)
+			GearUp(g, true);
+		CHECK(g.gear == 6); // up to 6 (:473)
+		for (int i = 0; i < 9; i++)
+			GearDown(g, true);
+		CHECK(g.gear == -1); // down to -1 (:481)
+		g.gear = 3;
+		// the manual box does not shift by itself: 200 u/s in gear 3 is 650 / 6 = 108 revs, however long it runs
+		for (int i = 0; i < 400; i++)
+			GearboxStep(g, 200.0f, true, false, 0.0f, 1.0f / 99.0f, true);
+		CHECK(g.gear == 3 && Near(g.rpm, 200.0f * 3.25f / 6.0f, 0.5f));
+		// gear -1 (reverse): the revs are the speed itself (Rally_Effects.cpp:333-334)
+		Gearbox rv;
+		rv.gear = -1;
+		for (int i = 0; i < 400; i++)
+			GearboxStep(rv, 50.0f, true, false, 0.0f, 1.0f / 99.0f, true);
+		CHECK(rv.gear == -1 && Near(rv.rpm, 50.0f * 3.25f, 0.5f));
+		// in neutral the revs run free with the accelerator (+1100 a second)
+		Gearbox n;
+		for (int i = 0; i < 60; i++)
+			GearboxStep(n, 0.0f, true, true, 0.0f, 1.0f / 99.0f, true);
+		CHECK(n.gear == 0 && n.rpm > 100.0f); // (the revs rise by at most 550 a second, before the filter)
+		// the automatic box in the race's hold is in neutral (:298-300)
+		Gearbox c;
+		for (int i = 0; i < 50; i++)
+			GearboxStep(c, 200.0f, true, false, 0.0f, 1.0f / 99.0f, false, true);
+		CHECK(c.gear == 0);
+
+		// the move in the manual box
+		DriveIn m;
+		m.manual = true;
+		m.speedH = 100.0f;
+		m.rpm = 120.0f;
+		m.fwdFrac = m.fwdDown = 1.0f;
+		m.gear = 0;
+		CHECK(DriveStep(m).forwardmove == 0.0f);                                   // neutral: nothing (:965-968)
+		m.gear = 3;
+		CHECK(Near(DriveStep(m).forwardmove, ThrottleMove(100.0f, 120.0f), 1e-3f)); // a forward gear: the throttle's number
+		m.gear = -1;
+		const DriveOut mo = DriveStep(m);
+		CHECK(Near(mo.forwardmove, -10000.0f, 1e-3f) && mo.reversing == 2 && mo.isReverse && !mo.accelerating); // gear -1: the FORWARD key reverses, at any speed
+		// the back key in the manual box is only the brake (:871 needs !manual), also at a crawl
+		DriveIn b;
+		b.manual = true;
+		b.gear = 2;
+		b.speedH = 10.0f;
+		b.backFrac = b.backDown = 1.0f;
+		const DriveOut bo = DriveStep(b);
+		CHECK(bo.forwardmove == 0.0f && bo.braking && !bo.isReverse);
+	}
+
+	// ---- I18: after the finish the drive block is skipped; only the revs go on (input.cpp:818-835) ----
+	{
+		State s;
+		Reset(s, 90.0f);
+		s.box.gear = 3;
+		s.box.rpm = 100.0f;
+		s.box.oldRpm = 100.0f;
+		const float heading = s.heading;
+		for (int i = 0; i < 200; i++)
+			FrozenStep(s, 200.0f, 0.0f, true, 1.0f / 99.0f, false, false);
+		CHECK(s.heading == heading && s.delta == 0.0f); // not turned
+		CHECK(s.box.rpm != 100.0f && s.box.gear >= 1);  // the revs followed the speed
+		State off; // a car that has no steering state yet is not touched
+		FrozenStep(off, 200.0f, 0.0f, true, 0.01f, false, false);
+		CHECK(!off.init && off.box.gear == 0);
+	}
+
+	// ---- I11: the slip is taken on the car's tilted axes and the whole velocity (input.cpp:1056-1068) ----
+	{
+		// a level car at heading 0 with a velocity (100, 50, 30): the right is (0, -1, 0), |v| = 116.19, so the slide is -50 / 116.19 and the
+		// share along the nose 100 / 116.19 (not the horizontal 50 / 111.8 an older version took)
+		State a;
+		Reset(a, 0.0f);
+		Input in;
+		in.dt = 1.0f / 99.0f;
+		in.velX = 100.0f;
+		in.velY = 50.0f;
+		in.velZ = 30.0f;
+		Output o = Step(a, in);
+		const float v3 = sqrtf(100.0f * 100.0f + 50.0f * 50.0f + 30.0f * 30.0f);
+		CHECK(Near(o.slide, -50.0f / v3, 1e-4f) && Near(o.cosSlip, 100.0f / v3, 1e-4f));
+		// a car on a 20 degree slope going straight up it: its nose (pitch -20 in AngleVectors' convention: nose up) is along the velocity, no slip
+		State b;
+		Reset(b, 0.0f);
+		Input up;
+		up.dt = 1.0f / 99.0f;
+		up.velX = 200.0f * cosf(20.0f * kDeg);
+		up.velZ = 200.0f * sinf(20.0f * kDeg);
+		up.haveTilt = true;
+		up.tiltPitch = -20.0f;
+		o = Step(b, up);
+		CHECK(Near(o.cosSlip, 1.0f, 1e-4f) && Near(o.slide, 0.0f, 1e-4f));
+		// the same without the tilt: the nose is taken level, 20 degrees off the velocity: cos 20 degrees
+		State c;
+		Reset(c, 0.0f);
+		up.haveTilt = false;
+		o = Step(c, up);
+		CHECK(Near(o.cosSlip, cosf(20.0f * kDeg), 1e-4f));
+		// AngleVectors' own values: pitch 30 (nose down), yaw 90, roll 0: forward (0, cos30, -sin30), right (1, 0, 0)
+		float f[3], r[3];
+		AxesOfAngles(30.0f, 90.0f, 0.0f, f, r);
+		CHECK(Near(f[0], 0.0f, 1e-5f) && Near(f[1], cosf(30.0f * kDeg), 1e-5f) && Near(f[2], -0.5f, 1e-5f) && Near(r[0], 1.0f, 1e-5f) && Near(r[1], 0.0f, 1e-5f) && Near(r[2], 0.0f, 1e-5f));
+		// roll 30 at yaw 0: the right tips down: (0, -cos30, -sin30)
+		AxesOfAngles(0.0f, 0.0f, 30.0f, f, r);
+		CHECK(Near(r[1], -cosf(30.0f * kDeg), 1e-5f) && Near(r[2], -0.5f, 1e-5f));
 	}
 
 	printf("%d checks, %d failed\n", g_checked, g_failed);

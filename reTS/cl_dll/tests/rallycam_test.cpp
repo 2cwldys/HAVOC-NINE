@@ -538,23 +538,54 @@ int main()
 	CHECK(CarSteerByte(0.5f) == 117 && CarSteerByte(-0.025f) == 127);
 
 	// ---- the tyres' turn (StudioProcessGait): a factor of the rolling the speed gives ----
+	// WheelSpinFactor(braketime, speed, braking, accelerating, reversing, handbrake, traction, dt): HL Rally's g_braking, g_accelerating, g_reversing,
+	// g_handbraking and g_tractionloss as the steering leaves them (StudioModelRenderer.cpp:2086-2128)
 	{
 		float bt = 0;
-		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, 0.0f, 0.01f), 1.0f, 1e-6f));
-		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, false, true, 0.0f, 0.01f), 0.0f, 1e-6f)); // the handbrake stops them
-		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, 0.5f, 0.01f), 5.0f, 1e-6f)); // a slide: five times
-		CHECK(Near(WheelSpinFactor(bt, 30.0f, true, false, false, 0.0f, 0.01f), -1.0f, 1e-6f)); // the back key under 40: reversing, turned back
-		// braking at 200 u/s: fps = 80, so after 40 reference frames half of it is left, after 80 none
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, false, 0.0f, 0.01f), 1.0f, 1e-6f));
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, false, false, true, 0.0f, 0.01f), 0.0f, 1e-6f)); // the handbrake stops them (:2111)
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, false, 0.5f, 0.01f), 5.0f, 1e-6f)); // a slide: five times (:2115)
+		CHECK(Near(WheelSpinFactor(bt, 30.0f, false, false, true, false, 0.0f, 0.01f), -1.0f, 1e-6f)); // reversing (g_braking is 0 then): turned back (:2105)
+		// braking at 200 u/s: fps = 80, so after 40 reference frames half of it is left, after 80 none (:2089-2102)
 		bt = 0;
 		float f = 1.0f;
 		for (int i = 0; i < 40; i++)
-			f = WheelSpinFactor(bt, 200.0f, true, false, false, 0.0f, 1.0f / 99.0f);
+			f = WheelSpinFactor(bt, 200.0f, true, false, false, false, 0.0f, 1.0f / 99.0f);
 		CHECK(Near(f, 0.5f, 0.02f));
 		for (int i = 0; i < 40; i++)
-			f = WheelSpinFactor(bt, 200.0f, true, false, false, 0.0f, 1.0f / 99.0f);
+			f = WheelSpinFactor(bt, 200.0f, true, false, false, false, 0.0f, 1.0f / 99.0f);
 		CHECK(Near(f, 0.0f, 0.02f));
-		// the throttle pressed with the key takes the lock off
-		CHECK(Near(WheelSpinFactor(bt, 200.0f, true, true, false, 0.0f, 0.01f), 1.0f, 1e-6f) && Near(bt, 0.0f, 1e-6f));
+		// the throttle pressed with the brake takes the lock off (:2089)
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, true, true, false, false, 0.0f, 0.01f), 1.0f, 1e-6f) && Near(bt, 0.0f, 1e-6f));
+	}
+
+	// ---- S13: how fast the tyres turn for the speed ----
+	// HL Rally plays whlRotate at fps = speed / 2.5 (StudioModelRenderer.cpp:2091). Measured on models/player/xsara/xsara.mdl with the SMAK kit
+	// (info: sequences 1 to 3 are 19 frames; poseAt of WHEEL-LefBack over the 19 frames: steps of -22.25, -18.20, -17.80, -18.20 degrees a frame,
+	// -360.00 in all): one full turn per 19 frames.
+	{
+		CHECK(Near(kWheelFramesPerTurn, 19.0f, 1e-6f));
+		CHECK(Near(WheelDegPerSecPerSpeed(), 360.0f / (19.0f * 2.5f), 1e-4f) && Near(WheelDegPerSecPerSpeed(), 7.5789f, 1e-3f));
+		CHECK(Near(kWheelCircumference, 47.5f, 1e-4f)); // a turn per 47.5 units rolled
+		// 100 u/s for one second: 2.105 turns
+		CHECK(Near(RollPhase(0.0f, 100.0f * 1.0f, kWheelCircumference), 100.0f / 47.5f - 2.0f, 1e-4f));
+		// and the turn per second is the same degrees whatever the step: a tenth of a second ten times equals one second
+		float ph = 0.0f;
+		for (int i = 0; i < 10; i++)
+			ph = RollPhase(ph, 100.0f * 0.1f, kWheelCircumference);
+		CHECK(Near(ph * 360.0f, 100.0f * WheelDegPerSecPerSpeed() - 720.0f, 1e-2f));
+		// our model's roll sequence (rc_rally_xs.mdl: 31 frames, wheel_rl turns 12 degrees a frame, 360 over 30 steps) is one turn over the sequence
+		CHECK(Near(12.0f * 30.0f, 360.0f, 1e-6f));
+	}
+
+	// ---- S14: the suspension (StudioModelRenderer.cpp:896-915, 1449-1463): (fraction - 0.5) * 4 on four named bones ----
+	{
+		CHECK(Near(ShockOffset(0.5f), 0.0f, 1e-6f) && Near(ShockOffset(1.0f), 2.0f, 1e-6f) && Near(ShockOffset(0.0f), -2.0f, 1e-6f));
+		CHECK(Near(ShockOffset(0.75f), 1.0f, 1e-6f)); // an origin a unit over the floor: 3 of the 4 units, +1
+		// ours is on the floor, so the trace starts 3 over and ends 1 under: the same 4 units, the floor at 3 of them
+		CHECK(Near(kShockFrom + kShockTo, 4.0f, 1e-6f) && Near((kShockFrom - 0.0f) / (kShockFrom + kShockTo), 0.75f, 1e-6f));
+		CHECK(0 == strcmp(kShockBone[0], "SHOCK-RghFron") && 0 == strcmp(kShockBone[1], "SHOCK-LefFron") && 0 == strcmp(kShockBone[2], "SHOCK-LefBack") &&
+			  0 == strcmp(kShockBone[3], "SHOCK-RghBack"));
 	}
 
 	// ---- the mirror (view.cpp:1287-1302): a third wide from the top edge, ScreenHeight / 6.5 high, pitch and roll + 180 ----

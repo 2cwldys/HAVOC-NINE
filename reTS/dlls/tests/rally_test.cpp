@@ -15,6 +15,7 @@
 #include "../../pm_shared/h9_rally.h"
 #include "../h9_rally_snd.h"
 #include "../race_rally.h"
+#include "../../cl_dll/h9_rallysteer_calc.h" // the client's throttle: the forward move the command carries
 
 #include <cmath>
 #include <cstdio>
@@ -50,6 +51,10 @@ struct Sim
 	float dt = 0.01f;
 	float pmFriction = 1.0f; // pmove->friction (func_friction)
 	float lat = 0;
+	// the client's half, as HL Rally's: the gearbox (automatic) and the forward move worked out from it (input.cpp:869-1001, h9_rallysteer_calc.h)
+	rallysteer::Gearbox box;
+	int reversing = 0;
+	float fmove = 0;
 
 	// the speed along the nose and across it (left positive)
 	float Vf() const
@@ -82,19 +87,32 @@ struct Sim
 		const float fwd[3] = {cosf(h), sinf(h), 0};
 		const float right[3] = {sinf(h), -cosf(h), 0};
 		const float hs = sqrtf(v[0] * v[0] + v[1] * v[1]);
-		const float fmove = H9RallyForwardMove(in, hs);
+		// the command's forward move: the client works it out before the step from the speed and revs it has (the last frame's), and it
+		// arrives in the command (the movevars' maxspeed 3000 cuts it; the car's own wish cuts it again in the pull)
+		rallysteer::DriveIn di;
+		di.gear = box.gear;
+		di.rpm = box.rpm;
+		di.speedH = hs;
+		di.fwdFrac = di.fwdDown = forward ? 1.0f : 0.0f;
+		di.backFrac = di.backDown = back ? 1.0f : 0.0f;
+		di.reversing = reversing;
+		const rallysteer::DriveOut dout = rallysteer::DriveStep(di);
+		reversing = dout.reversing;
+		fmove = rallysteer::Clampf(dout.forwardmove, -3000.0f, 3000.0f);
 		const H9RallyFrictionResult fr = H9RallyFriction(v, fwd, right, in, fmove, g_h9RallySurfaces[surface].lat, g_h9RallySurfaces[surface].drag,
 														 H9RallyHandling(*car), kMvFriction, dt);
 		lat = fr.lat;
-		const float hs2 = sqrtf(v[0] * v[0] + v[1] * v[1]);
-		if (fmove != 0 && !(fmove > 0 && hs2 >= H9R_GEAR_CAP))
+		const float wishspeed = H9RallyWishSpeed(fmove, H9RallyWish(*car));
+		if (wishspeed > 0.0f)
 		{
 			float dir[3] = {fwd[0], fwd[1], fwd[2]};
 			if (fmove < 0)
 				for (int i = 0; i < 3; i++)
 					dir[i] = -dir[i];
-			H9RallyAccelerate(v, dir, H9RallyWish(*car), H9R_ACCELERATE, pmFriction, dt, fmove);
+			H9RallyAccelerate(v, dir, wishspeed, H9R_ACCELERATE, pmFriction, dt, fmove);
 		}
+		// the gearbox moves on with the speed the step left (the renderer's renderCalculateRPMs, once a frame)
+		rallysteer::GearboxStep(box, sqrtf(v[0] * v[0] + v[1] * v[1]), true, dout.accelerating || dout.reversing == 2, 0.0f, dt);
 		x += v[0] * dt;
 		y += v[1] * dt;
 		time += dt;
@@ -395,13 +413,16 @@ int main()
 		snprintf(what, sizeof what, "reverse from rest ends at %.0f u/s, backwards, about 40 (the client sends reverse only below 40 u/s, and above it the back key brakes)", r.Vf());
 		Check(r.Vf() < -35.0f && r.Vf() > -50.0f, what);
 		// HLR input.cpp:871 velocity < 40 && back, decided when the command is built: once, on the speed the car has
-		H9RallyInput back;
-		back.back = true;
-		H9RallyInput both = back;
-		both.forward = true;
-		Check(H9RallyForwardMove(back, 39.99f) < 0 && H9RallyForwardMove(back, 40.0f) == 0 && H9RallyForwardMove(back, 400.0f) == 0,
-			  "reverse: the back key means reverse below 40 u/s of horizontal speed and is only the brake from 40");
-		Check(H9RallyForwardMove(both, 10.0f) > 0 && H9RallyForwardMove(H9RallyInput(), 10.0f) == 0, "reverse: the throttle overrides the back key; no key, no move");
+		auto Move = [](float speed, bool fwdKey, bool backKey) {
+			rallysteer::DriveIn di;
+			di.speedH = speed;
+			di.fwdFrac = di.fwdDown = fwdKey ? 1.0f : 0.0f;
+			di.backFrac = di.backDown = backKey ? 1.0f : 0.0f;
+			return rallysteer::DriveStep(di).forwardmove;
+		};
+		Check(Move(39.99f, false, true) < 0 && Move(40.0f, false, true) == 0 && Move(400.0f, false, true) == 0,
+			  "reverse: the back key means reverse below 40 u/s of horizontal speed and is only the brake from 40 (input.cpp:871, :942-950)");
+		Check(Move(10.0f, true, true) > 0 && Move(10.0f, false, false) == 0, "reverse: the throttle overrides the back key (input.cpp:890-893); no key, no move");
 		// the pull backwards stops once the car is over 100 u/s (HLR rally.c:1007-1011), the forward pull does not
 		float v1[3] = {-150, 0, 0}, v2[3] = {150, 0, 0};
 		const float back1[3] = {-1, 0, 0}, fwd1[3] = {1, 0, 0};
@@ -731,14 +752,70 @@ int main()
 		Check(fabsf(pitch) < 0.05f && fabsf(fabsf(roll) - 10.0f) < 0.05f, "tilt: the terrain's normal is turned into the car's heading: facing +y the +x rise is a roll");
 	}
 
+	// --- rows 3, 4, 5: the pull is the command's forward move (rally.c:518-540), with no gear cap of ours ----------------------------------------------
+	{
+		const H9RallyCar& x = g_h9RallyCars[0]; // xsara, wish 80 * 15 = 1200
+		// wishspeed = |fmove|, cut to the car's top speed (rally.c:530-537: the cut is pmove->maxspeed, TopSpeed * 15)
+		Check(H9RallyWishSpeed(0.0f, H9RallyWish(x)) == 0.0f && H9RallyWishSpeed(500.0f, H9RallyWish(x)) == 500.0f && H9RallyWishSpeed(-500.0f, H9RallyWish(x)) == 500.0f,
+			  "wish speed: the size of the command's forward move; 0 is no pull");
+		Check(H9RallyWishSpeed(3000.0f, H9RallyWish(x)) == 1200.0f && H9RallyWishSpeed(-10000.0f, H9RallyWish(x)) == 1200.0f,
+			  "wish speed: cut to the car's top speed, 1200 for TopSpeed 80, forwards and backwards");
+		// gear 6 at 400 u/s: the client sends 400 + 108.3 * 30 * 78 / 400 = 1033.5 (input.cpp:988), under the 1200: the pull is accel * dt * 1033.5
+		const float fm = 400.0f + 108.3f * 30.0f * 78.0f / 400.0f;
+		float v[3] = {400, 0, 0};
+		const float dir[3] = {1, 0, 0};
+		H9RallyAccelerate(v, dir, H9RallyWishSpeed(fm, H9RallyWish(x)), H9R_ACCELERATE, 1.0f, 0.01f, fm);
+		Check(fabsf(v[0] - (400.0f + 0.085f * 0.01f * fm)) < 1e-3f, "pull in gear 6 at 400 u/s: the wish is the client's 1033, not the car's 1200");
+		// revs 200 and up and 50 u/s: the client sends the speed itself (input.cpp:990), the pull has nothing to add: the cap needs no rule of ours
+		float w[3] = {800, 0, 0};
+		H9RallyAccelerate(w, dir, H9RallyWishSpeed(800.0f, H9RallyWish(x)), H9R_ACCELERATE, 1.0f, 0.01f, 800.0f);
+		Check(w[0] == 800.0f, "revs up: the move is the speed along the nose, so there is no pull (the gear cap of an earlier version needs no code)");
+		// slipping sideways the speed along the nose is less than the speed: the same move then does pull, a little (HL Rally's own behaviour)
+		float u[3] = {600, 300, 0};
+		const float hs = sqrtf(600.0f * 600.0f + 300.0f * 300.0f);
+		H9RallyAccelerate(u, dir, H9RallyWishSpeed(hs, H9RallyWish(x)), H9R_ACCELERATE, 1.0f, 0.01f, hs);
+		Check(u[0] > 600.0f, "a slide with the revs up: the move is the whole speed, the nose has less of it, so there is a pull");
+		// the reverse move: the back key under 40 u/s sends -10000 -> wish 1200 along -nose, until the car is over 100 u/s backwards (rally.c:1007-1011)
+		float b[3] = {-10, 0, 0};
+		const float back[3] = {-1, 0, 0};
+		H9RallyAccelerate(b, back, H9RallyWishSpeed(-10000.0f, H9RallyWish(x)), H9R_ACCELERATE, 1.0f, 0.01f, -10000.0f);
+		Check(fabsf(b[0] - (-10.0f - 0.085f * 0.01f * 1200.0f)) < 1e-4f, "reverse pull: accel * dt * the 1200 wish");
+	}
+
+	// --- row 36 / I11: the tilt kept in vuser4 and vuser3.x (h9_rally.h H9RallyTiltPack; HL Rally keeps it in vuser1: rally.c:218, :254-255) -------------------
+	{
+		float mark, ang[3], p, y, r;
+		H9RallyTiltPack(-12.3f, 91.0f, 7.26f, &mark, ang);
+		Check(H9RallyTiltUnpack(mark, ang, &p, &y, &r) && fabsf(p - (-12.5f)) < 1e-4f && fabsf(y - 91.0f) < 1e-4f && fabsf(r - 7.5f) < 1e-4f,
+			  "tilt: pitch, yaw and roll survive the field in half degrees");
+		Check(!H9RallyTiltUnpack(0.0f, ang, &p, &y, &r) && !H9RallyTiltUnpack(1.0f, ang, &p, &y, &r), "tilt: a field that is not marked (a weapon's value, zero) is no tilt");
+		bool wire = true; // the wire carries a signed 10 bit integer (game/ts/delta.lst): -512 to 511
+		for (float yaw = -180.0f; yaw <= 180.0f; yaw += 7.0f)
+		{
+			H9RallyTiltPack(270.0f - yaw, yaw, yaw, &mark, ang);
+			for (int i = 0; i < 3; i++)
+				if (ang[i] < -512.0f || ang[i] > 511.0f || ang[i] != floorf(ang[i]))
+					wire = false;
+		}
+		Check(wire && mark < 511.0f, "tilt: every packed value is an integer inside the wire's 10 bits, the mark too");
+		H9RallyTiltPack(359.0f, -181.0f, 0.0f, &mark, ang);
+		H9RallyTiltUnpack(mark, ang, &p, &y, &r);
+		Check(fabsf(p - (-1.0f)) < 1e-4f && fabsf(y - 179.0f) < 1e-4f, "tilt: angles are wrapped to -180..180 before they are packed");
+		// in the air the pitch and roll go to 0 and the yaw stays (rally.c:254-255): what pmove packs is H9RallyTiltPack(0, yaw0, 0)
+		H9RallyTiltPack(0.0f, 33.0f, 0.0f, &mark, ang);
+		H9RallyTiltUnpack(mark, ang, &p, &y, &r);
+		Check(p == 0.0f && r == 0.0f && fabsf(y - 33.0f) < 1e-4f, "tilt: in the air pitch and roll are 0 and the yaw is kept");
+	}
+
 	// --- row 58: the finish ----------------------------------------------------------------------------------------------------------------------------
 	// HLR input.cpp:818-832: after the line the back key alone while the horizontal speed is over 20, then no key
 	{
 		const H9RallyInput fast = H9RallyFinishKeys(120.0f), slow = H9RallyFinishKeys(20.0f), still = H9RallyFinishKeys(0);
 		Check(fast.back && !fast.forward && !fast.hand && !fast.steering && !slow.back && !still.back && !slow.forward,
 			  "finish: over 20 u/s the back key alone, at 20 and under no key at all");
-		Check(H9RallyForwardMove(fast, 120.0f) == 0, "finish: the back key above 40 u/s is the brake: no forward move");
-		Check(H9RallyForwardMove(H9RallyFinishKeys(30.0f), 30.0f) < 0, "finish: between 20 and 40 u/s the back key is a reverse pull, as in HL Rally's client");
+		// the client sends no forward move after the finish (its drive block is skipped, input.cpp:818-835), whatever the speed: pmove takes it as 0
+		// (pm_shared/h9_rally.cpp), so the 20 to 40 u/s band is the brake, not the reverse pull the older rule made of the back key
+		Check(fast.back && slow.back == false && H9RallyWishSpeed(0.0f, 1200.0f) == 0.0f, "finish: no forward move at any speed, so no pull and no reverse");
 	}
 
 

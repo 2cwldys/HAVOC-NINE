@@ -738,8 +738,9 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	Vector viewangles;
 	static Vector oldangles;
 	int rallyClass = 0;          // H9 rally mode: the physinfo "rally" value, 0 off
-	bool rallySteerKeys = false; // and whether a side key is down
 	bool rallyOn = false;        // the local player is a living car: its heading is kept by H9RallySteer_*
+	bool rallyFrozen = false;    // and it has finished its race (physinfo "rfin"): HL Rally's ab_finish, the drive block is skipped
+	H9RallyDriveResult rallyDrive = {0, false, false, 0}; // what the throttle block decided this frame
 
 	if (0 != active)
 	{
@@ -754,90 +755,119 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 			const char* rallyKey = gEngfuncs.PhysInfo_ValueForKey("rally");
 			rallyClass = rallyKey ? atoi(rallyKey) : 0;
 			rallyOn = rallyClass > 0 && g_iAlive;
-			if (rallyOn)
+			rallyFrozen = rallyOn && H9RallyDrive_Finished();
+			if (rallyOn && !rallyFrozen)
 				viewangles[YAW] = H9RallySteer_Begin(viewangles[YAW]); // the view's yaw is the heading again; the mouse then adds to it
-			else
+			else if (!rallyOn)
 				H9RallySteer_Idle();
 		}
-		s_adjustRally = rallyOn;
-		CL_AdjustAngles(frametime, viewangles);
-		s_adjustRally = false;
 
-		memset(cmd, 0, sizeof(*cmd));
-
-		// The side keys, read once (reading a key clears its impulses).
-		const float keyRight = CL_KeyState(&in_moveright);
-		const float keyLeft = CL_KeyState(&in_moveleft);
-
-		// (a car: the side keys, A and D and the arrows alike, are steering keys the command's buttons say so about)
-		if (rallyOn)
-			rallySteerKeys = keyLeft > 0 || keyRight > 0 || s_arrowLeft > 0 || s_arrowRight > 0;
-
-		gEngfuncs.SetViewAngles((float*)viewangles);
-
-		if ((in_strafe.state & 1) != 0)
+		if (rallyFrozen)
 		{
-			cmd->sidemove += cl_sidespeed->value * CL_KeyState(&in_right);
-			cmd->sidemove -= cl_sidespeed->value * CL_KeyState(&in_left);
+			// HL Rally's ab_finish (input.cpp:818-835): after the finish nothing of the drive is made (no steering, no mouse, no move) and
+			// the view angles stay as they stand, so the heading is frozen; the revs follow the speed all the same. The server brakes the car
+			// by itself (physinfo "rfin", pm_shared/h9_rally.cpp), the client's buttons are not what it reads then.
+			memset(cmd, 0, sizeof(*cmd));
+			H9RallyDrive_Frozen(frametime);
 		}
-
-		cmd->sidemove += cl_sidespeed->value * keyRight;
-		cmd->sidemove -= cl_sidespeed->value * keyLeft;
-
-		cmd->upmove += cl_upspeed->value * CL_KeyState(&in_up);
-		cmd->upmove -= cl_upspeed->value * CL_KeyState(&in_down);
-
-		if ((in_klook.state & 1) == 0)
+		else
 		{
-			cmd->forwardmove += cl_forwardspeed->value * CL_KeyState(&in_forward);
-			cmd->forwardmove -= cl_backspeed->value * CL_KeyState(&in_back);
-		}
+			s_adjustRally = rallyOn;
+			CL_AdjustAngles(frametime, viewangles);
+			s_adjustRally = false;
 
-		// adjust for speed key
-		if ((in_speed.state & 1) != 0)
-		{
-			cmd->forwardmove *= cl_movespeedkey->value;
-			cmd->sidemove *= cl_movespeedkey->value;
-			cmd->upmove *= cl_movespeedkey->value;
-		}
+			memset(cmd, 0, sizeof(*cmd));
 
-		// clip to maxspeed
-		spd = gEngfuncs.GetClientMaxspeed();
-		if (spd != 0.0)
-		{
-			// scale the 3 speeds so that the total velocity is not > cl.maxspeed
-			float fmov = sqrt((cmd->forwardmove * cmd->forwardmove) + (cmd->sidemove * cmd->sidemove) + (cmd->upmove * cmd->upmove));
+			// The side keys, read once (reading a key clears its impulses).
+			const float keyRight = CL_KeyState(&in_moveright);
+			const float keyLeft = CL_KeyState(&in_moveleft);
 
-			if (fmov > spd)
+			gEngfuncs.SetViewAngles((float*)viewangles);
+
+			if (rallyOn)
 			{
-				float fratio = spd / fmov;
-				cmd->forwardmove *= fratio;
-				cmd->sidemove *= fratio;
-				cmd->upmove *= fratio;
+				// H9 rally mode: HL Rally's own CL_CreateMove sends no side move and no up move (the memset above is all it does), and the
+				// forward move is worked out from the gearbox, not from a key (h9_rallysteer_calc.h DriveStep). The first read of a key of a
+				// frame sees its fraction, the next one sees 1 or 0 (CL_KeyState clears the impulses): HL Rally's reads do the same.
+				H9RallyDriveKeys dk;
+				dk.backFrac = CL_KeyState(&in_back);
+				dk.backDown = CL_KeyState(&in_back);
+				dk.fwdFrac = CL_KeyState(&in_forward);
+				dk.fwdDown = CL_KeyState(&in_forward);
+				dk.klook = (in_klook.state & 1) != 0;
+				rallyDrive = H9RallyDrive_Move(dk);
+				cmd->forwardmove = (short)rallyDrive.forwardmove;
 			}
-		}
+			else
+			{
+				if ((in_strafe.state & 1) != 0)
+				{
+					cmd->sidemove += cl_sidespeed->value * CL_KeyState(&in_right);
+					cmd->sidemove -= cl_sidespeed->value * CL_KeyState(&in_left);
+				}
 
-		// Allow mice and other controllers to add their inputs
-		IN_Move(frametime, cmd);
+				cmd->sidemove += cl_sidespeed->value * keyRight;
+				cmd->sidemove -= cl_sidespeed->value * keyLeft;
 
-		// H9 rally mode: the mouse has turned the view's yaw (an input, filtered and scaled in IN_MouseMove) but cannot tilt it: a car has no pitch
-		// to look up or down with, and the camera sets its own (h9_rallycar.cpp). The heading comes from the keys' and the mouse's input and the
-		// car's velocity (H9RallySteer_End) and is what the view's yaw is from here on.
-		if (rallyOn)
-		{
-			Vector va;
-			gEngfuncs.GetViewAngles((float*)va);
-			H9RallyKeys keys;
-			keys.frametime = frametime;
-			keys.left = keyLeft + s_arrowLeft;
-			keys.right = keyRight + s_arrowRight;
-			keys.throttle = (in_forward.state & 1) != 0;
-			keys.brake = (in_back.state & 1) != 0;
-			keys.handbrake = (in_jump.state & 1) != 0;
-			va[YAW] = H9RallySteer_End(va[YAW], keys);
-			va[PITCH] = 0.0f;
-			va[ROLL] = 0.0f;
-			gEngfuncs.SetViewAngles((float*)va);
+				cmd->upmove += cl_upspeed->value * CL_KeyState(&in_up);
+				cmd->upmove -= cl_upspeed->value * CL_KeyState(&in_down);
+
+				if ((in_klook.state & 1) == 0)
+				{
+					cmd->forwardmove += cl_forwardspeed->value * CL_KeyState(&in_forward);
+					cmd->forwardmove -= cl_backspeed->value * CL_KeyState(&in_back);
+				}
+
+				// adjust for speed key
+				if ((in_speed.state & 1) != 0)
+				{
+					cmd->forwardmove *= cl_movespeedkey->value;
+					cmd->sidemove *= cl_movespeedkey->value;
+					cmd->upmove *= cl_movespeedkey->value;
+				}
+			}
+
+			// clip to maxspeed
+			spd = gEngfuncs.GetClientMaxspeed();
+			if (spd != 0.0)
+			{
+				// scale the 3 speeds so that the total velocity is not > cl.maxspeed
+				float fmov = sqrt((cmd->forwardmove * cmd->forwardmove) + (cmd->sidemove * cmd->sidemove) + (cmd->upmove * cmd->upmove));
+
+				if (fmov > spd)
+				{
+					float fratio = spd / fmov;
+					cmd->forwardmove *= fratio;
+					cmd->sidemove *= fratio;
+					cmd->upmove *= fratio;
+				}
+			}
+
+			// Allow mice and other controllers to add their inputs
+			IN_Move(frametime, cmd);
+
+			// H9 rally mode: the mouse has turned the view's yaw (an input, filtered and scaled in IN_MouseMove) but cannot tilt it: a car has no
+			// pitch to look up or down with, and the camera sets its own (h9_rallycar.cpp). The heading comes from the keys' and the mouse's
+			// input and the car's velocity (H9RallySteer_End) and is what the view's yaw is from here on.
+			if (rallyOn)
+			{
+				Vector va;
+				gEngfuncs.GetViewAngles((float*)va);
+				H9RallyKeys keys;
+				keys.frametime = frametime;
+				keys.left = keyLeft + s_arrowLeft;
+				keys.right = keyRight + s_arrowRight;
+				keys.throttle = (in_forward.state & 1) != 0;
+				keys.brake = (in_back.state & 1) != 0;
+				keys.handbrake = (in_jump.state & 1) != 0;
+				keys.accelerating = rallyDrive.accelerating;
+				keys.braking = rallyDrive.braking;
+				keys.reversing = rallyDrive.reversing;
+				va[YAW] = H9RallySteer_End(va[YAW], keys);
+				va[PITCH] = 0.0f;
+				va[ROLL] = 0.0f;
+				gEngfuncs.SetViewAngles((float*)va);
+			}
 		}
 	}
 
@@ -850,8 +880,11 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	// set button and flag bits
 	//
 	cmd->buttons = CL_ButtonBits(true);
-	if (rallySteerKeys)
-		cmd->buttons |= IN_LEFT; // the handling reads "a steering key is down" from the buttons (either one will do)
+	// H9 rally mode: the handling reads "a steering key is down" from IN_LEFT and IN_RIGHT, which HL Rally's client sets from its +left and +right (the
+	// arrow keys, input.cpp:1384-1392; the mouse sets none). A and D (+moveleft, +moveright: IN_MOVELEFT, IN_MOVERIGHT) steer here too, and that is the
+	// one deviation: they count as a steering key as well.
+	if (rallyOn && (cmd->buttons & (IN_MOVELEFT | IN_MOVERIGHT)) != 0)
+		cmd->buttons |= IN_LEFT;
 
 	// If they're in a modal dialog, ignore the attack button.
 	if (GetClientVoiceMgr()->IsInSquelchMode())
