@@ -87,6 +87,66 @@ static float ReferenceRate(float fps, float rate, float speed, float seconds, fl
 
 int main()
 {
+	// ---- I6: the wheel's two recentring tests, one after the other, with no stop at 0 (input.cpp:1016-1021) ----
+	{
+		State w;
+		Reset(w, 0.0f);
+		const float steps[8] = {0.1f, -0.1f, 1.0f, -1.0f, 0.0f, 0.15f, -0.19f, 11.0f};
+		const float want[8] = {0.1f, 0.1f, 0.8f, -0.8f, 0.0f, 0.15f, 0.01f, 10.0f}; // (held at the limit, 10) c = 20 * 0.01 = 0.2
+		for (int i = 0; i < 8; i++)
+		{
+			w.wheel = steps[i];
+			WheelStep(w, 0.0f, 0.0f, 0.01f);
+			CHECK(Near(w.wheel, want[i], 1e-5f));
+		}
+	}
+
+	// ---- I10: the heading turns by the new delta alone, not the mean of the old and the new (input.cpp:1228-1250) ----
+	{
+		State a;
+		Reset(a, 0.0f);
+		Input in;
+		in.dt = 1.0f / 99.0f;
+		in.mouseYaw = 0.5f;
+		in.velX = 300;
+		Step(a, in);
+		CHECK(Near(a.heading, a.delta * 25.0f * in.dt, 1e-6f));
+		CHECK(Near(a.delta, 0.5f / 30.0f, 2e-3f * 0.5f)); // the filter's first frame: a / 30
+	}
+
+	// ---- I11: the slide is measured against the heading with this frame's input already in it (input.cpp:1056-1074) ----
+	{
+		State a;
+		Reset(a, 0.0f);
+		Input in;
+		in.dt = 1.0f / 99.0f;
+		in.mouseYaw = 10.0f; // 10 degrees to the left in one reference frame, with the car going along the old heading
+		in.velX = 300;
+		const Output o = Step(a, in);
+		CHECK(Near(o.cosSlip, cosf(10.0f * kDeg), 1e-4f));
+		CHECK(o.slide > 0.0f); // the velocity is to the right of a nose that has turned left
+	}
+
+	// ---- I12: the brake's 1.5 is not applied while the car starts in reverse (back key, under 40 u/s, forward key up: input.cpp:870-876, 1095) ----
+	{
+		auto Delta = [&](float speed, bool brake, bool throttle) {
+			State a;
+			Reset(a, 0.0f);
+			Input in;
+			in.dt = 1.0f / 99.0f;
+			in.mouseYaw = 0.5f;
+			in.velX = speed;
+			in.brake = brake;
+			in.throttle = throttle;
+			Step(a, in);
+			return a.delta;
+		};
+		CHECK(Near(Delta(30.0f, true, false), Delta(30.0f, false, false), 1e-6f));            // reverse start: none
+		CHECK(Near(Delta(30.0f, true, true), 1.5f * Delta(30.0f, false, false), 1e-5f));      // forward key down too: braking
+		CHECK(Near(Delta(100.0f, true, false), 1.5f * Delta(100.0f, false, false), 1e-5f));   // 40 u/s or more: braking
+		CHECK(Near(Delta(39.9f, true, false), Delta(39.9f, false, false), 1e-6f));
+	}
+
 	// ---- the steady heading rate: the same at every frame rate, and HL Rally's at 99 ----
 	{
 		const float fps[4] = {30, 60, 99, 200};
@@ -189,10 +249,10 @@ int main()
 			in.velX = speed;
 			in.velY = 0;
 			in.dt = 1.0f / 99.0f;
-			const float d0 = s.delta;
 			Step(s, in);
 			const float t = Wrap180(s.heading);
-			return t / (d0 * kGain * in.dt);
+			// HL Rally turns by the NEW steer_delta alone (input.cpp:1228-1250: viewangles = oldangles - steer_delta * 25 * frametime)
+			return t / (s.delta * kGain * in.dt);
 		};
 		CHECK(Near(Turn(4.0f), 0.0f, 1e-4f));
 		CHECK(Near(Turn(5.0f), 0.0f, 1e-4f)); // 5 or less: none
@@ -366,7 +426,12 @@ int main()
 		CHECK(Near(s.wheel, -kWheelMax + 5.0f, 0.2f));
 		for (int i = 0; i < 40; i++)
 			Step(s, in);
-		CHECK(Near(s.wheel, 0.0f, 1e-3f));
+		// it is not clamped at 0 (input.cpp:1016-1021): it comes to rest within one step of centre, where it stays
+		const float rest = s.wheel;
+		CHECK(fabsf(rest) <= kWheelCentre / 60.0f + 1e-4f);
+		for (int i = 0; i < 40; i++)
+			Step(s, in);
+		CHECK(Near(s.wheel, rest, 1e-4f));
 		// the same at any frame rate: half a second of keys takes it to the limit at 30 and at 200 fps
 		State a, b;
 		Reset(a, 0.0f);
