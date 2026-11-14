@@ -3,3 +3,6 @@
 	url = https://github.com/deoroot/SMAK
 	branch = main
 	ignore = dirty
+[submodule "EntMod4/uChmViewer"]
+	path = EntMod4/uChmViewer
+	url = https://github.com/eBookProjects/uChmViewer
