@@ -67,6 +67,8 @@ export const DEFAULTS = {
   // how many codes may wait at once, in all and per address, and how long an adopt nonce lasts
   link: { codeSeconds: 600, intervalSeconds: 5, maxPending: 10000, maxPendingPerIp: 5, adoptNonceSeconds: 300 },
   // the admin panel and username changes (lib/admin.js, lib/renames.js, lib/audit.js)
+  // which parts of the site are open at the start (lib/siteflags.js): an admin changes them in the admin panel without a restart
+  site: { downloads: true, webclient: true },
   admin: {
     modSuspendMaxDays: 7,      // the longest suspension a moderator may give (users only)
     auditRetentionDays: 90,    // audit log rows older than this are deleted
@@ -172,6 +174,7 @@ export function resolveConfig(raw = {}, base = HOME) {
     for (const k of ["packetsPerSecond", "packetBurst", "bytesPerSecond", "byteBurst"]) positive(r[group][k], "relay." + group + "." + k);
   }
   if (!Array.isArray(c.modules)) throw new Error("config: modules must be a list of names");
+  for (const k of ["downloads", "webclient"]) if (typeof c.site?.[k] !== "boolean") throw new Error("config: site." + k + " must be true or false");
   for (const k of ["modSuspendMaxDays", "auditRetentionDays", "renameCooldownDays", "renameHoldDays"]) positive(c.admin[k], "admin." + k);
   for (const k of ["codeSeconds", "intervalSeconds", "maxPending", "maxPendingPerIp", "adoptNonceSeconds"]) positive(c.link[k], "link." + k);
   return c;
