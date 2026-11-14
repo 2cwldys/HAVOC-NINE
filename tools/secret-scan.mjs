@@ -15,7 +15,6 @@ const ALLOW_PATH = /^(xash3d-fwgs\/3rdparty\/|.*cacert\.pem$|.*amxx_easy_http_ca
 const TEXT_EXT = /\.(js|mjs|cjs|json|html|htm|css|txt|md|ini|cfg|sh|ps1|cmd|bat|py|service|timer|conf|example|template|xml|svg|yaml|yml|toml|sma|inc|cpp|h|c)$/i;
 const RULES = [
   ["a Discord bot token", /[MNO][A-Za-z\d_-]{23,27}\.[A-Za-z\d_-]{6}\.[A-Za-z\d_-]{27,40}/],
-  ["a Discord webhook URL", /discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+/],
   ["a private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["a filled-in heartbeat_key or discord_token", /^[ \t]*(heartbeat_key|discord_token)[ \t]*=[ \t]*[^\s;#<]/m],
   ["h9web's password pepper or player id key", /"(passwordPepper|playerIdKey)"\s*:\s*"[A-Za-z0-9+/=]{16,}"/],
@@ -24,6 +23,11 @@ const RULES = [
   ["an AWS access key id", /\bAKIA[0-9A-Z]{16}\b/],
   ["a Slack token", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/],
   ["a literal rcon_password value", /^[ \t]*rcon_password[ \t]+"?(?!""|<)[^\s"]{3,}/m],
+];
+
+// A URL rule is anchored (^) and tried on each URL-shaped word of the text, so a host name cannot hide inside a longer word.
+const URL_RULES = [
+  ["a Discord webhook URL", /^(?:https?:\/\/)?(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+/],
 ];
 
 function listFiles(args) {
@@ -48,7 +52,8 @@ for (const f of files) {
   if (BAD_NAME.test(path.basename(f))) { console.log(`${f}: a file name that holds secrets`); findings++; continue; }
   if (!TEXT_EXT.test(f)) continue;
   let text;
-  try { const st = fs.statSync(f); if (!st.isFile() || st.size > 8 * 1024 * 1024) continue; text = fs.readFileSync(f, "latin1"); } catch { continue; }
+  let fd = -1;
+  try { fd = fs.openSync(f, "r"); const st = fs.fstatSync(fd); if (!st.isFile() || st.size > 8 * 1024 * 1024) continue; text = fs.readFileSync(fd, "latin1"); } catch { continue; } finally { if (fd >= 0) fs.closeSync(fd); }
   scanned++;
   for (const [why, rx] of RULES) {
     const m = rx.exec(text);
@@ -56,6 +61,15 @@ for (const f of files) {
       const line = text.slice(0, m.index).split("\n").length;
       console.log(`${f}:${line}: ${why}`);
       findings++;
+    }
+  }
+  for (const [why, rx] of URL_RULES) {
+    for (const w of text.matchAll(/[A-Za-z0-9:\/._-]+/g)) {
+      if (rx.test(w[0])) {
+        console.log(`${f}:${text.slice(0, w.index).split("\n").length}: ${why}`);
+        findings++;
+        break;
+      }
     }
   }
 }

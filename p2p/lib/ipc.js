@@ -523,14 +523,13 @@ export class HostIpc extends EventEmitter {
   // ---- commands -------------------------------------------------------------------------------------------------------------------
 
   readCommands() {
-    let size;
-    try { size = fs.statSync(this.paths.cmd).size; } catch (e) { return; }
-    if (size < this.cmdOff) this.cmdOff = 0;
-    if (size === this.cmdOff) return;
     let buf;
     try {
       const fd = fs.openSync(this.paths.cmd, "r");
       try {
+        const size = fs.fstatSync(fd).size;
+        if (size < this.cmdOff) this.cmdOff = 0;
+        if (size === this.cmdOff) return;
         buf = Buffer.alloc(size - this.cmdOff);
         fs.readSync(fd, buf, 0, buf.length, this.cmdOff);
       } finally {
@@ -550,7 +549,12 @@ export class HostIpc extends EventEmitter {
     }
     if (this.cmdOff >= CMD_TRUNCATE_BYTES) {
       try {
-        if (fs.statSync(this.paths.cmd).size === this.cmdOff) { fs.writeFileSync(this.paths.cmd, ""); this.cmdOff = 0; }
+        const fd = fs.openSync(this.paths.cmd, "r+");
+        try {
+          if (fs.fstatSync(fd).size === this.cmdOff) { fs.ftruncateSync(fd, 0); this.cmdOff = 0; }
+        } finally {
+          fs.closeSync(fd);
+        }
       } catch (e) { /* the plugin has it open: the next look tries again */ }
     }
   }

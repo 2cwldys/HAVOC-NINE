@@ -208,7 +208,10 @@ export async function ensureHelper({ ini, script, node = process.execPath, timeo
     if (exited !== null) {
       if (exited === 4) return { state: "running", pid: 0 };
       let tail = "";
-      try { tail = fs.readFileSync(logFile, "latin1").trim().split(/\r?\n/).pop(); } catch (e) { /* no log */ }
+      try {
+        const rfd = fs.openSync(logFile, "r");
+        try { tail = fs.readFileSync(rfd, "latin1").trim().split(/\r?\n/).pop(); } finally { fs.closeSync(rfd); }
+      } catch (e) { /* no log */ }
       throw new Error("the helper did not start (" + exited + ")" + (tail ? ": " + tail : ""));
     }
     await new Promise((r) => setTimeout(r, 100));

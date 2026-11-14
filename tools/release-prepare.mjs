@@ -95,14 +95,15 @@ function main() {
   const statePath = opt("state", "");
   const repo = opt("repo", "");
   const dry = has("dry");
-  const sma = ["ts_matchmode.sma", "src/ts_matchmode.sma", "H9XASH/ts/addons/amxmodx/scripting/ts_matchmode.sma"].map((p) => path.join(ROOT, p)).find((p) => fs.existsSync(p)) || path.join(ROOT, "ts_matchmode.sma");
+  const canOpen = (p) => { try { fs.closeSync(fs.openSync(p, "r")); return true; } catch { return false; } };
+  const sma = ["ts_matchmode.sma", "src/ts_matchmode.sma", "H9XASH/ts/addons/amxmodx/scripting/ts_matchmode.sma"].map((p) => path.join(ROOT, p)).find((p) => canOpen(p)) || path.join(ROOT, "ts_matchmode.sma");
   const h9 = path.join(ROOT, "H9XASH");
   const presetFile = path.join(h9, "presets", "official-preset.json");
   const node = process.execPath;
   const say = (s) => console.log("release-prepare: " + s);
   const die = (s) => { console.error("release-prepare: " + s); process.exit(1); };
 
-  if (!fs.existsSync(sma)) die("no ts_matchmode.sma in " + ROOT);
+  if (!canOpen(sma)) die("no ts_matchmode.sma in " + ROOT);
   const readBuild = () => parseBuild(fs.readFileSync(sma, "latin1")) || die("no #define VERSION line in " + sma);
   const writePresets = () => {
     if (has("no-write-presets")) return;   // for the tests, which have no plugins to hash
@@ -212,6 +213,9 @@ function main() {
     for (const bat of ["build.bat", "export.bat"]) {
       const log = path.join(LOGS, "release-prepare-" + bat.replace(".bat", "") + ".log");
       say("running " + bat + " (log " + log + ")");
+      // only plain path characters may reach the command line below (no quote, ampersand, percent or caret)
+      const plain = /^[A-Za-z0-9_:\\/ .()-]+$/;
+      if (!plain.test(ROOT) || !plain.test(log)) throw new Error("a path holds a character that cmd.exe would read as a command: " + ROOT + " or " + log);
       // cmd /s takes the outer pair of quotes off the whole command line, so the batch file's own pair and the log's stay as they are
       const r = spawnSync("cmd.exe", ["/d", "/s", "/c", '""' + path.join(ROOT, bat) + '" < NUL > "' + log + '" 2>&1"'], { cwd: ROOT, windowsVerbatimArguments: true, windowsHide: true });
       const text = fs.existsSync(log) ? fs.readFileSync(log, "latin1") : "";

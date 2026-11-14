@@ -341,7 +341,9 @@ if (!dry) {
   for (const b of built) {
     const to = join(SETS_AT, b.set, b.rel);
     // a copy already on disk with these bytes is left alone, its time too: nothing downstream sees a change
-    if (existsSync(to) && readFileSync(to).equals(b.out)) continue;
+    let same = false;
+    try { same = readFileSync(to).equals(b.out); } catch (e) { if (e.code !== "ENOENT") throw e; }
+    if (same) continue;
     mkdirSync(dirname(to), { recursive: true });
     writeFileSync(to, b.out);
     changed++;

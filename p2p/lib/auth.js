@@ -72,11 +72,19 @@ export function hostsFileAuth({ file, log = () => {}, now = Date.now, recheckMs 
   let checked = 0;
 
   function load(first) {
-    const st = fs.statSync(file);
-    const sig = st.mtimeMs + ":" + st.size;
-    if (sig === signature) return;
-    signature = sig;
-    const r = parseHosts(fs.readFileSync(file, "utf8"));
+    // one descriptor for the stat and the read: the file cannot change between them
+    const fd = fs.openSync(file, "r");
+    let text;
+    try {
+      const st = fs.fstatSync(fd);
+      const sig = st.mtimeMs + ":" + st.size;
+      if (sig === signature) return;
+      signature = sig;
+      text = fs.readFileSync(fd, "utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+    const r = parseHosts(text);
     if (first && !r.problems.length && !r.entries.size) r.problems.push("no host token in it yet: make one with  node bin/h9rv.js token <name> --hosts hosts.json");
     if (r.problems.length) {
       if (first) throw Object.assign(new Error(file + ": " + r.problems.join("; ")), { problems: r.problems });
@@ -175,6 +183,9 @@ function getJson(url, timeoutMs) {
   return new Promise((resolve) => {
     let u;
     try { u = new URL(url); } catch (e) { return resolve(null); }
+    // the address comes from a configuration file: https only (http to this PC alone, for tests), and no credentials in it
+    const here = u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]";
+    if (u.username || u.password || !(u.protocol === "https:" || (u.protocol === "http:" && here))) return resolve(null);
     const lib = u.protocol === "https:" ? https : http;
     const req = lib.get(u, { timeout: timeoutMs, agent: false, headers: { "User-Agent": "h9_p2p_relay/1", Accept: "application/json" } }, (res) => {
       const chunks = [];
