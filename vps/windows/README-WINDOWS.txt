@@ -37,6 +37,7 @@
    13. The downloads
    14. When something is wrong
    15. Checklist
+   16. The P2P relay (optional)
 
 
  0. WHAT IS IN THE PACKAGE, AND THE STACK
@@ -48,6 +49,9 @@
    BUILD.txt            the build this package was made from
    h9web\, havoc9.org\, serverlist-bot\   h9web, the site and the list, the
                         same as in the Linux package
+   p2p\                 the P2P relay's code and its settings examples, for
+                        step 16 (p2p\README.txt); setup.ps1 puts it in place
+                        only when asked (-P2P module or -P2P standalone)
 
  The stack, and why:
    * Node.js 24 runs h9web, as on Linux.
@@ -82,6 +86,9 @@
    data\caddy\       the certificates
    services\         the service wrappers;  logs\  the services' logs
    downloads\        the checked downloads, kept for the next run
+   p2p\              the P2P relay's code (step 16);  etc\p2p\  its
+                     relay.config.json and hosts.json, when it runs as a
+                     service of its own
 
 
  1. WHAT YOU NEED
@@ -135,6 +142,8 @@
    -H9Xash D:\H9XASH   without -GamePorts: the port= under [server] in
                        that folder's networking.ini (27015 when none)
    -NoFirewall         leave the firewall alone
+   -P2P module|standalone   the P2P relay (step 16); -P2PPort 27248 is its
+                       UDP port. Without -P2P nothing of it is touched.
  What it does, in order (each step is safe to repeat):
    1. makes the folders, and gives data\, etc\ and logs\ to SYSTEM,
       Administrators and LocalService only;
@@ -157,6 +166,9 @@
       havoc9-serverlist, havoc9-caddy;
    9. schedules the backups and the log cleanup (step 8);
   10. opens TCP 80 and 443 and the game ports in Windows' firewall.
+ With -P2P there is one more step after 4 (the relay's code, and for
+ standalone its settings and its service havoc9-p2p) and one more firewall
+ rule (its UDP port).
  It ends with a list of warnings, if there were any.
 
 
@@ -341,7 +353,7 @@
  14. WHEN SOMETHING IS WRONG
  ---------------------------
    .\setup.ps1 -Check                       what runs, what answers
-   Get-Service havoc9-*                     the three services
+   Get-Service havoc9-*                     the three services (and havoc9-p2p)
    C:\havoc9\logs                           their logs, a file a day
    Restart-Service havoc9-h9web             (or -serverlist, -caddy)
    * The site answers 502 on account pages: h9web is not running; its log
@@ -368,3 +380,68 @@
    [ ] the downloads and their file index in place, SHA256SUMS.txt made
        (step 13)
    [ ] .\setup.ps1 -Check: the three services running
+   [ ] only with the P2P relay (step 16): https://havoc9.org/api/p2p/v1/health
+       answers {"ok":true,"v":1,...} and its UDP port reaches the machine
+
+
+ 16. THE P2P RELAY (OPTIONAL)
+ ----------------------------
+ What it is: a player who hosts a listen game at home can let friends in with
+ no port forwarded (a one-use invite code), and may list the game on the
+ site's SERVERS page (P2P GAMES). This host carries the rendezvous and relay
+ service that makes that work. docs\P2P_HOSTING.txt of the repository is the
+ whole guide (the three ways to host it, cost and risk); p2p\README.txt
+ documents every setting. It needs one UDP port reachable on this machine's
+ own address: Cloudflare cannot carry UDP, so the name players use for that
+ port is DNS only (grey cloud), like the game servers' name. Off unless you ask.
+ A game that a host lists publicly shows on the site's SERVERS page. It does
+ NOT show in the game's own server browser (Find Servers); the guide says why
+ and what that would need.
+
+   a. DNS: a DNS-only name for the UDP port, for example play.havoc9.org (an A
+      record to this host). It is the relay's publicUdp host. At home, the
+      router forwards UDP 27248 to this machine (step 2).
+   b. One of two ways to run it:
+
+      In h9web (the way for havoc9.org: a host is a havoc9.org account and uses
+      the link token its game holds; handing that token to the helper is not
+      built yet, docs\P2P_HOSTING.txt section 10), in an administrator
+      PowerShell:
+        .\setup.ps1 -P2P module
+      puts the code in C:\havoc9\p2p (beside h9web's, which is where the module
+      looks) and opens UDP 27248 (-P2PPort for another). Then put in
+      C:\havoc9\etc\config.json, and restart h9web (Restart-Service havoc9-h9web):
+        "modules": ["forum", "discord", "presence", "p2p"],
+        "moduleSettings": { "p2p": { "enabled": true,
+          "publicUdp": { "host": "play.havoc9.org", "port": 27248 },
+          "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } } } }
+      Hosts use the service address https://havoc9.org/api/p2p (the server
+      setting h9_p2p_service). Cloudflare: the WAF skip rule that has
+      /api/link/ gets /api/p2p/ too (docs\DEPLOY_CLOUDFLARE.txt, section 3).
+
+      As a service of its own (its own people, its own host tokens):
+        .\setup.ps1 -P2P standalone
+      makes C:\havoc9\etc\p2p\relay.config.json and hosts.json from the
+      examples, installs the havoc9-p2p service and leaves it stopped until
+      they are finished (setup.ps1 says what is missing). Edit publicUdp.host,
+      then make a token for each host:
+        C:\havoc9\tools\node\node.exe C:\havoc9\p2p\bin\h9rv.js token Mike --hosts C:\havoc9\etc\p2p\hosts.json
+      (the token is shown once; the file keeps its hash) and start it:
+        Start-Service havoc9-p2p
+      Its control plane listens on 127.0.0.1:28247: give it a name of its own
+      behind Caddy, never the plain port on the Internet (invite codes would
+      cross the network in clear). In C:\havoc9\etc\Caddyfile.extra:
+        play.havoc9.org {
+            reverse_proxy 127.0.0.1:28247
+        }
+      and the hosts use https://play.havoc9.org as h9_p2p_service.
+   c. Check: https://havoc9.org/api/p2p/v1/health (the module) or
+      http://127.0.0.1:28247/v1/health (standalone) answers {"ok":true,"v":1,...};
+      .\setup.ps1 -Check shows the service.
+   d. The relay keeps nothing on disk: a restart forgets the sessions and the
+      hosts open again by themselves. Nothing to back up but etc\p2p.
+   e. Risk, plainly: the UDP port is new attack surface on this machine's
+      address. The relay answers only packets that carry a valid tag, so it is
+      not a reflector and not an open relay; a flood of raw UDP is the
+      provider's matter, as for the game ports. Relayed traffic costs
+      bandwidth: about 50 to 300 kbit/s per player each way (an estimate).

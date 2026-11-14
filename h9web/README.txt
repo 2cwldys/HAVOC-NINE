@@ -15,7 +15,9 @@
      changes (section 17);
    * Discord linking and the registered role, a module too (section 18);
    * linking a downloaded game to an account with a code, and the linked games
-     on the account page (section 19).
+     on the account page (section 19);
+   * the P2P relay, a module too: joining a listen game without port
+     forwarding, and the public list of such games (section 20).
 
  The pages that use it live in the site:
    havoc9.org/account/            the account page (and the privacy note)
@@ -53,6 +55,7 @@
    17. Username changes
    18. Discord: the registered role
    19. Linking a game
+   20. The P2P relay (modules/p2p)
 
 
  1. FILES
@@ -91,7 +94,8 @@
    backup.cmd              this PC's local site: a backup now (section 10)
    backup-task.ps1         the same on a schedule, Task Scheduler (section 10)
    modules/                where modules go: forum/ (section 15), discord/
-                           (section 18), presence/ (its own README.txt)
+                           (section 18), presence/ (its own README.txt),
+                           p2p/ (section 20)
    test/                   node:test tests (section 14)
    .gitignore              keeps data/, config.json, servers.json out of git
 
@@ -992,6 +996,15 @@
                        and accounts leaving the rest alone, a version mismatch
                        refused, the JSON export and import by username, the
                        safety backups, nothing written inside the checkout
+   p2p.test.js         the P2P module inside the real service (section 20): off
+                       by default and when unfinished, a linked game's token
+                       opens a session, signed host calls, the invite a friend
+                       redeems, the UDP socket answering a signed HELLO, the
+                       public list on both paths, the guest invite behind the
+                       CSRF guard with the visitor's account, an account that
+                       is suspended or unlinked losing its sessions at once,
+                       and stopping h9web closing the port. Needs the p2p
+                       folder beside h9web (../p2p), as in the repository
 
 
  15. THE FORUM
@@ -1707,3 +1720,105 @@
  device code is spent within seconds of its approval and a link token only
  checks or ends its own link, so this is no wider than the log's readers already
  are; to keep them out, give location /api/link/ its own access_log off.
+
+
+ 20. THE P2P RELAY (modules/p2p)
+ -------------------------------
+ A module that lets a friend join a home-hosted listen game with no port
+ forwarded: hosts open a session and make short invites, friends redeem them,
+ anybody may take a guest invite from the public list of games, and the relay
+ introduces the two ends (hole punching) or carries the game's packets between
+ them. The service itself is the p2p/ folder that sits beside h9web/ (p2p/README.txt
+ is its reference, docs/P2P_HOSTING.txt the guide to hosting it, docs/P2P_JOIN.txt
+ the players'); this module is the glue: the routes, the host's credential, the
+ visitor's account, the events. The same service runs standalone (p2p/bin/h9rv.js)
+ for anybody who wants a relay of their own.
+
+ Off by default and clean when off: with moduleSettings.p2p.enabled not true the
+ module registers no route, opens no UDP socket and does not even read the relay's
+ code. Enabled but unfinished (no public name for the UDP port, or no p2p/lib
+ beside h9web), it logs p2p.off with the reason and stays off; h9web starts anyway.
+
+   config.json   "modules": [..., "p2p"],
+                 "moduleSettings": { "p2p": { "enabled": true,
+                     "publicUdp": { "host": "play.havoc9.org", "port": 27248 },
+                     "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } } } }
+   ufw           ufw allow 27248/udp     the one new open port, on the origin's
+                 own address (Cloudflare cannot carry UDP: publicUdp.host is a
+                 DNS-only name)
+   Cloudflare    add /api/p2p/ to the WAF skip rule that /api/link/ has (the
+                 helper is not a browser); its user agent is h9_p2p/*
+   nginx         nothing new (/api/ already passes). The helper's long poll holds
+                 a request up to 25 seconds: nginx's default read timeout (60 s) is
+                 enough
+   code          ../p2p/lib beside h9web (the same layout in the repository, the VPS
+                 packages and C:\havoc9); moduleSettings.p2p.libDir names another
+   VPS package   setup.sh P2P=module (Windows: setup.ps1 -P2P module) puts the code
+                 in place and opens the port; README-VPS.txt, step 16
+
+ Routes (all under /api/p2p; the host's and the friend's are not browsers, so they
+ carry no CSRF guard: every host call is signed, a redeem needs a code):
+   GET  v1/health          what is on: {"ok":true,"v":1,"direct","relay","listing"}
+   POST v1/host/open       Authorization: Bearer <the account's LINK token>
+   POST v1/host/invite     signed (X-H9-Sig) -> a code
+   POST v1/host/poll       signed; long poll, at most 25 s -> the friends who joined
+   POST v1/host/revoke     signed -> kill an invite, kick a friend, or everything
+   POST v1/host/listing    signed -> list the game on the public list, or take it off
+   POST v1/host/close      signed
+   POST v1/join/redeem     the code (and optionally the friend's account token)
+   GET  v1/public          the public list: name, map, players, max, password, direct,
+                           account; never an address. The same list at GET public
+   POST v1/public/join     {"session": <the entry's id>} -> a one-use, relay-only
+                           guest invite for ten minutes. Also at POST public/join. These
+                           two carry the CSRF guard (the site's pages ask for them) and
+                           take the visitor's account from the session cookie
+ The calls, their answers and the limits are in p2p/README.txt, section 7 and 8.
+
+ The host's credential is the account's link token (the one a linked game holds,
+ section 19; the game keeps it sealed in user_id.ini, and a launcher that hands it to
+ the helper is not built yet: docs/P2P_HOSTING.txt, section 10), checked against this
+ service's own GET /api/link/status on this
+ machine (the answer is kept a minute; a suspended or unlinked account stops hosting
+ at once, because the module looks the account up at every check and drops its
+ sessions on the events below). A signed-in visitor of the site needs no token to
+ ask the public list for a guest invite: the session cookie says who it is, and the
+ host sees that account's name. A game that lists itself with requireAccount refuses
+ a visitor who is not signed in.
+
+ The site: havoc9.org/servers shows the public list as P2P GAMES (servers/p2p.js,
+ plain script, same-origin requests only). It asks GET /api/p2p/public once, and only
+ when that answers (this module on and its list switched on) does the section appear.
+
+ Settings (moduleSettings.p2p; every key optional but publicUdp; p2p/lib/service.js,
+ DEFAULTS, lists them all):
+   enabled false           true switches the module on
+   publicUdp {host, port}  what players are told to send UDP to: a DNS-only name or
+                           the VPS's public address, not 127.0.0.1 or 0.0.0.0
+   bind.udp {host, port}   the UDP socket (default 0.0.0.0:27248)
+   direct.enabled, relay.enabled   separate switches: no address is ever handed out,
+                           or no datagram is ever relayed
+   listing {enabled, ttlSeconds, inviteSeconds}   the public list: on, an entry lives
+                           45 s after its last call, a guest invite 10 minutes
+   limits {...}            any of the limits (README.txt of p2p/, section 8): sessions
+                           200, 2 per account; flows 16 per game; invites; per address
+                           redeem 10 a minute and 5 failures; public list 30 a minute,
+                           guest invites 6 a minute per address, 20 an hour per
+                           account; 4 unspent guest invites and 8 public guests per
+                           game; relayed bytes 4 GiB per account and day
+   libDir                  where the relay's code is, when it is not ../p2p/lib
+   statusBase              where to ask the link status, when not this service's own
+                           address (the module learns it from the requests it gets)
+   publicPorts             reserved, not implemented (one public UDP port per public
+                           game, for the game's own server browser): the module stays
+                           off, and says so in the log, while range is not empty or
+                           max is above 0
+   allowPrivatePeers       tests only: accept UDP from private addresses
+ Events used: account-banned, account-deleted, account-sessions-ended and
+ account-unlink close that account's sessions at once, as the web client's relay
+ closes its sockets (section 5). Logs: p2p.on and p2p.off at start, then the
+ relay's own session.open, invite.make, redeem.ok, public.join, flow.close lines:
+ no address (an 8-hex tag stands for one), no code, no key.
+
+ Nothing is kept: sessions, invites, flows and the list live in memory. No table,
+ no data folder, nothing in a backup; a restart ends the sessions and the hosts'
+ helpers open again by themselves.

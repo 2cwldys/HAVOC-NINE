@@ -1,0 +1,445 @@
+===============================================================================
+ P2P HOSTING: HOW THE RELAY WORKS, AND HOW TO RUN ONE
+===============================================================================
+
+ Who this is for: the person who runs a relay. A relay lets friends join a
+ game that is hosted on a home PC, with no port opened on the home router.
+ The players' side (turning it on in the game, joining) is in
+ docs\P2P_JOIN.txt. The relay's settings, one by one, are in p2p\README.txt. The short
+ overview of the whole path is docs\P2P_RELAY.txt.
+
+ The relay is a folder of this repository, p2p\. It runs on any machine with
+ Node.js 20 or newer. One command starts it (run.bat or run.sh), the way the
+ Discord bot and the server list start. Nothing is installed or downloaded.
+ It also ships in the VPS packages, and it runs inside h9web as a module.
+
+ CONTENTS
+    1. How it works, in plain words
+    2. Public games: where they show, and where they do not
+    3. What the in-game browser needs
+    4. What a relay needs, and what it costs
+    5. The three ways to run one
+    6. A: a home PC
+    7. B: a cloud VM of your own
+    8. C: the havoc9.org VPS
+    9. Telling servers and players where the relay is
+   10. Host tokens: who may host
+   11. HTTPS for the web port
+   12. Ports, firewalls, DNS, Cloudflare
+   13. Keeping the public list clean
+   14. Checking it, and when it does not work
+   15. Updating, backing up, moving
+   16. What only a real host can show
+
+
+ 1. HOW IT WORKS, IN PLAIN WORDS
+ -------------------------------
+ The problem. You host a game on your own PC. Your friends cannot reach it.
+ Your router blocks them. The usual fix is to open a port on the router. Many
+ people cannot do that, or do not want to.
+
+ The fix. A small program, the relay, runs on a machine that CAN be reached
+ from the Internet. Your PC and your friend's PC both talk to the relay. The
+ relay passes the game's packets between them. If the two PCs can find a
+ direct path to each other, they use it. Then the relay only watches.
+
+ Nobody opens a port on a home router. Only the relay's own machine has one
+ open port for the game. (Section 4 has the details.)
+
+ What each side runs.
+   * The relay: this repository's p2p folder. Windows: run.bat. Linux:
+     sh run.sh. havoc9.org runs one too.
+   * The host: the game, plus a small helper program. The helper talks to the
+     relay for the game. The helper needs Node.js.
+   * The friend: the same helper, started by a launcher. The game connects to
+     an address on the friend's own PC. The helper carries it to the relay.
+
+ How a host turns it on.
+   1. Get a token from whoever runs the relay. A token is a long password for
+      one host.
+   2. Put the relay's address and the token in the host's p2p.ini.
+   3. In the server settings set h9_p2p 1. It is 0 by default: off.
+   4. In the game type  h9_p2p_invite Anna  . The game prints a code like
+      H9-7KQMX-2PDRT.
+   5. Send Anna the code.
+ The exact names are in docs\P2P_JOIN.txt.
+
+ How a friend joins.
+   1. Get a code from the host.
+   2. In the game folder run  h9_p2p_join.bat <code>  .
+   3. The helper contacts the relay. The game starts and connects.
+ A code works once. It expires after ten minutes. If the relay is not the
+ default one (havoc9.org), put its address in the friend's p2p.ini first: a
+ code does not say which relay made it.
+
+ What the relay can see. It can see the game's packets. They are not
+ encrypted. It can see both addresses. It does not tell either side the
+ other's address, unless the host allows a direct path.
+
+
+ 2. PUBLIC GAMES: WHERE THEY SHOW, AND WHERE THEY DO NOT
+ -------------------------------------------------------
+ A host can list its game for everybody. The server setting is
+ h9_p2p_public 1. It is 0 by default: not listed.
+
+ A public game shows on the website.
+   * Open the SERVERS page of havoc9.org. Under the live table is a box,
+     P2P GAMES. It lists the game's name, map and players.
+   * Press JOIN. The page gives a code. Run h9_p2p_join.bat with it. Done.
+   * The code works once, for ten minutes.
+   * The host sees every guest who comes this way, and can kick them.
+   * The host can ask for a havoc9.org account: h9_p2p_require_account 1.
+     Then a visitor who is not signed in gets no code.
+   * The box is there only when the relay runs on that site. Without it the
+     page shows nothing.
+
+ A public game does NOT show in the game's own server browser (Find
+ Servers). Not in this version.
+
+ Why not.
+   * The browser's list holds addresses: an IP and a port. Each one must
+     answer a plain query. Each one must accept a normal connect from a stock
+     game.
+   * A game hosted at home behind a router does neither. Its address cannot
+     be reached from outside. It does not answer the query.
+   * So the list cannot hold it.
+   * The list comes from the havoc9.org server list. That is h9web's master
+     (h9web\lib\master.js), built from servers.json and the status poll, and
+     shown at /api/servers. havoc9.org\HAVOC_NINE_MASTER_SERVER.txt
+     describes it. It lists only servers it can query.
+
+
+ 3. WHAT THE IN-GAME BROWSER NEEDS
+ ---------------------------------
+ This is the next step. It is NOT built yet. Its name is "public relay
+ ports". The idea:
+   * The relay opens one public UDP port for each public game.
+   * The relay answers the browser's queries on that port. It answers from
+     what the host listed: name, map, players, max players, password. The
+     host does not need to be reachable.
+   * When a stock game connects to that port, the relay passes it on to the
+     host. The friend needs no helper and no code.
+   * The master lists "relay address:port" for that game. Then the game's own
+     browser shows it, and a click joins.
+
+ What this version does so that this stays possible:
+   * The relay already keeps what an answer needs: name, map, players, max
+     players, password (the listing the host sends every 15 seconds).
+   * Connections live in one table, keyed by an id. A front end for stock
+     games can add its own entries to that table. Nothing in this version
+     stops it.
+   * Two settings are reserved in relay.config.json: publicPorts.range (the
+     ports to use) and publicPorts.max (how many games). They are not
+     implemented. The relay refuses to start if either one is set.
+ Until that exists, a friend joins a public game from the website, with the
+ helper.
+
+
+ 4. WHAT A RELAY NEEDS, AND WHAT IT COSTS
+ ----------------------------------------
+ A relay has two doors.
+   * The GAME PORT is UDP, 27248 by default. It carries the game's packets.
+     The Internet must be able to reach it. A router or a cloud firewall must
+     let it in. This is the one port.
+   * The WEB PORT is HTTP, 28247 by default. It carries small requests:
+     "open a game", "make an invite", "redeem this code". It holds invite codes
+     and session keys, so it needs HTTPS (section 11). Behind a proxy it
+     listens on 127.0.0.1 only.
+ It also needs:
+   * A machine that stays on, with Node.js 20 or newer.
+   * A name that points at the machine's IPv4 address. Players are told this
+     name (publicUdp.host). The game port is IPv4 only.
+   * Bandwidth. Packets that cannot go direct pass through the relay. A guess
+     from the engine's default packet rates, NOT measured (nobody has played
+     a match through it yet): 50 to 300 kbit/s per player, each way. Ten
+     players are up to about 3 Mbit/s, or 1.3 GB an hour. A direct path costs
+     the relay nothing.
+   * Little else. Memory in the tens of megabytes. A little CPU for checking
+     each packet's tag, capped at 40,000 checks a second.
+ Money. A PC you already run costs nothing. A cloud VM: the smallest plan of
+ any provider is enough, a few currency units a month; read the provider's
+ terms for game traffic. The havoc9.org VPS is the one the site already pays
+ for.
+ Risks, plainly.
+   * The game port is a new open UDP port on a public address. The relay
+     answers only packets that carry a valid tag. So it cannot be used to
+     bounce traffic at somebody else, and it is not an open relay. A flood of
+     raw UDP needs the provider's help, as for any game port.
+   * The relay sees the game's packets and both addresses.
+   * A public list invites strangers to use your bandwidth (section 13).
+   * A relay at home shows your home address to the people who use it.
+
+
+ 5. THE THREE WAYS TO RUN ONE
+ ----------------------------
+                  A home PC             B cloud VM              C havoc9.org VPS
+   who hosts      friends you give      friends you give        havoc9.org accounts
+                  tokens to             tokens to               (section 10)
+   router work    forward the game      none (open the game     none (done once)
+                  port, and the web     port in the provider's
+                  port or a tunnel      firewall)
+   HTTPS          Caddy or a tunnel     nginx or Caddy          nginx (already there)
+   name           your dynamic DNS      a name you own          play.havoc9.org
+                  name                                          (DNS only)
+   cost           none                  a few a month           none extra
+   always on      only if the PC is     yes                     yes
+   best for       a few friends         a community             everybody
+   what you run   run.bat / run.sh      run.sh and a service    setup.sh P2P=module
+
+ One relay serves any number of games. A host picks the relay by the address
+ in its server settings (section 9).
+
+
+ 6. A: A HOME PC
+ ---------------
+   1. Install Node.js 20 or newer (https://nodejs.org). Put the p2p folder on
+      the PC: from the repository, or from a VPS package.
+   2. Run run.bat (Linux or macOS: sh run.sh). It makes relay.config.json and
+      hosts.json from the examples, then stops.
+   3. Edit relay.config.json. Set
+        "publicUdp": { "host": "<your public name or address>", "port": 27248 },
+      Your public address is what "what is my IP" shows from this PC. A home
+      line changes it now and then, so use a dynamic DNS name (your router or
+      a free DDNS service offers one).
+      Check that your provider does not put you behind a shared address. If
+      the router's WAN address differs from the one "what is my IP" shows, or
+      starts with 100.64 to 100.127, forwarding cannot work. Use B instead.
+   4. Make a token for each friend who will host:  run.bat token Mike  .
+      Then check the files:  run.bat --check  .
+   5. In the router, forward UDP 27248 to this PC. Give the PC a fixed LAN
+      address or a reservation. Windows asks once whether the relay may use
+      the network: allow private and public.
+   6. The web port needs one of these:
+        a. Forward TCP 27248 too, and set
+           "bind": { "http": { "host": "0.0.0.0", "port": 27248 } }. One rule
+           then covers TCP and UDP. This is plain http: tokens, session keys
+           and invite codes cross the network unprotected. Fine for a LAN
+           party or a path you trust. Not for strangers on the Internet.
+        b. Caddy in front (section 11), with TCP 80 and 443 forwarded. Hosts
+           use https://your-name as the relay's address. This is the way to
+           take.
+        c. A named Cloudflare Tunnel for the web port (HTTP only; needs a
+           domain on Cloudflare). The game port is still forwarded.
+   7. Start it:  run.bat  and leave the window open. Or start it at logon:
+      Task Scheduler, Create Task, trigger "At log on", action run.bat.
+   8. Tell each host three things: the relay's address, their token, and how
+      to point the game at it (sections 9 and 10). Friends need only a code.
+
+
+ 7. B: A CLOUD VM OF YOUR OWN
+ ----------------------------
+ Any small VM with a public IPv4 address. Debian or Ubuntu here.
+   1. DNS: an A record, relay.example.org, pointing at the VM. If the zone is
+      on Cloudflare, use DNS only (grey cloud) for the game port's name.
+   2. Install Node.js 20 or newer (nodejs.org, or the NodeSource repository).
+   3. Put the p2p folder on the VM. Follow the top of
+      h9-p2p.service.example: a service user, /opt/p2p, /etc/h9-p2p, the
+      service. Edit /etc/h9-p2p/relay.config.json: publicUdp.host, and
+      "trustProxyHeader": "x-real-ip". Make tokens:
+        sudo node /opt/p2p/bin/h9rv.js token Mike --hosts /etc/h9-p2p/hosts.json
+   4. Firewall (section 12): UDP 27248, and TCP 80 and 443 for the proxy. The
+      provider's own firewall or security group is separate. Open it too.
+   5. HTTPS in front of 127.0.0.1:28247 (section 11), then:
+        sudo systemctl enable --now h9-p2p
+        curl -s https://relay.example.org/v1/health
+   6. Hosts use https://relay.example.org as the relay's address.
+
+
+ 8. C: THE HAVOC9.ORG VPS
+ ------------------------
+ The relay is part of the VPS package. There are two ways. The first is the
+ one for havoc9.org.
+   * Inside h9web (a module). The VPS package's setup.sh with P2P=module puts
+     the code in /opt/p2p and opens the game port. /etc/h9web/config.json gets
+     the module's settings. h9web restarts. The web port is then
+     https://havoc9.org/api/p2p, which nginx and Cloudflare already carry. The
+     public list is at /api/p2p/public. The SERVERS page shows it as P2P GAMES.
+     README-VPS.txt step 16 has the commands. (Windows: README-WINDOWS.txt
+     step 16.)
+   * As a service of its own beside h9web. P2P=standalone, with a name of its
+     own (relay.havoc9.org) behind nginx or Caddy (section 11).
+ DNS: a DNS-only name for the game port. For example play.havoc9.org: an A
+ record to the VPS, grey cloud. The site's own names stay proxied. Cloudflare
+ cannot carry UDP. The game port is on the VPS's own address, as
+ game.havoc9.org already is.
+ Cloudflare: add /api/p2p/ to the WAF skip rule that has /api/link/
+ (docs\DEPLOY_CLOUDFLARE.txt, section 3). The helper is not a browser. It
+ signs its calls.
+ Who may host: a havoc9.org account's link token (section 10).
+
+
+ 9. TELLING SERVERS AND PLAYERS WHERE THE RELAY IS
+ -------------------------------------------------
+ A host sets this on the server (docs\P2P_JOIN.txt has the whole list):
+   h9_p2p_service "https://relay.example.org"     (or https://havoc9.org/api/p2p)
+ The host's launcher reads the token from H9XASH\p2p.ini. The relay's address
+ is the only relay setting in a game setting. The token is never in one.
+ A friend's code does not say which relay made it. The friend's own
+ H9XASH\p2p.ini names the relay. The default is havoc9.org's. A friend of a
+ private relay puts its address there once, or the host sends it with the
+ code. Guests who take a code from the havoc9.org website need nothing.
+ With h9_p2p 0 (the stock value) no helper runs and nothing in the game
+ changes.
+
+
+ 10. HOST TOKENS: WHO MAY HOST
+ -----------------------------
+ A relay of your own (A, B): you hand out tokens.
+     run.bat token Mike         (Linux: sh run.sh token Mike)
+   It prints the token once. hosts.json keeps only a fingerprint of it. Mike
+   puts the token in his p2p.ini. The relay reads hosts.json again by itself.
+   A new token works within seconds. A removed one stops, and its games end:
+     run.bat hosts list          run.bat hosts remove 3
+   Put "public": false on an entry to keep that host off the public list.
+   Such a relay has no friend accounts. A host cannot ask for "account
+   required" there.
+ The havoc9.org relay (C): a host is a havoc9.org account. The token is the
+   account's LINK token: the one a game holds after "Link your Account". The
+   relay asks h9web whether it is valid and whose it is. It refuses a
+   suspended account.
+   OPEN POINT. The game keeps that token sealed in user_id.ini (Windows
+   DPAPI). The helper's launcher must unseal it. That is not built in this
+   batch. Until it is, a havoc9.org host cannot give the relay a token. Today
+   the working choice is a relay of your own (A or B) with hosts.json tokens.
+   The other choice, with no engine work, is a "P2P host token" made on the
+   account page. That is an h9web change, not built.
+ A token is a secret the operator hands out one by one. The relay stores only
+ fingerprints.
+
+
+ 11. HTTPS FOR THE WEB PORT
+ --------------------------
+ In relay.config.json set "bind": { "http": { "host": "127.0.0.1", "port": 28247 } }
+ and "trustProxyHeader": "x-real-ip". The proxy then tells the relay who really
+ asked. Without it every visitor looks like the proxy, and one guesser blocks
+ everybody.
+ The host's helper holds a request open for up to 25 seconds. The proxy's read
+ timeout must be longer. nginx's 60 seconds is fine. So are Caddy and
+ Cloudflare.
+
+ nginx (a site file, after certbot made the certificate):
+     server {
+         listen 443 ssl;
+         server_name relay.example.org;
+         ssl_certificate     /etc/letsencrypt/live/relay.example.org/fullchain.pem;
+         ssl_certificate_key /etc/letsencrypt/live/relay.example.org/privkey.pem;
+         client_max_body_size 8k;
+         location / {
+             proxy_pass http://127.0.0.1:28247;
+             proxy_set_header X-Real-IP $remote_addr;
+             proxy_read_timeout 60s;
+         }
+     }
+ Caddy (one block; Caddy makes and renews the certificate. On the havoc9.org
+ Windows host, put it in etc\Caddyfile.extra):
+     relay.example.org {
+         reverse_proxy 127.0.0.1:28247 {
+             header_up X-Real-IP {remote_host}
+         }
+     }
+ With no proxy: "bind.http.tls": { "cert": "fullchain.pem", "key": "privkey.pem" }.
+ These are PEM files, for example from Let's Encrypt. The relay reads them at
+ start, so restart it after a renewal. The helper refuses a self-signed
+ certificate.
+
+
+ 12. PORTS, FIREWALLS, DNS, CLOUDFLARE
+ -------------------------------------
+   UDP 27248 (bind.udp.port, the same as publicUdp.port)   the game port
+   TCP 28247 on 127.0.0.1 only                             the web port, behind a proxy
+   TCP 443, and 80 for the certificate                     the proxy, if there is one
+ Linux, ufw:        sudo ufw allow 27248/udp
+ Linux, firewalld:  sudo firewall-cmd --permanent --add-port=27248/udp && sudo firewall-cmd --reload
+ Windows, as administrator:
+   New-NetFirewallRule -DisplayName "havoc9 p2p relay (UDP 27248)" -Direction Inbound -Protocol UDP -LocalPort 27248 -Action Allow
+   (setup.ps1 -P2P does this on the havoc9.org host.)
+ A home router: a port forward of UDP 27248 to the relay's LAN address.
+ A cloud provider: a firewall or security group rule for UDP 27248. This is
+ separate from the machine's own firewall.
+ DNS: an A record for the game port's name. No AAAA: the game port is IPv4
+ only. On Cloudflare, that name is DNS only (grey cloud). A proxied name
+ (orange) is fine for the HTTPS web port. Then the zone's WAF needs a Skip rule
+ for the relay's paths: /api/p2p/ inside h9web, or the whole relay-only name.
+ The helper's user agent is h9_p2p/*. It is not a browser, and bot rules would
+ refuse it. docs\DEPLOY_CLOUDFLARE.txt, section 3, has the existing rule.
+ Cloudflare's rate limits sit in front of the relay's own limits. They do not
+ replace them.
+ A flood of raw UDP at the game port is the provider's and the firewall's job.
+ The relay drops forged packets cheaply. It cannot stop a large flood. Keep
+ the provider's DDoS protection on.
+
+
+ 13. KEEPING THE PUBLIC LIST CLEAN
+ ---------------------------------
+ What a listing holds: name, map, players, max players, password yes or no,
+ account needed yes or no. No address.
+ A guest who takes a code is relay-only. There is no direct path, so the host
+ never learns the guest's address. The host can allow direct paths with
+ h9_p2p_direct_public 1. The host sees every public guest, with the havoc9.org
+ name if the guest is signed in. The host can kick any of them.
+ How to keep it clean:
+   * A relay can turn the list off: "listing": { "enabled": false }.
+   * A host token with "public": false may not list (hosts.json).
+   * You end a game by removing the host's token. The entry, the invites and
+     the sessions go within seconds. Run  run.bat hosts remove <id>  .
+   * A game's name is shown as plain text. Never markup. Never a link.
+   * The limits against spam: 4 unspent guest invites and 8 guests per game;
+     6 invites a minute per address; 10 refusals a minute per address, then
+     that address is blocked; 10 listing calls a minute per game; 100 entries
+     in all. p2p\README.txt, sections 6 and 8, has the details.
+   * Guests use the relay's bandwidth. On a relay at home keep the list off,
+     unless you want strangers' traffic on your line.
+
+
+ 14. CHECKING IT, AND WHEN IT DOES NOT WORK
+ ------------------------------------------
+   run.bat --check            the settings and the host list; starts nothing
+   curl -s http://127.0.0.1:28247/v1/health      on the relay's machine; answers {"ok":true,"v":1,...}
+   curl -s https://relay.example.org/v1/health   the same, from outside: HTTPS and the proxy
+   curl -s http://127.0.0.1:28247/v1/stats       counters (that machine only)
+   curl -s https://havoc9.org/api/p2p/v1/health  the module. 404 means it is off. The log
+                                                 line p2p.off says why.
+   sudo bash setup.sh --check   (VPS package) what runs
+   journalctl -u h9-p2p -n 100  (systemd) the relay's log. Windows: C:\havoc9\logs
+ When a host connects but nobody can play:
+   * The web port works and the game port does not. The host's helper never
+     gets an answer to its first UDP packet. Check the firewall rule, the
+     router's forward, the provider's security group. Check that publicUdp
+     names THIS machine's public IPv4 address. A name with an old record is
+     the usual cause.
+   * Answer 429: a limit. The Retry-After header says how many seconds.
+   * Answer 401 when a host opens: the token is wrong or removed, or the
+     account is suspended. In h9web mode, h9web could not be asked.
+   * Many wrong invite codes from one address block that address for a
+     minute, then twice as long. Behind a proxy without trustProxyHeader every
+     visitor is that one address.
+   * Two friends behind one router each get their own address inside the
+     game. The relay's per-address limits count the router's one public
+     address for web requests only, not for game traffic.
+
+
+ 15. UPDATING, BACKING UP, MOVING
+ --------------------------------
+   * Updating. Put the new p2p files in place. For a VPS package run setup.sh
+     again: it never touches relay.config.json or hosts.json. Restart the
+     relay. Games end. The hosts open them again by themselves, within
+     seconds.
+   * Backing up. Keep hosts.json (fingerprints only) and relay.config.json.
+     The relay keeps nothing else: no database, no data folder.
+   * Moving. Copy those two files to the new machine, start it there, then
+     move the DNS record. Lower its TTL a day ahead.
+
+
+ 16. WHAT ONLY A REAL HOST CAN SHOW
+ ----------------------------------
+ Tested here: the relay, the public list, the host list and the h9web module,
+ on loopback and inside h9web's own test setup. The protocol across simulated
+ home routers (22 pairings, floods, a direct path that dies). The VPS packages
+ built and their contents checked. setup.sh's relay step run with stand-in
+ commands. setup.ps1 as a dry run (-WhatIf). The SERVERS page's P2P GAMES in a
+ headless browser.
+ NOT seen: a real VPS running setup.sh or setup.ps1. A real home router's port
+ forward. A shared (carrier) address. HTTPS through nginx or Caddy with the
+ blocks above. Cloudflare's WAF rule. A Windows service made for the relay.
+ systemd running the unit. A real game client playing through it. The
+ bandwidth numbers (they are estimates).

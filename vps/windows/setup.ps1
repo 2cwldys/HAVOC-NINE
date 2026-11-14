@@ -20,6 +20,11 @@
     .\setup.ps1 -FileIndex                 only the downloads' file index: after new files go into
                                            site\downloads, its links, their check and its
                                            SHA256SUMS.txt (README-WINDOWS.txt step 13)
+    .\setup.ps1 -P2P module                the P2P relay's code for h9web's p2p module, and its UDP port
+                                           in the firewall (docs\P2P_HOSTING.txt, README-WINDOWS.txt step 16)
+    .\setup.ps1 -P2P standalone            the relay as a service of its own (havoc9-p2p), its settings in
+                                           etc\p2p, and the same firewall rule; -P2PPort 27248 is the UDP port
+                                           (the one in its settings). Without -P2P nothing of it is touched.
 
   The stack, and why: Node.js 24 runs h9web as it does on Linux; Caddy is the web server
   because it makes and renews the Let's Encrypt certificate by itself (one program, no
@@ -32,6 +37,7 @@
   Everything lives under -Root (C:\havoc9):
     tools\     node, python, caddy, winsw           h9web\      h9web's code
     serverlist\ the list's code and its Python      site\       the site
+    p2p\       the P2P relay's code (only with -P2P)
     game\      the web client's game files          etc\        config.json, servers.json,
     data\h9web  h9web's data and backups                         Caddyfile, backup-passphrase
     data\serverlist  the list's settings and secrets   data\caddy  the certificates
@@ -48,6 +54,8 @@ param(
     [string]$Keys = '',
     [string]$PassphraseFile = '',
     [string]$WebClientStage = '',
+    [ValidateSet('', 'module', 'standalone')][string]$P2P = '',
+    [ValidateRange(1, 65535)][int]$P2PPort = 27248,
     [switch]$NoFirewall,
     [switch]$Check,
     [switch]$FileIndex
@@ -101,6 +109,8 @@ $Data = Join-Path $Root 'data'
 $H9Data = Join-Path $Data 'h9web'
 $ListData = Join-Path $Data 'serverlist'
 $Services = Join-Path $Root 'services'
+$P2PHome = Join-Path $Root 'p2p'
+$P2PEtc = Join-Path $Etc 'p2p'
 $Logs = Join-Path $Root 'logs'
 $Downloads = Join-Path $Root 'downloads'
 $Config = Join-Path $Etc 'config.json'
@@ -200,6 +210,7 @@ function Sync-Downloads
 }
 
 $ServiceNames = @('havoc9-h9web', 'havoc9-serverlist', 'havoc9-caddy')
+if ($P2P -eq 'standalone' -or (Get-Service -Name 'havoc9-p2p' -ErrorAction SilentlyContinue)) { $ServiceNames += 'havoc9-p2p' }
 
 if ($Check)
 {
@@ -209,6 +220,7 @@ if ($Check)
     Note ('h9web                HTTP ' + (Test-Http 'http://127.0.0.1:8090/api/me') + ' (127.0.0.1:8090)')
     Note ('list                 HTTP ' + (Test-Http 'http://127.0.0.1:8081/v1/servers/ts') + ' (127.0.0.1:8081)')
     Note ('site                 HTTP ' + (Test-Http "https://$Domain/") + " (https://$Domain/)")
+    if (Test-Path -LiteralPath $P2PHome) { Note ('p2p                  HTTP ' + (Test-Http 'http://127.0.0.1:8090/api/p2p/v1/health') + " from h9web's module (200 = on, 404 = off), code in $P2PHome") }
     foreach ($t in @('havoc9 h9web backup', 'havoc9 h9web backup offsite', 'havoc9 log cleanup')) {
         $task = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
         if ($task) { $i = $task | Get-ScheduledTaskInfo; Note ('{0,-28} last run {1}, result {2}' -f $t, $i.LastRunTime, $i.LastTaskResult) } else { Note "$t  not installed" }
@@ -354,6 +366,44 @@ foreach ($f in @('serverlist.ini', 'servers.txt')) {
 $listCfg = Join-Path $ListData 'serverlist.cfg'
 if (-not (Test-Path -LiteralPath $listCfg)) { Step "make $listCfg (no heartbeat key, no Discord token yet)" { Copy-Item -LiteralPath (Join-Path $Src 'serverlist-bot\serverlist.cfg.example') -Destination $listCfg } }
 
+$p2pReady = $false
+if ($P2P) {
+    Say "4b. the P2P relay (-P2P $P2P)"
+    foreach ($need in @('p2p\lib\service.js', 'p2p\lib\auth.js', 'p2p\bin\h9rv.js', 'p2p\relay.config.example.json', 'p2p\hosts.example.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Src $need))) { Fail "$Src\$need is missing: run this from the unpacked package" }
+    }
+    # its code by name: never a real config or hosts file from a clone
+    Step "the relay's code into $P2PHome" {
+        foreach ($f in @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
+                         'relay.config.example.json', 'hosts.example.json', 'run.bat')) {
+            $to = Join-Path $P2PHome $f
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $Src "p2p\$f") -Destination $to -Force
+        }
+    }
+    if ($P2P -eq 'module') {
+        Note "h9web's p2p module finds the code there (it sits beside h9web). Switch the module on in $Config (README-WINDOWS.txt step 16), then: Restart-Service havoc9-h9web"
+    } else {
+        Step "settings in $P2PEtc (made from the examples when there are none, never overwritten)" {
+            New-Item -ItemType Directory -Force -Path $P2PEtc | Out-Null
+            foreach ($f in @('relay.config', 'hosts')) {
+                $dst = Join-Path $P2PEtc "$f.json"
+                if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $Src "p2p\$f.example.json") -Destination $dst }
+            }
+        }
+        if (-not $DryRun) {
+            $out = & $Node (Join-Path $P2PHome 'bin\h9rv.js') --config (Join-Path $P2PEtc 'relay.config.json') --check 2>&1
+            $p2pReady = ($LASTEXITCODE -eq 0)
+            if ($p2pReady) {
+                Note ($out | Where-Object { $_ -match 'who may host' } | Select-Object -First 1)
+            } else {
+                foreach ($line in $out) { Note "    $line" }
+                Warn "the P2P relay is installed but not started: finish $P2PEtc\relay.config.json (publicUdp.host) and make a host token (& '$Node' '$P2PHome\bin\h9rv.js' token <name> --hosts '$P2PEtc\hosts.json'), then: Start-Service havoc9-p2p"
+            }
+        }
+    }
+}
+
 Say '5. the site'
 # What robocopy leaves out it also leaves alone: the downloads (the ZIPs, H9XASH-Updater.exe), the
 # downloads' file index (downloads\files) and H9XASH-Updater's files\ are kept.
@@ -419,6 +469,10 @@ $defs = @(
     @{ Id = 'havoc9-caddy'; Name = 'havoc9 Caddy'; Desc = 'HTTPS for the site, h9web and the server list (Caddy)'; Exe = $Caddy
        Args = "run --config `"$Etc\Caddyfile`" --adapter caddyfile"; Dir = (Join-Path $Data 'caddy'); Env = @{ XDG_DATA_HOME = (Join-Path $Data 'caddy'); XDG_CONFIG_HOME = (Join-Path $Data 'caddy') } }
 )
+if ($P2P -eq 'standalone') {
+    $defs += @{ Id = 'havoc9-p2p'; Name = 'havoc9 p2p relay'; Desc = 'The P2P relay (h9rv): rendezvous and relay for listen games'; Exe = $Node
+                Args = "`"$P2PHome\bin\h9rv.js`" --config `"$P2PEtc\relay.config.json`""; Dir = $P2PHome; Env = @{}; Start = $p2pReady }
+}
 foreach ($d in $defs) {
     $exe = Join-Path $Services ($d.Id + '.exe')
     $xml = Join-Path $Services ($d.Id + '.xml')
@@ -450,7 +504,7 @@ $envXml
         if (-not (Get-Service $d.Id -ErrorAction SilentlyContinue)) { Invoke-Native $exe @('install') | Out-Null }
         $change = Get-CimInstance Win32_Service -Filter "Name = '$($d.Id)'" | Invoke-CimMethod -MethodName Change -Arguments @{ StartName = 'NT AUTHORITY\LocalService'; StartPassword = '' }
         if ($change.ReturnValue -ne 0) { throw "$($d.Id): the service account could not be set to LocalService ($($change.ReturnValue))" }
-        Start-Service $d.Id
+        if ($d.ContainsKey('Start') -and -not $d.Start) { Note "$($d.Id): installed, not started (its settings are unfinished: step 4b)" } else { Start-Service $d.Id }
     }
 }
 if (-not $DryRun) {
@@ -489,6 +543,7 @@ if (-not $NoFirewall) {
         $parts = $g.Split('/')
         $rules += @{ Name = "havoc9 game server ($g)"; Proto = $parts[1].ToUpper(); Ports = @($parts[0]) }
     }
+    if ($P2P) { $rules += @{ Name = "havoc9 p2p relay (UDP $P2PPort)"; Proto = 'UDP'; Ports = @([string]$P2PPort) } }
     foreach ($r in $rules) {
         if (Get-NetFirewallRule -DisplayName $r.Name -ErrorAction SilentlyContinue) { Note "$($r.Name): there"; continue }
         Step "firewall rule '$($r.Name)'" { New-NetFirewallRule -DisplayName $r.Name -Direction Inbound -Protocol $r.Proto -LocalPort $r.Ports -Action Allow -Profile Any | Out-Null }

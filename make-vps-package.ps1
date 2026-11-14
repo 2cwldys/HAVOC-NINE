@@ -17,12 +17,18 @@
       serverlist-bot\   the list's code, requirements.txt, README.md, serverlist.ini,
                         servers.txt and serverlist.cfg.example; never serverlist.cfg (the
                         Discord token and heartbeat key) or its log
+      p2p\              the P2P relay: the service's code (lib\ without the helper, bin\h9rv.js),
+                        package.json, README.txt, the examples of its settings and of its host
+                        list, run.sh, run.bat and its systemd unit; never hosts.json or
+                        relay.config.json (its settings and its hosts' token hashes), the
+                        helper or the tests
       BUILD.txt         the build, the time and the commit it was packed from, never a folder of this PC
   Only files picked by name and kind go in. Last, each staged tree is scanned: a secret's file
-  name (secrets.json, data.key, serverlist.cfg, ts_advertise.cfg, a database, a key or
-  certificate, a backup) or a secret's content (a Discord bot token or webhook URL, a private
-  key, a filled-in heartbeat_key, discord_token, password pepper or player id key) stops the
-  run before a ZIP is written. The values found are never printed.
+  name (secrets.json, data.key, serverlist.cfg, ts_advertise.cfg, hosts.json and
+  relay.config.json of the relay, a database, a key or certificate, a backup) or a secret's
+  content (a Discord bot token or webhook URL, a private key, a filled-in heartbeat_key,
+  discord_token, password pepper or player id key, a P2P host token or the hash of one) stops
+  the run before a ZIP is written. The values found are never printed.
 
   The build comes from VERSION.txt beside this script ("Build: ..."), with the time it was
   packed: havoc9-vps-linux-1.54-lift6-20261102-0130.zip. The sources are only read.
@@ -75,7 +81,11 @@ $Own = @{
     windows = @(@('vps\windows\README-WINDOWS.txt', 'README-WINDOWS.txt'), @('vps\windows\setup.ps1', 'setup.ps1'), @('vps\windows\setup.cmd', 'setup.cmd'),
                 @('vps\windows\Caddyfile.template', 'Caddyfile.template'))
 }
+# the relay's files, picked by name: its service, never the helper, the tests or a real config
+$P2pFiles = @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
+              'relay.config.example.json', 'hosts.example.json', 'run.sh', 'run.bat', 'h9-p2p.service.example')
 $need = @('h9web\server.js', 'h9web\bin\h9web-backup.js', 'havoc9.org\index.html', 'havoc9.org\deploy\nginx-setup.sh', 'serverlist-bot\h9_serverlist.py')
+foreach ($f in $P2pFiles) { $need += "p2p\$f" }
 foreach ($t in $Targets) { foreach ($pair in $Own[$t]) { $need += $pair[0] } }
 foreach ($n in $need) { if (-not (Test-Path -LiteralPath (Join-Path $Root $n))) { Fail "$n is missing beside this script ($Root)" } }
 
@@ -83,7 +93,7 @@ foreach ($n in $need) { if (-not (Test-Path -LiteralPath (Join-Path $Root $n))) 
 # packs is checked first (tools\check-lfs.ps1, docs\BUILDING.txt), the web client's stage with it.
 $lfsCheck = Join-Path $Root 'tools\check-lfs.ps1'
 if (-not (Test-Path -LiteralPath $lfsCheck)) { Fail "tools\check-lfs.ps1 is missing beside this script ($Root)" }
-$lfsPaths = @('h9web', 'havoc9.org', 'serverlist-bot', 'vps') | ForEach-Object { Join-Path $Root $_ }
+$lfsPaths = @('h9web', 'havoc9.org', 'serverlist-bot', 'p2p', 'vps') | ForEach-Object { Join-Path $Root $_ }
 if ($WebClient) { $lfsPaths += Join-Path $Root 'webclient-build\stage' }
 & $lfsCheck -Path $lfsPaths
 if ($LASTEXITCODE -ne 0) { Fail 'files this packs are Git LFS pointers or cut short (listed above); no ZIP was written' }
@@ -185,8 +195,11 @@ $Hard = @(
     @{ Why = 'a private key'; Rx = [regex]'-----BEGIN [A-Z ]*PRIVATE KEY-----' },
     @{ Why = 'a filled-in heartbeat_key or discord_token'; Rx = [regex]'(?m)^[ \t]*(heartbeat_key|discord_token)[ \t]*=[ \t]*[^\s;#<]' },
     @{ Why = "h9web's password pepper or player id key"; Rx = [regex]'"(passwordPepper|playerIdKey)"\s*:\s*"[A-Za-z0-9+/=]{16,}"' },
-    @{ Why = 'a filled-in client secret or bot token'; Rx = [regex]'"(clientSecret|botToken|client_secret|bot_token)"\s*:\s*"[^"]{8,}"' }
+    @{ Why = 'a filled-in client secret or bot token'; Rx = [regex]'"(clientSecret|botToken|client_secret|bot_token)"\s*:\s*"[^"]{8,}"' },
+    @{ Why = 'a P2P host token'; Rx = [regex]'h9t_[A-Za-z0-9_\-]{30,}' }
 )
+# only in the relay's own files: the hash of a P2P host token, which is what a filled-in hosts file holds
+$P2pHard = @{ Why = 'the hash of a P2P host token (a filled-in hosts file)'; Rx = [regex]'sha256:[0-9a-fA-F]{64}' }
 $Latin1 = [Text.Encoding]::GetEncoding(28591)
 $made = @()
 $Source = Get-SourceText $Root
@@ -212,6 +225,7 @@ foreach ($t in $Targets) {
     foreach ($f in @('h9_serverlist.py', 'requirements.txt', 'README.md', 'serverlist.ini', 'servers.txt', 'serverlist.cfg.example')) {
         Copy-One (Join-Path $list $f) (Join-Path $Stage "serverlist-bot\$f") $copied $Stage
     }
+    foreach ($f in $P2pFiles) { Copy-One (Join-Path $Root "p2p\$f") (Join-Path $Stage "p2p\$f") $copied $Stage }
     $guide = 'README-VPS.txt'; if ($t -eq 'windows') { $guide = 'README-WINDOWS.txt' }
     $buildText = @("havoc9.org $t host package ($guide)", '', "Build:   $build", ('Packed:  ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')),
                    "Source:  $Source", ('Files:   ' + ($copied.Count + 1))) -join "`n"
@@ -224,9 +238,11 @@ foreach ($t in $Targets) {
         $leaf = Split-Path -Leaf $rel
         if ($leaf -match $BadName) { $found.Add("$rel (a secret's file name)"); continue }
         if ($rel -match '^h9web\\(config|servers)\.json$') { $found.Add("$rel (a real config)"); continue }
+        if ($rel -match '^p2p\\(hosts|relay\.config)\.json$') { $found.Add("$rel (a real config)"); continue }
         if ($leaf -notmatch $TextExt) { continue }
         $text = $Latin1.GetString([IO.File]::ReadAllBytes((Join-Path $Stage $rel)))
         foreach ($h in $Hard) { if ($h.Rx.IsMatch($text)) { $found.Add("$rel ($($h.Why))") } }
+        if ($rel -like 'p2p\*' -and $P2pHard.Rx.IsMatch($text)) { $found.Add("$rel ($($P2pHard.Why))") }
     }
     if ($found.Count -gt 0) {
         foreach ($f in $found) { Write-Host "  [STOP] $f" -ForegroundColor Red }

@@ -34,6 +34,7 @@
    13. The downloads
    14. When something is wrong
    15. Checklist
+   16. The P2P relay (optional)
 
 
  0. WHAT IS IN THE PACKAGE
@@ -53,6 +54,9 @@
                         certificate scripts setup.sh runs
                         (havoc9.org/webclient/DEPLOY.txt explains them)
    serverlist-bot/      the H9 server list (serverlist-bot/README.md)
+   p2p/                 the P2P relay's code and its settings examples, for
+                        step 16 (p2p/README.txt); setup.sh puts it in place
+                        only when asked (P2P=module or P2P=standalone)
 
  Where things go on the VPS:
    /opt/h9web                 h9web's code (root's)
@@ -68,6 +72,9 @@
    /var/www/havoc9.org/downloads   the downloads and their file index
                               (step 13)
    /srv/h9web/game            the web client's game files (step 12)
+   /opt/p2p                   the P2P relay's code (step 16; root's)
+   /etc/h9-p2p                the relay's relay.config.json and hosts.json,
+                              when it runs as a service of its own (step 16)
 
 
  1. WHAT YOU NEED
@@ -149,6 +156,8 @@
   11. runs havoc9.org/deploy/nginx-setup.sh: the certificate (step 5) and
       the nginx site, with the security headers, the rate limits and the
       rules that hide scripts and backups, then checks it from outside.
+ The P2P relay is not part of it unless asked for (step 16): P2P=module or
+ P2P=standalone adds one step between 5 and 6 and one firewall rule.
  It ends with a list of warnings, if there were any. To see the state later:
    sudo bash setup.sh --check
 
@@ -383,6 +392,7 @@
    sudo systemctl status h9web h9-serverlist nginx
    sudo journalctl -u h9web -n 100              h9web's log
    sudo journalctl -u h9-serverlist -n 100      the list's log
+   sudo journalctl -u h9-p2p -n 100             the P2P relay's log (step 16, as a service of its own)
    sudo nginx -t                                the nginx config
    sudo tail -n 50 /var/log/nginx/error.log
    * 502 Bad Gateway on the site's account pages: h9web is not running
@@ -411,3 +421,64 @@
    [ ] the downloads and their file index in place, SHA256SUMS.txt made
        (step 13)
    [ ] sudo bash setup.sh --check: every service running
+   [ ] only with the P2P relay (step 16): https://havoc9.org/api/p2p/v1/health
+       answers {"ok":true,"v":1,...} and the UDP port is open
+
+
+ 16. THE P2P RELAY (OPTIONAL)
+ ----------------------------
+ What it is: a player who hosts a listen game at home can let friends in with
+ no port forwarded (a one-use invite code), and may list the game on the
+ site's SERVERS page (P2P GAMES). This VPS carries the rendezvous and relay
+ service that makes that work. docs/P2P_HOSTING.txt of the repository is the
+ whole guide (the three ways to host it, cost and risk); p2p/README.txt
+ documents every setting. It needs one UDP port open on the VPS's own address.
+ Cloudflare cannot carry UDP, so the name players use for that port is DNS
+ only (grey cloud), like the game servers' name. Off unless you ask.
+ A game that a host lists publicly shows on the site's SERVERS page. It does
+ NOT show in the game's own server browser (Find Servers); the guide says why
+ and what that would need.
+
+   a. DNS: a DNS-only name for the UDP port, for example play.havoc9.org (an
+      A record to this VPS, grey cloud). It is the relay's publicUdp host.
+      The site itself stays proxied.
+   b. One of two ways to run it:
+
+      In h9web (the way for havoc9.org: a host is a havoc9.org account and uses
+      the link token its game holds; handing that token to the helper is not
+      built yet, docs/P2P_HOSTING.txt section 10):
+        sudo P2P=module bash setup.sh
+      puts the code in /opt/p2p (beside h9web's, which is where the module
+      looks) and opens UDP 27248 (P2P_PORT=... for another). Then put in
+      /etc/h9web/config.json, and restart h9web (sudo systemctl restart h9web):
+        "modules": ["forum", "discord", "presence", "p2p"],
+        "moduleSettings": { "p2p": { "enabled": true,
+          "publicUdp": { "host": "play.havoc9.org", "port": 27248 },
+          "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } } } }
+      Hosts use the service address https://havoc9.org/api/p2p (the server
+      setting h9_p2p_service). Cloudflare: the WAF skip rule that has
+      /api/link/ gets /api/p2p/ too (docs/DEPLOY_CLOUDFLARE.txt, section 3).
+
+      As a service of its own (its own people, its own host tokens):
+        sudo P2P=standalone bash setup.sh
+      makes /etc/h9-p2p/relay.config.json and hosts.json from the examples,
+      installs the h9-p2p service and leaves it stopped until they are
+      finished (setup.sh says what is missing). Edit publicUdp.host, then make
+      a token for each host:
+        sudo node /opt/p2p/bin/h9rv.js token Mike --hosts /etc/h9-p2p/hosts.json
+      (the token is shown once; the file keeps its hash and its owner) and start it:
+        sudo systemctl restart h9-p2p
+      Its control plane listens on 127.0.0.1:28247: put a TLS front in front
+      of it (docs/P2P_HOSTING.txt shows the nginx and Caddy blocks), never the
+      plain port on the Internet, or invite codes cross the network in clear.
+   c. Check: curl -s https://havoc9.org/api/p2p/v1/health (the module) or
+      curl -s http://127.0.0.1:28247/v1/health (standalone) answers
+      {"ok":true,"v":1,...}; sudo bash setup.sh --check shows the service.
+   d. The relay keeps nothing on disk: a restart forgets the sessions and the
+      hosts open again by themselves. Nothing to back up but /etc/h9-p2p.
+   e. Risk, plainly: the UDP port is new attack surface on the origin's
+      address (already public through game.havoc9.org). The relay answers
+      only packets that carry a valid tag, so it is not a reflector and not
+      an open relay; a flood of raw UDP is the provider's and ufw's matter, as
+      for the game ports. Relayed traffic costs bandwidth: about 50 to 300
+      kbit/s per player each way (an estimate, not measured).

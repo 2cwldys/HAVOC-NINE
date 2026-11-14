@@ -14,7 +14,7 @@
     "maxSocketsPerIp": 12,
     "idleSeconds": 180
   },
-  "modules": ["forum", "discord", "presence"],
+  "modules": ["forum", "discord", "presence", "p2p"],
   "moduleSettings": {
     "forum": { "guestRead": true },
     "discord": {
@@ -22,6 +22,11 @@
       "guildId": "",
       "roleId": "1566395367036035123",
       "redirectUri": "https://havoc9.org/api/discord/callback"
+    },
+    "p2p": {
+      "enabled": false,
+      "publicUdp": { "host": "play.havoc9.org", "port": 27248 },
+      "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } }
     }
   },
   "logLevel": "info"

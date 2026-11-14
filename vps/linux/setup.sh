@@ -25,6 +25,11 @@
 # servers' ports this VPS opens; without it, H9XASH_DIR (the H9XASH folder a game server here runs
 # from) gives the port its networking.ini names (port= under [server], the one its launchers use),
 # and 27015 stands for the rest. UFW=0 leaves the firewall alone; HARDEN_SSH=0 leaves SSH alone.
+#
+# The P2P relay (docs/P2P_HOSTING.txt, README-VPS.txt step 16) is off unless asked for, and then nothing else changes:
+#   sudo P2P=module bash setup.sh        the relay's code in /opt/p2p for h9web's p2p module, and its UDP port in the firewall
+#   sudo P2P=standalone bash setup.sh    the relay as a service of its own (h9-p2p), its settings in /etc/h9-p2p, the same firewall rule
+# P2P_PORT (27248) is the relay's UDP port: the one in its settings (publicUdp.port and bind.udp.port).
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-havoc9.org}"
@@ -56,6 +61,10 @@ LIST_HOME=/opt/h9-serverlist
 LIST_DATA=/var/lib/h9-serverlist
 SITE_ROOT="/var/www/$DOMAIN"
 NODE=/usr/bin/node
+P2P="${P2P:-0}"
+P2P_PORT="${P2P_PORT:-27248}"
+P2P_HOME=/opt/p2p
+P2P_ETC=/etc/h9-p2p
 
 say()  { printf '\n== %s\n' "$*"; }
 note() { printf '  %s\n' "$*"; }
@@ -63,7 +72,7 @@ warn() { printf '  [WARN] %s\n' "$*"; WARNINGS+=("$*"); }
 die()  { printf '\n[FAIL] %s\n' "$*" >&2; exit 1; }
 WARNINGS=()
 
-usage() { sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 RESTORE=""; KEYS=""; PASSFILE=""; NO_TLS=0; CHECK=0; FILE_INDEX=0
 while [ $# -gt 0 ]; do
@@ -78,6 +87,10 @@ while [ $# -gt 0 ]; do
     *) usage; die "unknown option $1";;
   esac
 done
+
+case "$P2P" in 0|module|standalone) ;; *) die "P2P must be 0, module or standalone, not $P2P";; esac
+case "$P2P_PORT" in ''|*[!0-9]*) die "P2P_PORT must be a port number, not $P2P_PORT";; esac
+[ "$P2P_PORT" -ge 1 ] && [ "$P2P_PORT" -le 65535 ] || die "P2P_PORT must be 1 to 65535, not $P2P_PORT"
 
 [ "$(id -u)" -eq 0 ] || die "run it as root: sudo bash $0"
 . /etc/os-release 2>/dev/null || die "no /etc/os-release: this is for Debian or Ubuntu"
@@ -138,10 +151,58 @@ file_index() {
   note "downloads/files/SHA256SUMS.txt: $n files"
 }
 
+# The P2P relay (docs/P2P_HOSTING.txt): its code by name (never a real config or hosts file from a clone); for standalone also its
+# user, its settings in /etc/h9-p2p (made from the examples when there are none, never overwritten) and its service, which starts
+# only when `h9rv --check` finds the settings finished.
+p2p_install() {
+  local f out port
+  for f in lib/service.js lib/auth.js bin/h9rv.js relay.config.example.json hosts.example.json h9-p2p.service.example; do
+    [ -e "$SRC/p2p/$f" ] || die "P2P=$P2P: $SRC/p2p/$f is missing: run this from the unpacked package"
+  done
+  install -d -m 755 -o root -g root "$P2P_HOME"
+  rsync -a --prune-empty-dirs \
+    --include='/lib/' --include='/lib/service.js' --include='/lib/wire.js' --include='/lib/codes.js' --include='/lib/limits.js' \
+    --include='/lib/auth.js' --include='/lib/config.js' --include='/bin/' --include='/bin/h9rv.js' --include='/package.json' \
+    --include='/README.txt' --include='/relay.config.example.json' --include='/hosts.example.json' --include='/run.sh' \
+    --include='/h9-p2p.service.example' --exclude='*' "$SRC/p2p/" "$P2P_HOME/"
+  chown -R root:root "$P2P_HOME"
+  chmod -R u=rwX,go=rX "$P2P_HOME"
+  note "the relay's code: $P2P_HOME"
+  if [ "$P2P" = module ]; then
+    note "h9web's p2p module finds it there. Switch the module on in $H9WEB_ETC/config.json (README-VPS.txt step 16), then: systemctl restart h9web"
+    return 0
+  fi
+  id -u h9p2p >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin h9p2p
+  install -d -m 750 -o root -g h9p2p "$P2P_ETC"
+  for f in relay.config hosts; do
+    if [ ! -f "$P2P_ETC/$f.json" ]; then
+      install -m 640 -o root -g h9p2p "$SRC/p2p/$f.example.json" "$P2P_ETC/$f.json"
+      note "made $P2P_ETC/$f.json from its example"
+    else
+      note "$P2P_ETC/$f.json is kept as it is"
+    fi
+  done
+  install -m 644 "$SRC/p2p/h9-p2p.service.example" /etc/systemd/system/h9-p2p.service
+  systemctl daemon-reload
+  systemctl enable --quiet h9-p2p
+  if out="$(runuser -u h9p2p -- "$NODE" "$P2P_HOME/bin/h9rv.js" --config "$P2P_ETC/relay.config.json" --check 2>&1)"; then
+    port="$(runuser -u h9p2p -- "$NODE" -e 'const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const b = c.bind && c.bind.udp; console.log(b && b.port || 27248)' "$P2P_ETC/relay.config.json" 2>/dev/null || true)"
+    if [ -n "$port" ] && [ "$port" != "$P2P_PORT" ]; then warn "the relay's settings bind UDP $port but the firewall rule is for $P2P_PORT: run this again with P2P_PORT=$port"; fi
+    systemctl restart h9-p2p
+    note "h9-p2p $(active h9-p2p): $(printf '%s\n' "$out" | sed -n 's/^ *who may host: *//p')"
+  else
+    systemctl stop h9-p2p 2>/dev/null || true
+    printf '%s\n' "$out" | sed 's/^/    /'
+    warn "the P2P relay is installed but not started: finish $P2P_ETC/relay.config.json (publicUdp.host) and make a host token (sudo $NODE $P2P_HOME/bin/h9rv.js token <name> --hosts $P2P_ETC/hosts.json), then: systemctl restart h9-p2p"
+  fi
+}
+
 if [ "$CHECK" = 1 ]; then
   say "what is here"
   note "node        $(command -v node >/dev/null && node --version || echo none)"
   for u in h9web h9-serverlist nginx h9web-backup.timer h9web-backup-offsite.timer; do note "$(printf '%-27s %s' "$u" "$(active "$u")")"; done
+  if [ -e /etc/systemd/system/h9-p2p.service ]; then note "$(printf '%-27s %s' h9-p2p "$(active h9-p2p)")"; fi
+  if [ -d "$P2P_HOME" ]; then note "p2p         HTTP $(code http://127.0.0.1:8090/api/p2p/v1/health) from h9web's module (200 = on, 404 = off), code in $P2P_HOME"; fi
   note "h9web       $(curl -s --max-time 5 http://127.0.0.1:8090/api/me || echo 'no answer') (127.0.0.1:8090)"
   note "list        HTTP $(code http://127.0.0.1:8081/v1/servers/ts) (127.0.0.1:8081)"
   note "site        HTTP $(code "https://$DOMAIN/") (https://$DOMAIN/)"
@@ -234,6 +295,11 @@ if [ ! -f "$LIST_DATA/serverlist.cfg" ]; then
 fi
 chown -R h9list:h9list "$LIST_DATA"
 find "$LIST_DATA" -type f -exec chmod 600 {} +
+
+if [ "$P2P" != 0 ]; then
+  say "5b. the P2P relay (P2P=$P2P)"
+  p2p_install
+fi
 
 say "6. the site"
 rsync -a --delete --exclude='/deploy/' --exclude='/files/' --exclude='/webclient/engine/' --exclude='/webclient/manifest.json' \
@@ -343,6 +409,7 @@ if [ "$UFW" = 1 ]; then
   for p in ${ports:-22}; do ufw allow "$p/tcp" >/dev/null; note "allowed $p/tcp (SSH)"; done
   ufw allow "Nginx Full" >/dev/null; note "allowed 80/tcp and 443/tcp (nginx)"
   for g in $GAME_PORTS; do ufw allow "$g" >/dev/null; note "allowed $g (game servers)"; done
+  if [ "$P2P" != 0 ]; then ufw allow "$P2P_PORT/udp" >/dev/null; note "allowed $P2P_PORT/udp (the P2P relay: it answers only packets that carry a valid tag)"; fi
   ufw status | grep -q "Status: active" || ufw --force enable >/dev/null
   note "ufw is on: everything else is closed from outside (h9web and the list listen on 127.0.0.1 only)"
 fi
