@@ -186,6 +186,7 @@ target_sources(client PRIVATE
 	h9_racefx.cpp
 	h9_rallyfx.cpp
 	h9_rallycar.cpp
+	h9_keymap.cpp
 	h9_rallysnd.cpp
 	h9_racehud.cpp
 	h9_rallyhud.cpp
@@ -305,6 +306,8 @@ target_sources(client PRIVATE
 	h9_buywindow.h
 	h9_racefx.h
 	h9_rallycar.h
+	h9_keymap.h
+	h9_keymap_calc.h
 	h9_rallysnd.h
 	h9_rallysnd_calc.h
 	h9_rallycam_calc.h
@@ -452,6 +455,12 @@ add_executable(rallycam_test EXCLUDE_FROM_ALL
 add_executable(rallysteer_test EXCLUDE_FROM_ALL
 	tests/rallysteer_test.cpp
 	h9_rallysteer_calc.h)
+
+# The per-gamemode key layouts' logic alone: key names against keydefs.h, bind-line parsing, press, repeat and release, held keys, the shipped files.
+#   cmake --build <dir> --target keymap_test --config Release, then run keymap_test
+add_executable(keymap_test EXCLUDE_FROM_ALL
+	tests/keymap_test.cpp
+	h9_keymap_calc.h)
 
 # Rally mode's sounds on the client, arithmetic alone: HL Rally's pitch and volume lines for the local car, the whine, the other cars' guessed revs and
 # the four nearest, the squeal's gate and its half second, the backfire's window, the wall, the horn, the file headers' rates.

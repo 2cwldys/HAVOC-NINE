@@ -534,6 +534,11 @@ bool H9RallyCar_IsCarEntity(const cl_entity_t* ent)
 	return ent != nullptr && ent->player && H9RallyCar_IsCarState(&ent->curstate);
 }
 
+bool H9RallyCar_ModeOn()
+{
+	return LocalRallyClass() > 0;
+}
+
 bool H9RallyCam_LocalIsCar()
 {
 	return LocalRallyClass() > 0 && g_iAlive && 0 == g_iUser1 && 0 == gEngfuncs.IsSpectateOnly();

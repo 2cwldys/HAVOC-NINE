@@ -27,6 +27,7 @@
 #include "h9_rallycar.h" // H9RallySteer_*: the heading of a car, kept apart from the view
 #include <math.h>
 #include <stdlib.h>
+#include "h9_keymap.h" // H9 key layouts: H9Keys_Event
 
 
 extern bool g_iAlive;
@@ -401,8 +402,12 @@ int DLLEXPORT HUD_Key_Event(int down, int keynum, const char* pszCurrentBinding)
 	// (The TS buy menu takes its keys through the slot commands, as client.dll's slot handler
 	// 0x1004f220 does: CHudTSWeaponBar::SelectSlot.)
 
-	if (gViewPort)
-		return static_cast<int>(gViewPort->KeyInput(0 != down, keynum, pszCurrentBinding));
+	// H9 key layouts (h9_keymap.cpp): while a mode that has a keymap is on, the keys it lists run its commands instead of the player's binds. After the
+	// viewport, so a menu that took the key keeps it; the remapped + commands pass the gate above as a bound key's do.
+	if (gViewPort && !gViewPort->KeyInput(0 != down, keynum, pszCurrentBinding))
+		return 0;
+	if (H9Keys_Event(down, keynum))
+		return 0;
 
 	return 1;
 }
