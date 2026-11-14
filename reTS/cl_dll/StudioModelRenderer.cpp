@@ -1509,7 +1509,11 @@ bool CStudioModelRenderer::StudioDrawPlayer(int flags, entity_state_t* pplayer)
 
 	// H9 rally mode: a player whose box is a car's is drawn as the car (no human, no weapon); if the car's model cannot be had he is
 	// drawn as a human as before.
-	if (H9RallyCar_IsCarState(pplayer))
+	// (the state the engine hands over for a player is not always the one with his box: the local player's is the predicted one,
+	// which HUD_ProcessPlayerState fills without mins and maxs, so the entity's own state and the local player's mode are asked too)
+	cl_entity_t* h9Local = gEngfuncs.GetLocalPlayer();
+	const bool h9LocalCar = h9Local != NULL && m_pCurrentEntity != NULL && h9Local->index == m_pCurrentEntity->index && H9RallyCam_LocalIsCar();
+	if (h9LocalCar || H9RallyCar_IsCarState(pplayer) || H9RallyCar_IsCarEntity(m_pCurrentEntity))
 	{
 		H9RallyCarDraw car;
 		if (H9RallyCar_Pose(m_pCurrentEntity, pplayer, car))
