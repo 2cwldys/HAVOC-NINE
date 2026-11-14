@@ -310,6 +310,23 @@
    ["https://havoc9.org"].
 
 
+ CLOSING THE DOWNLOAD AREA OR THE WEB CLIENT
+ -------------------------------------------
+ Two parts of the site can be closed without touching the files: the download area (the downloads page, its two ZIPs and the file index at
+ /downloads/files/) and the web client (/webclient/ and its relay). A closed part is greyed out on every page, its links cannot be
+ followed, and the server refuses it: nginx asks h9web before it serves one (havoc9.org/deploy/nginx-setup.sh, the /_gate/ locations),
+ and a closed part answers 503 with havoc9.org/closed.html. The web client's relay is closed with the web client, so a page a visitor
+ already holds cannot play either. The updater's /files/ and the game servers' list are not affected.
+
+   config.json   "site": { "downloads": true, "webclient": true }   the starting state; false starts a part closed
+   admin panel   SITE tab (admins)       CLOSE IT / OPEN IT for each part, with a note visitors see while it is closed (200 characters)
+   API           GET /api/site (anyone) the state; POST /api/admin/site { "part": "downloads", "enabled": false, "note": "..." } (admin)
+
+ What an admin sets is kept in <dataDir>/site-flags.json and wins over config.json until it is set again; it takes hold at once, with no
+ restart, and every change is in the audit log (site.downloads, site.webclient). While h9web itself is down the gate answers 500, so
+ the gated parts answer 500 too. Test: h9web/test/site-flags.test.js.
+
+
  8. KEEPING IT RUNNING
  ---------------------
    Where things are
