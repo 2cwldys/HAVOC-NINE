@@ -175,6 +175,18 @@ What it breaks, against the original and plugins built for it: the original clie
 drops an id above 3, which is harmless; a weapon already carried when the cvar is turned off stays carried until it is
 lost.
 
+
+### h9_rally (rally mode: the player is the car)
+
+A server cvar TS 3.0 does not have, `h9_rally` (`dlls/h9_rally_srv.cpp`, FCVAR_SERVER, default 0). 1, 2 or 3 puts every player in
+rally mode as car class 1 (rally), 2 (sprint) or 3 (heavy); 0 is TS 3.0's own movement. The mode is the physinfo key `rally`
+(the class, 0 or absent off), which reaches the client in the client data's physinfo string, the way `mj` does. In the mode
+`PM_PlayerMove` calls `H9RallyMove` (`pm_shared/h9_rally.cpp`) instead of the walking code, on the server and in the client's
+prediction: the point hull, the heading the command's view yaw, the handling in `pm_shared/h9_rally.h` (its tuning table is
+the top of that file). It keeps no state of its own: no static and no iuser/fuser/vuser field, only the origin, velocity and
+view angles pmove already carries. The client turns its view yaw with the side keys (`cl_dll/input.cpp`). The method follows
+HL Rally's; the code is ours. Weapons are removed while the mode is on.
+
 ### TS's top notices beneath the H9 VGUI stack (client)
 
 TS 3.0 draws its top-row notices ("<name> is The Specialist", the killing sprees) from 32 px down, 16 px

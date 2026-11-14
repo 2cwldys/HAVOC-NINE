@@ -23,9 +23,14 @@
 #include "ts_hud.h"
 #include "ts_weapon_info.h"
 #include "h9_tts.h" // H9 text to speech: H9Tts_Shutdown
+#include "h9_rally.h" // H9 rally mode: the steering keys turn the view (pm_shared)
+#include <math.h>
+#include <stdlib.h>
 
 
 extern bool g_iAlive;
+extern Vector g_tspLocalSimVel; // view.cpp: the local player's velocity (ref_params simvel)
+
 
 extern int g_weaponselect;
 extern cl_enginefunc_t gEngfuncs;
@@ -732,6 +737,28 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 
 		memset(cmd, 0, sizeof(*cmd));
 
+		// The side keys, read once (reading a key clears its impulses).
+		const float keyRight = CL_KeyState(&in_moveright);
+		const float keyLeft = CL_KeyState(&in_moveleft);
+
+		// H9 rally mode (pm_shared/h9_rally.h): the player is a car and its heading is the view yaw, so the side keys
+		// steer by turning the view; the server then reads the heading from the command, as the client predicts it.
+		{
+			const char* rallyKey = gEngfuncs.PhysInfo_ValueForKey("rally");
+			const int rallyClass = rallyKey ? atoi(rallyKey) : 0;
+			if (rallyClass > 0 && g_iAlive)
+			{
+				const float yawRad = viewangles[YAW] * (float)(M_PI / 180.0);
+				const float cy = cosf(yawRad), sy = sinf(yawRad);
+				const float vf = g_tspLocalSimVel[0] * cy + g_tspLocalSimVel[1] * sy;
+				const float vs = -g_tspLocalSimVel[0] * sy + g_tspLocalSimVel[1] * cy;
+				const float steer = keyLeft - keyRight;
+				const bool hand = (in_jump.state & 1) != 0;
+				const bool backing = (in_back.state & 1) != 0;
+				viewangles[YAW] = anglemod(viewangles[YAW] + H9RallySteer(vf, vs, steer, hand, backing, H9RallyCarByClass(rallyClass), frametime));
+			}
+		}
+
 		gEngfuncs.SetViewAngles((float*)viewangles);
 
 		if ((in_strafe.state & 1) != 0)
@@ -740,8 +767,8 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 			cmd->sidemove -= cl_sidespeed->value * CL_KeyState(&in_left);
 		}
 
-		cmd->sidemove += cl_sidespeed->value * CL_KeyState(&in_moveright);
-		cmd->sidemove -= cl_sidespeed->value * CL_KeyState(&in_moveleft);
+		cmd->sidemove += cl_sidespeed->value * keyRight;
+		cmd->sidemove -= cl_sidespeed->value * keyLeft;
 
 		cmd->upmove += cl_upspeed->value * CL_KeyState(&in_up);
 		cmd->upmove -= cl_upspeed->value * CL_KeyState(&in_down);

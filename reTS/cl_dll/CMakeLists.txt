@@ -280,6 +280,7 @@ target_sources(client PRIVATE
 	../pm_shared/pm_math.cpp
 	../pm_shared/TS_pm_shared.cpp
 	../pm_shared/pm_shared.cpp
+	../pm_shared/h9_rally.cpp
 
 	../public/interface.cpp
 
@@ -403,6 +404,7 @@ target_sources(client PRIVATE
 	../pm_shared/pm_movevars.h
 	../pm_shared/TS_pm_shared.h
 	../pm_shared/pm_shared.h
+	../pm_shared/h9_rally.h
 
 	../public/interface.h)
 

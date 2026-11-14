@@ -29,6 +29,7 @@
 #include "cbase.h"
 #include "player.h"
 #include "race.h"
+#include "h9_rally_srv.h"
 #include "trains.h"
 #include "nodes.h"
 #include "weapons.h"
@@ -2945,6 +2946,8 @@ void CBasePlayer::UpdatePlayerSound()
 
 void CBasePlayer::PostThink()
 {
+	H9RallyServerThink(this); // H9 rally mode: the player as a car (h9_rally_srv.cpp); nothing while h9_rally is 0
+
 	if (g_fGameOver)
 		goto pt_end; // intermission or finale
 

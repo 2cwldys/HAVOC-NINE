@@ -83,6 +83,7 @@ target_sources(hl PRIVATE
 	ts_mechrocket.cpp
 	h9_car.cpp
 	race.cpp
+	h9_rally_srv.cpp
 	race.h
 	race_book.cpp
 	race_book.h
@@ -113,6 +114,7 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_math.cpp
 	../pm_shared/TS_pm_shared.cpp
 	../pm_shared/pm_shared.cpp
+	../pm_shared/h9_rally.cpp
 
 	../public/interface.cpp
 
@@ -204,6 +206,8 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_movevars.h
 	../pm_shared/TS_pm_shared.h
 	../pm_shared/pm_shared.h
+	../pm_shared/h9_rally.h
+	h9_rally_srv.h
 
 	../public/interface.h)
 
@@ -213,3 +217,10 @@ add_executable(race_test EXCLUDE_FROM_ALL
 	tests/race_test.cpp
 	race_book.cpp
 	race_book.h)
+
+# Rally mode handling maths alone, with no engine (pm_shared/h9_rally.h): top speeds by surface, slides, the
+# handbrake, stopping, symmetry, the texture-name rules.
+#   cmake --build <dir> --target rally_test --config Release, then run rally_test
+add_executable(rally_test EXCLUDE_FROM_ALL
+	tests/rally_test.cpp
+	../pm_shared/h9_rally.h)

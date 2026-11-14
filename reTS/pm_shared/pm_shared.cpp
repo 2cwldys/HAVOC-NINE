@@ -26,6 +26,7 @@
 #include "pm_movevars.h"
 #include "pm_debug.h"
 #include "TS_pm_shared.h"
+#include "h9_rally.h"
 #include <stdio.h>	// NULL
 #include <string.h> // strcpy
 #include <stdlib.h> // atoi
@@ -3201,6 +3202,13 @@ void PM_PlayerMove(qboolean server)
 	{
 		PM_SpectatorMove();
 		PM_CatagorizePosition();
+		return;
+	}
+
+	// H9 rally mode: the player is a car (h9_rally.cpp). The physinfo key "rally" turns it on.
+	if (H9RallyActive())
+	{
+		H9RallyMove();
 		return;
 	}
 
