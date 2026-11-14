@@ -13,6 +13,9 @@ import { sword, taper } from "../kits/swordkit.mjs";
 /** the folder of the tests, from which the kit's command lines are found */
 export const HERE = dirname(fileURLToPath(import.meta.url));
 
+/** `check` with the form and motion judgements left out: the fixtures of other cases are boxes keyed in one go, and a case of theirs is not about form or motion (183-form.mjs and 193-motion.mjs are) */
+export const checked = (mdl, engine, options = {}) => smak.check(mdl, engine, { kind: false, motion: false, ...options });
+
 /** a fresh temp folder for every file a case writes; its path is printed in the last line */
 export const tmp = mkdtempSync(join(tmpdir(), "smak-"));
 
@@ -60,7 +63,7 @@ export const testAsync = async (name, shortName, run) => {
 export const finish = () => {
   const names = failed.length ? `: ${failed.join(", ")}` : "";
   console.log(
-    `\n${passed} passed, ${failed.length} failed${names}   (Node ${process.version}; files in ${tmp})`,
+    `\n${passed} passed, ${failed.length} failed${names}   (Node ${process.version}; ${process.uptime().toFixed(0)} s; files in ${tmp})`,
   );
   process.exit(failed.length ? 1 : 0);
 };
@@ -70,6 +73,16 @@ export const finish = () => {
 /** Throws `what` unless `condition` holds. Every check of the self-test is one of these. */
 export const sure = (condition, what) => {
   if (!condition) throw new Error(what);
+};
+
+/**
+ * A check of each thing of a list, that fails when the list is empty: a check over nothing passes anything, and a
+ * list made empty by a mistake upstream (a field read that the records do not carry) is that mistake. `what` names
+ * the list in the sentence; `each` is the check of one, which throws (with `sure`) when it is wrong.
+ */
+export const sureEach = (list, what, each) => {
+  sure(list.length > 0, `${what}: none to check (a check over an empty list passes anything)`);
+  list.forEach(each);
 };
 
 /** Two numbers no farther apart than `tolerance`; the message names both. */
@@ -105,7 +118,6 @@ export const inked = (image, background = [58, 62, 70]) => {
 // ── the kit's command lines, run as a person would run them ──
 
 export const SMAK_CLI = join(HERE, "../bin/smak.mjs");
-export const EDITOR_CLI = join(HERE, "../editor/cli.mjs");
 
 /** Runs `node bin/smak.mjs <args>` and returns what it printed. It throws when the command fails. */
 export const runSmak = (...args) => execFileSync(process.execPath, [SMAK_CLI, ...args], { encoding: "utf8" });
@@ -196,7 +208,34 @@ const wave = Array.from({ length: 12 }, (_, frame) => [
 ]);
 
 /**
- * The knife. `mdl` is the file itself: the first case (in 01-format.mjs) builds it with buildMdl and puts it
+ * The knife. `mdl` is the file itself: built on first use (01-format.mjs builds it as its first case and puts it
  * here, and every later case starts from it. Its animations are "idle" (the still frame) and "wave".
  */
-export const knife = { piece, texture, bones, still, wave, mdl: undefined };
+export const knife = {
+  piece,
+  texture,
+  bones,
+  still,
+  wave,
+  _mdl: undefined,
+  // built on first use, so that every test area runs alone as it runs in the suite (01-format.mjs builds it
+  // itself, as its first case, and puts its own here)
+  get mdl() {
+    if (!this._mdl) {
+      const onHand = piece.tris.map((triangle) => triangle.map((corner) => ({ ...corner, bone: "hand" })));
+      this._mdl = smak.buildMdl({
+        name: "knife.mdl",
+        bones,
+        bodyparts: [{ name: "body", models: [{ name: "knife", meshes: [{ tris: onHand, texture }] }] }],
+        sequences: [
+          { name: "idle", fps: 10, loops: true, frames: [still] },
+          { name: "wave", fps: 24, loops: false, frames: wave },
+        ],
+      });
+    }
+    return this._mdl;
+  },
+  set mdl(v) {
+    this._mdl = v;
+  },
+};

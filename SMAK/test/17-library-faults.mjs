@@ -9,7 +9,7 @@ import { test, sure, near, knife } from "./helper.mjs";
 const WAVE = 1; // the wave animation's number in the knife
 const HAND = 1; // the hand bone's number
 
-// where things are in a .mdl file (the engine's studio.h; see src/mdl.mjs)
+// where things are in a .mdl file (the engine's studio.h; see core/mdl.mjs)
 const HDR_LENGTH = 72; // the header: how long the file says it is
 const HDR_SEQINDEX = 168; // where the table of animations is
 const HDR_BODYPARTINDEX = 208; // and the table of bodyparts
@@ -652,4 +652,29 @@ test("an .obj shared out over bodyparts is lit alike on both sides of the cut", 
   }
   sure(shared > ACROSS, `${shared} corners on the cuts`);
   near(worst, 0, 1e-6, "the normals each side of a cut");
+});
+
+// ── found by the animation piece of 1.0 (its faults 33, 34) ──
+
+test("the readers take a Uint8Array as a Buffer, and readMesh a mesh's index", () => {
+  const bytes = new Uint8Array(knife.mdl);
+  sure(smak.sequences(bytes).map((s) => s.name).join() === "idle,wave", "sequences");
+  const model = smak.readMdl(bytes).bodyparts[0].models[0];
+  sure(smak.readMesh(bytes, model, 0).length === smak.readMesh(knife.mdl, model, model.meshes[0]).length, "readMesh by index");
+  sure(refuses(() => smak.readMesh(bytes, model, 9), /readMesh takes a mesh of readMdl's model\.meshes/), "a mesh not there");
+});
+
+test("render's ground is drawn at a z, or at the lowest point drawn", () => {
+  const GROUND = [240, 200, 70];
+  const rowOf = (img) => {
+    for (let y = 0; y < img.height; y++)
+      if ([0, 1, 2].every((k) => img.rgba[y * img.width * 4 + k] === GROUND[k])) return y;
+    return -1;
+  };
+  const side = { view: "side", width: 96, height: 96 };
+  const atZero = rowOf(smak.render(knife.mdl, { ...side, ground: true }));
+  const below = rowOf(smak.render(knife.mdl, { ...side, ground: -2 }));
+  const low = rowOf(smak.render(knife.mdl, { ...side, ground: "low" }));
+  sure(atZero >= 0 && below > atZero, `z = 0 at row ${atZero}, z = -2 lower, at ${below}`);
+  sure(low >= 0, `the lowest point's line at row ${low}`);
 });

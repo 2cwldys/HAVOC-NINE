@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import * as smak from "../src/index.mjs";
-import * as maps from "../src/maps/index.mjs";
+import * as maps from "../check/maps/index.mjs";
 import { test, sure, near, HERE, tmp, runSmak } from "./helper.mjs";
 
 const FIXTURES = join(HERE, "fixtures");
@@ -812,7 +812,7 @@ test("a `{` texture has its holes on an entity in render mode 4 only, as in the 
   );
 });
 
-test("map-view draws models, sprites and the sky from the --game folders, and takes them away when told", () => {
+test("map-view draws models (with --game, unasked), sprites and the sky from the --game folders, and takes them away when told", () => {
   const file = inFolder("seen.bsp");
   const entities = [cardAt([40, 160]), spriteAt("red.spr")].reduce(
     (list, [classname, origin, keys]) => maps.addEntity(list, classname, origin, keys),
@@ -820,7 +820,7 @@ test("map-view draws models, sprites and the sky from the --game folders, and ta
   );
   writeFileSync(file, maps.withEntities(underSky().bytes, entities));
   const place = ["--from", EYE_IN_A.join(","), "--yaw", String(NORTH), "--game", game];
-  const said = runSmak("map-view", file, "-o", inFolder("seen.png"), ...place, "--models");
+  const said = runSmak("map-view", file, "-o", inFolder("seen.png"), ...place);
   sure(/marked: \d+ env_model at pixel \d+,\d+, its model 32 x 0 x 32/.test(said), said);
   sure(/marked: \d+ env_sprite at pixel \d+,\d+, its sprite 32 x 32 x 32/.test(said), said);
   const picture = smak.unpng(readFileSync(inFolder("seen.png")));
@@ -831,6 +831,7 @@ test("map-view draws models, sprites and the sky from the --game folders, and ta
     "-o",
     inFolder("unseen.png"),
     ...place,
+    "--no-models",
     "--no-sprites",
     "--sky",
     "1,2,3",
