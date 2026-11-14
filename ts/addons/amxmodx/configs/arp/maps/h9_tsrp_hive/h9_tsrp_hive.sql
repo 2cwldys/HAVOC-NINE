@@ -92,8 +92,8 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_unclepikkysentra','h9_pc_pikkys');
 -- Cybernetics: the machine door of the Cybernetics lane's rear chamber (the Black Market NPC stands inside)
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_cybernetics','Cybernetics','','',29000,0,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_cybernetc','h9_pc_cybernetics');
--- Paradise Bank: the bank building's automatic glass doors (opened by their own trigger, so not locked)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_bank','Paradise Bank','','',29000,0,'',0);
+-- Paradise Bank: the bank building's automatic glass doors (opened by their own trigger, so not locked); open state property that nobody can buy
+INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_bank','Paradise Bank','','',0,0,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_bankdoor','h9_pc_bank');
 -- Pawn Prawn Staff Room: the staff door behind the Pawn Prawn bar counter; also the hatch in the floor of the chamber behind the staff door, the hideout under it and its far door: the flood fill of the map's space joins the staff door, the chamber, the hatch and the hideout, and the doors are named pp
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pawn_prawn','Pawn Prawn Staff Room','','',29000,1,'',0);

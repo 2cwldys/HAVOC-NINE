@@ -55,7 +55,7 @@ arp_query UPDATE arp_property_h9_tsrp_hive SET price=14000 WHERE internalname='h
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=57000 WHERE internalname='h9_al_xaelem5' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=29000 WHERE internalname='h9_al_xaelem6' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=14000 WHERE internalname='h9_al_xaelem_industrial' AND ownerauth=''
-arp_query UPDATE arp_property_h9_tsrp_hive SET price=29000 WHERE internalname='h9_pc_bank' AND ownerauth=''
+arp_query UPDATE arp_property_h9_tsrp_hive SET price=0 WHERE internalname='h9_pc_bank' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=14000 WHERE internalname='h9_pc_bar_paradise' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=29000 WHERE internalname='h9_pc_cafe_avalon' AND ownerauth=''
 arp_query UPDATE arp_property_h9_tsrp_hive SET price=29000 WHERE internalname='h9_pc_cybernetics' AND ownerauth=''
