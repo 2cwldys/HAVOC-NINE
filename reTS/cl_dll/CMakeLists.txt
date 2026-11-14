@@ -190,6 +190,7 @@ target_sources(client PRIVATE
 	h9_rallysnd.cpp
 	h9_racehud.cpp
 	h9_rallyhud.cpp
+	h9_carmenu.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
 	h9_tts_kokoro.cpp
@@ -243,6 +244,7 @@ target_sources(client PRIVATE
 	vgui_ClassMenu.cpp
 	vgui_CustomObjects.cpp
 	vgui_H9Panel.cpp
+	vgui_H9RallyMenu.cpp
 	vgui_int.cpp
 	vgui_MOTDWindow.cpp
 	vgui_SchemeManager.cpp
@@ -318,6 +320,8 @@ target_sources(client PRIVATE
 	h9_racehud.h
 	h9_racehud_draw.h
 	h9_rallyhud.h
+	h9_carmenu.h
+	h9_carmenu_calc.h
 	h9_rallyhud_draw.h
 	h9_chatbubble.h
 	h9_tts.h
@@ -348,6 +352,7 @@ target_sources(client PRIVATE
 	StudioModelRenderer.h
 	tri.h
 	vgui_H9Panel.h
+	vgui_H9RallyMenu.h
 	vgui_int.h
 	vgui_SchemeManager.h
 	vgui_ScorePanel.h
@@ -461,6 +466,14 @@ add_executable(rallysteer_test EXCLUDE_FROM_ALL
 add_executable(keymap_test EXCLUDE_FROM_ALL
 	tests/keymap_test.cpp
 	h9_keymap_calc.h)
+
+# The rally car menu and shop's arithmetic alone: the layout in HL Rally's units, the two-stage queue, the money and the bars with the parts added,
+# the text formats, the showroom car's place, spin, drag and shadow, and the shipped key files' `m` key.
+#   cmake --build <dir> --target carmenu_test --config Release, then run carmenu_test
+add_executable(carmenu_test EXCLUDE_FROM_ALL
+	tests/carmenu_test.cpp
+	h9_carmenu_calc.h
+	../pm_shared/h9_rally_shop.h)
 
 # Rally mode's sounds on the client, arithmetic alone: HL Rally's pitch and volume lines for the local car, the whine, the other cars' guessed revs and
 # the four nearest, the squeal's gate and its half second, the backfire's window, the wall, the horn, the file headers' rates.

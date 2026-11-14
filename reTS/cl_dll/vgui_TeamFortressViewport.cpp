@@ -53,6 +53,8 @@
 
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
+#include "vgui_H9RallyMenu.h" // H9 rally: the main menu, the car menu and Customise
+#include "h9_carmenu.h"
 #include "vgui_ScorePanel.h"
 #include "vgui_SpectatorPanel.h"
 
@@ -1467,6 +1469,12 @@ void TeamFortressViewport::ShowVGUIMenu(int iMenu)
 	if (gHUD.m_iIntermission && iMenu != MENU_INTRO)
 		return;
 
+	// H9 rally mode: MENU_INTRO is the rally main menu, MENU_TEAM the car menu, MENU_CLASS Customise (vgui_H9RallyMenu.cpp). The MOTD at a join can
+	// come before the game knows it is rally mode: the stock window it brought up gives way to the main menu.
+	const bool rallyMenu = H9CarMenu_RallyMode() && (iMenu == MENU_INTRO || iMenu == MENU_TEAM || iMenu == MENU_CLASS);
+	if (rallyMenu && iMenu == MENU_INTRO && m_pCurrentMenu && m_pCurrentMenu->GetMenuID() == MENU_INTRO && !H9CarMenu_MenuUp())
+		HideTopMenu();
+
 	// Don't create one if it's already in the list
 	if (m_pCurrentMenu)
 	{
@@ -1479,6 +1487,12 @@ void TeamFortressViewport::ShowVGUIMenu(int iMenu)
 		}
 	}
 
+	if (rallyMenu)
+	{
+		m_pScoreBoard->setVisible(false); // the scoreboard is not drawn under the rally menus
+		pNewMenu = H9RallyMenu_Get(iMenu);
+	}
+	else
 	switch (iMenu)
 	{
 	case MENU_TEAM:
@@ -1522,7 +1536,8 @@ void TeamFortressViewport::ShowVGUIMenu(int iMenu)
 	// See if another menu is visible, and if so, cache this one for display once the other one's finished
 	if (m_pCurrentMenu)
 	{
-		if (m_pCurrentMenu->GetMenuID() == MENU_CLASS && iMenu == MENU_TEAM)
+		// (rally: the next menu comes up at once, and the one it covers waits under it, as in HL Rally)
+		if ((m_pCurrentMenu->GetMenuID() == MENU_CLASS && iMenu == MENU_TEAM) || rallyMenu)
 		{
 			CMenuPanel* temp = m_pCurrentMenu;
 			m_pCurrentMenu->Close();
@@ -1859,7 +1874,7 @@ bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurren
 	if (0 != m_iUser1 && 0 == gEngfuncs.Con_IsVisible())
 	{
 		if (down && (keynum == K_ENTER || keynum == K_KP_ENTER))
-			ShowVGUIMenu(MENU_TEAM);
+			ShowVGUIMenu(H9CarMenu_RallyMode() ? MENU_INTRO : MENU_TEAM); // rally: HL Rally's main menu
 	}
 
 	// Open Text Window?
@@ -1873,7 +1888,7 @@ bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurren
 			// Escape gets you out of Team/Class menus if the Cancel button is visible
 			if (keynum == K_ESCAPE)
 			{
-				if ((iMenuID == MENU_TEAM && 0 != g_iTeamNumber) || (iMenuID == MENU_CLASS && 0 != g_iPlayerClass))
+				if (H9CarMenu_MenuUp() || (iMenuID == MENU_TEAM && 0 != g_iTeamNumber) || (iMenuID == MENU_CLASS && 0 != g_iPlayerClass))
 				{
 					HideTopMenu();
 					return false;
@@ -1893,7 +1908,7 @@ bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurren
 		// Grab enter keys to close TextWindows
 		if (down && (keynum == K_ENTER || keynum == K_KP_ENTER || keynum == K_SPACE || keynum == K_ESCAPE))
 		{
-			if (iMenuID == MENU_MAPBRIEFING || iMenuID == MENU_INTRO || iMenuID == MENU_CLASSHELP)
+			if (iMenuID == MENU_MAPBRIEFING || (iMenuID == MENU_INTRO && !H9CarMenu_MenuUp()) || iMenuID == MENU_CLASSHELP)
 			{
 				HideTopMenu();
 				return false;

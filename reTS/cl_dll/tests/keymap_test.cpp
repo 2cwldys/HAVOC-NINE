@@ -159,7 +159,7 @@ int main()
 		CHECK(n >= 15);
 		// every command is one that exists in the game; a + command's - twin is the engine's
 		static const char* const ok[] = {"+forward", "+back", "+left", "+right", "+jump", "+moveleft", "+moveright", "+attack2", "+reload",
-			"h9_gearup", "h9_geardown", "h9_rallycam", "h9_rallycam_zoom", "impulse 100", "+h9_camdistance"};
+			"h9_gearup", "h9_geardown", "h9_rallycam", "h9_rallycam_zoom", "impulse 100", "+h9_camdistance", "selectcar"};
 		for (int e = 0; e < f.count; e++)
 		{
 			bool known = false;

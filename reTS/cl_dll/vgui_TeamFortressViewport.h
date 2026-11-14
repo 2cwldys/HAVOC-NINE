@@ -592,6 +592,7 @@ public:
 	bool IsRandomPC() { return m_iRandomPC; };
 	char *GetTeamName( int iTeam ) { return m_sTeamNames[iTeam]; };
 	bool GetAllowSpectators() { return m_iAllowSpectators; };
+	const char* GetMOTD() { return m_szMOTD; } // H9 rally: the main menu shows the server's MOTD in its own box
 
 	// Message Handlers
 	bool MsgFunc_ValClass(const char *pszName, int iSize, void *pbuf );
