@@ -24,6 +24,7 @@
 #include "ts_attachments.h" // TS gun lasersight + flashlight render
 #include "ts_bullets.h"     // the client bullet simulation
 #include "ts_emitter.h" // TS map fog
+#include "h9_racefx.h" // H9: the race cars' tyre marks, spray, shadow and brake lights, and the race weather
 extern IParticleMan* g_pParticleMan;
 
 /*
@@ -63,6 +64,7 @@ void DLLEXPORT HUD_DrawTransparentTriangles()
 	TS_Shadows_Draw();
 	TS_Attachments_Draw();
 	TSParticles_Update();
+	H9RaceFx_Draw(); // H9: the race's visual effects (h9_racefx.cpp); nothing when cl_h9_racefx is 0
 
 	// The client bullet simulation: step every queued round, draw them in slow motion. Last in
 	// client.dll's HUD_DrawTransparentTriangles too (FUN_10034e60 at 0x10056e59, after the

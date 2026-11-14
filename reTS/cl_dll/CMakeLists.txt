@@ -183,6 +183,7 @@ target_sources(client PRIVATE
 	h9_arphud.cpp
 	h9_arpinv.cpp
 	h9_buywindow.cpp
+	h9_racefx.cpp
 	h9_racehud.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
@@ -297,6 +298,8 @@ target_sources(client PRIVATE
 	h9_arpinv_model.h
 	h9_arpinv_ui.h
 	h9_buywindow.h
+	h9_racefx.h
+	h9_racefx_calc.h
 	h9_racehud.h
 	h9_racehud_draw.h
 	h9_chatbubble.h
@@ -410,3 +413,9 @@ add_executable(racehud_test EXCLUDE_FROM_ALL
 	h9_racehud_draw.h
 	../dlls/race.h)
 target_include_directories(racehud_test PRIVATE ../dlls)
+
+# The race's visual effects' arithmetic alone (tyre marks on a snow circle, none in the air, the ring, the fade, the spray's budget).
+#   cmake --build <dir> --target racefx_test --config Release, then run racefx_test
+add_executable(racefx_test EXCLUDE_FROM_ALL
+	tests/racefx_test.cpp
+	h9_racefx_calc.h)
