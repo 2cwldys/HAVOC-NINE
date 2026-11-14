@@ -18,6 +18,7 @@
     7. Toolchain: Docker images, not the user's own Ubuntu
     8. Packaging a native build in dist\linux
     9. The plan: order, effort, blockers, decisions
+   10. P2P join: the plugin, the helper and the launchers on Linux
 
 
  0. STATUS, 2026-11-09: THE NATIVE LINUX SERVER IS BUILT AND RUNS
@@ -390,3 +391,19 @@
         yes, the font backend first.
      5. The WebView2 MOTD on a native Linux client: the fallback (picture,
         text, OPEN PAGE), or a WebKitGTK helper?
+
+ 10. P2P JOIN ON LINUX (docs\P2P_JOIN.txt)
+ ------------------------------------------
+   h9_p2p.amxx is platform independent and the helper is a Node.js 20 program, so a Linux
+   host runs both as they are; no engine change is involved (the browser build, which has
+   no raw UDP, cannot use the path). The launchers have Linux twins in the overlay:
+     h9_p2p_host.sh        the helper beside your game (reads p2p.ini)
+     h9_p2p_join.sh <code> redeems a code and starts h9xash.sh (the game under Wine) with
+                           +connect <address>; --no-game only prints the address
+     h9xash_server.sh      starts the helper beside the native server when p2p.ini says
+                           enabled=1 (in the background, output in p2p.log) and stops it
+                           with the server; without p2p.ini it still ends in exec xashds
+   They look for node on the PATH (20 or newer; nothing is downloaded) and for the helper in
+   $H9_P2P_HELPER, then p2p/bin/h9p2p.js beside them, then ../p2p/bin/h9p2p.js. The helper's
+   tests and the end-to-end run were made on Windows; the Linux scripts are checked with
+   bash -n, and the helper's own tests need nothing Windows-specific.

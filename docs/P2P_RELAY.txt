@@ -1,0 +1,108 @@
+===============================================================================
+ P2P RELAY: HOW A FRIEND JOINS YOUR GAME WITHOUT A FORWARDED PORT -- OVERVIEW
+===============================================================================
+
+ This is the short version. Read it first. The details are in two other files:
+   docs\P2P_JOIN.txt      for the host (the player whose game it is) and the friend
+   docs\P2P_HOSTING.txt   for whoever runs the relay, and the in-game browser question
+
+ 1. WHAT IT IS
+ -------------
+   Today a friend can join your game only if your router lets him in: you have to
+   forward a port. Many people cannot. The P2P relay is the other way: you and your
+   friend both connect OUT to a small server on the internet (the relay), and it
+   passes the game's packets between you. Nobody opens a port. Neither game changes.
+   It is off until you turn it on.
+
+ 2. THE PARTS
+ ------------
+   The relay      a small program (Node.js, folder p2p\ in the repository). Started with
+                  one command, like the serverlist bot: p2p\run.bat (Linux: sh p2p\run.sh).
+                  It can run on a PC at home, on a cloud server, or on the havoc9.org
+                  server later. It is also packed into the VPS packages and runs inside
+                  h9web as a module.
+   The plugin     h9_p2p.amxx on the game server: the cvars and the console commands.
+   The helper     a small program on the host's PC and on the friend's PC (Node.js 20 or
+                  newer). On the host it is started by h9_p2p_host.bat, or beside a
+                  dedicated server by h9xash_server.bat. On the friend's PC it is started
+                  by h9_p2p_join.bat <code>. It needs Node.js: a native helper is a later job.
+   The invite     a code like H9-7KQMX-2PDRT. One use, dead after ten minutes.
+
+ 3. HOW A JOIN GOES
+ ------------------
+   1. The host types  h9_p2p 1  in the game's console and starts h9_p2p_host.bat.
+   2. The host types  h9_p2p_invite Mike . The console prints a code.
+   3. The host sends Mike the code and the relay's address.
+   4. Mike runs  h9_p2p_join.bat <code> . It prints a line like
+      connect 127.101.12.34:27015 and starts the game with that address.
+      That address is on Mike's own PC. His game thinks the server is there.
+   5. The console says "Mike joined by the relay". The host can list, kick or revoke
+      with h9_p2p_list, h9_p2p_kick, h9_p2p_revoke and h9_p2p_close.
+   Sometimes the two PCs can talk straight, without the relay. That needs "direct" on
+   the invite and then each can see the other's address. Without it only the relay sees both.
+
+ 4. PUBLIC GAMES: WHERE THEY SHOW
+ --------------------------------
+   h9_p2p_public 1 (with h9_p2p 1 and the helper running) puts the game on the relay's
+   public list: its name (h9_p2p_name, or the hostname), map, players and whether it has a
+   password. Never an address.
+   * ON THE WEBSITE: yes. havoc9.org/servers has a section "P2P games". Each game has a
+     Join button that gives the visitor a one-use code to run with h9_p2p_join.bat.
+   * IN THE GAME'S OWN SERVER BROWSER (Find Servers): NO, not in this version.
+     Why: that browser lists games by address and port. It asks each address a plain
+     question and joins with the normal connect. A game behind a router that lets nobody in
+     cannot answer, and a game on the relay has no address of its own.
+   * WHAT WOULD CHANGE THAT: "public relay ports". The relay gives every public game its
+     own public port, answers the browser's question for the game, and passes a normal
+     connecting game on to the host. The master list then names that relay address and
+     port, and a friend joins from Find Servers with no helper and no code. This is not
+     built. The relay refuses to start if its reserved settings for it are set.
+   A public guest sees no address either: public guests are relay only, unless the host
+   sets h9_p2p_direct_public 1. h9_p2p_require_account 1 makes a guest sign in to havoc9.org.
+
+ 5. THE SWITCHES (every one has its own, and off leaves nothing running)
+ -----------------------------------------------------------------------
+   h9_p2p 0|1                the master switch (stock 0)
+   h9_p2p_public 0|1         list the game publicly (stock 0)
+   h9_p2p_direct 0|1         allow a straight leg when an invite says "direct" (stock 1)
+   h9_p2p_direct_public 0|1  allow it for public guests too (stock 0)
+   h9_p2p_relay 0|1          allow the relay leg (stock 1)
+   h9_p2p_service            the relay's address (an https:// address; also set in p2p.ini)
+   h9_p2p_ttl, h9_p2p_uses   how long an invite lives (600 s) and how many uses it has (1)
+   h9_p2p_require_account    guests must sign in to havoc9.org (stock 0)
+   h9_p2p_name               the name on the public list (empty = the hostname)
+   Commands: h9_p2p_invite, h9_p2p_list, h9_p2p_kick, h9_p2p_revoke, h9_p2p_close,
+   h9_p2p_status (server console, rcon, a listen game's console, ADMIN_RCON). COMMANDS.txt
+   has each one in full, under P2P JOIN.
+
+ 6. WHAT IS SAFE
+ ---------------
+   * An invite is a secret: the first user gets in. The host sees who and can kick.
+   * The relay sees both addresses and every packet. The game's traffic is not encrypted.
+     Use a relay you trust, and an https:// address unless it runs on your own PC or LAN.
+   * The host token (the password for opening a game on a relay) lives in p2p.ini only.
+     Never in a cvar, never committed.
+   * havoc9.org does not recognise a friend who joins this way: no playtime, no rank. A game
+     on this path is for friends, not for ranked play.
+
+ 7. WHAT IS BUILT, AND WHAT IS NOT
+ ---------------------------------
+   Built and tested (private test servers, loopback, and a simulated set of routers: 22 of 22
+   router pairings): the relay with its public list, the host plugin, the helper and the
+   launchers, the website's P2P section, the hosting scripts and the VPS packages.
+   Not built: public relay ports (the in-game browser), a native helper (no Node.js needed),
+   the Discord "invite to game" button (needs an engine change), the web client's use of the
+   relay, and a running relay on a real server: there is no VPS yet. Nothing here has been
+   tried with a real friend over the internet.
+   The engine already has its own NAT bypass (sv_nat and cl_nat). It works only for some
+   routers and has no invite or token. docs\NETWORKING.txt, section 11, says how it differs.
+
+ 8. WHERE THINGS ARE
+ -------------------
+   p2p\                    the relay and the helper (lib\, bin\, test\, run.bat, run.sh)
+   p2p\README.txt          every setting of the relay
+   h9_p2p.sma              the plugin (h9_p2p.cfg.example: its settings)
+   xash3d-h9-patches\overlay\h9_p2p_host.bat, h9_p2p_join.bat, p2p.ini.example   the launchers
+   h9web\modules\p2p       the relay as an h9web module
+   havoc9.org\servers      the website's list (p2p.js)
+   docs\P2P_JOIN.txt, docs\P2P_HOSTING.txt, docs\NETWORKING.txt (section 11)

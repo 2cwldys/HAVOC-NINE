@@ -99,6 +99,7 @@ copy /y "%~dp0h9_rank.sma"       "%EX%\src\"                 >nul && echo   src\
 copy /y "%~dp0h9_link.sma"       "%EX%\src\"                 >nul && echo   src\h9_link.sma
 copy /y "%~dp0h9_msgstats.sma"  "%EX%\src\"                 >nul && echo   src\h9_msgstats.sma
 copy /y "%~dp0h9_staticprops.sma" "%EX%\src\"               >nul && echo   src\h9_staticprops.sma
+copy /y "%~dp0h9_p2p.sma"         "%EX%\src\"                 >nul && echo   src\h9_p2p.sma
 copy /y "%~dp0h9_tts.sma"        "%EX%\src\"                 >nul && echo   src\h9_tts.sma
 copy /y "%~dp0ts_floatchat.sma"  "%EX%\src\"                 >nul && echo   src\ts_floatchat.sma
 if not exist "%EX%\src\include" mkdir "%EX%\src\include" >nul 2>&1
@@ -223,8 +224,9 @@ if exist "%~dp0compiled\h9_rank.amxx" (
     echo   [WARN] no compiled\h9_rank.amxx -- package has no .rank plugin
 )
 REM h9_msgstats counts the messages and entities sent to players; h9_staticprops hands a map's unaddressed props to the
-REM clients (COMMANDS.txt, DATAGRAM OVERFLOW). Both go below h9_presence in plugins.ini.
-for %%m in (h9_msgstats h9_staticprops) do (
+REM clients (COMMANDS.txt, DATAGRAM OVERFLOW); h9_p2p is the host's panel of the P2P join path (docs\P2P_JOIN.txt), inert until
+REM h9_p2p is 1. All go below h9_presence in plugins.ini.
+for %%m in (h9_msgstats h9_staticprops h9_p2p) do (
     if exist "%~dp0compiled\%%m.amxx" (
         copy /y "%~dp0compiled\%%m.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
         echo   ts\addons\amxmodx\plugins\%%m.amxx
@@ -267,6 +269,9 @@ copy /y "%~dp0h9_rank.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_msgstats.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_staticprops.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_staticprops.cfg
 copy /y "%~dp0h9_staticprops.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+REM h9_p2p.cfg is a host's own settings, so only its template travels (build.bat makes the live copy once).
+copy /y "%~dp0h9_p2p.cfg.example" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_p2p.cfg.example
+copy /y "%~dp0h9_p2p.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 for %%m in (ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf) do (
     copy /y "%~dp0%%m.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\%%m.cfg
     copy /y "%~dp0%%m.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
@@ -510,6 +515,13 @@ REM until it is reset, and there is nothing else to revoke.
 >> "%EX%\.gitignore" echo # h9_presence.key is an enrolled server's own key, which h9_presence.amxx writes. Never commit it.
 >> "%EX%\.gitignore" echo ts/addons/amxmodx/data/h9_presence.key
 >> "%EX%\.gitignore" echo H9XASH/ts/addons/amxmodx/data/h9_presence.key
+>> "%EX%\.gitignore" echo # p2p.ini holds the P2P host token; h9_p2p.cfg and the h9_p2p_ files in data\ are one machine's own settings and state. Never commit them.
+>> "%EX%\.gitignore" echo H9XASH/p2p.ini
+>> "%EX%\.gitignore" echo H9XASH/p2p.log
+>> "%EX%\.gitignore" echo ts/addons/amxmodx/configs/h9_p2p.cfg
+>> "%EX%\.gitignore" echo H9XASH/ts/addons/amxmodx/configs/h9_p2p.cfg
+>> "%EX%\.gitignore" echo ts/addons/amxmodx/data/h9_p2p_*
+>> "%EX%\.gitignore" echo H9XASH/ts/addons/amxmodx/data/h9_p2p_*
 >> "%EX%\.gitignore" echo.
 >> "%EX%\.gitignore" echo # Runtime state written by the bot, not source.
 >> "%EX%\.gitignore" echo discord-bot/rsvp.json
@@ -823,7 +835,8 @@ REM           h9xash.bat copies when there is no config.cfg.
 REM   and from the server side (xash.bat addons): ts_advertise.cfg, which may hold the
 REM           Discord bot token, h9_presence.cfg, which may hold a presence key, and
 REM           h9_presence.key, an enrolled server's key, the AMXX logs, vault and stats,
-REM           and rcbot's player ids.
+REM           and rcbot's player ids. p2p.ini (the P2P host token), p2p.log and the P2P
+REM           plugin's own cfg and files (h9_p2p.cfg, data\h9_p2p_*) are left out likewise.
 REM The client files go into H9XASH first, from the export\ts assembled above, so the
 REM Xash copy carries the same sounds, sprites, maps and menus as the Steam install.
 if exist "%~dp0H9XASH\HAVOC 9.exe" if exist "%~dp0xash3d-h9-patches\xash.bat" (
@@ -833,7 +846,7 @@ REM networking.ini ships as the template copied below, never as the player's own
 REM The generated server-list files and the Steam binaries (their licence is not settled)
 REM stay out of the package and the repo.
 if exist "%~dp0H9XASH\HAVOC 9.exe" (
-    robocopy "%~dp0H9XASH" "%EX%\H9XASH" /MIR /NJH /NJS /NDL /NFL /NP /XD .fontcache save logs screenshots ts_downloads vault "%~dp0H9XASH\webview2" /XF config.cfg video.cfg opengl.cfg .xash_id voice_ban.dt custom.hpk *.log menu_music_resolved.cfg menu_bg_video_resolved.cfg ts_advertise.cfg h9_presence.cfg h9_presence.key vault.ini tsstats.dat bot_playerids.ini networking.ini networking_resolved.cfg xashcomm.lst steam_appid.txt steam_browse_appid.txt steam_broker.pid steam_broker.exe steam_api.dll *.bak_* >nul
+    robocopy "%~dp0H9XASH" "%EX%\H9XASH" /MIR /NJH /NJS /NDL /NFL /NP /XD .fontcache save logs screenshots ts_downloads vault "%~dp0H9XASH\webview2" /XF config.cfg video.cfg opengl.cfg .xash_id voice_ban.dt custom.hpk *.log menu_music_resolved.cfg menu_bg_video_resolved.cfg ts_advertise.cfg h9_presence.cfg h9_presence.key p2p.ini p2p.log h9_p2p.cfg h9_p2p_state.txt h9_p2p_cmd.txt h9_p2p_out.txt h9_p2p_helper.pid vault.ini tsstats.dat bot_playerids.ini networking.ini networking_resolved.cfg xashcomm.lst steam_appid.txt steam_browse_appid.txt steam_broker.pid steam_broker.exe steam_api.dll *.bak_* >nul
     if errorlevel 8 (
         echo   [WARN] the H9XASH copy reported errors
     ) else (

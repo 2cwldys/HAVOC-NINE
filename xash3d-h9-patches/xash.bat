@@ -479,13 +479,14 @@ REM    one holds that server's h9web presence key, and a local server reporting 
 REM    would report its players as the live server's. H9XASH gets h9_presence.cfg.example
 REM    as its h9_presence.cfg, once, and never over its own. data\h9_presence.key stays
 REM    behind for the same reason: it is the live server's enrolled key, and an H9XASH
-REM    dedicated server enrolls with its own.
+REM    dedicated server enrolls with its own. h9_p2p.cfg and the h9_p2p_ files the plugin and
+REM    the helper write into data\ stay behind too: they are one machine's own settings and state.
 if not exist "%HLROOT%\ts\addons\metamod\dlls\metamod.dll" (
     echo   [WARN] no Metamod at %HLROOT%\ts\addons -- H9XASH cannot host H9 matches,
     echo          and its gameinfo.txt loads Metamod: point gamedll at dlls/mp.dll
     exit /b 0
 )
-robocopy "%HLROOT%\ts\addons" "%H9%\ts\addons" /E /XD logs /XF ts_advertise.cfg h9_presence.cfg h9_presence.key /NJH /NJS /NDL /NFL /NP >nul
+robocopy "%HLROOT%\ts\addons" "%H9%\ts\addons" /E /XD logs /XF ts_advertise.cfg h9_presence.cfg h9_presence.key h9_p2p.cfg h9_p2p_state.txt h9_p2p_cmd.txt h9_p2p_out.txt h9_p2p_helper.pid /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 if not exist "%H9%\ts\addons\amxmodx\configs\ts_advertise.cfg" copy /y "%TSM%\ts_advertise.cfg" "%H9%\ts\addons\amxmodx\configs\" >nul
 if exist "%TSM%\h9_presence.cfg.example" if not exist "%H9%\ts\addons\amxmodx\configs\h9_presence.cfg" copy /y "%TSM%\h9_presence.cfg.example" "%H9%\ts\addons\amxmodx\configs\h9_presence.cfg" >nul

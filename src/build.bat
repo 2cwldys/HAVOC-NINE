@@ -49,7 +49,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts h9_p2p"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -167,6 +167,13 @@ REM only to override that (docs\H9_PRESENCE.txt).
 if exist "%SRC%h9_presence.cfg.example" if not exist "%CONFIGS%\h9_presence.cfg" (
     copy /y "%SRC%h9_presence.cfg.example" "%CONFIGS%\h9_presence.cfg" >nul
     echo   created h9_presence.cfg  ^(optional: the server enrolls itself with havoc9.org^)
+)
+REM h9_p2p.cfg.example is the template of h9_p2p.cfg the same way: the live h9_p2p.cfg is made from it once, when there is none, and
+REM is never copied over, so a host's own settings (h9_p2p 1, the relay's address) survive every build. Nothing in it is a secret: the
+REM host token is in p2p.ini beside h9xash.bat. The plugin runs it at every map (docs\P2P_JOIN.txt).
+if exist "%SRC%h9_p2p.cfg.example" if not exist "%CONFIGS%\h9_p2p.cfg" (
+    copy /y "%SRC%h9_p2p.cfg.example" "%CONFIGS%\h9_p2p.cfg" >nul
+    echo   created h9_p2p.cfg  ^(optional: the P2P join path, off until h9_p2p is 1^)
 )
 
 REM ---- sounds into the live mod folder ---------------------------------------

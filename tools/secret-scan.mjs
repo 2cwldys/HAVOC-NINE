@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const BAD_NAME = /^(secrets\.json|data\.key|serverlist\.cfg|ts_advertise\.cfg|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(h9backup|p12|pfx|ppk)$/;
+const BAD_NAME = /^(secrets\.json|data\.key|serverlist\.cfg|ts_advertise\.cfg|p2p\.ini|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(h9backup|p12|pfx|ppk)$/;
 // Public certificates and upstream test data are tracked on purpose.
 const ALLOW_PATH = /^(xash3d-fwgs\/3rdparty\/|.*cacert\.pem$|.*amxx_easy_http_cacert\.pem$)/;
 const TEXT_EXT = /\.(js|mjs|cjs|json|html|htm|css|txt|md|ini|cfg|sh|ps1|cmd|bat|py|service|timer|conf|example|template|xml|svg|yaml|yml|toml|sma|inc|cpp|h|c)$/i;

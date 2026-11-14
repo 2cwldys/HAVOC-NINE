@@ -5,7 +5,7 @@
           h9_presence.amxx 1.11   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.4
           h9_community.amxx 1.1   ts_rtv.amxx 1.0-h9.2   h9_compete.amxx 1.2
           ts_floatchat.amxx 1.0   h9_rank.amxx 1.0   h9_link.amxx 1.0
-          h9_msgstats.amxx 1.0   h9_staticprops.amxx 1.0
+          h9_msgstats.amxx 1.0   h9_staticprops.amxx 1.0   h9_p2p.amxx 1.0
           Apollo RP (ARP_*.amxx, apollo-rp\ORIGIN.txt)
 ===============================================================================
 
@@ -1045,6 +1045,59 @@
 
  Which servers the Internet tab lists is set in networking.ini, next to
  h9xash.bat, not in the game. See docs\NETWORKING.txt.
+
+
+===============================================================================
+ P2P JOIN  (h9_p2p.amxx: friends join your game without a forwarded port)
+===============================================================================
+
+ A friend who cannot reach your game (no port forwarded, a router you do not
+ control) joins it through a relay, with an invite from you. The relay is a
+ small service anybody can run from the repository (p2p\), or the one havoc9.org
+ runs. This plugin is the panel; a helper program (Node.js 20 or newer,
+ h9_p2p_host.bat beside the game) does the network work. All of it is off until
+ h9_p2p is 1. docs\P2P_JOIN.txt is the guide. The commands below are for the
+ server console, rcon, the player of a listen game and an admin with ADMIN_RCON.
+
+ h9_p2p_invite <label> [direct] [account]
+     Needs h9_p2p 1 and the helper running. Makes an invite for one friend and
+     prints it in the server console (and to the admin who asked):
+         [P2P] invite for Mike: H9-7KQMX-2PDRT (10 min, 1 use). The friend
+         runs: h9_p2p_join.bat H9-7KQMX-2PDRT
+     The label (one word) is for you: it is what h9_p2p_list shows for him. The
+     code works for h9_p2p_ttl seconds and h9_p2p_uses times, then it is dead.
+     "direct" lets this friend's game and yours find each other without the
+     relay: each learns the other's network address (needs h9_p2p_direct 1).
+     Without it neither ever does. "account" makes the friend sign in to
+     havoc9.org first, so you see which account joined (the same as
+     h9_p2p_require_account 1, for this invite). Over rcon the code is not in the
+     answer to this command: it arrives a moment later, and h9_p2p_list shows it.
+
+ h9_p2p_list
+     The friends in your game over the path (a number, the label, the account if
+     there is one, relay or direct, when they joined; "(public list)" marks a
+     guest from the public list) and the invites not used yet with their codes.
+     The table survives a map change.
+
+ h9_p2p_kick <n>
+     Removes friend number n now.
+
+ h9_p2p_revoke <invite>
+     Kills an invite that was not used yet: its code (any case) or its id.
+
+ h9_p2p_close
+     Closes the path: every friend is removed and every invite killed. The path
+     stays closed until the next h9_p2p_invite (or h9_p2p 0 and then 1).
+
+ h9_p2p_status
+     The cvars as they are, the files, whether the helper is running (no word
+     from it for 75 seconds means it is not), the friends and the invites. With
+     h9_p2p 0 it says nothing runs, and writes nothing. After typing h9_p2p 1,
+     run it once: the plugin looks at h9_p2p when a map starts, 5 seconds later,
+     and when one of these commands runs.
+
+ The friend's side is not a console command: h9_p2p_join.bat <code> (h9_p2p_join.sh
+ on Linux) beside the game redeems the code, starts the game and connects it.
 
 
 ===============================================================================
@@ -4154,6 +4207,47 @@
  h9_rank_command           1          .rank answers; 0 leaves .rank alone
  h9_rank_cooldown          5          seconds between two .rank from one
                                       player (1 to 60)
+
+ P2P JOIN  (h9_p2p.amxx, configs\h9_p2p.cfg from h9_p2p.cfg.example; none of
+ these is in the server's rules, and the host token is in p2p.ini, never in a cvar)
+
+ h9_p2p                    0          1: this game may open a path through a relay
+                                      for friends (h9_p2p_invite). 0: the plugin
+                                      writes no file, reads no file, keeps no
+                                      timer. Read when a map starts, 5 seconds
+                                      later, and by every h9_p2p_ command (after
+                                      typing h9_p2p 1, run h9_p2p_status). Back to
+                                      0, the path closes within 10 seconds
+ h9_p2p_public             0          1: the game is on the relay's public list
+                                      (name, map, players, password yes or no) and
+                                      anybody may ask the relay for a one-use
+                                      invite to join without yours. Live, within
+                                      10 seconds. Needs h9_p2p 1 and a relay that
+                                      lists games
+ h9_p2p_name               (empty)    the name on the public list; empty: the
+                                      server's hostname
+ h9_p2p_direct             1          1: an invite may let a friend's game and
+                                      this one find each other directly (each
+                                      learns the other's network address) when the
+                                      command says "direct". 0: never, every
+                                      friend goes through the relay. Read when
+                                      the path opens
+ h9_p2p_direct_public      0          1: a guest from the public list may use a
+                                      direct path too (needs h9_p2p_direct 1). 0:
+                                      public guests are relay only
+ h9_p2p_relay              1          0: the relay never carries this game's
+                                      packets, so friends can only connect
+                                      directly. Read when the path opens
+ h9_p2p_service            (empty)    the relay's base URL (https:// on the
+                                      internet) for a helper whose p2p.ini has no
+                                      service= line; a service= in p2p.ini wins,
+                                      because the token is for that relay. Read
+                                      when the path opens
+ h9_p2p_ttl                600        seconds an invite lives (60 to 900)
+ h9_p2p_uses               1          times one invite can be used (1 to 8)
+ h9_p2p_require_account    0          1: every invite, and every guest from the
+                                      public list, needs a havoc9.org account; the
+                                      console shows which one joined
 
  COMMUNITIES  (h9_community.amxx, configs\h9_community.cfg)
 
