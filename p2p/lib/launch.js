@@ -194,29 +194,35 @@ export async function ensureHelper({ ini, script, node = process.execPath, timeo
   const before = alive();
   if (before) return { state: "running", pid: before };
   const logFile = path.join(opt.folder, "p2p.log");
-  const fd = fs.openSync(logFile, "w");
-  const child = spawn(node, [script, "host", "--ini", ini, ...extraArgs], { detached: true, stdio: ["ignore", fd, fd], windowsHide: true, cwd: opt.folder, env: process.env });
-  let exited = null;
-  child.on("exit", (code) => { exited = code; });
-  child.on("error", (e) => { exited = e.message; });
-  child.unref();
-  fs.closeSync(fd);
-  const end = Date.now() + timeoutMs;
-  while (Date.now() < end) {
-    const pid = alive();
-    if (pid) return { state: "started", pid };
-    if (exited !== null) {
-      if (exited === 4) return { state: "running", pid: 0 };
-      let tail = "";
-      try {
-        const rfd = fs.openSync(logFile, "r");
-        try { tail = fs.readFileSync(rfd, "latin1").trim().split(/\r?\n/).pop(); } finally { fs.closeSync(rfd); }
-      } catch (e) { /* no log */ }
-      throw new Error("the helper did not start (" + exited + ")" + (tail ? ": " + tail : ""));
+  // ONE descriptor for the log: the helper writes through it, and the end of it is read through it if the helper does not start
+  const fd = fs.openSync(logFile, "w+");
+  try {
+    const child = spawn(node, [script, "host", "--ini", ini, ...extraArgs], { detached: true, stdio: ["ignore", fd, fd], windowsHide: true, cwd: opt.folder, env: process.env });
+    let exited = null;
+    child.on("exit", (code) => { exited = code; });
+    child.on("error", (e) => { exited = e.message; });
+    child.unref();
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+      const pid = alive();
+      if (pid) return { state: "started", pid };
+      if (exited !== null) {
+        if (exited === 4) return { state: "running", pid: 0 };
+        let tail = "";
+        try {
+          const size = fs.fstatSync(fd).size;
+          const buf = Buffer.alloc(Math.min(size, 8192));
+          fs.readSync(fd, buf, 0, buf.length, size - buf.length);
+          tail = buf.toString("latin1").trim().split(/\r?\n/).pop();
+        } catch (e) { /* no log */ }
+        throw new Error("the helper did not start (" + exited + ")" + (tail ? ": " + tail : ""));
+      }
+      await new Promise((r) => setTimeout(r, 100));
     }
-    await new Promise((r) => setTimeout(r, 100));
+    throw new Error("the helper did not report in " + Math.round(timeoutMs / 1000) + " s (see " + logFile + ")");
+  } finally {
+    fs.closeSync(fd);
   }
-  throw new Error("the helper did not report in " + Math.round(timeoutMs / 1000) + " s (see " + logFile + ")");
 }
 
 // ---- stop ------------------------------------------------------------------------------------------------------------------------------

@@ -165,7 +165,10 @@ export class HostIpc extends EventEmitter {
     const other = this.runningPid();
     if (other) throw Object.assign(new Error("a helper is already running for this folder (pid " + other + ")"), { code: "running", pid: other });
     fs.writeFileSync(this.paths.out, "");
-    try { this.cmdOff = fs.statSync(this.paths.cmd).size; } catch (e) { this.cmdOff = 0; }
+    try {
+      const cfd = fs.openSync(this.paths.cmd, "r");
+      try { this.cmdOff = fs.fstatSync(cfd).size; } finally { fs.closeSync(cfd); }
+    } catch (e) { this.cmdOff = 0; }
     this.writePid();
     this.emitLine("status", "started pid=" + process.pid + " v=1");
     this.say("helper started; waiting for the game's state file in " + this.o.dir);
@@ -450,7 +453,7 @@ export class HostIpc extends EventEmitter {
 
   listingBody(st) {
     return {
-      public: true, name: st.name || "game", map: st.map, players: st.players, max: st.max, password: st.password,
+      public: true, name: st.name || "game", map: st.map, players: st.players, max: st.max, password: st.password === true,
       requireAccount: st.requireAccount, directPublic: !!(st.directPublic && st.direct),
     };
   }
@@ -523,39 +526,40 @@ export class HostIpc extends EventEmitter {
   // ---- commands -------------------------------------------------------------------------------------------------------------------
 
   readCommands() {
-    let buf;
+    // ONE descriptor for the size, the read and the truncate: the file cannot change between a look at it and its use. A file that cannot be opened
+    // for writing (the plugin holds it against writers) is read only from then on, and never truncated.
+    let fd;
+    try { fd = fs.openSync(this.paths.cmd, this.cmdFlags || "r+"); } catch (e) {
+      if (e.code === "EACCES" || e.code === "EPERM" || e.code === "EBUSY") this.cmdFlags = "r";
+      return;
+    }
     try {
-      const fd = fs.openSync(this.paths.cmd, "r");
+      let text;
       try {
         const size = fs.fstatSync(fd).size;
         if (size < this.cmdOff) this.cmdOff = 0;
         if (size === this.cmdOff) return;
-        buf = Buffer.alloc(size - this.cmdOff);
+        const buf = Buffer.alloc(size - this.cmdOff);
         fs.readSync(fd, buf, 0, buf.length, this.cmdOff);
-      } finally {
-        fs.closeSync(fd);
+        text = buf.toString("latin1");
+      } catch (e) { return; }
+      const cut = text.lastIndexOf("\n");
+      if (cut < 0) return; // a line the plugin is still writing
+      this.cmdOff += cut + 1;
+      for (const raw of text.slice(0, cut).split("\n")) {
+        if (!raw.trim()) continue;
+        const c = parseCommand(raw);
+        if (!c) { this.note("error", "a line of the command file is not a command"); continue; }
+        if (this.unix() - c.t > CMD_MAX_AGE_S) { this.emitLine("error", "dropped a stale '" + printable(c.verb, 12) + "' command", c.seq); continue; }
+        this.chain = this.chain.then(() => this.runCommand(c)).catch((e) => this.emitLine("error", "'" + printable(c.verb, 12) + "' failed: " + printable(e && e.message, 80), c.seq));
       }
-    } catch (e) { return; }
-    const text = buf.toString("latin1");
-    const cut = text.lastIndexOf("\n");
-    if (cut < 0) return; // a line the plugin is still writing
-    this.cmdOff += cut + 1;
-    for (const raw of text.slice(0, cut).split("\n")) {
-      if (!raw.trim()) continue;
-      const c = parseCommand(raw);
-      if (!c) { this.note("error", "a line of the command file is not a command"); continue; }
-      if (this.unix() - c.t > CMD_MAX_AGE_S) { this.emitLine("error", "dropped a stale '" + printable(c.verb, 12) + "' command", c.seq); continue; }
-      this.chain = this.chain.then(() => this.runCommand(c)).catch((e) => this.emitLine("error", "'" + printable(c.verb, 12) + "' failed: " + printable(e && e.message, 80), c.seq));
-    }
-    if (this.cmdOff >= CMD_TRUNCATE_BYTES) {
-      try {
-        const fd = fs.openSync(this.paths.cmd, "r+");
+      if (this.cmdOff >= CMD_TRUNCATE_BYTES && this.cmdFlags !== "r") {
         try {
           if (fs.fstatSync(fd).size === this.cmdOff) { fs.ftruncateSync(fd, 0); this.cmdOff = 0; }
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch (e) { /* the plugin has it open: the next look tries again */ }
+        } catch (e) { /* the plugin has it open: the next look tries again */ }
+      }
+    } finally {
+      fs.closeSync(fd);
     }
   }
 
