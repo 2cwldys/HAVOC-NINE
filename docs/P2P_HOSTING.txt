@@ -235,7 +235,8 @@
    3. Put the p2p folder on the VM. Follow the top of
       h9-p2p.service.example: a service user, /opt/p2p, /etc/h9-p2p, the
       service. Edit /etc/h9-p2p/relay.config.json: publicUdp.host, and
-      "trustProxyHeader": "x-real-ip". Make tokens:
+      "trustProxyHeader": "x-real-ip". (For h9web mode also write
+      /etc/h9-p2p/relay.site.ini, section 10.) Make tokens:
         sudo node /opt/p2p/bin/h9rv.js token Mike --hosts /etc/h9-p2p/hosts.json
    4. Firewall (section 12): UDP 27248, and TCP 80 and 443 for the proxy. The
       provider's own firewall or security group is separate. Open it too.
@@ -297,6 +298,15 @@
    account's LINK token: the one a game holds after "Link your Account". The
    relay asks h9web whether it is valid and whose it is. It refuses a
    suspended account.
+   Where the relay finds that site: relay.config.json says only  "auth": {
+   "mode": "h9web" }.  The site's address is the environment variable
+   H9RV_SITE_URL. run.bat and run.sh read it from relay.site.ini beside
+   relay.config.json, a file of one line  H9RV_SITE_URL=https://havoc9.org
+   (copy relay.site.ini.example). A systemd unit reads the same file through
+   EnvironmentFile=-/etc/h9-p2p/relay.site.ini, so on a VM put it in
+   /etc/h9-p2p. relay.site.ini is never committed (it is in the folder's
+   .gitignore). An older relay.config.json with an auth.url key is refused with
+   a sentence that says where the address moved to.
    OPEN POINT. The game keeps that token sealed in user_id.ini (Windows
    DPAPI). The helper's launcher must unseal it. That is not built in this
    batch. Until it is, a havoc9.org host cannot give the relay a token. Today
@@ -424,9 +434,10 @@
      again: it never touches relay.config.json or hosts.json. Restart the
      relay. Games end. The hosts open them again by themselves, within
      seconds.
-   * Backing up. Keep hosts.json (fingerprints only) and relay.config.json.
-     The relay keeps nothing else: no database, no data folder.
-   * Moving. Copy those two files to the new machine, start it there, then
+   * Backing up. Keep hosts.json (fingerprints only), relay.config.json and,
+     for h9web mode, relay.site.ini. The relay keeps nothing else: no database,
+     no data folder.
+   * Moving. Copy those files to the new machine, start it there, then
      move the DNS record. Lower its TTL a day ahead.
 
 

@@ -95,8 +95,11 @@ if (!dev) {
     auth = hostsAuth;
     authText = "tokens (" + hostsPath + ", " + hostsAuth.size() + " host" + (hostsAuth.size() === 1 ? "" : "s") + ")";
   } else {
-    auth = linkTokenAuth({ statusUrl: config.auth.url.replace(/\/+$/, "") + "/api/link/status?token=" });
-    authText = "havoc9.org link tokens (checked against " + config.auth.url + ")";
+    // the site's address is read from the environment (run.bat and run.sh fill it from relay.site.ini): the operator's setting, never a key of the config file
+    const site = String(process.env.H9RV_SITE_URL || "").trim();
+    if (!/^https?:\/\/[^/\s]+/.test(site)) die("auth.mode h9web needs the address of the site in the environment variable H9RV_SITE_URL: write  H9RV_SITE_URL=https://havoc9.org  in relay.site.ini beside relay.config.json (README.txt, auth)");
+    auth = linkTokenAuth({ statusUrl: site.replace(/\/+$/, "") + "/api/link/status?token=" });
+    authText = "havoc9.org link tokens (checked against " + site + ")";
   }
 }
 

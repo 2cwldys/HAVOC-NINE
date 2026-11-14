@@ -86,12 +86,14 @@
    lib/helper.js      the helper's library (HostHelper, JoinHelper)
    bin/h9rv.js        the relay's command line: run, --check, token, hosts
    bin/h9p2p.js       the helper's command line
-   run.bat, run.sh    start the relay from relay.config.json (they check for Node 20+)
+   run.bat, run.sh    start the relay from relay.config.json (they check for Node 20+, and put
+                      H9RV_SITE_URL from relay.site.ini into the environment when it is there)
    relay.config.example.json, hosts.example.json    the examples (every key below)
+   relay.site.ini.example    the site address of auth.mode h9web (copy it to relay.site.ini)
    h9-p2p.service.example    the systemd unit
    package.json       "npm test" runs the tests (Node 24; Node 20 runs each file by name)
    test/              node:test files (section 11)
-   .gitignore         keeps hosts.json and relay.config.json out of git
+   .gitignore         keeps hosts.json, relay.config.json and relay.site.ini out of git
 
  h9web/modules/p2p/index.js runs the same service inside h9web (h9web/README.txt,
  section 20); it finds this folder's lib/ beside h9web/. The VPS packages carry
@@ -107,7 +109,10 @@
    auth                 -        REQUIRED (not with --dev): who may host, section 4
      mode                        "tokens" or "h9web"
      hostsFile                   tokens: the hosts file, "hosts.json"
-     url                         h9web: the site whose accounts count, "https://havoc9.org"
+                                 h9web: the site whose accounts count is NOT a key of this file: it is the
+                                 environment variable H9RV_SITE_URL ("https://havoc9.org"), which run.bat and
+                                 run.sh read from relay.site.ini beside this file (never committed; copy
+                                 relay.site.ini.example) and a systemd unit from an EnvironmentFile
    publicUdp            -        REQUIRED: what the relay tells players to send UDP to
      host                        a DNS name or public address, not 0.0.0.0, not CHANGE-ME
      port                        the UDP port (the same one as bind.udp.port, or the one
@@ -182,9 +187,9 @@
    * Accounts: a tokens relay has no friend accounts. A host's invite or listing that asks
      for require-account is refused with 400 "accounts unavailable" (use the h9web mode).
 
- h9web (auth.mode "h9web", auth.url "https://havoc9.org"): the token is the player's havoc9.org
+ h9web (auth.mode "h9web", H9RV_SITE_URL "https://havoc9.org"): the token is the player's havoc9.org
    LINK token (the one a game holds after "Link your account"). The relay asks
-   GET <url>/api/link/status?token=<token> and takes {"status":"linked","account":"Neo"} as
+   GET <H9RV_SITE_URL>/api/link/status?token=<token> and takes {"status":"linked","account":"Neo"} as
    the account h9:neo. An answer is kept 60 seconds (a refusal 10 seconds); at most 40 checks
    that miss the cache are made in a burst, 20 a second after. A suspended or unlinked account
    stops hosting when the answer is asked for again. Friend accounts work (require-account).
@@ -194,6 +199,18 @@
    unseals it and gives it to the helper is not built yet (docs/P2P_HOSTING.txt, section 10), so
    today a host reaches a havoc9.org relay only with a token made some other way; hosts.json
    relays work now.
+   WHERE THE SITE'S ADDRESS IS WRITTEN. Not in relay.config.json (auth.url is gone from it, and a
+   leftover is refused with a sentence that says so). It is the environment variable H9RV_SITE_URL:
+     * run.bat and run.sh read it from relay.site.ini beside relay.config.json, a file of one line
+         H9RV_SITE_URL=https://havoc9.org
+       Copy relay.site.ini.example to relay.site.ini and edit it. The file is in .gitignore and
+       never committed, like hosts.json and relay.config.json;
+     * a systemd unit reads the same file: h9-p2p.service.example has the line
+         EnvironmentFile=-/etc/h9-p2p/relay.site.ini        (the - lets the file be missing)
+       so for h9web mode put relay.site.ini into /etc/h9-p2p with the other two files;
+     * by hand, set the variable before  node bin/h9rv.js --config relay.config.json.
+   Without it an h9web-mode relay refuses to start and says so (exit 2); a tokens-mode relay never
+   looks at it.
 
  --dev: dev.hosts and dev.accounts of the config are the tokens. For tests. Never on the Internet.
 

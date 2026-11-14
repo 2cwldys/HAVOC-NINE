@@ -96,6 +96,16 @@ test("it refuses to start without an auth, with the example's CHANGE-ME values, 
   assert.match(r.stderr, /no host token in it yet/);
   w({ ...good, auth: { mode: "h9web", url: "gopher://x" } });
   assert.equal(run(["--config", cfg]).status, 2);
+  // h9web mode: the site's address is the environment's (relay.site.ini through run.bat), and a start without it says so
+  w({ ...good, auth: { mode: "h9web" } });
+  const noSite = { ...process.env };
+  delete noSite.H9RV_SITE_URL;
+  r = run(["--config", cfg], { env: noSite });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /H9RV_SITE_URL/);
+  r = run(["--config", cfg], { env: { ...noSite, H9RV_SITE_URL: "gopher://x" } });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /H9RV_SITE_URL/);
   fs.writeFileSync(path.join(dir, "hosts.json"), JSON.stringify({ ["h9t_" + "q".repeat(32)]: { id: 1, name: "Mike" } }));
   w({ ...good, publicPorts: { range: "28000-28099", max: 10 } });
   r = run(["--config", cfg]);

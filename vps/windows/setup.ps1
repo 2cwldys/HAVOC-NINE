@@ -375,7 +375,7 @@ if ($P2P) {
     # its code by name: never a real config or hosts file from a clone
     Step "the relay's code into $P2PHome" {
         foreach ($f in @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
-                         'relay.config.example.json', 'hosts.example.json', 'run.bat')) {
+                         'relay.config.example.json', 'hosts.example.json', 'relay.site.ini.example', 'run.bat')) {
             $to = Join-Path $P2PHome $f
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
             Copy-Item -LiteralPath (Join-Path $Src "p2p\$f") -Destination $to -Force

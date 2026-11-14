@@ -34,4 +34,10 @@ if [ "$made" = 1 ]; then
   exit 1
 fi
 
+# relay.site.ini (never committed) holds H9RV_SITE_URL=<address of the site> for auth.mode h9web
+if [ -f relay.site.ini ] && [ -z "$H9RV_SITE_URL" ]; then
+  H9RV_SITE_URL=$(sed -n 's/^[[:space:]]*H9RV_SITE_URL[[:space:]]*=[[:space:]]*//p' relay.site.ini | head -n 1 | tr -d '\r')
+  export H9RV_SITE_URL
+fi
+
 exec node bin/h9rv.js --config relay.config.json "$@"

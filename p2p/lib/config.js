@@ -55,11 +55,12 @@ export function loadConfig(file, { dev = false } = {}) {
     }
     const a = config.auth;
     if (!dev) {
-      if (!a || typeof a !== "object") problems.push("auth is missing: { \"mode\": \"tokens\", \"hostsFile\": \"hosts.json\" } or { \"mode\": \"h9web\", \"url\": \"https://havoc9.org\" }");
+      if (!a || typeof a !== "object") problems.push("auth is missing: { \"mode\": \"tokens\", \"hostsFile\": \"hosts.json\" } or { \"mode\": \"h9web\" } (with H9RV_SITE_URL in relay.site.ini)");
       else if (a.mode === "tokens") {
         if (typeof a.hostsFile !== "string" || !a.hostsFile) problems.push("auth.hostsFile must name the hosts file (for example \"hosts.json\")");
       } else if (a.mode === "h9web") {
-        if (typeof a.url !== "string" || !/^https?:\/\/[^/\s]+/.test(a.url)) problems.push("auth.url must be the address of an h9web, for example \"https://havoc9.org\"");
+        // the site's address is the operator's setting, in the environment (relay.site.ini), not a key of this file
+        if (a.url !== undefined) problems.push("auth.url has moved: write H9RV_SITE_URL=<the address of the site, for example https://havoc9.org> in relay.site.ini beside this file, and take auth.url out of it");
       } else problems.push("auth.mode must be \"tokens\" or \"h9web\"");
     }
     const tls = b.http && b.http.tls;

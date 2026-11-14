@@ -163,7 +163,7 @@ p2p_install() {
   rsync -a --prune-empty-dirs \
     --include='/lib/' --include='/lib/service.js' --include='/lib/wire.js' --include='/lib/codes.js' --include='/lib/limits.js' \
     --include='/lib/auth.js' --include='/lib/config.js' --include='/bin/' --include='/bin/h9rv.js' --include='/package.json' \
-    --include='/README.txt' --include='/relay.config.example.json' --include='/hosts.example.json' --include='/run.sh' \
+    --include='/README.txt' --include='/relay.config.example.json' --include='/hosts.example.json' --include='/relay.site.ini.example' --include='/run.sh' \
     --include='/h9-p2p.service.example' --exclude='*' "$SRC/p2p/" "$P2P_HOME/"
   chown -R root:root "$P2P_HOME"
   chmod -R u=rwX,go=rX "$P2P_HOME"

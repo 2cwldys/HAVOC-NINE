@@ -83,7 +83,7 @@ $Own = @{
 }
 # the relay's files, picked by name: its service, never the helper, the tests or a real config
 $P2pFiles = @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
-              'relay.config.example.json', 'hosts.example.json', 'run.sh', 'run.bat', 'h9-p2p.service.example')
+              'relay.config.example.json', 'hosts.example.json', 'relay.site.ini.example', 'run.sh', 'run.bat', 'h9-p2p.service.example')
 $need = @('h9web\server.js', 'h9web\bin\h9web-backup.js', 'havoc9.org\index.html', 'havoc9.org\deploy\nginx-setup.sh', 'serverlist-bot\h9_serverlist.py')
 foreach ($f in $P2pFiles) { $need += "p2p\$f" }
 foreach ($t in $Targets) { foreach ($pair in $Own[$t]) { $need += $pair[0] } }

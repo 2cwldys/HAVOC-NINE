@@ -236,7 +236,8 @@ test("the relay's config file: what is refused before anything starts", () => {
   const load = (doc, opts) => { write(file, doc); return loadConfig(file, opts); };
   const good = { publicUdp: { host: "relay.example.net", port: 27248 }, auth: { mode: "tokens", hostsFile: "hosts.json" } };
   assert.deepEqual(load(good).problems, []);
-  assert.deepEqual(load({ ...good, auth: { mode: "h9web", url: "https://havoc9.org" } }).problems, []);
+  assert.deepEqual(load({ ...good, auth: { mode: "h9web" } }).problems, []);
+  assert.match(load({ ...good, auth: { mode: "h9web", url: "https://havoc9.org" } }).problems.join("|"), /auth\.url has moved/);
   assert.match(load({ ...good, publicUdp: { host: PLACEHOLDER + "-name", port: 27248 } }).problems.join("|"), /publicUdp\.host still says CHANGE-ME/);
   assert.match(load({ ...good, publicUdp: { host: "", port: 27248 } }).problems.join("|"), /publicUdp\.host must be/);
   assert.match(load({ ...good, publicUdp: { host: "0.0.0.0", port: 27248 } }).problems.join("|"), /publicUdp\.host must be/);

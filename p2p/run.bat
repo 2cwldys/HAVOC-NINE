@@ -45,6 +45,8 @@ if "%made%"=="1" (
   exit /b 1
 )
 
+rem relay.site.ini (never committed) holds H9RV_SITE_URL=<address of the site> for auth.mode h9web
+if exist relay.site.ini for /f "usebackq tokens=1,* delims==" %%a in ("relay.site.ini") do if /i "%%a"=="H9RV_SITE_URL" set "H9RV_SITE_URL=%%b"
 node bin\h9rv.js --config relay.config.json %*
 set rc=%errorlevel%
 if not "%rc%"=="0" pause
