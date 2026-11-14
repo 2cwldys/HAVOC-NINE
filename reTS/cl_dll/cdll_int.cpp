@@ -44,6 +44,7 @@ TeamFortressViewport* gViewPort = NULL;
 
 #include "particleman.h"
 #include "ts_emitter.h" // TSEmitter_Frame
+#include "h9_rallysnd.h" // H9RallySnd_Frame
 IParticleMan* g_pParticleMan = nullptr;
 
 void CL_LoadParticleMan();
@@ -264,6 +265,7 @@ void DLLEXPORT HUD_Frame(double time)
 
 	GetClientVoiceMgr()->Frame(time);
 	TSEmitter_Frame(time); // client.dll HUD_Frame -> FUN_1003ab40: the map's ts_emitter effects
+	H9RallySnd_Frame(); // H9 rally mode: the engine loops, the squeal and the backfire of the cars (h9_rallysnd.cpp)
 	gHUD.m_TSPowerUp.InterpolateSlow((float)time); // 0x10055ae0, the slow factor's easing
 	extern bool g_bTSKeyBound;
 	g_bTSKeyBound = false; // 0x1001ab27

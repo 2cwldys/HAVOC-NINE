@@ -17,6 +17,7 @@
 #include "h9_racehud.h"
 #include "h9_racehud_draw.h"
 #include "h9_rallycar.h" // H9RallyCar_LocalSpeed
+#include "h9_rallysnd.h" // H9RallySnd_RaceState, H9RallySnd_RaceNote
 
 #include <string.h>
 #include <stdio.h>
@@ -101,6 +102,7 @@ int MsgState(const char* pszName, int iSize, void* pbuf)
 	s_m.countdown = READ_SHORT() / 10.0f;
 	TakeClock(serverNow);
 	s_m.haveState = true;
+	H9RallySnd_RaceState(s_m.state, s_m.t0, serverNow, s_m.countdown); // the race voices (rally mode)
 	if (!s_m.resultsUp)
 		s_m.rowCount = s_m.rowTotal = 0; // the table goes when the server says the race goes on (or waits again)
 	if (s_m.state == RACE_WAITING || s_m.state == RACE_COUNTDOWN)
@@ -121,6 +123,7 @@ int MsgNote(const char* pszName, int iSize, void* pbuf)
 	s_m.noteTime = READ_LONG();
 	s_m.noteDiff = READ_LONG();
 	s_m.noteAt = gEngfuncs.GetClientTime();
+	H9RallySnd_RaceNote(s_m.noteKind, s_m.noteA, s_m.noteB); // the race voices, and the engine muted at his finish (rally mode)
 	return 1;
 }
 
