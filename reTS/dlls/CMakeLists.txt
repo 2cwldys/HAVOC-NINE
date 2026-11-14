@@ -87,6 +87,7 @@ target_sources(hl PRIVATE
 	race.h
 	race_book.cpp
 	race_book.h
+	race_rally.h
 	ts_deadcorpse.cpp
 	TS_combat.cpp
 	TS_entities.cpp
@@ -216,7 +217,10 @@ target_sources(hl PRIVATE
 add_executable(race_test EXCLUDE_FROM_ALL
 	tests/race_test.cpp
 	race_book.cpp
-	race_book.h)
+	race_book.h
+	race_rally.h
+	race_rally.h
+	../pm_shared/h9_rally.h)
 
 # Rally mode handling maths alone, with no engine (pm_shared/h9_rally.h): top speeds by surface, slides, the
 # handbrake, stopping, symmetry, the texture-name rules.

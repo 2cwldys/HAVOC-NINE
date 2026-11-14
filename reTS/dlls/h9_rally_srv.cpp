@@ -6,13 +6,15 @@
 *  sides (pm_shared/h9_rally.cpp). The only thing the client needs from here is the physinfo key "rally", which the
 *  engine sends in the client data. Each frame this makes the player's state match the cvar: the key, no weapons, the
 *  car's size for other entities, and, when the mode goes off, the standing size and a lift out of the floor.
-*  The seats, the grid and the car's model are the race's (race.cpp), not this file's.
+*  A race map in rally mode (race.cpp) asks for class 1 through RaceRallyClass() when the cvar is 0. The grid, the
+*  holds and the car's model are the race's (race.cpp), not this file's.
 ***/
 #include "extdll.h"
 #include "util.h"
 #include "cbase.h"
 #include "player.h"
 #include "h9_rally_srv.h"
+#include "race.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -25,11 +27,17 @@ void H9RallyRegisterCvars()
 	CVAR_REGISTER(&h9_rally);
 }
 
-// The class the cvar asks for: 0 off, 1 to 3 a car.
-static int WantedClass()
+int H9RallyCvarClass()
 {
 	const int v = (int)h9_rally.value;
 	return v < 0 ? 0 : (v > 3 ? 3 : v);
+}
+
+// The class asked for: the cvar's, else the one a race map in rally mode (race_rules `vehicle "rally"`) gives, else off.
+static int WantedClass()
+{
+	const int v = H9RallyCvarClass();
+	return v > 0 ? v : RaceRallyClass();
 }
 
 // The class this player's physinfo says he is in.

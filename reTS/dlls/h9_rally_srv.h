@@ -10,3 +10,6 @@ void H9RallyRegisterCvars();
 
 // Called each frame for each living player (CBasePlayer::PostThink): makes his state match h9_rally.
 void H9RallyServerThink(CBasePlayer* pl);
+
+// The cvar h9_rally as a class: 0 off, 1 to 3 (race.cpp lets it force rally mode in a map with race_rules).
+int H9RallyCvarClass();

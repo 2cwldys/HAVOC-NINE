@@ -820,6 +820,8 @@ void CH9Car::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType
 	}
 	if (pDriver || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
 		return;
+	if (RaceRallyMode() && m_iSlot > 0) // a race map in rally mode: the grid cars are not used
+		return;
 	TakeWheel(pPlayer);
 }
 
@@ -1626,7 +1628,7 @@ void CRacePick::Spawn()
 // A map with no lobby (race_rules "autojoin"): the free grid car with the lowest slot takes him, in its own skin.
 bool RaceSeatFree(CBasePlayer* pPlayer)
 {
-	if (!pPlayer || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
+	if (!pPlayer || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL || RaceRallyMode())
 		return false;
 	CH9Car* pFree = NULL;
 	CBaseEntity* pEntity = NULL;
@@ -1645,7 +1647,7 @@ bool RaceSeatFree(CBasePlayer* pPlayer)
 
 void CRacePick::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value)
 {
-	if (!pActivator || !pActivator->IsPlayer() || !RaceActive())
+	if (!pActivator || !pActivator->IsPlayer() || !RaceActive() || RaceRallyMode()) // rally mode has no lobby
 		return;
 	CBasePlayer* pPlayer = static_cast<CBasePlayer*>(pActivator);
 	if (!pPlayer->IsAlive() || pPlayer->m_pTank != NULL)

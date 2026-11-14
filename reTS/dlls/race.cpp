@@ -30,6 +30,10 @@
 *  (_h9race), and gets the H9R* user messages that race.h lists, sent from the think like everything else. Any
 *  other game gets server text (TE_TEXTMESSAGE on four channels), sent a few times a second at most. RaceText is
 *  the one door of the text: it lets nothing through to a player with the HUD.
+*  Vehicle. race_rules `vehicle` is "car" (default: a racer is a player at the wheel of an h9_car on the grid) or "rally"
+*  (a racer IS the car: a living player in rally mode, pm_shared/h9_rally.h). The cvar h9_rally 1..3 forces "rally" in any
+*  map with race_rules. In rally mode everybody who joins is a racer on the lowest free grid slot (no lobby, no race_pick),
+*  the map's h9_cars are not used, and a racer is held with FL_FROZEN (see RallyHold).
 *  Cvars: mp_racelaps (0 = the map's `laps`), mp_racewarmup (seconds before each countdown, 10).
 ***/
 #include "extdll.h"
@@ -38,6 +42,8 @@
 #include "player.h"
 #include "race.h"
 #include "race_book.h"
+#include "race_rally.h"
+#include "h9_rally_srv.h"
 #include "UserMessages.h"
 
 #include <math.h>
@@ -239,6 +245,12 @@ private:
 		bool hasLast = false;
 		unsigned long long inside = 0; // the checkpoints his last move met, one bit each
 		float nextStatus = 0, nextWarn = 0;
+		// rally mode
+		bool frozen = false;       // FL_FROZEN is set by the race
+		float resetHeld = 0;       // seconds the reset key has been down
+		RaceStrandWatch strand;
+		float nextLook = 0;        // when the surface under him is read again
+		int surface = 0;           // and what it was (the low 3 bits of blending[1])
 	};
 
 	void Survey();
@@ -258,6 +270,8 @@ private:
 	void Beep(const char* sample, int pitch);
 
 public:
+	bool Rally() const { return RaceRallyClass() > 0; }
+	bool RallyKey() const { return m_bRallyKey; }
 	bool HudOn(int index) const { return index >= 1 && index <= RACE_MAX_PLAYERS && m_hud[index].on; }
 
 private:
@@ -298,10 +312,24 @@ private:
 	// settings (keys)
 	int m_iLaps = 3;
 	float m_flCountdown = 5, m_flMaxTime = 0, m_flFinishWait = 30;
+	bool m_bRallyKey = false;                 // "vehicle" "rally"
 	bool m_bAutoJoin = false;                 // "autojoin": no lobby; whoever is on foot is put in a free grid car
 	float m_flSeatAt[RACE_MAX_PLAYERS + 1] = {}; // by player index: not before this (he has just left a car)
 	bool m_bHadCar[RACE_MAX_PLAYERS + 1] = {};
 	void AutoJoin();
+
+	// rally mode
+	bool m_bWasRally = false;   // the mode the seats were made for
+	int m_iGrid = 0;            // grid slots the map has (1..m_iGrid, no gaps)
+	float m_flVoidZ = -99999;   // below this a racer is out of the world
+	float m_flRallyDt = 0;
+	void RallyRoster();
+	void RallyFrame(float dt);
+	void RallyPut(CBasePlayer* pPlayer, const Vector& origin, const Vector& angles);
+	void RallyHold(int index, CBasePlayer* pPlayer, bool held);
+	void RallyRelease(CBasePlayer* pPlayer);
+	void RallySeats();
+	void DriveState(CBasePlayer* pPlayer, float& speed, float& slip, float& top) const;
 
 	// the map
 	Checkpoint m_checkpoints[RACE_MAX_CHECKPOINTS];
@@ -434,6 +462,8 @@ bool CRaceRules::KeyValue(KeyValueData* pkvd)
 		m_flMaxTime = atof(pkvd->szValue);
 	else if (FStrEq(pkvd->szKeyName, "finishwait"))
 		m_flFinishWait = atof(pkvd->szValue);
+	else if (FStrEq(pkvd->szKeyName, "vehicle"))
+		m_bRallyKey = RaceVehicleKeyIsRally(pkvd->szValue);
 	else if (FStrEq(pkvd->szKeyName, "autojoin"))
 		m_bAutoJoin = atoi(pkvd->szValue) != 0;
 	else
@@ -546,6 +576,44 @@ void CRaceRules::Survey()
 		m_iMarks = 0;
 		ALERT(at_warning, "race_rules: no race_waypoint line (numbers 0, 1, 2...): places and the wrong-way watch go by straight distance\n");
 	}
+	// the grid, and the lowest place any race entity stands on (a racer below that much less 2000 is out of the world)
+	m_iGrid = 0;
+	{
+		Vector o, a;
+		while (m_iGrid < RACE_MAX_PLAYERS && RaceGridSlot(m_iGrid + 1, o, a))
+			m_iGrid++;
+	}
+	m_flVoidZ = 99999;
+	for (int number = 0; number < m_iCheckpoints; number++)
+		if (m_checkpoints[number].mins.z < m_flVoidZ)
+			m_flVoidZ = m_checkpoints[number].mins.z;
+	const char* const placeNames[2] = {"race_grid", "race_respawn"};
+	for (const char* name : placeNames)
+	{
+		CBaseEntity* pPlace = NULL;
+		while ((pPlace = UTIL_FindEntityByClassname(pPlace, name)) != NULL)
+			if (pPlace->pev->origin.z < m_flVoidZ)
+				m_flVoidZ = pPlace->pev->origin.z;
+	}
+	m_flVoidZ -= 2000.0f;
+	if (Rally())
+	{
+		// the map's grid cars are not used: seen by nobody, touched by nobody, entered by nobody (race_rally guards in
+		// h9_car.cpp: Use, RaceSeatFree, race_pick)
+		CBaseEntity* pCar = NULL;
+		int hidden = 0;
+		while ((pCar = UTIL_FindEntityByClassname(pCar, "h9_car")) != NULL)
+			if (pCar->pev->iuser4 > 0)
+			{
+				pCar->pev->effects |= EF_NODRAW;
+				pCar->pev->solid = SOLID_NOT;
+				hidden++;
+			}
+		ALERT(at_console, "race_rules: rally mode (class %d): racers are players; %d grid h9_cars are not used, %d grid places\n",
+			RaceRallyClass(), hidden, m_iGrid);
+		if (m_iGrid == 0)
+			ALERT(at_error, "race_rules: rally mode and the map has no race_grid: nobody can race\n");
+	}
 	// what a player needs to get into the race at all
 	int cars = 0, picks = 0;
 	CBaseEntity* pThing = NULL;
@@ -555,9 +623,9 @@ void CRaceRules::Survey()
 	pThing = NULL;
 	while ((pThing = UTIL_FindEntityByClassname(pThing, "race_pick")) != NULL)
 		picks++;
-	if (cars == 0)
+	if (cars == 0 && !Rally())
 		ALERT(at_warning, "race_rules: the map has no h9_car with a slot key: nobody can race\n");
-	if (picks == 0 && !m_bAutoJoin)
+	if (picks == 0 && !m_bAutoJoin && !Rally())
 		ALERT(at_warning, "race_rules: the map has no race_pick: nobody can get into a grid car\n");
 	ALERT(at_console, "race_rules: %d checkpoints, %d laps, countdown %.0f s, finishwait %.0f s, maxtime %.0f s\n",
 		m_iCheckpoints, m_iLaps, m_flCountdown, m_flFinishWait, m_flMaxTime);
@@ -567,6 +635,11 @@ void CRaceRules::Survey()
 // slot back.
 void CRaceRules::Roster()
 {
+	if (Rally())
+	{
+		RallyRoster();
+		return;
+	}
 	for (int index = 1; index <= gpGlobals->maxClients && index <= RACE_MAX_PLAYERS; index++)
 	{
 		Seat& seat = m_seats[index];
@@ -701,9 +774,13 @@ void CRaceRules::RaceThink()
 		pev->nextthink = now + 5.0f;
 		return;
 	}
-	if (m_bAutoJoin)
+	if (Rally() != m_bWasRally)
+		RallySeats(); // the vehicle changed (the cvar): the seats of the other kind are given up
+	if (m_bAutoJoin && !Rally())
 		AutoJoin();
 	Roster();
+	if (Rally())
+		RallyFrame(dt);
 	HudFrame();
 	if (m_flGantryOff > 0 && now >= m_flGantryOff)
 	{
@@ -785,6 +862,20 @@ void CRaceRules::Wait()
 	m_book.Configure(m_iCheckpoints, laps);
 	m_flGo = now + m_flCountdown;
 	m_iRound++; // the cars go to the grid (the car reads RaceRound)
+	if (Rally())
+	{
+		// the racers are players: the same moment puts each on his slot
+		for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+		{
+			CBasePlayer* pPlayer = m_seats[index].in ? RacePlayer(index) : NULL;
+			Vector origin, angles;
+			if (pPlayer && RaceGridSlot(m_seats[index].slot, origin, angles))
+			{
+				RallyPut(pPlayer, origin, angles);
+				Placed(pPlayer);
+			}
+		}
+	}
 	SetState(RACE_COUNTDOWN);
 	Countdown();
 }
@@ -942,8 +1033,9 @@ void CRaceRules::Status(int index, CBasePlayer* pPlayer)
 			char left[48] = "";
 			if (m_flMaxTime > 0)
 				snprintf(left, sizeof(left), "\nLEFT %s", RaceTime(m_book.StartTime() + m_flMaxTime + racer->bonus - now, true));
-			CBaseEntity* pCar = pPlayer->m_pTank;
-			const int speed = pCar ? (int)fabsf(pCar->pev->fuser2) : 0; // the car's speed along its nose (h9_car)
+			float carSpeed, carSlip, carTop;
+			DriveState(pPlayer, carSpeed, carSlip, carTop);
+			const int speed = (int)fabsf(carSpeed);
 			snprintf(text, sizeof(text), "LAP %d/%d   POS %d/%d\nTIME %s\nLAP  %s\nBEST %s%s\nSPEED %d", racer->lap + 1, laps,
 				racer->place, Racers(), RaceTime(now - m_book.StartTime(), true), RaceTime(now - racer->lapStart, true), best,
 				left, speed);
@@ -1097,6 +1189,197 @@ void CRaceRules::Placed(CBasePlayer* pPlayer)
 	m_seats[index].hasLast = false;
 	m_seats[index].inside = 0;
 	m_book.Placed(index);
+}
+
+// ── rally mode: the racer is the player ──
+
+// The speed along his nose, his slip (0..1) and his car's top speed: an h9_car's own numbers (fuser2, fuser4, fuser3), or
+// the player's, from his velocity and heading.
+void CRaceRules::DriveState(CBasePlayer* pPlayer, float& speed, float& slip, float& top) const
+{
+	if (Rally())
+	{
+		const RaceRallyDrive d = RaceRallyDriveOf(pPlayer->pev->velocity.x, pPlayer->pev->velocity.y, pPlayer->pev->v_angle.y, false,
+			false, false, 0);
+		speed = d.speed;
+		slip = d.slip;
+		top = RaceRallyTopSpeed(RaceRallyClass());
+		return;
+	}
+	CBaseEntity* pCar = pPlayer->m_pTank;
+	speed = pCar ? pCar->pev->fuser2 : 0;
+	slip = pCar ? pCar->pev->fuser4 : 0;
+	top = pCar ? pCar->pev->fuser3 : 0;
+}
+
+// Every seat is given up (the vehicle changed under it): the players are let go and rejoin by the other rule.
+void CRaceRules::RallySeats()
+{
+	m_bWasRally = Rally();
+	for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+	{
+		Seat& seat = m_seats[index];
+		if (!seat.in)
+			continue;
+		CBasePlayer* pPlayer = RacePlayer(index);
+		if (pPlayer)
+			RallyRelease(pPlayer);
+		m_book.Remove(index);
+		seat = Seat();
+	}
+}
+
+// Held or not: the movement of a car that is held is refused in pmove on both sides (CarHeld in pm_shared/h9_rally.cpp
+// reads FL_FROZEN or maxspeed < 2). FL_FROZEN is in clientdata's `flags` (game/ts/delta.lst, 32 bits), so the client's
+// pmove has it; the maxspeed, which the client takes from pfnSetClientMaxspeed too, is not touched.
+void CRaceRules::RallyHold(int index, CBasePlayer* pPlayer, bool held)
+{
+	Seat& seat = m_seats[index];
+	if (held == seat.frozen)
+		return;
+	seat.frozen = held;
+	if (held)
+		pPlayer->pev->flags |= FL_FROZEN;
+	else
+		pPlayer->pev->flags &= ~FL_FROZEN;
+}
+
+// A racer who goes out of the race (left, died, the vehicle changed) is not held any more.
+void CRaceRules::RallyRelease(CBasePlayer* pPlayer)
+{
+	pPlayer->pev->flags &= ~FL_FROZEN;
+}
+
+// The player on a place, facing its way, at rest. The heading is the view yaw (pmove steers by cmd.viewangles), so the
+// view is set with fixangle.
+void CRaceRules::RallyPut(CBasePlayer* pPlayer, const Vector& origin, const Vector& angles)
+{
+	entvars_t* pev = pPlayer->pev;
+	UTIL_SetOrigin(pev, origin);
+	pev->velocity = g_vecZero;
+	pev->basevelocity = g_vecZero;
+	pev->avelocity = g_vecZero;
+	pev->punchangle = g_vecZero;
+	pev->angles = Vector(0, angles.y, 0);
+	pev->v_angle = Vector(0, angles.y, 0);
+	pev->fixangle = 1;
+	pev->flags &= ~FL_ONGROUND;
+	pev->groundentity = NULL;
+}
+
+// Who is racing, in rally mode: a living player in the map who is not an observer. A newcomer gets the lowest slot free
+// and is put on it (in the warm-up, the countdown, or in the middle of a race, from lap 0 and not held; not while a race
+// is ending: he is a free car until the next one). A player the grid has no slot for drives free.
+void CRaceRules::RallyRoster()
+{
+	bool used[RACE_MAX_PLAYERS + 2] = {};
+	for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+		if (m_seats[index].in && m_seats[index].slot >= 1 && m_seats[index].slot <= RACE_MAX_PLAYERS)
+			used[m_seats[index].slot] = true;
+	for (int index = 1; index <= gpGlobals->maxClients && index <= RACE_MAX_PLAYERS; index++)
+	{
+		Seat& seat = m_seats[index];
+		CBasePlayer* pPlayer = RacePlayer(index);
+		if (pPlayer && (!pPlayer->IsAlive() || pPlayer->IsObserver()))
+		{
+			if (seat.in)
+				RallyRelease(pPlayer);
+			pPlayer = NULL;
+		}
+		if (!pPlayer)
+		{
+			if (seat.in)
+			{
+				used[seat.slot] = false;
+				m_book.Remove(index);
+				seat = Seat();
+			}
+			continue;
+		}
+		if (seat.in || m_state == RACE_FINISHED)
+			continue;
+		const int slot = RaceLowestFreeSlot(used, m_iGrid);
+		if (slot == 0)
+			continue; // the grid is full
+		Vector origin, angles;
+		if (!RaceGridSlot(slot, origin, angles))
+			continue;
+		used[slot] = true;
+		seat = Seat();
+		seat.in = true;
+		seat.slot = slot;
+		m_book.Add(index);
+		if (m_state == RACE_WAITING)
+			m_flWarmEnd = 0; // the warm-up begins again
+		RallyPut(pPlayer, origin, angles);
+		Placed(pPlayer);
+		ALERT(at_console, "race: %s takes grid slot %d\n", STRING(pPlayer->pev->netname), slot);
+	}
+}
+
+// Each racer's frame in rally mode: held or not, his livery, the two state bytes for other clients, the reset key, and
+// the watch for the world's edge and deep water.
+void CRaceRules::RallyFrame(float dt)
+{
+	for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+	{
+		Seat& seat = m_seats[index];
+		CBasePlayer* pPlayer = seat.in ? RacePlayer(index) : NULL;
+		if (!pPlayer)
+			continue;
+		entvars_t* pev = pPlayer->pev;
+		const bool held = Holds(pPlayer);
+		RallyHold(index, pPlayer, held);
+		pev->skin = RaceRallySkin(seat.slot);
+
+		// R held a second (the h9_car's reset): back on the race_respawn of his last checkpoint
+		seat.resetHeld = (!held && (pev->button & IN_RELOAD)) ? seat.resetHeld + dt : 0;
+		bool putBack = false;
+		if (seat.resetHeld >= 1.0f)
+		{
+			seat.resetHeld = 0;
+			putBack = true;
+		}
+		// out of the world, or in deep water 3 s
+		const bool belowWorld = pev->origin.z < m_flVoidZ;
+		const bool inRock = UTIL_PointContents(pev->origin) == CONTENTS_SOLID;
+		if (seat.strand.Update(belowWorld, inRock, pev->waterlevel >= 2, dt))
+			putBack = true;
+		if (putBack)
+		{
+			Vector origin, angles;
+			if (RespawnPoint(pPlayer, origin, angles))
+			{
+				RallyPut(pPlayer, origin, angles);
+				Placed(pPlayer);
+			}
+		}
+
+		// the state bytes: what he stands on is read twice a second, down from his origin
+		const float now = gpGlobals->time;
+		if (now >= seat.nextLook || now < seat.nextLook - 1.0f)
+		{
+			seat.nextLook = now + 0.5f;
+			TraceResult tr;
+			UTIL_TraceLine(pev->origin + Vector(0, 0, 1), pev->origin - Vector(0, 0, 64), ignore_monsters, pPlayer->edict(), &tr);
+			const char* name = NULL;
+			if (tr.flFraction < 1.0f)
+			{
+				edict_t* hit = tr.pHit && !FNullEnt(tr.pHit) ? tr.pHit : ENT(0);
+				name = TRACE_TEXTURE(hit, pev->origin + Vector(0, 0, 1), pev->origin - Vector(0, 0, 64));
+				if (!name && hit != ENT(0))
+					name = TRACE_TEXTURE(ENT(0), pev->origin + Vector(0, 0, 1), pev->origin - Vector(0, 0, 64));
+			}
+			if (name && (*name == '-' || *name == '+') && name[1])
+				name += 2;
+			seat.surface = RaceSurfaceByte(H9RallySurfaceByName(name), pev->waterlevel >= 1);
+		}
+		const bool airborne = !(pev->flags & FL_ONGROUND) && pev->waterlevel < 2;
+		const RaceRallyDrive d = RaceRallyDriveOf(pev->velocity.x, pev->velocity.y, pev->v_angle.y, airborne,
+			(pev->button & IN_BACK) != 0, (pev->button & IN_JUMP) != 0, seat.surface);
+		pev->blending[0] = (byte)d.blending0;
+		pev->blending[1] = (byte)d.blending1;
+	}
 }
 
 // ── the client's HUD (race.h lists the messages; cl_dll/h9_racehud.cpp reads them) ──
@@ -1283,10 +1566,8 @@ void CRaceRules::HudSendStatus(int index, CBasePlayer* pPlayer)
 		flags |= RACE_SF_FINISHED;
 	if (running && racer->retired)
 		flags |= RACE_SF_RETIRED;
-	CBaseEntity* pCar = pPlayer->m_pTank;
-	float speed = pCar ? pCar->pev->fuser2 : 0; // h9_car: the speed along the nose, the slip, the top speed
-	const float slip = pCar ? pCar->pev->fuser4 : 0;
-	const float top = pCar ? pCar->pev->fuser3 : 0;
+	float speed, slip, top;
+	DriveState(pPlayer, speed, slip, top); // the speed along the nose, the slip, the top speed
 	speed = speed < -32000 ? -32000 : (speed > 32000 ? 32000 : speed);
 	const float limit = running && m_flMaxTime > 0 ? m_book.StartTime() + m_flMaxTime + racer->bonus : 0;
 
@@ -1442,6 +1723,18 @@ RaceState RaceGetState()
 int RaceRound()
 {
 	return RaceActive() ? g_pRace->Round() : 0;
+}
+
+int RaceRallyClass()
+{
+	if (!g_pRace)
+		return 0;
+	return RaceRallyClassFor(g_pRace->RallyKey(), H9RallyCvarClass());
+}
+
+bool RaceRallyMode()
+{
+	return RaceRallyClass() > 0;
 }
 
 bool RaceHolds(CBasePlayer* pPlayer)

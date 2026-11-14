@@ -44,6 +44,14 @@ void RacePlaced(CBasePlayer* pPlayer);
 // the grid is full.
 bool RaceSeatFree(CBasePlayer* pPlayer);
 
+// Rally mode (race_rules key `vehicle "rally"`, or the cvar h9_rally 1..3 in any map with race_rules): a racer is a
+// living player who IS the car (pm_shared/h9_rally.h), no h9_car is used, and every player who joins is a racer.
+// The car class the race wants its players to drive as (1..3), 0 when the map's racers drive h9_cars or there is no
+// race_rules. h9_rally_srv.cpp sets the physinfo key from it.
+int RaceRallyClass();
+// True when the race is in rally mode (RaceRallyClass() > 0).
+bool RaceRallyMode();
+
 // The race_waypoint with this number (for the AI drivers of a later wave). False when the map has none.
 bool RaceWaypoint(int number, Vector& origin, float& speed, float& spread);
 

@@ -7,6 +7,7 @@
 *  It prints one line a check and ends with "PASS: n checks" (exit 0) or "FAIL: n of m checks" (exit 1).
 ***/
 #include "../race_book.h"
+#include "../race_rally.h"
 
 #include <cstdio>
 
@@ -148,6 +149,123 @@ int main()
 	Check(RaceSegmentInBox(inside, inside, mins, maxs), "standing inside meets it");
 	Check(!RaceSegmentInBox(before, before, mins, maxs), "standing outside does not");
 	Check(RaceSegmentInBox(after, before, mins, maxs), "the same move backwards meets it too");
+
+	// ── rally mode: the racer is the player (race_rally.h) ──
+	Check(RaceVehicleKeyIsRally("rally") && RaceVehicleKeyIsRally("Rally") && RaceVehicleKeyIsRally("RALLY"), "vehicle \"rally\" in any case is rally mode");
+	Check(!RaceVehicleKeyIsRally("car") && !RaceVehicleKeyIsRally("") && !RaceVehicleKeyIsRally(nullptr) && !RaceVehicleKeyIsRally("rallye") && !RaceVehicleKeyIsRally("ral"), "car, nothing and near misses are the h9_car");
+	Check(RaceRallyClassFor(false, 0) == 0 && RaceRallyClassFor(true, 0) == 1, "no cvar: the key decides (car 0, rally class 1)");
+	Check(RaceRallyClassFor(false, 1) == 1 && RaceRallyClassFor(false, 3) == 3 && RaceRallyClassFor(true, 2) == 2, "h9_rally 1..3 forces rally, whatever the key, and picks the class");
+	Check(RaceRallyClassFor(false, 9) == 3 && RaceRallyClassFor(true, -1) == 1 && RaceRallyClassFor(false, -1) == 0, "an out-of-range cvar is clamped; a negative one is off");
+
+	// slots: the lowest free, in the order players come and go
+	{
+		bool used[9] = {};
+		int slots[5];
+		for (int i = 0; i < 4; i++)
+		{
+			slots[i] = RaceLowestFreeSlot(used, 4);
+			used[slots[i]] = true;
+		}
+		Check(slots[0] == 1 && slots[1] == 2 && slots[2] == 3 && slots[3] == 4, "four players take slots 1, 2, 3, 4 in order");
+		Check(RaceLowestFreeSlot(used, 4) == 0, "a full grid has no slot");
+		used[2] = false;
+		Check(RaceLowestFreeSlot(used, 4) == 2, "the one who left gives slot 2 back and the next takes it");
+		used[2] = true;
+		used[1] = false;
+		used[3] = false;
+		Check(RaceLowestFreeSlot(used, 4) == 1, "two free: the lowest first");
+		Check(RaceLowestFreeSlot(used, 0) == 0, "no grid, no slot");
+	}
+	Check(RaceRallySkin(1) == 0 && RaceRallySkin(8) == 7 && RaceRallySkin(9) == 0 && RaceRallySkin(10) == 1 && RaceRallySkin(0) == 0, "skin = (slot - 1) % 8");
+
+	// the checkpoints, with a player for racer: his origin is on the floor, his pev is 16 high, the box has a margin of 8
+	{
+		RaceBook rb;
+		rb.Configure(3, 1);
+		rb.Add(5);
+		rb.Start(10.0f);
+		const float cm[3][3] = {{-8, -200, -8}, {992, -200, -8}, {1992, -200, -8}}; // boxes 16 thick, 400 wide, 144 high, margins in
+		const float cx[3][3] = {{8, 200, 136}, {1008, 200, 136}, {2008, 200, 136}};
+		float at[3] = {-300, 0, 2}, from[3];
+		unsigned long long inside = 0;
+		int counted = 0;
+		RaceEvent last = RACE_EV_NONE;
+		for (int step = 0; step < 200 && at[0] < 2400; step++) // a car at 500 u/s, 100 frames a second would be 5 u a frame; here 12
+		{
+			from[0] = at[0];
+			from[1] = at[1];
+			from[2] = at[2];
+			at[0] += 12;
+			unsigned long long now = 0;
+			for (int n = 0; n < 3; n++)
+				if (RaceSegmentInBox(from, at, cm[n], cx[n]))
+				{
+					now |= 1ULL << n;
+					if (!(inside & (1ULL << n)))
+					{
+						last = rb.Enter(5, n, 10.0f + step * 0.1f);
+						if (last != RACE_EV_NONE && last != RACE_EV_IGNORED)
+							counted++;
+					}
+				}
+			inside = now;
+		}
+		const RaceRacer* r = rb.Find(5);
+		Check(r && r->last == 2 && r->passed == 2 && counted == 3, "a player's origin driving the line, 1 and 2 passes all three boxes in order");
+	}
+
+	// the two state bytes other clients read
+	{
+		// heading east (yaw 0), 400 u/s along it
+		RaceRallyDrive a = RaceRallyDriveOf(400, 0, 0, false, false, false, 2);
+		Check(a.speed > 399.9f && a.speed < 400.1f && a.slip == 0 && a.blending0 == 0 && a.blending1 == 2, "straight at 400: speed 400, no slip, surface dirt only");
+		// sliding: 300 along, 300 to the left (45 degrees): slip = sin 45 = 0.707, byte 180
+		RaceRallyDrive b = RaceRallyDriveOf(300, 300, 0, false, false, false, 0);
+		Check(b.slip > 0.70f && b.slip < 0.72f && b.blending0 >= 179 && b.blending0 <= 181, "45 degrees of slide: slip 0.707, byte 180");
+		// heading north (yaw 90): the same velocity east is all sideways
+		RaceRallyDrive c = RaceRallyDriveOf(400, 0, 90, false, false, false, 0);
+		Check(c.speed > -0.1f && c.speed < 0.1f && c.slip > 0.99f && c.blending0 == 255, "heading north, moving east: all sideways, slip 255");
+		RaceRallyDrive d = RaceRallyDriveOf(400, 0, 0, true, true, true, 6);
+		Check(d.blending1 == (6 | 8 | 16 | 32), "air 8, braking 16 (back above reverse speed), handbrake 32 and the surface in the low 3 bits");
+		RaceRallyDrive e = RaceRallyDriveOf(20, 0, 0, false, true, false, 0);
+		Check((e.blending1 & 16) == 0, "the back key below 40 u/s is reverse, not braking");
+		RaceRallyDrive f = RaceRallyDriveOf(-100, 0, 0, false, false, false, 0);
+		Check(f.speed < -99.9f && f.slip == 0, "going backwards along the nose: negative speed, no slip");
+		RaceRallyDrive g = RaceRallyDriveOf(10, 10, 0, false, false, false, 0);
+		Check(g.slip == 0, "below 30 u/s there is no slip to draw");
+	}
+	Check(RaceSurfaceByte(H9RS_ROAD, false) == 0 && RaceSurfaceByte(H9RS_NEUTRAL, false) == 0 && RaceSurfaceByte(H9RS_CONCRETE, false) == 0 &&
+		RaceSurfaceByte(H9RS_GRAVEL, false) == 1 && RaceSurfaceByte(H9RS_DIRT, false) == 2 && RaceSurfaceByte(H9RS_SAND, false) == 2 &&
+		RaceSurfaceByte(H9RS_GRASS, false) == 3 && RaceSurfaceByte(H9RS_SNOW, false) == 5 && RaceSurfaceByte(H9RS_ICE, false) == 6 &&
+		RaceSurfaceByte(H9RS_DIRT, true) == 4, "rally surfaces map to the effects' ids: tarmac 0, gravel 1, dirt 2, grass 3, water 4, snow 5, ice 6");
+	Check(RaceSurfaceByte(H9RallySurfaceByName("road_main"), false) == 0 && RaceSurfaceByte(H9RallySurfaceByName("+0grass2"), false) == 3, "texture names go through to the same bytes");
+	{
+		const float top = RaceRallyTopSpeed(1);
+		Check(top > 679.0f && top < 681.0f, "the gauge's end for class 1 is the road's top speed, 680");
+	}
+
+	// the watch: deep water 3 s, rock 1.5 s, below the world at once
+	{
+		RaceStrandWatch w;
+		bool fired = false;
+		for (int i = 0; i < 299; i++)
+			fired |= w.Update(false, false, true, 0.01f);
+		Check(!fired, "2.99 s in deep water: not yet");
+		Check(w.Update(false, false, true, 0.02f), "3 s in deep water: put back");
+		Check(!w.Update(false, false, true, 0.01f), "and the clock starts again");
+		RaceStrandWatch v;
+		for (int i = 0; i < 200; i++)
+			v.Update(false, false, true, 0.01f);
+		v.Update(false, false, false, 0.01f);
+		Check(!v.Update(false, false, true, 1.0f), "leaving the water resets the 3 s");
+		RaceStrandWatch x;
+		Check(x.Update(true, false, false, 0.01f), "below the world's edge: put back at once");
+		RaceStrandWatch y;
+		bool rock = false;
+		for (int i = 0; i < 149; i++)
+			rock |= y.Update(false, true, false, 0.01f);
+		Check(!rock && y.Update(false, true, false, 0.02f), "inside rock 1.5 s: put back");
+	}
 
 	if (g_failed)
 		printf("FAIL: %d of %d checks\n", g_failed, g_checks);
