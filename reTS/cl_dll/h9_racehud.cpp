@@ -16,6 +16,7 @@
 #include "h9_theme.h"
 #include "h9_racehud.h"
 #include "h9_racehud_draw.h"
+#include "h9_rallycar.h" // H9RallyCar_LocalSpeed
 
 #include <string.h>
 #include <stdio.h>
@@ -285,6 +286,20 @@ public:
 	{
 		if (!Enabled())
 			return true;
+		// rally mode: the player is the car, and the speed is HL Rally's own reading, |velocity| / 3 from his predicted velocity (not what the
+		// h9_car says, the server's number along the nose, which the old maps keep); negative while the nose goes backwards, so REVERSE shows
+		float v3d = 0, along = 0;
+		if (H9RallyCar_LocalSpeed(v3d, along))
+		{
+			s_m.speed = along < -20.0f ? -v3d : v3d;
+			s_m.speedUnits = RALLY_SPEED_UNITS;
+			s_m.speedFloor = RALLY_SPEED_FLOOR;
+		}
+		else
+		{
+			s_m.speedUnits = SPEED_UNITS;
+			s_m.speedFloor = 0.0f;
+		}
 		// the gauge follows the speed: most of the way in a tenth of a second
 		const float dt = ClampF((float)gHUD.m_flTimeDelta, 0, 0.1f);
 		s_m.gauge += (s_m.speed - s_m.gauge) * ClampF(dt * 12.0f, 0, 1);

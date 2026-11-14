@@ -18,6 +18,7 @@
 
 #include "hud.h"
 #include "cl_util.h"
+#include "h9_rallycar.h" // H9RallyCam_Fov
 #include <stdlib.h>
 #include <memory.h>
 
@@ -42,6 +43,12 @@ bool CHud::UpdateClientData(client_data_t* cdata, float time)
 	Think();
 
 	cdata->fov = m_iFOV;
+	// H9 rally mode: a car is seen with HL Rally's 90 degrees, unless something (a zoom) has narrowed the player's own
+	{
+		const float rallyFov = H9RallyCam_Fov();
+		if (rallyFov > 0.0f && m_iFOV >= 79)
+			cdata->fov = rallyFov;
+	}
 
 	v_idlescale = m_iConcussionEffect;
 

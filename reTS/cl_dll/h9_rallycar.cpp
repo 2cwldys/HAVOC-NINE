@@ -3,13 +3,15 @@
 // THE CAR. A player is a car when his box says so (IsCarBox). The studio renderer then draws models/h9/rc_rally_xs.mdl in his place
 // (StudioModelRenderer.cpp, StudioDrawCar): no human, no weapon. The model is the game's own, 46 long with its origin on the ground
 // between the axles; this file gives it its yaw (the player's heading), its pitch and roll from four traces under the wheels
-// (smoothed), the front wheels' steering from how fast the heading turns, and the tyres' roll from the distance driven. The model
+// (smoothed, with HL Rally's slide roll, brake dive and throttle squat for the local car), the front wheels' steering from the driver's wheel (another car's: how fast its heading turns), and the tyres' roll from the distance driven. The model
 // is found with the studio API's Mod_ForName, so it needs no precache from the server (the server may precache it all the same,
 // dlls/h9_rally_car.cpp, so a client without the file is told to fetch it).
 //
-// THE CAMERAS. cl_h9_rallycam 0 is the chase camera (behind and above, looking a little ahead, its heading lagging the car's more in
-// a slide, pulled in by a trace so it never goes through a wall), 1 is the driver's seat (the car's own tilt, the car not drawn).
-// The command h9_rallycam toggles it. The view's pitch the mouse gives is not used: the camera sets its own.
+// THE CAMERAS. cl_h9_rallycam 0 is the chase camera (HL Rally's: it looks along the way the car is GOING, 40 behind and 15 degrees down,
+// pulled in by a trace so it never goes through a wall; h9_rallycam_zoom cycles 40, 70, 100, 35), 1 is the driver's seat (the bonnet: the
+// car's own tilt, the car not drawn). The command h9_rallycam toggles them. The view's pitch the mouse gives is not used. The FOV is 90.
+//
+// THE STEERING (CL_CreateMove, input.cpp, with h9_rallysteer_calc.h). The heading is kept here, not in the view: see H9RallySteer_*.
 #include "hud.h"
 #include "cl_util.h"
 #include "const.h"
@@ -26,6 +28,7 @@
 #include "h9_rallycar.h"
 #include "h9_rallycam_calc.h"
 #include "h9_racefx.h"
+#include "h9_rallysteer_calc.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -40,7 +43,7 @@ namespace
 const char* const CAR_MODEL = "models/h9/rc_rally_xs.mdl";
 const int MAX_SLOTS = 66;
 
-cvar_t *s_cvCam, *s_cvBack, *s_cvUp, *s_cvAhead;
+cvar_t *s_cvCam, *s_cvBack, *s_cvUp, *s_cvPitch, *s_cvFov, *s_cvMouse;
 
 model_t* s_model = nullptr;
 float s_nextModelTry = 0;
@@ -58,6 +61,33 @@ struct Slot
 	float steer; // degrees shown
 };
 Slot s_slot[MAX_SLOTS];
+
+// What the local driver is doing, from the steering (CL_CreateMove): the car's body leans, dives and squats by it, and the wheels turn by
+// his wheel. Remote cars have none of it (the server sends no input), so they roll with a slide and no more.
+struct Dyn
+{
+	bool have;
+	float time;
+	bool braking, throttle;
+	float wheel; // HL Rally's steer_wheel_angle, positive to the right, +-10
+};
+Dyn s_dyn = {false, 0, false, false, 0};
+
+// The local car's predicted state, from the refdef of the last frame (what CL_CreateMove of the next one reads).
+struct Note
+{
+	bool have;
+	float time;
+	rallycam::V3 org, vel;
+	bool onGround;
+};
+Note s_note = {false, 0, rallycam::V3(), rallycam::V3(), true};
+
+// The steering's own state: the heading and the filter.
+rallysteer::State s_steer;
+float s_steerWritten = 0; // the yaw CL_CreateMove last wrote as the view's
+float s_steerBegin = 0;   // the heading handed out by Begin this frame
+bool s_mouseActive = false;
 
 rallycam::ChaseState s_chase;
 rallycam::FirstState s_first;
@@ -149,9 +179,36 @@ bool GroundZ(float x, float y, float z, float up, float down, float& out)
 	return false;
 }
 
+// A trace from `a` to `b` through the world and its solid things (a car or a player is passed through): how far along it got, 0..1, 1 when
+// nothing is in the way, and -1 when it started inside the world.
+float TraceShare(const rallycam::V3& a, const rallycam::V3& b)
+{
+	using namespace rallycam;
+	Vector s(a.x, a.y, a.z);
+	const Vector e(b.x, b.y, b.z);
+	const float whole = (b - a).Length();
+	for (int tries = 0; tries < 4; tries++)
+	{
+		pmtrace_t* tr = gEngfuncs.PM_TraceLine((float*)&s, (float*)&e, PM_TRACELINE_PHYSENTSONLY, 2, -1);
+		if (tr == nullptr || tr->fraction >= 1.0f)
+			return 1.0f;
+		physent_t* pe = tr->ent > 0 ? gEngfuncs.pEventAPI->EV_GetPhysent(tr->ent) : nullptr;
+		if (pe != nullptr && pe->studiomodel != nullptr)
+		{
+			s = Vector(tr->endpos[0], tr->endpos[1], tr->endpos[2]);
+			continue;
+		}
+		if (tr->allsolid || tr->startsolid)
+			return -1.0f;
+		const V3 hit(tr->endpos[0], tr->endpos[1], tr->endpos[2]);
+		return whole > 1e-3f ? Clamp((hit - a).Length() / whole, 0.0f, 1.0f) : 0.0f;
+	}
+	return 1.0f;
+}
+
 // Brings a car's slot up to `time`: the wheels' roll, the steering, the tilt. Once for each time: a second call in the same frame (the
 // camera and then the draw) changes nothing.
-Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const rallycam::V3& vel)
+Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const rallycam::V3& vel, const Dyn* dyn)
 {
 	using namespace rallycam;
 	if (index < 0 || index >= MAX_SLOTS)
@@ -171,9 +228,16 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 		const V3 nose(cosf(Rad(yaw)), sinf(Rad(yaw)), 0);
 		const V3 d = org - s.org;
 		s.phase = RollPhase(s.phase, d.Dot(nose), 0.5f * len); // the tyres' circumference is about half the car's length
-		const float rate = AngleDelta(s.yaw, yaw) / dt;
-		const float goal = SteerShown(rate, 32.0f, 400.0f);
-		s.steer += (goal - s.steer) * Alpha(dt, 0.06f);
+		float goal;
+		if (dyn != nullptr && dyn->have)
+			goal = WheelShown(dyn->wheel, 32.0f); // the driver's own wheel
+		else
+		{
+			// another car: from how fast its nose turns (the keys at most 100 a second), the other way when it goes backwards
+			const float rate = AngleDelta(s.yaw, yaw) / dt;
+			goal = SteerShown(rate, 32.0f, 100.0f) * (vel.x * nose.x + vel.y * nose.y < 0.0f ? -1.0f : 1.0f);
+		}
+		s.steer += (goal - s.steer) * Alpha(dt, 0.03f);
 	}
 	else
 	{
@@ -213,7 +277,9 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 			if (!got[i])
 				h[i] = sum / (float)n; // a wheel over an edge takes the others' mean
 		EulerFromNormal(NormalFromHeights(yaw, h[0], h[1], h[2], h[3], hl, hw), yaw, tp, tr);
-		tau = 0.07f;
+		// what HL Rally adds to the ground's tilt: the slide's roll, the dive under the brake, the squat on the throttle
+		BodyMotion(vel.Length(), RightShare(yaw, vel), dyn != nullptr && dyn->have && dyn->braking, dyn != nullptr && dyn->have && dyn->throttle, tp, tr);
+		tau = RefTau(0.9f); // (new + 9 old) / 10 a frame at 99 frames a second
 	}
 	TiltStep(s.tilt, tp, tr, fresh ? 0.0f : dt, tau);
 
@@ -246,6 +312,34 @@ void Cmd_Toggle()
 	gEngfuncs.Con_Printf("h9_rallycam: %s\n", now ? "chase camera" : "driver's seat");
 }
 
+// h9_rallycam_zoom: HL Rally's chase_zoom.cfg, the distance behind the car 40, 70, 100, 35 and round.
+void Cmd_Zoom()
+{
+	static const float steps[4] = {40.0f, 70.0f, 100.0f, 35.0f};
+	const float now = CvF(s_cvBack, 40.0f);
+	int at = 0;
+	for (int i = 1; i < 4; i++)
+		if (fabsf(steps[i] - now) < fabsf(steps[at] - now))
+			at = i;
+	const float next = steps[(at + 1) % 4];
+	gEngfuncs.Cvar_SetValue("cl_h9_rallycam_back", next);
+	gEngfuncs.Con_Printf("h9_rallycam_zoom: %.0f units behind the car\n", next);
+}
+
+// The local driver's inputs of this frame, or none when the steering has not run lately.
+const Dyn* DynPtr()
+{
+	const float now = gEngfuncs.GetClientTime();
+	return s_dyn.have && now - s_dyn.time < 0.25f && now >= s_dyn.time - 0.05f ? &s_dyn : nullptr;
+}
+
+// The local car's last predicted state, or none when it is old (the refdef has not been drawn for a while).
+bool FreshNote()
+{
+	const float now = gEngfuncs.GetClientTime();
+	return s_note.have && now - s_note.time < 0.25f && now >= s_note.time - 0.05f;
+}
+
 } // namespace
 
 // ----------------------------------------------------------------------------------------------------------------------------
@@ -253,10 +347,13 @@ void Cmd_Toggle()
 void H9RallyCam_Init()
 {
 	s_cvCam = CVAR_CREATE("cl_h9_rallycam", "0", FCVAR_ARCHIVE); // 0 chase, 1 the driver's seat
-	s_cvBack = CVAR_CREATE("cl_h9_rallycam_back", "70", FCVAR_ARCHIVE);
+	s_cvBack = CVAR_CREATE("cl_h9_rallycam_back", "40", FCVAR_ARCHIVE); // HL Rally's cam_wishdist
 	s_cvUp = CVAR_CREATE("cl_h9_rallycam_up", "26", FCVAR_ARCHIVE);
-	s_cvAhead = CVAR_CREATE("cl_h9_rallycam_ahead", "18", FCVAR_ARCHIVE);
+	s_cvPitch = CVAR_CREATE("cl_h9_rallycam_pitch", "15", FCVAR_ARCHIVE); // degrees down, on top of the velocity's slope
+	s_cvFov = CVAR_CREATE("cl_h9_rallycam_fov", "90", FCVAR_ARCHIVE);     // in a car; 0 leaves the player's own
+	s_cvMouse = CVAR_CREATE("cl_h9_rally_mouse", "1.0", FCVAR_ARCHIVE);   // scales the mouse's steering
 	gEngfuncs.pfnAddCommand("h9_rallycam", Cmd_Toggle);
+	gEngfuncs.pfnAddCommand("h9_rallycam_zoom", Cmd_Zoom);
 }
 
 void H9RallyCam_VidInit()
@@ -271,6 +368,10 @@ void H9RallyCam_VidInit()
 	s_first = rallycam::FirstState();
 	s_viewTime = -1.0f;
 	s_rallyTime = -1.0f;
+	s_note.have = false;
+	s_dyn.have = false;
+	s_steer = rallysteer::State();
+	s_mouseActive = false;
 }
 
 bool H9RallyCar_IsCarState(const entity_state_t* st)
@@ -310,8 +411,10 @@ void H9RallyCar_AddEntity(int type, cl_entity_t* ent)
 	float yaw = ent->angles[1];
 	if (isLocal)
 		LocalPose(ent, org, yaw);
-	const V3 vel(ent->curstate.velocity[0], ent->curstate.velocity[1], ent->curstate.velocity[2]);
-	Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel);
+	V3 vel(ent->curstate.velocity[0], ent->curstate.velocity[1], ent->curstate.velocity[2]);
+	if (isLocal && FreshNote())
+		vel = s_note.vel; // the predicted one
+	Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, isLocal ? DynPtr() : nullptr);
 	H9RaceFx_NoteEntity(ent, CAR_MODEL, m); // tyre marks, spray, shadow and brake lights, from the blending bytes the server sets
 }
 
@@ -329,8 +432,10 @@ bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw&
 	float yaw = ent->angles[1];
 	if (isLocal)
 		LocalPose(ent, org, yaw);
-	const V3 vel(st->velocity[0], st->velocity[1], st->velocity[2]);
-	Slot& s = Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel);
+	V3 vel(st->velocity[0], st->velocity[1], st->velocity[2]);
+	if (isLocal && FreshNote())
+		vel = s_note.vel;
+	Slot& s = Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, isLocal ? DynPtr() : nullptr);
 	out.model = m;
 	out.origin[0] = org.x;
 	out.origin[1] = org.y;
@@ -370,7 +475,8 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	s_viewTime = now;
 	s_viewOrg = car;
 	s_viewYaw = heading;
-	const Slot& slot = Update(local->index, car, heading, now, vel);
+	H9RallySteer_NoteView(pp->simorg, pp->simvel, 0 != pp->onground, now);
+	const Slot& slot = Update(local->index, car, heading, now, vel, DynPtr());
 
 	Pose pose;
 	if (Cv(s_cvCam))
@@ -382,38 +488,19 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	else
 	{
 		ChaseParams cp;
-		cp.back = Clamp(CvF(s_cvBack, 70.0f), 20.0f, 400.0f);
+		cp.back = Clamp(CvF(s_cvBack, 40.0f), 20.0f, 400.0f);
 		cp.up = Clamp(CvF(s_cvUp, 26.0f), 0.0f, 200.0f);
-		cp.ahead = Clamp(CvF(s_cvAhead, 18.0f), 0.0f, 200.0f);
-		pose = ChaseStep(s_chase, car, heading, vel, dt, cp);
+		cp.wishPitch = Clamp(CvF(s_cvPitch, 15.0f), -60.0f, 80.0f);
+		const ChaseAim aim = ChaseAimOf(s_chase, heading, vel, dt, cp);
 		s_first.init = false;
 
-		// never through the world: from above the car's middle to where the camera would be. Another car or a player on the way is passed through.
-		const V3 anchor = ChaseAnchor(car, cp.lookUp);
-		Vector s(anchor.x, anchor.y, anchor.z);
-		const Vector e(pose.org.x, pose.org.y, pose.org.z);
-		pmtrace_t* tr = nullptr;
-		for (int tries = 0; tries < 4; tries++)
-		{
-			tr = gEngfuncs.PM_TraceLine((float*)&s, (float*)&e, PM_TRACELINE_PHYSENTSONLY, 2, -1);
-			if (tr == nullptr || tr->fraction >= 1.0f)
-				break;
-			physent_t* pe = tr->ent > 0 ? gEngfuncs.pEventAPI->EV_GetPhysent(tr->ent) : nullptr;
-			if (pe != nullptr && pe->studiomodel != nullptr)
-			{
-				s = Vector(tr->endpos[0], tr->endpos[1], tr->endpos[2]);
-				continue;
-			}
-			break;
-		}
-		if (tr != nullptr && tr->fraction < 1.0f)
-		{
-			// the last leg's fraction is of that leg: take it as a share of the whole way from the anchor
-			const V3 hit(tr->endpos[0], tr->endpos[1], tr->endpos[2]);
-			const float whole = (pose.org - anchor).Length();
-			const float got = (hit - anchor).Length();
-			pose.org = PullIn(anchor, pose.org, whole > 1e-3f ? got / whole : 0.0f, 4.0f, 8.0f);
-		}
+		// never through the world: HL Rally's two traces from just above the origin to where the camera wants to be, one at the camera's own
+		// height and one 16 above it; the nearer wall decides. Another car or a player on the way is passed through.
+		V3 start, endLow, endHigh;
+		ChaseTrace(car, aim, cp.back, start, endLow, endHigh);
+		const float fl = TraceShare(start, endLow), fh = TraceShare(start, endHigh);
+		const float fraction = (fl < 0.0f || fh < 0.0f) ? -1.0f : (fl < fh ? fl : fh);
+		pose = ChaseFinish(s_chase, car, vel, aim, fraction, dt, cp);
 	}
 
 	pp->vieworg[0] = pose.org.x;
@@ -436,4 +523,95 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	if (m != nullptr && H9RallyCar_IsCarEntity(local))
 		H9RaceFx_NoteEntity(local, CAR_MODEL, m);
 	return true;
+}
+
+// ---- the steering ----------------------------------------------------------------------------------------------------------------
+
+void H9RallySteer_NoteView(const float simorg[3], const float simvel[3], bool onGround, float time)
+{
+	s_note.have = true;
+	s_note.time = time;
+	s_note.org = rallycam::V3(simorg[0], simorg[1], simorg[2]);
+	s_note.vel = rallycam::V3(simvel[0], simvel[1], simvel[2]);
+	s_note.onGround = onGround;
+}
+
+float H9RallySteer_Begin(float viewYaw)
+{
+	using namespace rallysteer;
+	// a yaw that is not the one last written was set by the engine (the server's fixangle: a respawn, a teleport): start again from it
+	if (!s_steer.init || fabsf(Wrap180(viewYaw - s_steerWritten)) > 0.1f)
+		Reset(s_steer, viewYaw);
+	s_steerBegin = s_steer.heading;
+	s_mouseActive = true;
+	return s_steer.heading;
+}
+
+void H9RallySteer_Idle()
+{
+	s_steer.init = false;
+	s_mouseActive = false;
+	s_dyn.have = false;
+}
+
+bool H9RallySteer_MouseActive() { return s_mouseActive; }
+bool H9RallySteer_OnGround() { return !FreshNote() || s_note.onGround; }
+float H9RallySteer_MouseScale() { return CvF(s_cvMouse, 1.0f); }
+
+float H9RallySteer_End(float viewYaw, const H9RallyKeys& k)
+{
+	using namespace rallysteer;
+	Input in;
+	in.dt = k.frametime;
+	in.keyYaw = kKeyRate * k.frametime * (Clampf(k.left, 0.0f, 1.0f) - Clampf(k.right, 0.0f, 1.0f));
+	in.mouseYaw = Wrap180(viewYaw - s_steerBegin); // the mouse turned the view this far to the left
+	in.throttle = k.throttle;
+	in.brake = k.brake;
+	in.handbrake = k.handbrake;
+	const bool fresh = FreshNote();
+	in.onGround = !fresh || s_note.onGround;
+	if (fresh)
+	{
+		in.velX = s_note.vel.x;
+		in.velY = s_note.vel.y;
+		in.velZ = s_note.vel.z;
+		static rallycam::V3 lastOrg;
+		static bool haveOrg = false;
+		if (haveOrg && (s_note.org - lastOrg).Length() > 100.0f)
+		{
+			// a jump of more than 100 units in a frame is a teleport or a respawn: the filter starts again
+			s_steer.delta = 0;
+			s_steer.tractionLoss = 0;
+			s_steer.box = Gearbox();
+		}
+		lastOrg = s_note.org;
+		haveOrg = true;
+	}
+	if (!in.onGround)
+		in.mouseYaw = 0.0f;
+	const Output out = Step(s_steer, in);
+	s_steerWritten = out.heading;
+	s_mouseActive = false;
+	s_dyn.have = true;
+	s_dyn.time = gEngfuncs.GetClientTime();
+	s_dyn.braking = k.brake || k.handbrake;
+	s_dyn.throttle = k.throttle;
+	s_dyn.wheel = s_steer.wheel;
+	return out.heading;
+}
+
+bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose)
+{
+	if (!H9RallyCam_LocalIsCar() || !FreshNote())
+		return false;
+	speed3d = s_note.vel.Length();
+	const float h = (s_steer.init ? s_steer.heading : 0.0f) * (3.14159265f / 180.0f);
+	alongNose = s_note.vel.x * cosf(h) + s_note.vel.y * sinf(h);
+	return true;
+}
+
+float H9RallyCam_Fov()
+{
+	const float f = CvF(s_cvFov, 90.0f);
+	return H9RallyCam_LocalIsCar() && f > 1.0f ? f : 0.0f;
 }
