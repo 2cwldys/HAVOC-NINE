@@ -1017,6 +1017,16 @@ void CStudioModelRenderer::StudioSetupBones()
 		}
 	}
 
+	// H9 rally: the local car's suspension (HL Rally, StudioModelRenderer.cpp:896-915): four bones found by their names get the trace's offset along z
+	if (m_carShockOn)
+	{
+		static const char* const names[4] = {"SHOCK-RghFron", "SHOCK-LefFron", "SHOCK-LefBack", "SHOCK-RghBack"}; // = rallycam::kShockBone
+		for (i = 0; i < m_pStudioHeader->numbones; i++)
+			for (int k = 0; k < 4; k++)
+				if (0 == stricmp(pbones[i].name, names[k]))
+					pos[i][2] += m_carShock[k];
+	}
+
 	for (i = 0; i < m_pStudioHeader->numbones; i++)
 	{
 		const int parent = pbones[i].parent;
@@ -1794,7 +1804,11 @@ bool CStudioModelRenderer::StudioDrawCar(int flags, entity_state_t* pplayer, con
 
 	if (m_pStudioHeader->numbodyparts != 0)
 	{
+		m_carShockOn = car.hasShock;
+		for (int i = 0; i < 4; i++)
+			m_carShock[i] = car.shock[i];
 		StudioSetupBones();
+		m_carShockOn = false;
 		StudioSaveBones();
 
 		lighting.plightvec = dir;

@@ -31,6 +31,9 @@ public:
 	virtual bool StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
 	// H9 rally mode: a player that is a car is drawn as the car's model (see h9_rallycar.h)
 	bool StudioDrawCar(int flags, struct entity_state_s* pplayer, const struct H9RallyCarDraw& car);
+	// H9 rally: the local car's suspension offsets for the bones of the car being drawn (set by StudioDrawCar, read by StudioSetupBones)
+	bool m_carShockOn = false;
+	float m_carShock[4] = {0, 0, 0, 0};
 
 public:
 	// Local interfaces
