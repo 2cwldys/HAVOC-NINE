@@ -1,0 +1,599 @@
+APOLLO RP ON HAVOC 9: EVERYTHING H9 ADDED TO IT
+================================================
+
+This page lists every addition H9 made to Apollo RP (ARP), the roleplay mod of the maps h9_tsrp_hive and
+h9_tsrp_newbyzantium. It is for an admin or a tester who wants to know what to look for.
+
+"Stock ARP" is Apollo RP as its authors made it, before H9. Every feature H9 added has a switch with a stock "off", so a
+server can play stock ARP (docs\APOLLO_RP.txt, section 10, says what each switch gives when it is off). Fixes of faults
+(section 7) and the data files of H9's two maps (.sql, npcs.ini, zones.ini, pay.ini, propclip.ini) need no switch.
+
+HOW TO READ AN ENTRY
+  After each title, in square brackets, is where the detail is. ORIGIN is apollo-rp\ORIGIN.txt; the number is its item.
+  What      what the addition is, in one sentence.
+  You see   what a player or an admin sees, or types.
+  Switch    the cvar that turns it off. A cvar is a setting you type in the console: a name, then a value. "plugin" is
+            the value the plugin has when no file sets it. "arp.cfg" is the value configs\arp\arp.cfg ships. "0 = stock"
+            is the value that gives stock ARP. "live" means a change counts at once, "map change" that it counts at the
+            next map load. A player's own switch (cl_h9_...) follows.
+  arp.cfg is configs\arp\arp.cfg in the game folder. Its master is apollo-rp\base\addons\amxmodx\configs\arp\arp.cfg.
+  build.bat copies it, and ARP reads it again at every map load.
+
+CONTENTS
+   1. Roleplay menus and HUD          7. Fixes of stock bugs
+   2. Money and property              8. Every H9 switch of ARP, in one table
+   3. Needs                           9. The player's own switches and the admin's commands
+   4. Law and inventory              10. What is not built yet
+   5. Teams, doors and the world     11. What no game has shown yet
+   6. The hive map's data            12. Where the detail is
+
+
+1. ROLEPLAY MENUS AND HUD
+-------------------------
+
+1.1  ARP'S MENUS AS H9 PANELS  [docs\H9_VGUI.txt 1e; ORIGIN 14, 29]
+     What     Apollo RP's menus are drawn as H9 panels, on H9's purple art.
+     You see  /menu, /items, the shops, the bank, the ATM, the doctor, the gun shop, the phone, the jail menu, fines
+              and job offers, as panels with the same number keys. Other players keep the old text menu.
+     Switch   arp_h9_vgui (plugin 1, arp.cfg 1, 0 = stock, live). A player: cl_h9_arpvgui 0. cl_h9_vgui_color r g b
+              sets the colour of every H9 panel. The game's own h9_vgui 0 turns off every H9 panel.
+
+1.2  H9'S ENTRIES IN /MENU  [docs\APOLLO_RP.txt 2; ARP_H9Menu, a plugin of H9's own]
+     What     a small plugin adds four entries to the ARP client menu (/menu): Inventory, My money and job, Jobs on
+              this map and Commands.
+     Switch   none. The plugin is in plugins.ini. Without it /menu is empty, as in stock ARP.
+
+1.3  THE HUD AS PANELS  [docs\APOLLO_RP.txt 2; docs\H9_VGUI.txt 1e; docs\ARP_HUD_CHECKS.txt; ORIGIN 21]
+     What     ARP's four HUDs are H9 panels, not AMX Mod X text: the main one at the top left, the needs, the
+              out-of-character chat and the short notices.
+     You see  a purple panel at the top left with the server's title, Credits (the wallet), the bank, the payday
+              countdown, the salary, the job and the zone. Every other player gets the old text HUD. An admin types
+              arp_hudstate to see who is sent a panel, and why.
+     Switch   arp_hud_panel (plugin 1, no arp.cfg line, 0 = everybody gets the text HUD, live) and arp_hud_refresh
+              (plugin 10 seconds, 5 to 60, live). A player: cl_h9_arphud 0, and one switch for each part:
+              cl_h9_arphud_left, _top, _side, _notice, _title, _wallet, _bank, _payday, _salary, _job, _status,
+              _extra, _needs, _plaque, _icon and _shrink. cl_h9_arphud_list prints them.
+
+1.4  THE PLAQUE: WHAT YOU LOOK AT SAYS WHAT IT IS  [docs\APOLLO_RP.txt 2; docs\ARP_CONTENT.txt 9; ORIGIN 41, 47]
+     What     a plate in the middle of the screen says what the door, NPC or player under the crosshair is.
+     You see  A property door: the building's name, OWNER (his name and job; STATE PROPERTY, which nobody can buy; or
+              FOR SALE and the price), AFFILIATION, OPEN or SEALED (locked), and a red RESTRICTED line when you may
+              not use it. An NPC: its name, its ROLE (SHOP, BANK, DOCTOR, GUN SHOP or ATM) and the hint "Press use (default
+              e) to use", and never an owner. A player: his name, job and affiliation. Other games get the old text
+              with an Affiliation line added.
+     Switch   arp_h9_plaque (plugin 1, arp.cfg 1, 0 = stock text, live). The panel also needs arp_hud4_type 2
+              (plugin 1, arp.cfg 2). A player: cl_h9_arphud_plaque 0.
+
+1.5  A DROPPED ITEM NAMES ITSELF  [docs\APOLLO_RP.txt 2; docs\ARP_INVENTORY_WINDOW.txt 4; ORIGIN 28]
+     What     looking toward an item on the floor tells you what it is.
+     You see  "Soda x3" from 120 units, and "Press use (default e) to pick up" from 50 units. An H9 client draws
+              the item's picture above that banner.
+     Switch   arp_h9_itemhover (plugin 1, arp.cfg 1, 0 = stock, which says nothing, live). A player:
+              cl_h9_arphud_icon 0 leaves the picture out.
+
+1.6  THE ITEM'S PICTURE OVER A DROPPED PACK  [docs\APOLLO_RP.txt 2; modelling\arpicons\README.txt; ORIGIN 28]
+     What     a small picture of the item floats over each dropped pack (the bundle a dropped item makes on the floor).
+     You see  everybody who sees the pack sees it, turned toward him and readable in a dark corridor. At most 64
+              stand at a time, and the oldest goes first. An item with no picture in the list has none.
+     Switch   arp_h9_itemicon (plugin 1, arp.cfg 1, 0 = stock; a change to 1 needs a map change, a change to 0
+              counts within 5 seconds), arp_h9_itemicon_max (64, 0 to 128, live) and arp_h9_itemicon_scale (0.6;
+              1.0 is 32 units across; live for the next pack).
+
+1.7  THE PURPLE GLOW OF A DROPPED PACK  [docs\APOLLO_RP.txt 2; ORIGIN 28]
+     What     a pack that has just been dropped glows purple for 12 seconds, so it is easy to find in the dark.
+     You see  a purple light over the pack that pulses every second and a half and fades by itself. A pack the
+              map placed never glows.
+     Switch   arp_h9_itemglow (plugin 1, arp.cfg 1, 0 = stock, live), arp_h9_itemglow_time (12 seconds, 0 to 600),
+              arp_h9_itemglow_radius (200 units, 40 to 600) and arp_h9_itemglow_color ("180 60 255": red, green, blue).
+
+1.8  POPUPS FOR ARP'S CHAT LINES  [docs\APOLLO_RP.txt 10; ORIGIN 40]
+     What     the chat lines that start with [ARP] show as popups over the crosshair: up to three at a time, held
+              4 to 7 seconds and then faded, a refusal in a warm colour.
+     Switch   arp_h9_toast (plugin 1, arp.cfg 1; 0 = chat only, as stock; 2 = both; live).
+
+1.9  CHAT BUBBLES AND /ME ACTIONS  [docs\CHAT_BUBBLES.txt 6; docs\ARP_COMMANDS.txt 3; ORIGIN 40]
+     What     on an H9 client what a player says is drawn in a box over his head (the speaker your crosshair is on).
+              On a roleplay map his /me action is drawn there too, in red.
+     Switch   no ARP cvar. The bubbles have h9_floatchat_* on the server and cl_h9_chatbubble_* for a player.
+
+1.10 NO NAMES OVER PLAYERS ON A ROLEPLAY MAP  [docs\H9_VGUI.txt 4j; the match mode plugin]
+     What     the game's own names over players (red for anyone, since there are no sides) are left out. A player
+              is known by what the plaque says of him.
+     Switch   arp_h9_hidenames (plugin 1, ts_matchmode.cfg 1, not arp.cfg; 0 = the game's names; live within a
+              second). A player: cl_h9_aimplaque 0 draws them regardless.
+
+
+2. MONEY AND PROPERTY
+---------------------
+
+2.1  CREDITS AND THE CREDIT SIGN  [docs\ARP_INVENTORY.txt 7; docs\APOLLO_RP.txt 9; ORIGIN 31, 33]
+     What     money is worded as credits and shown with the cent sign.
+     You see  "1,250 credits" in the windows and messages, and "Credits:" on the HUD where stock ARP says "Wallet:".
+              An H9 client with the inventory window shows the cent sign in place of "$" in chat, the console, the
+              HUD and the H9 menus. The logs and the text menus keep "$".
+     Switch   arp_h9_credits (plugin 1, arp.cfg 1; 0 = cash and "$", as stock; live).
+
+2.2  THE PROPERTY TAX  [docs\APOLLO_RP.txt 11; docs\ARP_TAX_CHECKS.txt; ORIGIN 42]
+     What     every property that has an owner costs its owner money every 15 minutes (a toll).
+     You see  say /tax: what each of your properties costs at a toll, what it owes, how long it has, and the minutes
+              to the next toll. At the shipped percent a property that cost 3,600 costs 4 a toll (16 an hour), and
+              one that cost 110,000 costs 110 (440 an hour).
+     Switch   arp_h9_tax (plugin 1, arp.cfg 1, 0 = stock: nobody is charged), arp_h9_tax_minutes (15; 1 to 10080),
+              arp_h9_tax_percent (plugin 1.0, arp.cfg 0.10: 0.4 percent of the price an hour) and arp_h9_tax_flat
+              (0). All live.
+     Admin    arp_h9_tax_dump prints the clock and the last toll. arp_h9_tax_value <property> <price> sets a tax base.
+
+2.3  PAYING THE TAX BY HAND: /RENEW  [docs\APOLLO_RP.txt 11; ORIGIN 44]
+     What     a toll adds to what a property owes, and the owner pays it himself.
+     You see  look at a door of your property and say /renew (or /paytax). A menu shows what it costs and owes, the
+              tolls left before the server takes it back, your bank and wallet, and the keys: 1 pay (the bank first,
+              then the wallet), 2 automatic payment on or off for that property, 0 close.
+     Switch   arp_h9_tax_manual (plugin 0, arp.cfg 1; 0 = every owner is charged from the bank at once and what the
+              bank cannot pay is forgiven; live).
+
+2.4  EVICTION BY THE SERVER, AFTER 72 HOURS  [docs\APOLLO_RP.txt 11; docs\ARP_TAX_CHECKS.txt; ORIGIN 44]
+     What     the server takes back a property that has gone unpaid for 288 tolls, which is 72 hours.
+     You see  the owner is warned at half and at three quarters of his time. A property taken back is for sale again
+              at the price its owner paid, open or sealed as it was. The ex-owner is told at once, or in his next
+              login popup. Do not lower a limit while anything is owed: every property already over the new limit
+              is taken back at the next toll, with no warning.
+     Switch   arp_h9_tax_evict (plugin 0, arp.cfg 1; 0 = never; live), arp_h9_tax_evict_tolls (plugin 96 = 24 hours,
+              arp.cfg 288 = 72 hours, 0 = no limit of this kind) and arp_h9_tax_evict_debt (0 = no limit of this
+              kind). It needs arp_h9_tax_manual 1.
+
+2.5  THE TOWN TREASURY  [docs\APOLLO_RP.txt 11, the shops' profit and the town's treasury; ORIGIN 45]
+     What     the profit a taken-back property earned goes to the treasury of its town.
+     You see  nothing in the game. An admin types arp_h9_tax_towns for each town's faction (who runs it) and money.
+              The hive has three towns (Alexandria, Paradise City, Xenon City). Any other map is one town. Nothing can
+              spend a treasury yet.
+     Switch   arp_h9_tax_treasury (plugin 0, arp.cfg 1; 0 = the profit stays with the property, as at any sale; live).
+              It needs arp_h9_tax_manual 1 and arp_h9_tax_evict 1.
+
+2.6  SHOP PROFIT FOR A PROPERTY  [docs\ARP_CONTENT.txt 6; ORIGIN 45]
+     What     a quarter of each sale at nine of the hive's sixteen shops is added to the property in front of it.
+     You see  the property's owner says /profit while he looks at one of its doors, and takes the money.
+     Switch   arp_profit_fraction (a stock cvar, 0.25; 0 = off). The links are lines in the hive's npcs.ini. New
+              Byzantium has none.
+
+2.7  PAY: UNEMPLOYED PAYS 0, PAY.INI AND A PERCENT  [docs\APOLLO_RP.txt 8; docs\ARP_CONTENT.txt 3; ORIGIN 49]
+     What     a map's pay.ini sets what a job is paid, and one percent scales every salary. Unemployed is paid 0.
+     You see  an Unemployed character's HUD says Salary: $0/hr and his bank does not move at payday. A Citizen is
+              paid 10 every 60 seconds ("/hr" is upstream's word for it), into the bank.
+     Switch   arp_h9_pay_percent (plugin 100, arp.cfg 100; 100 with no pay.ini = stock; live) and the map's pay.ini
+              (a file read when the map loads; one line such as "Citizen" 12).
+     Admin    arp_h9_pay_dump lists each job's row, its pay.ini line, what it is paid, and what ARP_Core (the main
+              plugin) says it is paid.
+
+
+3. NEEDS
+--------
+
+3.1  HUNGER AS A NEEDS PANEL  [docs\APOLLO_RP.txt 2; ORIGIN 26]
+     What     hunger, which stock ARP already had, is a row with a bar in a "Needs" panel.
+     You see  at the top right: Hunger from 0 to 100, with a bar that is green at 0, yellow half way and red from
+              75, and marks at 75 and 90. From 90 a red "Starving" row shows, and there is no salary, as in stock ARP.
+     Switch   arp_hunger_enabled (plugin 1, arp.cfg 1; 0 = no hunger; live). A player: cl_h9_arphud_needs 0.
+
+3.2  THIRST  [docs\APOLLO_RP.txt 2; ORIGIN 27]
+     What     a second need beside hunger.
+     You see  a Thirst row under Hunger. It rises about a point every 45 seconds. Only a drink quenches it: Soda by
+              35 and Milk by 30. From 90 a red "Dehydrated" row shows. Thirst slows nobody, costs no salary and sends
+              no message. A thirsty player may drink with no hunger to heal.
+     Switch   arp_thirst_enabled (plugin 1, arp.cfg 1; 0 = no thirst, as stock; live).
+
+3.3  THIRST IS KEPT  [ORIGIN 27, the last paragraph]
+     What     a character joins again with the thirst he left with, as his hunger always did. A death sets both to
+              0, and nothing counts the time he was away.
+     Switch   arp_h9_thirst_keep (plugin 1, arp.cfg 1; 0 = every join starts at 0; read at each load and save). The
+              table is arp_h9_thirst.
+
+
+4. LAW AND INVENTORY
+--------------------
+
+4.1  THE INVENTORY IN CELLS, AND ITS WINDOW  [docs\ARP_INVENTORY.txt 1 to 5; docs\ARP_INVENTORY_WINDOW.txt; ORIGIN 31]
+     What     a player's items sit in cells, 32 of them with up to 20 of a kind in a cell, and an H9 client shows
+              them in a window worked with the mouse.
+     You see  /items, /inventory, or the key you bind to cl_h9_inventory, opens a window of eight cells across. You
+              click, drag to move, combine and swap, split a stack, tidy, use, drop, or show an item to a player.
+              With no room, a pick-up takes what fits and leaves the rest in the pack, and a shop refuses before it
+              takes the money. Every other player keeps the text menu, and the cell rules apply to him too.
+     Switch   arp_h9_inv_window (plugin 1, arp.cfg 1; 0 = the text menu; live), arp_h9_inv_slots (32, 8 to 96; 0 = no
+              limit, as stock) and arp_h9_inv_stack (20, 1 to 999; configs\arp\inventory.ini names a limit for one
+              item). The last two are read once a second. A player: cl_h9_arpinv 0.
+
+4.2  THE ARRANGEMENT IS KEPT  [docs\ARP_INVENTORY.txt 8; ORIGIN 35]
+     What     where a player put his items is stored in the database, so he joins and finds his cells as he left
+              them, as far as he still owns the items.
+     Switch   arp_h9_inv_persist (plugin 1, arp.cfg 1; 0 = packed again at every join; live). The table is
+              arp_h9_cells. What a player owns stays in ARP's own table.
+
+4.3  THE EXCHANGE OF GOODS  [docs\ARP_INVENTORY.txt 6; ORIGIN 32]
+     What     two players swap items and money in a window of their own.
+     You see  press the use key (E) on another player. He accepts with E on you. Each side offers up to 12 cells and
+              some wallet money (never the bank). Any change breaks both seals. When both have sealed, the server
+              swaps all of it at once, or moves nothing. Never with a bot, or a player who is cuffed or in jail.
+     Switch   arp_h9_inv_window, arp_h9_trade_range (250 units) and arp_h9_trade_timeout (120 seconds). All live.
+
+4.4  THE SEARCH OF A HANDCUFFED PLAYER  [docs\ARP_INVENTORY.txt 9; ORIGIN 36, 37]
+     What     a player can search one who is handcuffed or in jail and take his items and his money.
+     You see  press E on him. A window shows his cells beside yours. Drag or double-click to take. TAKE 10, TAKE 100
+              and TAKE ALL take his wallet money (never his bank). He is told in chat. It ends when the cuffs come
+              off, when he dies or leaves, or when you go further than 150 units.
+     Switch   arp_h9_search (plugin 1, arp.cfg 1; 0 = stock: "That player cannot make an exchange now."),
+              arp_h9_search_range (150) and arp_h9_search_money (1; 0 = items only). All live.
+
+4.5  THE MENU OF THE USE KEY ON A PLAYER  [docs\ARP_INVENTORY.txt 10; docs\ARP_INVENTORY_WINDOW.txt 7; ORIGIN 50]
+     What     the use key on a living player opens a menu with a cursor, in place of the offer of an exchange. It is
+              the plugin ARP_H9Ctx, which is H9's own.
+     You see  the rows Trade, Search, Cuff or Free, Tie or Untie, Tape mouth or Remove tape, Fine (police), Give
+              money, and Show license or card. A row that does not apply is greyed with its reason ("Bots cannot
+              trade", "Cuff him first", "Police only"). The server decides what is allowed, and again at the click.
+     Switch   arp_h9_ctxmenu (plugin 0, arp.cfg 1; 0 = the use key as before; live), arp_h9_ctx_range (150),
+              arp_h9_ctx_cuff, _fine and _give (1; 0 leaves that row out), arp_h9_ctx_fine_amounts ("50 100 250 500
+              1000") and arp_h9_ctx_give_amounts ("10 50 100 500 1000"). A player: cl_h9_ctxmenu 0.
+              Admin: arp_h9_ctx_dump.
+
+4.6  CUFFS, TAPE AND ROPE AS ITEMS, AND THE HANDCUFF SYMBOL  [ORIGIN 38, 39; docs\ARP_ITEMS.txt 5, 6, 9]
+     What     three items that stock ARP listed but could not sell or use, and a symbol over a cuffed head.
+     You see  Police cuff with /cuff and need no item. Anyone else uses one Cuffs. Whoever frees him is given it
+              back, unless he is police. Tape gags a mouth (chat, team chat, and voice with arp_voice 1) until
+              /removetape. Rope ties the player you look at to you: he is pulled along when he is further than 150
+              units, and /untie frees him. A handcuff symbol floats over a cuffed player's head for everybody.
+     Switch   arp_h9_restraints (plugin 1, arp.cfg 1; 0 = stock, where the shops' lines say BAD ITEM ID; map change),
+              arp_h9_rope_length (150; live) and arp_h9_cuffsprite (plugin 1, arp.cfg 1; 0 = no symbol, as stock; a
+              change to 1 needs a map change).
+
+4.7  JAILS THAT SHUT A REAL CELL  [ORIGIN 11, 13]
+     What     a jail can name its cell's own cage and wall panel, and jailing a player shuts the cage on him.
+     You see  the four cells of the hive's Alexandria jail shut and open as a player is jailed and freed. Their
+              panels are the doors of one locked property, h9_jail, that only police use.
+     Switch   none. The map's jailmod.ini is data. A map with no jailmod.ini has no jails, and the plugin still runs.
+
+4.8  THE PPSH-41 AND THE LASER RIFLE AS ITEMS  [docs\ARP_CONTENT.txt 5; ORIGIN 34]
+     What     H9's two own guns are items in ARP.
+     You see  the Black Market sells the PPSh-41 (4,500) and the Laser Rifle (8,000), with no licence asked. An
+              admin can give them. Using the item gives the gun at once.
+     Switch   h9_customweapons (the game's own cvar). With 0 the game cannot make them: the item gives itself back
+              and says so.
+
+4.9  THE ITEM CATALOGUE  [docs\ARP_ITEMS.txt 12]
+     What     a list of every item, 95 of them (92 with arp_h9_restraints 0): its number, what using it does and
+              which shop sells it for how much.
+     You see  arp_itemlist in your console (pages of 30: arp_itemlist 30, 60, 90). An admin gives an item with
+              arp_createitems "<player>" "<item>" <n>.
+     Switch   none. tools\gen_items.py writes the catalogue from the sources. tools\check_items.py checks it against
+              the sources and against a capture of arp_itemlist.
+
+
+5. TEAMS, DOORS AND THE WORLD
+-----------------------------
+
+5.1  TEAM PLAY BY JOB  [docs\APOLLO_RP.txt 2 and 6 (check 8); COMMANDS.txt, arp_teamplay; ORIGIN 43]
+     What     a roleplay map plays on The Specialists' team rules with three teams, each player on the team of his job.
+     You see  the scoreboard has three groups: Middle Sea Republic (blue), Insurrection (red) and Proletarians
+              (yellow). Police, medical and Lord Minister jobs are the Republic's. Insurrection jobs are the
+              Insurrection's. Every other job, Unemployed and an Administrator are Proletarians. A player cannot pick
+              a team: jointeam and the team panel answer "Your team follows your job". A change of job that changes
+              his team moves him and costs a respawn of 5 seconds (press fire). Friendly fire is on.
+     Switch   arp_teamplay (plugin 0, arp.cfg 1; 0 = stock, no team is touched; map change). It is read from arp.cfg
+              or from the map's own mapconfig only. If someone types arp_teamplay 1 at the console on a running map,
+              nothing changes: the server prints a short notice (three lines in the console, one in the log) saying
+              so, and arp_teams says it too.
+     Admin    arp_teams lists every player's team by his job, by the game and by his entity.
+
+5.2  THE INSURRECTION AND THE CITIZENS  [docs\APOLLO_RP.txt 2 and 6 (check 8); docs\ARP_CONTENT.txt 3, 4; ORIGIN 43]
+     What     the roaming citizens (bots) are Proletarians. While an admin's .insurgency lasts they are the
+              Insurrection.
+     You see  after .insurgency the citizens leave one by one and come back armed in another district, under
+              Insurrection on the scoreboard, with Insurgency on their plaque. They fire on every player who is not
+              on the Insurrection team. .civilians puts them back. A citizen that a player hurts fights back.
+     Switch   arp_teamplay 1, and arp_h9_insurgent_access (plugin i, arp.cfg i; live), the access letter of the
+              Insurrection's jobs and properties.
+
+5.3  DOORS AND BREAKABLES  [ORIGIN 20]
+     What     doors cannot be broken. Windows, vents, crates and other breakables can.
+     Switch   arp_goddoors (plugin 1, arp.cfg 1, stock) and arp_godwindows (plugin 0, arp.cfg 0; stock was 1, and 1
+              protects every breakable too). Both are read once as the map starts: map change.
+
+5.4  ZONES AND THE LOCATION LINE  [docs\ARP_CONTENT.txt 7; ORIGIN 47]
+     What     a map's zones.ini names the places of the map, and the HUD says which one the player is in.
+     You see  "Location: Alexandria", "Paradise City" or "Xenon City" on the hive (one for each city, so one for each
+              level: take a lift to change it), and "New Byzantium" on the other map. Unknown only where a map has
+              no zone.
+     Switch   arp_h9_zonefix (plugin 1, arp.cfg 1; 0 = the stock plugin; the zones are read at a map change, the
+              touch of a trigger at once). It mends two faults of the stock Zones plugin: it stopped after the first
+              zone of a file, so a player outside it read Unknown, and it blocked every map trigger (an invisible
+              switch that opens a door), so the hive's automatic doors (Tartec's front doors and the Paradise Bank's
+              glass doors) never opened.
+
+5.5  SOLID PROPS  [docs\APOLLO_RP.txt 12; ORIGIN 48]
+     What     an invisible solid box is put on props that the map left walk-through. It is the plugin ARP_PropClip,
+              which is H9's own.
+     You see  the hive's two bookshelves of the Lord Minister's throne room and two bookcases stop players, bots and
+              most bullets. A shelf is not sure cover: some shots go through.
+     Switch   arp_h9_propclip (plugin 0, arp.cfg 1; 0 = stock; live, looked at every second) and the map's
+              propclip.ini (a file). tools\propclip_tool.py makes its lines and checks them against the map.
+
+
+6. THE HIVE MAP'S DATA
+----------------------
+
+These are the data files of the two roleplay maps, in configs\arp\maps\<map>\. They need no switch. The numbers are the
+hive's (h9_tsrp_hive) unless a line says New Byzantium (h9_tsrp_newbyzantium).
+
+6.1  THE JOBS  [docs\ARP_CONTENT.txt 3 and 4; ORIGIN 19, 43]
+     What     40 jobs on each map: Unemployed and five civilian jobs, the Ministry of Defense ladder from Cadet to
+              Lord Minister (with the medical M- ranks), the Administrator, and the Insurrection's 14 ranks from
+              Recruit to Liberator.
+     You see  arp_joblist lists them. An admin gives one with arp_setjob <player> "Cadet", which also gives police
+              rights. A new character starts with 500 in the wallet and no job pay (Unemployed pays 0).
+
+6.2  THE NPCS, THE NEW ONES, AND THE NPC PLAQUE  [docs\ARP_CONTENT.txt 5 to 7; ORIGIN 19, 47]
+     What     the hive has 24 NPCs and New Byzantium 32: shops, bank tellers, ATM droids, doctors, a gun shop,
+              ammunition and licence counters, and the Ministry's quartermaster. Look at one and press the use key.
+     You see  two were added later. Cafe Avalon Cantina is a Cantina shop in the bay of the wood counter at the west
+              end of the hall under the plaza's east side. Two Bank Terminals are invisible NPCs that stand before
+              the screens of the two BANK kiosks (the plaza's, and the south west's): use opens the teller's menu,
+              and /withdraw and /deposit work while you face one. An NPC's plaque never shows an owner.
+
+6.3  THE PROPERTIES AND THEIR DOORS  [docs\ARP_CONTENT.txt 9; ORIGIN 41, 46]
+     What     130 properties with 220 door names (New Byzantium: 30 with 93). A property is a whole building: every
+              named door of it shows one plaque and shares one lock.
+     You see  104 are for sale, in six price tiers. 26 are state property that nobody can buy: 19 sealed to the
+              Ministry's police letter a (or to g), and 7 open to everyone.
+     Tools    tools\gen_prices.py writes the prices. tools\check_docs_vs_sql.py checks the data against the docs.
+
+6.4  PRICES AT THREE TIMES THE OLD SCALE  [docs\ARP_CONTENT.txt 9; ORIGIN 46]
+     What     every price is three times the first scale. The six tiers cost 3,600, 7,200, 14,000, 29,000, 57,000
+              and 110,000. The Cult Gate is 15,000, and the six rectangular pods are 7,200 each.
+     You see  the smallest property costs six hours of a Citizen's pay. With the shipped tax percent, a property's
+              tax is about a tenth of its value a day.
+     Admin    a database that already holds the old prices needs price_migration.txt (136 lines, run in order with
+              arp_query before the map restarts). It changes only properties that nobody owns. To change the scale,
+              change PRICE_MULTIPLIER in tools\gen_prices.py and run it again.
+
+6.5  STATE PROPERTY, THE MSR GATE, MIDGAR OFFICE, ORG HQ, THE BANK  [docs\ARP_CONTENT.txt 9; ORIGIN 46]
+     What     the ways a whole city uses are open state property, and the Ministry's own buildings are sealed to
+              its letter.
+     You see  Open to everyone, and nobody can buy or lock them: the Paradise Bank's glass doors, Tartec, the
+              Underground Public Gate, the Underground Commercial Gate, the Xenon Elevator, the Xenon Level Doors
+              and the Maintenance Core Controls. The Paradise Bank has no other door today, so no bank property can
+              be owned yet.
+              Sealed to the Ministry's police letter a: the guard posts, the Ministry's own buildings and the MSR
+              Gate. The throne room is sealed to g.
+              The MSR Gate (h9_pc_msr_gate) is two halves of one gate. ARP's lock is the only way it opens: the
+              map's own key panels for it do nothing. A lockpick does not open it.
+              Midgar Office (h9_al_midgar_office, 110,000) is one property: the office's two doors, the kiosk
+              window, the car that runs down to the Shores and the two cell doors of the Shores corridor. The car's
+              two doors open to any use key, whatever the lock says.
+              Org HQ (h9_pc_org_hq, 29,000) is the Org Headquarters' three doors. Its lift door is left alone.
+              Paradise Bar (h9_pc_bar_paradise, 14,000) is the old Paradise Flat 4. Flat 4A is now Paradise Flat 4.
+
+6.6  A MAP'S SQL FILE RUNS BY ITSELF  [docs\ARP_CONTENT.txt 2; ORIGIN 25]
+     What     configs\arp\maps\<map>\<map>.sql (the jobs, properties and doors) is run at every start of the map.
+     You see  one log line for each start: "[ARP] map SQL: N statements, E errors, jobs now J, properties now P,
+              doors now D". The hive's reads 390 statements, 0 errors, jobs now 40, properties now 131 and doors now
+              224 (the jail's rows included). Nothing is added twice, and a row an admin changed keeps the change.
+     Switch   arp_mapsql_autoload (plugin 1, arp.cfg 1; 0 = an admin loads the file by hand with arp_config; map
+              change). Only a file in which every line is INSERT OR IGNORE is run by itself.
+
+6.7  JOBS OF A MAP'S OWN  [docs\APOLLO_RP.txt 8; ORIGIN 18]
+     What     each of H9's two maps has its own jobs table, so a server's other maps do not get H9's ranks. A character
+              whose job a map does not offer is Unemployed there, and keeps the job he came with for the map that has it.
+     Switch   none. The map's arp.ini names the table (arp_table_jobs "arp_jobs_<map>").
+
+
+7. FIXES OF STOCK BUGS, AND WHAT MAKES ARP RUN ON H9XASH
+--------------------------------------------------------
+
+These have no switch, because each one mends a fault or lets ARP run on H9's game. The number is the ORIGIN item.
+
+  1   ARP runs on roleplay maps only. On any other map it stands down and logs one line.
+  2   A map's tables carry its name (arp_property_<map> and others), so one database serves every roleplay map.
+  3   ARP loads the SQLite driver itself. The game's module list does not name it, and stock ARP would load MySQL.
+  4   Every list sized for 32 players is sized for 128, and so are the buffers that fetch the player list.
+  5,6 Two plugins each carried an ammunition routine that clashed with the game's. Both now use the game's own, and the
+      weapon tables follow The Specialists' own weapon numbers.
+  7   The assassin knife item notices damage the way the match mode does, and logs its first hit on each map.
+  8   A database with no jobs no longer stalls the HUD and the hover line. ARP_Core, the main plugin, makes "Unemployed".
+  9   Bots are neither loaded from the database nor saved to it. They share one id, so only the first could be saved.
+  10  A task that carried a player as a number plus 32 carries him plus 128. A property's key holders are one bit
+      for each of 128 slots, so slot 33 no longer holds slot 1's keys. A bug (a listening device) is kept for each
+      pair of slots, and a player who leaves takes the bugs he planted.
+  11  A map with no jailmod.ini has no jails, and the plugin runs. "jail <command>" numbers jails from 1.
+  12  A HUD with nothing to show is cleared once and left alone. Before, ARP held all four of AMX Mod X's HUD text
+      slots every second, and other plugins' HUD text had none left.
+  16  Text that goes into a database query is escaped with the SQL module's own routine. A job name with a quote no
+      longer breaks a query, and an owner's id is read at its full 35 characters.
+  17  No HUD or hover line is sent to a bot. That stops "Datagram overflowed" in ts\logs\h9_overflow.log.
+  19  A name that is inside another job's name (Cadet, M-Cadet) is the job you name: arp_employ <player> "Cadet"
+      offers Cadet. A short name that matches several jobs no longer writes past the end of a list.
+  20  arp_godwindows ships as 0: doors are protected, breakables can be broken (5.3).
+  22  The lists ARP keeps (the /menu entries, a player's HUD lines, his items, speed changes) are emptied the right
+      way. Before, the client menu, the HUD lines, the out-of-character chat and the item list stayed empty.
+  23  A save of ARP's class data waits for every answer of the database. Before, it could destroy the data first and
+      log "Invalid trie handle provided".
+  24  The OOC ping is a new sound: a short two-step chirp and a high ping. The old one ships as ooc.wav.original in
+      sound\arp, and copying it over ooc.wav brings it back.
+  30  A drop makes the pack first and takes the items after, so none is destroyed. Using an item you no longer have is
+      refused. The use key on a pack takes what fits and leaves the rest.
+  42  The owner key. H9XASH ids are 35 characters ("ID_" and 32 digits). Two stock routines cut them to 32 and 33, so
+      /sell, /lock, /changename, /changeowner, /addaccess, /delaccess and /profit told an owner "You are not the
+      owner of this property." Both now keep the whole key (H9-arpowner.patch).
+  47  The Zones plugin's two faults (5.4).
+
+7.1  A CHARACTER FOLLOWS THE HAVOC9.ORG ACCOUNT  [apollo-rp\ARP_IDS.txt; ORIGIN 15]
+     What     H9XASH makes a player's id for each server, so a server that changes its address would have given every
+              player a new character. A player whose game is linked to a havoc9.org account and proves it keeps his.
+     You see  for up to 30 seconds after joining, the HUD says his account is loading. Then his own character loads.
+     Switch   arp_account_wait (plugin 30, arp.cfg 30; 0 = the id alone, as before; read at each join).
+
+
+8. EVERY H9 SWITCH OF ARP, IN ONE TABLE
+---------------------------------------
+
+The values are read from configs\arp\arp.cfg and from each plugin's register_cvar line. "plugin" is what the
+plugin uses when no file sets the cvar. "arp.cfg" is what the file ships; (none) means it has no line for it.
+A value typed at the server console lasts until the next map load, when arp.cfg is read again. To keep a value,
+put it in arp.cfg.
+
+  cvar                      plugin                 arp.cfg                a change counts
+
+  MENUS, HUD AND WHAT YOU LOOK AT
+  arp_h9_vgui               1                      1                      live
+  arp_hud_panel             1                      (none)                 live
+  arp_hud_refresh           10                     (none)                 live
+  arp_hud4_type             1                      2                      live
+  arp_hover_message         1                      (none)                 live
+  arp_h9_plaque             1                      1                      live
+  arp_h9_itemhover          1                      1                      live
+  arp_h9_itemicon           1                      1                      0 live; 1 needs a map change
+  arp_h9_itemicon_max       64                     64                     live, for the next pack
+  arp_h9_itemicon_scale     0.6                    0.6                    live, for the next pack
+  arp_h9_itemglow           1                      1                      live
+  arp_h9_itemglow_time      12                     12                     live
+  arp_h9_itemglow_radius    200                    200                    live
+  arp_h9_itemglow_color     "180 60 255"           "180 60 255"           live
+  arp_h9_toast              1                      1                      live
+  arp_h9_hidenames          1                      (none)                 live, within a second
+
+  MONEY AND PROPERTY
+  arp_h9_credits            1                      1                      live
+  arp_h9_tax                1                      1                      live, at each toll
+  arp_h9_tax_minutes        15                     15                     live, at each toll
+  arp_h9_tax_percent        1.0                    0.10                   live, at each toll
+  arp_h9_tax_flat           0                      0                      live, at each toll
+  arp_h9_tax_manual         0                      1                      live, at each toll
+  arp_h9_tax_evict          0                      1                      live, at each toll
+  arp_h9_tax_evict_tolls    96                     288                    live, at each toll
+  arp_h9_tax_evict_debt     0                      0                      live, at each toll
+  arp_h9_tax_treasury       0                      1                      live, at each eviction
+  arp_h9_pay_percent        100                    100                    live
+
+  NEEDS
+  arp_hunger_enabled        1                      1                      live
+  arp_thirst_enabled        1                      1                      live
+  arp_h9_thirst_keep        1                      1                      live, at each load and save
+
+  LAW AND INVENTORY
+  arp_h9_inv_window         1                      1                      live
+  arp_h9_inv_slots          32                     32                     live, once a second
+  arp_h9_inv_stack          20                     20                     live, once a second
+  arp_h9_inv_persist        1                      1                      live
+  arp_h9_trade_range        250                    250                    live
+  arp_h9_trade_timeout      120                    120                    live
+  arp_h9_search             1                      1                      live
+  arp_h9_search_range       150                    150                    live
+  arp_h9_search_money       1                      1                      live
+  arp_h9_restraints         1                      1                      map change
+  arp_h9_rope_length        150                    150                    live
+  arp_h9_cuffsprite         1                      1                      0 live; 1 needs a map change
+  arp_h9_ctxmenu            0                      1                      live
+  arp_h9_ctx_range          150                    150                    live
+  arp_h9_ctx_cuff           1                      1                      live
+  arp_h9_ctx_fine           1                      1                      live
+  arp_h9_ctx_give           1                      1                      live
+  arp_h9_ctx_fine_amounts   "50 100 250 500 1000"  "50 100 250 500 1000"  live
+  arp_h9_ctx_give_amounts   "10 50 100 500 1000"   "10 50 100 500 1000"   live
+
+  TEAMS, DOORS AND THE WORLD
+  arp_teamplay              0                      1                      map change, from the files only
+  arp_h9_insurgent_access   i                      i                      live
+  arp_godwindows            0                      0                      map change
+  arp_h9_zonefix            1                      1                      zones: map change; touch: live
+  arp_h9_propclip           0                      1                      live, once a second
+
+  DATA AND CHARACTERS
+  arp_mapsql_autoload       1                      1                      map change
+  arp_account_wait          30                     30                     live, at each join
+
+  arp_h9_hidenames is the match mode plugin's, so its line is in ts_matchmode.cfg, which ships 1.
+  arp_teamplay_on is set by ARP_TS to say whether team play runs. It is not a setting: never set it.
+  Stock cvars that H9 did not change are not here (arp_goddoors, arp_profit_fraction and the rest of arp.cfg).
+
+
+9. THE PLAYER'S OWN SWITCHES AND THE ADMIN'S COMMANDS
+-----------------------------------------------------
+
+A PLAYER'S CONSOLE (H9's client only)
+  cl_h9_arpvgui 0|1          ARP's menus as panels (1). 0 gives the text menus.
+  cl_h9_arphud 0|1           ARP's HUD as panels (1). 0 gives the text HUD. Each part has a switch of its own (1.3).
+  cl_h9_arpinv 0|1           the inventory, exchange and search windows (1). 0 keeps the text inventory.
+  cl_h9_inventory            opens or closes the inventory window. To bind it: bind i cl_h9_inventory.
+  cl_h9_trade_accept, cl_h9_trade_decline    answer an offered exchange without the mouse.
+  cl_h9_ctxmenu 0|1          the menu of the use key on a player (1). 0 keeps the use key as it was.
+  cl_h9_vgui_color r g b     the colour of every H9 panel. cl_h9_vgui_scale sets their size.
+  cl_h9_aimplaque 0|1        0 draws the game's own names over players again, even on a roleplay map.
+  cl_h9_arphud_list, cl_h9_arpinv_state, cl_h9_ctxmenu_state    print what the game has read, to find out why a panel,
+                             window or menu does not show. cl_h9_arpinv_test and cl_h9_ctxmenu_test draw a test window.
+
+AN ADMIN'S CONSOLE (the server's console, rcon, or a player who holds the ARP admin letter z)
+  arp_hudstate               who is sent a HUD panel and who the text HUD, and why.
+  arp_teams                  what the game reports about the teams, and each player's team.
+  arp_h9_inv_dump <player>, arp_h9_inv_check <player>     a player's cells, and whether they agree with his items.
+  arp_h9_ctx_dump <player> [<target>]    the context menu a player has up, or the one the use key would give.
+  arp_h9_tax_dump, arp_h9_tax_value <property> <price>, arp_h9_tax_towns     the property tax and the treasuries.
+  arp_h9_pay_dump            what every job is paid.
+  arp_config                 the ARP admin menu. Entry 3 loads a map's .sql file by hand.
+  arp_setjob, arp_createmoney, arp_createitems    give yourself a job, money or an item (docs\ARP_ADMINS.txt 8).
+
+
+10. WHAT IS NOT BUILT YET
+-------------------------
+
+  The siege and town control. They are designed and not built. Today the faction that runs a town (msr or ins in the
+  table arp_h9_treasury) changes only by an SQL statement, and nothing spends a treasury. docs\ARP_SIEGE.txt is the
+  description.
+
+
+11. WHAT NO GAME HAS SHOWN YET
+------------------------------
+
+The docs say these were checked without a game, or not at all. The doc that says it is in square brackets.
+
+  * Everything on a roleplay map: "nothing here has been run in a game yet" [docs\APOLLO_RP.txt 6, which also lists
+    the checks for team play (8) and pay (9)]. The pay rig on a test server ran 174 checks [ORIGIN 49].
+  * The HUD panels: nothing has been seen in a game [docs\ARP_HUD_CHECKS.txt].
+  * The inventory, the exchange and the search: nothing has been seen in a game. The server half ran on a test
+    server, and the window is the client's [docs\ARP_INVENTORY_CHECKS.txt].
+  * The context menu: its client half was tested without a game [docs\ARP_INVENTORY_WINDOW.txt 7].
+  * The property tax and eviction: the server half ran on a test server. The menu panel, the popups, a real door
+    and a real join have not been seen [docs\ARP_TAX_CHECKS.txt].
+  * The hive's prices, state properties, MSR Gate, Midgar Office, Org HQ and Paradise Bar: "Not seen in a game",
+    read from the compiled map [ORIGIN 46]. Unchecked: that the MSR Gate's halves open for the letter a and stay
+    shut for everyone else, that the Midgar car's doors open to any use key, and that the Org HQ's doors and lift
+    work as the map's wiring says [docs\ARP_CONTENT.txt 8].
+  * The NPC spots: read from the map and not seen. Four places are guesses: that Pawn Prawn is a bar, that the
+    white hall is a clinic, that the Cybernetics chamber suits a black market, and that the Midgar lab suits the
+    Medical Division [docs\ARP_CONTENT.txt 6].
+  * Cafe Avalon Cantina and the two Bank Terminals: that the invisible model draws nothing on a real client, the use
+    key and the teller's menu at a terminal, a person's touch of the automatic doors (a bot's was tested), and the
+    Location line on a real HUD [docs\ARP_CONTENT.txt 8].
+  * Solid props: that the box is not drawn on any client, and that a client's own movement agrees with the
+    server's, are read from the engine's source and not seen. Most shots stop at a shelf, not all [ORIGIN 48].
+
+Where a doc has no such line, that is no record of a test. Do not read it as a pass.
+
+
+12. WHERE THE DETAIL IS
+-----------------------
+
+THE PLUGINS. build.bat builds eighteen of Apollo RP's plugins and lists them in plugins.ini, ARP_Core first. Six are H9's
+own: ARP_H9Menu, ARP_Inventory, ARP_PropertyTax, ARP_PayScale, ARP_H9Ctx and ARP_PropClip. The rest are Apollo RP's own
+plugins with H9's changes. apollo-rp\ORIGIN.txt and the H9-*.patch files beside it say what changed in each.
+
+  docs\APOLLO_RP.txt          what a player sees, jobs and pay, the inventory, the tax, the solid props. Section 10
+                              is the table of what each switch gives when it is off.
+  apollo-rp\ORIGIN.txt        every change H9 made to Apollo RP (items 1 to 50) and the .patch files beside it
+  docs\ARP_COMMANDS.txt       every ARP command, and the switches of arp.cfg
+  docs\ARP_ADMINS.txt         giving a player ARP admin; giving yourself money, items and a job to test with
+  docs\ARP_CONTENT.txt        the jobs, items, shops, NPCs, zones and properties of the two maps
+  docs\ARP_ITEMS.txt          every item: its number, what it does and who sells it
+  docs\ARP_INVENTORY.txt, docs\ARP_INVENTORY_WINDOW.txt    the inventory, exchange, search, credit sign and context
+                              menu; and the client's half of those windows
+  docs\H9_VGUI.txt            the H9 panels. 1e is ARP's menus and HUD.
+  docs\ARP_HUD_CHECKS.txt, docs\ARP_TAX_CHECKS.txt, docs\ARP_INVENTORY_CHECKS.txt    what to look at in a game
+  COMMANDS.txt                every cvar and command
+  tools\check_arp_docs.py     checks that every H9 cvar and command is named in the docs, and that the links exist
+  tools\check_docs_vs_sql.py  checks the hive's data against its docs

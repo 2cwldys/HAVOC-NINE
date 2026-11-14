@@ -6,10 +6,14 @@
 #include <HamSandwich>
 #include <ApolloRP_Chat>
 #include <xs>
+#include <ApolloRP_H9Cfg>
 
 new gZone[MAX_PLAYERS + 1][33]
 
 new TravTrie:gZones
+
+new p_H9ZoneFix
+new g_H9ZoneFix
 
 public ARP_Init()
 {
@@ -44,6 +48,12 @@ public plugin_init()
 	register_event( "DeathMsg", "EventDeathMsg", "a" )
 	
 	register_touch( "trigger_multiple", "player", "EventTouch" )
+
+	// H9: arp_h9_zonefix 1 repairs two faults of the stock plugin: a zones.ini of several zones is read to its end (the corners below), and a player's touch of a trigger_multiple reaches the game
+	// (EventTouch). 0 is stock Apollo RP's plugin. The zones are read here, before the server has executed arp.cfg, so for them the switch is the line arp.cfg holds (h9_cfg_num; with no
+	// line, 1); the touch follows the cvar.
+	p_H9ZoneFix = register_cvar( "arp_h9_zonefix", "1" )
+	g_H9ZoneFix = h9_cfg_num( "arp_h9_zonefix", 1 )
 	
 #if 0
 	new ent, targetname[33]
@@ -112,11 +122,21 @@ public plugin_init()
 				boundaries1[2] -= 16.0
 			}
 			
+			// H9: a corner is written back as the whole numbers it was read as. TravTrieSetString looks an old value up first, with TravTrieGetString into a buffer of 4 cells and the length 4, and
+			// AMX Mod X writes the end of such a string one cell past the length it is given, over the wrapper's saved frame pointer: the plugin stops with a memory access error as it next uses a
+			// local, at the end of the first zone, so a file of several zones gives one. The key is there already (it was set when the line was read), so with arp_h9_zonefix 1 TrieSetString puts
+			// the same value in the same place; 0 calls the wrapper as stock does.
 			formatex( originStr, charsmax( originStr ), "%d %d %d", floatround( boundaries1[0] ), floatround( boundaries1[1] ), floatround( boundaries1[2] ) )
-			TravTrieSetString( current, "boundaries1", originStr )
+			if ( g_H9ZoneFix )
+				TrieSetString( Trie:current, "boundaries1", originStr )
+			else
+				TravTrieSetString( current, "boundaries1", originStr )
 			
 			formatex( originStr, charsmax( originStr ), "%d %d %d", floatround( boundaries2[0] ), floatround( boundaries2[1] ), floatround( boundaries2[2] ) )
-			TravTrieSetString( current, "boundaries2", originStr )
+			if ( g_H9ZoneFix )
+				TrieSetString( Trie:current, "boundaries2", originStr )
+			else
+				TravTrieSetString( current, "boundaries2", originStr )
 			
 			current = Invalid_TravTrie
 			
@@ -202,7 +222,8 @@ public EventTouch( ptr, ptd )
 	if ( strlen( targetName ) && !equali( targetName, gZone[ptd] ) )
 		CallZoneEvent( ptd, targetName )
 	
-	return FMRES_IGNORED
+	// H9: a touch handler's return value blocks the touch from 1 up: PLUGIN_CONTINUE lets it reach the game, the stock FMRES_IGNORED (1) blocks it
+	return get_pcvar_num( p_H9ZoneFix ) ? PLUGIN_CONTINUE : FMRES_IGNORED
 }
 
 public _ARP_GetUserZone( plugin, params )

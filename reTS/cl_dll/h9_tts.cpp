@@ -22,6 +22,8 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <chrono>
+#include <random>
 
 #define H9TTS_MAX_MSG 192     // bytes an H9Tts message may have
 #define H9TTS_MIN_GAP 0.3f    // seconds between two lines of one speaker
@@ -43,6 +45,7 @@ cvar_t* s_cvMaxVoices; // cl_h9_tts_maxvoices: 1 to 8 voices at a time; a line b
 cvar_t* s_cvIndividual; // cl_h9_tts_individual: 1 gives each speaker who asked for no voice of his own one of his own, from his slot
 cvar_t* s_cvMyVoice; // cl_h9_tts_myvoice: the variant of the voice others hear from this player, 0 leaving it to their games
 cvar_t* s_cvMyDepth; // cl_h9_tts_mydepth: how deep (below 0) or high (above 0) others hear him, -10 to 10
+cvar_t* s_cvVoiceSet; // cl_h9_tts_voice_set: 1 once this player has a voice of his own, chosen or given at random the first time
 cvar_t* s_cvEngine;  // cl_h9_tts_engine: system (the machine's own voices), auto (the Kokoro voices when they are ready), kokoro (those only)
 cvar_t* s_cvThreads; // cl_h9_tts_threads: the threads the Kokoro helper synthesises with, 0 leaving it to the game
 
@@ -103,6 +106,35 @@ int MyVariant()
 int MyDepth()
 {
 	return ClampInt((int)CvarValue(s_cvMyDepth, 0.0f), -10, 10);
+}
+
+// A player who has never chosen a voice is given one, once: a variant at random (1 to 99, which wraps round the variants of his kind on each listener's
+// machine) and, when he has set no depth either, a small step of depth (-2 to 2). Both are written to cl_h9_tts_myvoice and cl_h9_tts_mydepth, which are
+// saved with his config, and cl_h9_tts_voice_set remembers it, so the players of a server do not all sound alike and each keeps the voice he was given on every
+// server and in every listener's game. A pick he made is kept as it is, and a 0 he sets afterwards stays a 0.
+void AssignVoiceOnce()
+{
+	static bool done = false;
+	if (done || !s_cvVoiceSet || !s_cvMyVoice || !s_cvMyDepth)
+		return;
+	done = true;
+	if (s_cvVoiceSet->value != 0.0f)
+		return;
+	const bool fresh = MyVariant() == 0 && MyDepth() == 0;
+	std::random_device rd;
+	std::mt19937 gen(rd() ^ (unsigned)std::chrono::steady_clock::now().time_since_epoch().count());
+	char value[16];
+	if (MyVariant() == 0)
+	{
+		snprintf(value, sizeof(value), "%d", 1 + (int)(gen() % 99));
+		gEngfuncs.Cvar_Set("cl_h9_tts_myvoice", value);
+	}
+	if (fresh)
+	{
+		snprintf(value, sizeof(value), "%d", (int)(gen() % 5) - 2);
+		gEngfuncs.Cvar_Set("cl_h9_tts_mydepth", value);
+	}
+	gEngfuncs.Cvar_Set("cl_h9_tts_voice_set", "1");
 }
 
 // cl_h9_tts_engine as a number: 0 system (the default), 1 auto, 2 kokoro. The first letter decides, and 0, 1 and 2 are taken as they are.
@@ -476,6 +508,7 @@ public:
 	}
 	void Think() override
 	{
+		AssignVoiceOnce();
 		SyncUserinfo();
 		SyncVoicePrefs();
 		// the Kokoro voices: the engine the player chose, and the helper started ahead of the first line on a server that speaks
@@ -511,6 +544,7 @@ void H9Tts_Init()
 	s_cvIndividual = CVAR_CREATE("cl_h9_tts_individual", "1", FCVAR_ARCHIVE);
 	s_cvMyVoice = CVAR_CREATE("cl_h9_tts_myvoice", "0", FCVAR_ARCHIVE);
 	s_cvMyDepth = CVAR_CREATE("cl_h9_tts_mydepth", "0", FCVAR_ARCHIVE);
+	s_cvVoiceSet = CVAR_CREATE("cl_h9_tts_voice_set", "0", FCVAR_ARCHIVE);
 	s_cvEngine = CVAR_CREATE("cl_h9_tts_engine", "system", FCVAR_ARCHIVE);
 	s_cvThreads = CVAR_CREATE("cl_h9_tts_threads", "0", FCVAR_ARCHIVE);
 	H9TtsPlat_Init();

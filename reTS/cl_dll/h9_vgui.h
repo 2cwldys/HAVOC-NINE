@@ -11,8 +11,9 @@
 // and ESC closes the newest one.
 #pragma once
 
-#define H9V_PROTOCOL 9 // 9: reads H9Search op 5 (MONEY) and offers to take money from the player searched; 8: reads H9Search, the window that searches a handcuffed player (h9_arpinv_*.h); 7: draws the credit sign Apollo RP shows for money (arp_h9_credits): the byte 0xA2 in a panel or HUD-font text, U+00A2 as UTF-8 in console, chat and centre text (6: reads H9Inv and H9Trade, Apollo RP's inventory and exchange windows; 5: H9Look, the aim plaque and the aim names; 4: H9Buy, the loadout rework's buy window; 3: MARK; 2: STATUS)
+#define H9V_PROTOCOL 10 // 10: reads H9Ctx and draws the context menu of the use key on a player (h9_arpctx*.h; it comes with 6 to 9); 9: reads H9Search op 5 (MONEY) and offers to take money from the player searched; 8: reads H9Search, the window that searches a handcuffed player (h9_arpinv_*.h); 7: draws the credit sign Apollo RP shows for money (arp_h9_credits): the byte 0xA2 in a panel or HUD-font text, U+00A2 as UTF-8 in console, chat and centre text (6: reads H9Inv and H9Trade, Apollo RP's inventory and exchange windows; 5: H9Look, the aim plaque and the aim names; 4: H9Buy, the loadout rework's buy window; 3: MARK; 2: STATUS)
 #define H9V_PROTOCOL_NO_INVENTORY 5 // what a game says when cl_h9_arpinv or cl_h9_arpvgui is 0: it keeps the text inventory
+#define H9V_PROTOCOL_NO_CTXMENU 9   // what a game says when cl_h9_ctxmenu is 0: the use key on a player is what it was
 
 // Limits (docs\H9_VGUI.txt, 4d).
 #define H9V_ID_LEN 24       // an id: 1-23 characters of a-z 0-9 . _ -

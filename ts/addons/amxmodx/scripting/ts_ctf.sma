@@ -8,9 +8,8 @@
  *
  * THE FLAG is this plugin's own entity (models/tsm_flag.mdl, made with SMAK by export-map/h9_drainage/flag.mjs, which carries it
  * in two bodies and three skins): a banner on a pole standing on the pad (body 0), the same pole worn up the carrier's back (body 1,
- * MOVETYPE_FOLLOW with the carrier as its aiment, so it rides his spine), and it CHANGES COLOUR WITH POSSESSION: a flag at its pad
- * wears its own side's colour (skin 1 blue, 2 red), the enemy that carries it turns it to the carrier's colour, and one that lies
- * where it was dropped is grey (skin 0). A flag that nobody takes back flies home after tsm_cf_return seconds; its own side
+ * MOVETYPE_FOLLOW with the carrier as its aiment, so it rides his spine). A flag keeps its own side's colour (skin 1 blue, 2 red) at its pad
+ * and on the back of whoever carries it, and one that lies where it was dropped is grey (skin 0). A flag that nobody takes back flies home after tsm_cf_return seconds; its own side
  * takes it back at once by walking over it. The carrier keeps every weapon, is marked to both sides, and lets the flag go with
  * "dropflag" in the console (bind it) or .drop in chat; he drops it where he falls. Without the model the mode falls back to TS's
  * briefcase tinted by a glow shell.
@@ -435,16 +434,13 @@ bool:on_pad(const Float:org[3], s)
 
 /* ---- the flags ------------------------------------------------------------------------------ */
 
-/// The colour a flag wears, as a side: its own while it stands at its pad, the carrier's while it is carried, none (0, grey) where it lies.
+/// The colour a flag wears, as a side: its own while it stands at its pad and while it is carried (whatever flag a player takes keeps its colour),
+/// none (0, grey) where it lies.
 flag_colour(f)
 {
-	if (g_flag_state[f] == CF_HOME)
+	if (g_flag_state[f] == CF_HOME || g_flag_state[f] == CF_CARRIED)
 	{
 		return f;
-	}
-	if (g_flag_state[f] == CF_CARRIED && g_flag_carrier[f] && is_user_connected(g_flag_carrier[f]))
-	{
-		return tsm_side_of(g_flag_carrier[f]);
 	}
 	return 0;
 }

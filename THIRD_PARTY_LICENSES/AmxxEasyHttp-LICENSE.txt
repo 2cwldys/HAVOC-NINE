@@ -1,0 +1,35 @@
+AmxxEasyHttp -- license of the AmxxEasyHttp files in this folder
+==============================================================
+
+AmxxEasyHttp is an HTTP client module for AMX Mod X by Igor Minin and the Next21 Team:
+https://github.com/Next21Team/AmxxEasyHttp (MIT). ts_advertise, h9_presence, h9_community, h9_compete and
+h9_rank need it (their #include <easy_http>).
+
+In this folder
+  amxx_easy_http_cacert.pem   the CA bundle the module reads to check the servers it talks to over HTTPS: Mozilla's
+                              root certificates as curl extracts them (the data of 12 Dec 2023, the same date as the
+                              bundle AmxxEasyHttp 1.4.0 ships). It is data, not AmxxEasyHttp code; the module's license
+                              is below because it is the module's own file.
+
+---------------------------------------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2021 Igor Minin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

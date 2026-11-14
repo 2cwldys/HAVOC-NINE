@@ -1,0 +1,35 @@
+PPSH-41: ATTRIBUTION
+====================
+
+The PPSh-41 view model (v_ppsh41.mdl), player model (p_ppsh41.mdl) and world
+model (w_ppsh41.mdl) are adapted from a 3D model published on Sketchfab:
+
+  "PPSh-41" by Zillious
+  Model:   https://sketchfab.com/3d-models/ppsh-41-5c8a64490fa747389e9cfcaecc69c88a
+  Author:  https://sketchfab.com/zillious
+  Licence: Creative Commons Attribution (CC BY), the licence listed on the
+           model's page (https://creativecommons.org/licenses/by/4.0/). It
+           allows use and adaptation, including commercial use, with credit to
+           the author and a note of what was changed. The model's page is the
+           authority on its licence.
+
+CHANGES MADE FOR THE SPECIALISTS / H9XASH
+
+  - The mesh (12,394 triangles, one piece) was split into its parts and
+    reduced to 2,078 triangles, to fit what a GoldSrc model holds.
+  - The drum magazine, modelled facing along the barrel, was turned a quarter
+    turn so that it sits across the gun as on the real weapon, and its back
+    disc, which the source winds inward, was turned to face out.
+  - The 4096 x 4096 physically based textures were baked into one colour
+    picture of 512 x 512 (view model) and 256 x 256 (player and world models),
+    with the steel darkened and tinted.
+  - The model was fitted onto The Specialists' own AK47 models, so the hands
+    and every animation are the game's: the drum follows the AK's magazine,
+    the trigger its trigger, the charging handle its bolt.
+  - None of the original file, nor its full-size textures, is included here.
+
+FIRING SOUND
+
+  sound/h9/ppsh41/fire.wav is a PPSh-41 shot from Darkest Hour: Europe
+  '44-'45 (DH_WeaponSounds.uax), the Red Orchestra game, trimmed and faded.
+  It is the work of the Darkest Hour team and is credited to them.

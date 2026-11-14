@@ -1,0 +1,67 @@
+// ---------------------------------------------------------------------------
+//  h9_p2p.cfg -- h9_p2p.amxx's settings (a friend joins your game through a relay)
+//
+//  Optional. With nothing here the plugin does nothing: h9_p2p is 0. docs\P2P_JOIN.txt
+//  is the whole guide; COMMANDS.txt, CVAR REFERENCE, "P2P JOIN" says when each change
+//  takes effect.
+//
+//  To change a setting, copy this file to
+//
+//      ts\addons\amxmodx\configs\h9_p2p.cfg
+//
+//  (build.bat makes that copy once if there is none, and never overwrites it). The plugin
+//  runs it at every map. Nothing in it is a secret: the host token is in p2p.ini beside
+//  h9xash.bat, never in a cvar, and none of these cvars is in the server's rules.
+// ---------------------------------------------------------------------------
+
+
+// 1: this game may open a path through a relay for friends who cannot reach it (invites
+// with h9_p2p_invite; the helper h9_p2p_host.bat must run beside the game). 0: the plugin
+// writes no file, reads no file and runs no timer. Read when a map starts, 5 seconds later,
+// and by every h9_p2p_* command: after typing h9_p2p 1 in the console, run h9_p2p_status.
+// Back to 0, the path closes within 10 seconds.
+h9_p2p "0"
+
+
+// 1: the game is on the relay's public list (its name, map, players and whether it has a
+// password) and anybody may ask the relay for a one-use invite to join it without yours.
+// You see every joiner and can kick (h9_p2p_list, h9_p2p_kick). Live, within 10 seconds.
+// Needs h9_p2p 1 and a relay that lists games.
+h9_p2p_public "0"
+
+
+// The name the public list shows. Empty: the server's hostname.
+h9_p2p_name ""
+
+
+// 1: an invite may let a friend's game and yours find each other directly (each then learns
+// the other's network address) when the command says "direct". 0: never, every friend goes
+// through the relay. Read when the path opens.
+h9_p2p_direct "1"
+
+
+// 1: a guest from the public list may use a direct path too (needs h9_p2p_direct 1). 0:
+// public guests are relay only and never learn your address.
+h9_p2p_direct_public "0"
+
+
+// 0: the relay never carries this game's packets, so friends can only connect directly.
+// Read when the path opens.
+h9_p2p_relay "1"
+
+
+// The relay's base URL, https:// on the internet, for a helper whose p2p.ini has no service= line
+// (a service= in p2p.ini wins: the host token is for that relay).
+// A relay on this PC for a test: h9_p2p_service "http://127.0.0.1:28247"
+// Read when the path opens.
+h9_p2p_service ""
+
+
+// Seconds an invite lives (60 to 900), and how many times one can be used (1 to 8).
+h9_p2p_ttl "600"
+h9_p2p_uses "1"
+
+
+// 1: every invite, and every guest from the public list, needs a havoc9.org account; the
+// console shows which one joined. Needs a relay that can check accounts.
+h9_p2p_require_account "0"

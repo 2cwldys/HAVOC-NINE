@@ -146,7 +146,8 @@ lists:
     demos, downloads (ts_downloads), the font cache, your spray (ts\tempdecal.wad), the spray cache
     (custom.hpk), voice_ban.dt;
   - a server's: ts_advertise.cfg, h9_presence.cfg, any *.key or *.env, ban lists, AMXX stats and
-    vaults, RCBot's player-name list;
+    vaults, RCBot's player-name list, its databases (ts\addons\amxmodx\data\sqlite3, Apollo RP's arp.sq3, and any
+    .sq3, .sqlite or .db file: a new install makes its own and loads each map's shipped SQL file into it);
   - logs, process ids, backups (*.bak*), temporary and junk files, a Wine prefix kept in the folder.
 
 With --source git, the release's own stage-h9xash.ps1 is read at every update too, and any rule it

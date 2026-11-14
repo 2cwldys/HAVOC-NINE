@@ -104,6 +104,9 @@
    * ARP is not running on this map: ARP stands down on a map that is not a roleplay one (apollo-rp\ORIGIN.txt, 1), and its
      commands are not there. The logs in addons\amxmodx\logs record the admin commands that were run ("Cmd: ..." lines) and the
      errors a command raised.
+   * arp_employ is the one command here that does not use that test: it answers "You have no access to this command." (in chat) to anybody who is not an admin (the letter z), not a job admin and whose own
+     rights do not include the job's, and the host of a listen server is not exempt from it, as he is from arp_setjob and arp_setaccess. It only offers the job, in a menu the player accepts or declines.
+     To give yourself a job use arp_setjob "<you>" "<job>" (section 8); to be able to offer any job, give yourself z first (section 3).
 
 
  8. GIVING YOURSELF MONEY, ITEMS AND A JOB (TESTING)
@@ -114,8 +117,8 @@
               arp_createbank "<you>" 20000        adds to your bank          arp_setbank "<you>" 20000        sets it
    Items      arp_createitems "<you>" "Laser Rifle" 1        arp_createitems "<you>" "Cuffs" 2        arp_createitems "<you>" "Rope" 1
               arp_removeitems "<you>" "Rope" 1               arp_setitems "<you>" "Soda" 5
-              The item is a number or a part of its name; arp_itemlist prints them all. A part that fits two items is refused ("Bug" is also
-              "Bug Scanner"): say more of the name, or give the number.
+              The item is a number or a part of its name; arp_itemlist prints them all (docs\ARP_ITEMS.txt has them in a file, with what each does and who sells it).
+              A part that fits two items is refused ("Bug" is also "Bug Scanner"): say more of the name, or give the number.
    A job      arp_setjob "<you>" "Cadet"          police rights (/cuff, /fine, jail) at once;  "Administrator" on H9's maps; arp_joblist lists jobs
    Rights     arp_setaccess "<you>" z             your own rights (section 3); arp_setaccess "<you>" ""  takes them away
  A worked example, to try cuffing and searching: two players are in the game. The first runs arp_setjob "<first>" "Cadet" and arp_createmoney

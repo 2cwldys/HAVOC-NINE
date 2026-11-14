@@ -1,0 +1,36 @@
+; p2p.ini -- the settings of the P2P join helper (docs\P2P_JOIN.txt)
+;
+; Copy this file to p2p.ini beside h9xash.bat and edit the copy. p2p.ini HOLDS YOUR HOST TOKEN: it is
+; never shipped, never committed, and nobody else should read it. Only this .example travels.
+; Lines starting with ; are comments. Nothing here changes the game: the game's own switches
+; are the cvars h9_p2p, h9_p2p_public, ... (COMMANDS.txt, CVAR REFERENCE, "P2P JOIN").
+
+; The relay's address: https://relay.example.org, or https://havoc9.org/api/p2p once that site runs
+; one. Whoever runs the relay tells you; a friend who joins needs the same address (or gives it
+; to h9_p2p_join.bat with --service). Use https:// unless the relay is on this PC or your LAN:
+; the token below travels to it.
+service=
+
+; Host only: the token the relay's owner gave you (one line of their hosts.json, or your havoc9.org
+; link token). Keep it secret. The launcher refuses to run with the example value.
+token=PASTE-YOUR-HOST-TOKEN-HERE
+
+; Host only: host:port of your game, as the helper reaches it. Empty: 127.0.0.1 and the port= of
+; networking.ini (27015 as it ships).
+game=
+
+; Host only: the game's AMX Mod X data folder, where the plugin and the helper leave their files,
+; relative to this file. Empty: ts\addons\amxmodx\data
+data_dir=
+
+; Host only, dedicated servers: 1 starts the helper beside the server (h9xash_server.bat and
+; h9xash_server.sh) and stops it with the server. 0 (the default): you start it yourself with
+; h9_p2p_host.bat.
+enabled=0
+
+; Host only: minutes the helper waits for a game that is gone before it stops itself (0: never).
+idle_exit=10
+
+; Friend only: 1 (the default) starts the game with +connect when you join with h9_p2p_join.bat;
+; 0 only prints the address, for you to type in a game that is running.
+start_game=1

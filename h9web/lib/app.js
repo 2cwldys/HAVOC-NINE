@@ -24,6 +24,7 @@ import { serveStatic } from "./static.js";
 import { createAudit } from "./audit.js";
 import { createRenames, registerRenameRoutes } from "./renames.js";
 import { registerAdminRoutes } from "./admin.js";
+import { createSiteFlags, registerSiteRoutes } from "./siteflags.js";
 import { createClientIds } from "./clientids.js";
 import { loadDataKey, createDataBox } from "./datakey.js";
 import { createLinks, registerLinkRoutes } from "./link.js";
@@ -60,6 +61,8 @@ export async function createApp(config, { logSink, logLevel } = {}) {
   const renames = createRenames({ db, accounts, audit, config, events });
   registerRenameRoutes(router, { auth, renames, limits, config, log: log.child("account") });
   const adminRoutes = registerAdminRoutes(router, { db, auth, accounts, renames, audit, limits, config, log: log.child("admin") });
+  const siteFlags = createSiteFlags({ config, log: log.child("site") });
+  registerSiteRoutes(router, { flags: siteFlags, auth, audit });
   const links = createLinks({ db, accounts, audit, config, events, clientIds, log: log.child("link") });
   registerLinkRoutes(router, { auth, links, limits, accounts, confirmAdmin: adminRoutes.confirmAdmin });
   const relay = createRelay({ config, auth, servers, events, log: log.child("relay") });
@@ -85,7 +88,8 @@ export async function createApp(config, { logSink, logLevel } = {}) {
     socket.on("error", () => socket.destroy());
     let pathname = "";
     try { pathname = new URL(req.url, "http://h9web.invalid").pathname; } catch (e) { /* refused below */ }
-    if (pathname === config.relay.path) relay.handleUpgrade(req, socket, head);
+    if (pathname === config.relay.path && !siteFlags.isOpen("webclient")) refuseUpgrade(socket, 503); // the web client is closed: so is its relay
+    else if (pathname === config.relay.path) relay.handleUpgrade(req, socket, head);
     else refuseUpgrade(socket, 404);
   });
   server.on("clientError", (err, socket) => {
@@ -134,5 +138,5 @@ export async function createApp(config, { logSink, logLevel } = {}) {
     log.info("stopped");
   }
 
-  return { config, log, db, events, accounts, clientIds, confirmAdmin: adminRoutes.confirmAdmin, dataKey, auth, audit, renames, links, limits, servers, status, relay, router, modules, server, listen, stop };
+  return { config, log, db, events, siteFlags, accounts, clientIds, confirmAdmin: adminRoutes.confirmAdmin, dataKey, auth, audit, renames, links, limits, servers, status, relay, router, modules, server, listen, stop };
 }

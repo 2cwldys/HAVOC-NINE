@@ -72,19 +72,21 @@ this is the stock table.
   and it gunbashes for 35 like the M4A1.
 
   The Mech's rocket launcher (id 41) is no gun of the table: a shoulder-fired rocket launcher that only the Mech
-  class carries (tsm_class9), in no buy menu and never dropped (the Mech's M60 neither: tsm_mech_nodrop; what he
-  throws as he dies is taken out of the world). One trigger pull launches a SALVO: h9_mechrocket_salvo (4) rockets,
-  h9_mechrocket_stagger (0.12) seconds apart, each paid for out of the clip as it leaves. The clip, h9_mechrocket_clip,
+  class carries (tsm_class9), in no buy menu and never dropped (the Mech's M60 neither, by any route: tsm_mech_nodrop
+  refuses the drop key, the weapon bar, a melee disarm and the scatter of his death). In burst mode (the default; the HUD says Volley) one trigger pull launches a SALVO: h9_mechrocket_salvo (4) rockets,
+  h9_mechrocket_stagger (0.12) seconds apart, each paid for out of the clip as it leaves; in semi mode (Single) a pull launches one rocket and
+  the next pull waits 0.4 of h9_mechrocket_rate. The clip, h9_mechrocket_clip,
   holds 4, so a pull empties it and the reload, h9_mechrocket_reload (3.0 seconds, the length of the launcher's
   reload animation), fills it again from the reserve; the ammo box names that reserve "Missile" in place of the
-  caliber it shares with the Contender (7.62 x 51mm; all sixteen calibers of the ammo table are taken). The first rocket goes
+  caliber it uses, the Barrett's 50BMG (all sixteen calibers of the ammo table are taken; the M60E3's belt is another, so the two
+  never share a reserve, and the Mech's class line gives the launcher eight spare rockets). The first rocket goes
   along the aim, the others stray up to h9_mechrocket_spread (2.5) degrees from it, and the aim kick comes once, after
   the last. The salvo asks nothing more of the trigger and ends if the Mech dies, puts the launcher away, runs dry or
   goes under water (the rockets that did not leave stay in the clip); a reload waits for it, and a clip with fewer
   rockets than the salvo launches what it holds. Every rocket explodes on impact (or after ten seconds in the air)
   with radius damage, and its numbers are cvars of the game library, to be balanced by playing: h9_mechrocket_damage
   (200) at the middle of the blast, in full out to a quarter of h9_mechrocket_radius (260 units) and falling in a
-  straight line to nothing at the radius, h9_mechrocket_speed (900 units a second), h9_mechrocket_rate (1.5
+  straight line to nothing at the radius, h9_mechrocket_speed (1100 units a second), h9_mechrocket_rate (1.5
   seconds from the last rocket of a salvo to the next pull). Armour takes none of a blast. One rocket kills a 100 hp
   player up to 162 units from the blast (a 75 hp player to 187), a Heavy (200 hp) only inside the 65 unit core and
   never a Mech (300 hp); two rockets that land together kill a Mech within 114 units, four within 187, and four kill

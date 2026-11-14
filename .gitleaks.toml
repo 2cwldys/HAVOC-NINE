@@ -9,6 +9,12 @@ id = "h9-heartbeat-or-discord-token-cfg"
 description = "A filled-in heartbeat_key or discord_token"
 regex = '''(?m)^[ \t]*(heartbeat_key|discord_token)[ \t]*=[ \t]*[^\s;#<]'''
 
+[rules.allowlist]
+description = "Python tests set the key as a keyword argument of a fake settings object: not a configuration line"
+paths = [
+  '''serverlist-bot/test_.*\.py$''',
+]
+
 [[rules]]
 id = "h9-web-keys"
 description = "h9web password pepper or player id key"
@@ -20,8 +26,12 @@ description = "A filled-in client secret or bot token"
 regex = '''"(clientSecret|botToken|client_secret|bot_token)"\s*:\s*"[^"<][^"]{7,}"'''
 
 [allowlist]
-description = "Public certificate bundles and upstream test data"
+description = "Public certificate bundles, upstream test data and documented placeholders"
 paths = [
   '''xash3d-fwgs/3rdparty/''',
   '''cacert\.pem$''',
+]
+regexes = [
+  # docs/ARP_ADMINS.txt: the example xash id of an SQL statement, a run of the digits 0 to 9 and the letters a to f
+  '''ID_0123456789abcdef0123456789abcdef''',
 ]

@@ -1,0 +1,11 @@
+name: HAVOC 9 CodeQL configuration
+
+# What the scan leaves out, and why:
+#   SMAK         a git submodule of https://github.com/deoroot/SMAK (another project, with its own repository and its own scans).
+#                This workflow does not check submodules out; the line is there for a checkout that has it.
+#   h9web/test, p2p/test   test code: it makes requests to servers it starts itself, with certificates it makes for the run.
+# Everything else, the game's tools, the relay, the web site and the helper, is scanned with the security-extended queries (codeql.yml).
+paths-ignore:
+  - SMAK/**
+  - h9web/test/**
+  - p2p/test/**

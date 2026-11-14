@@ -87,9 +87,12 @@ SKIP_DIR_NAMES = lower_rules([
     '.h9xash-updater'])
 # Folders left out at this path under H9XASH. Each is made again, empty, when RECREATE_DIRS lists it.
 # webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own runtime.
-SKIP_DIR_PATHS = lower_rules(['presets\\backup', 'ts\\addons\\amxmodx\\data\\vault', 'webview2\\data',
-                              'webview2\\runtime'])
-RECREATE_DIRS = [slash(d) for d in ('ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\logs')]
+# data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
+# its first roleplay map and loads that map's SQL file, which ships, into it.
+SKIP_DIR_PATHS = lower_rules(['presets\\backup', 'ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3',
+                              'webview2\\data', 'webview2\\runtime'])
+RECREATE_DIRS = [slash(d) for d in ('ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3',
+                                    'ts\\addons\\amxmodx\\logs')]
 
 # Files left out wherever they are (lower case).
 SKIP_NAMES = set(lower_rules([
@@ -103,10 +106,11 @@ SKIP_NAMES = set(lower_rules([
     # git's attribute file, a Wine prefix's registry files, the updater's timestamp
     '.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp']))
 SKIP_EXT = set(['.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '.dem', '.env', '.key', '.sav'])
-# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output.
+# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output, and any database file with its journal,
+# write-ahead log and shared-memory files (SQLite's .sq3, .sqlite, .sqlite3 or .db).
 SKIP_PATTERNS = [re.compile(p, re.IGNORECASE) for p in (
     r'\.bak($|[._-])', r'_resolved\.cfg$', r'^user_id\.ini', r'^device_id\.ini',
-    r'^h9_presence.*\.(key|cfg\.bak.*)$', r'downloadstsm')]
+    r'^h9_presence.*\.(key|cfg\.bak.*)$', r'downloadstsm', r'\.(sq3|sqlite3?|db)(-journal|-wal|-shm)?$')]
 
 # Files a new player gets from a stock source instead. 'at' is relative to H9XASH, 'sources' are the
 # candidates relative to the folder H9XASH sits in.

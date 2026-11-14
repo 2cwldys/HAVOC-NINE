@@ -33,6 +33,7 @@
 #include "h9_chatbubble.h"  // H9 chat bubbles: H9ChatBubble_Init
 #include "h9_buywindow.h"   // H9 buy window: H9BuyWindow_Init, the loadout rework's window
 #include "h9_arpinv.h"      // H9 ARP inventory: H9ArpInv_Init, Apollo RP's inventory and exchange windows
+#include "h9_arpctx.h"      // H9 ARP context menu: H9ArpCtx_Init, the menu of the use key on a player
 #include "h9_arphud.h"      // H9 ARP HUD: H9ArpHud_Init, Apollo RP's HUD as panels
 #include "h9_keymap.h"      // H9 key layouts: H9Keys_Init, H9Keys_VidInit
 #include "h9_rallycar.h"     // H9 rally mode: H9RallyCam_Init, H9RallyCam_VidInit
@@ -451,6 +452,7 @@ void CHud::Init()
 	H9RaceHud_Init(); // H9: the race mode's HUD, the H9R* messages, cl_h9_racehud and the userinfo key _h9race (h9_racehud.cpp)
 	H9CarMenu_Init(); // H9: rally mode's car menu and shop, the H9RMoney, H9RParts and H9RCar messages (h9_carmenu.cpp)
 	H9ArpInv_Init(); // H9: Apollo RP's inventory and exchange windows, H9Inv and H9Trade, cl_h9_arpinv, cl_h9_inventory (h9_arpinv.cpp)
+	H9ArpCtx_Init(); // H9: the menu of the use key on a player, H9Ctx, cl_h9_ctxmenu (h9_arpctx.cpp); after the inventory window, so that it is drawn over it
 
 	MsgFunc_ResetHUD(0, 0, NULL);
 
@@ -612,6 +614,8 @@ void CHud::VidInit()
 	m_TSReticle.VidInit();
 	m_TSDebris.VidInit();
 	m_TSObjectives.VidInit();
+	H9ArpInv_VidInit(); // H9: the inventory window forgets the last map and reads the item pictures; the H9 elements are not members, and this does not walk the list (h9_arpinv.cpp)
+	H9ArpCtx_VidInit(); // H9: the context menu forgets the last map; the same bridge (h9_arpctx.cpp)
 	TSParticles_Reset();     // drop stale per-map sprite handles (impact particle pool)
 	TSBullets_Reset();       // no round carries across a map (client.dll clears them on the FX root's first frame, 0x10056de3)
 	TS_Attachments_VidInit(); // drop stale per-map laser/flashlight sprite handles

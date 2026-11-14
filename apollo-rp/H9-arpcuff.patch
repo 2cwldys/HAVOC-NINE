@@ -1,0 +1,17 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_JailMod.sma b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_JailMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+@@ -157,10 +157,10 @@
+ 	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
+ 	entity_set_edict(Ent,EV_ENT_aiment,id)
+ 	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
+-	entity_set_float(Ent,EV_FL_renderamt,255.0)
++	// the client lights an alpha-test sprite whose renderamt is above 127, and the symbol is to read in a dark cell: 0 is drawn solid and unlit. EF_FULLBRIGHT is no way to
++	// that: it is bit 27, the entity state carries the effects in 8 bits, and the client would be sent 255, which has EF_NODRAW in it
++	entity_set_float(Ent,EV_FL_renderamt,0.0)
+ 	entity_set_float(Ent,EV_FL_scale,0.7)
+-	// EF_FULLBRIGHT is 1<<27 in this engine: the map's light does not darken it
+-	entity_set_int(Ent,EV_INT_effects,134217728)
+ 	g_CuffIcon[id] = Ent
+ }
+ 

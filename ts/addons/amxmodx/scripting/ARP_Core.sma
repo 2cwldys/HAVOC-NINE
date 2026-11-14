@@ -20,6 +20,8 @@
 #include <xs>
 #include <tsfun>
 #include <h9_presence>
+#include <ApolloRP_H9Cfg>
+#include <ApolloRP_H9Teams>
 #define ARPVGUI_PAGED
 #include <ApolloRP_VGui>
 #if defined ARRAYX
@@ -151,6 +153,12 @@ new p_HoverMessage
 new p_H9ItemHover	// H9: arp_h9_itemhover, 1 gives the look-at line of a dropped item (GetMsg), 0 none
 new p_Toast	// H9: arp_h9_toast, 0 chat as stock, 1 [ARP] chat lines as popups over the crosshair, 2 both (H9_Toast)
 new p_H9Plaque	// H9: arp_h9_plaque, 1 says what a property door, an NPC and a player is when it is looked at (GetMsg, H9_Plaque*), 0 is stock ARP's text
+new p_H9Teamplay	// H9: arp_teamplay, 1 asks for team play on a roleplay map: TS's team rules, three teams, a player's team from his job (H9_TeamsPrecache, ARP_TS)
+new p_H9TeamplayOn	// H9: arp_teamplay_on, set by ARP_TS: 1 while TS reports ARP's three teams on this map (H9_TeamsLive)
+new bool:g_H9TeamsAsked	// H9: arp_teamplay was 1 in the server's files when this map loaded, so the game's half of it was set up (H9_TeamsPrecache)
+// H9: the one table of the teams' names, by team number (include\ApolloRP_H9Teams.inc): the map's mp_teamlist, ARP_H9_TeamName and so TS's scoreboard spell them so, and nothing
+// else in the source holds a team's name: renaming a team is its line here. The order is the numbering, and the client colours a team by its number (1 blue, 2 red, 3 yellow).
+new const g_H9TeamNames[ARP_H9_TEAMS + 1][] = {"","Middle Sea Republic","Insurrection","Proletarians"}
 //new p_CharacterSheet
 
 enum _:HUD_CVARS
@@ -219,6 +227,7 @@ new g_PanelNum
 #define PLAQUE_LINES 8
 #define PLAQUE_REBUILD 0.25
 #define H9_ACCESS_G (1<<6)     // the access letter g, the Lord Minister's own
+new const g_H9InsurgentAccessCvar[] = "arp_h9_insurgent_access"   // the access letters of the Insurgency's jobs and properties
 new g_PlaqueKind[PLAQUE_LINES]
 new g_PlaqueText[PLAQUE_LINES][HUDP_LINE_LEN]
 new g_PlaqueNum
@@ -266,6 +275,37 @@ new g_ItemsOptions[] = "ARP_ItemsOptions"
 new g_ItemClassname[] = "arp_item"
 new g_ItemModel[] = "models/arp/w_backpack.mdl"
 new Float:g_H9ItemScan[MAX_PLAYERS + 1]	// H9: when a player's look at the dropped items was last tried (GetMsg)
+
+// H9: the picture of a dropped item over its pack (arp_h9_itemicon, H9_ItemIconMake). A sprite entity of the class arp_item_icon floats over the pack and shows the item's frame of
+// sprites/h9_arpicons.spr, the sheet the inventory window's tiles are drawn from; sprites/h9_arpicons.txt names the frames (read at precache: an item's name in lower case, then its
+// frame). The sheet is a sprite of type SPR_FWD_PARALLEL, which faces the viewer whichever way he looks, and of format SPR_ALPHTEST, with the middle of each frame at the entity's
+// origin. The icon is drawn solid (kRenderNormal) and unlit: the client lights an alpha-test sprite (r_sprite_lighting) when its renderamt is above 127, and the picture is to read
+// in a dark corridor as it does in the window. The renderamt is 0 under a renderfx that is not none (kRenderFxNoDissipation, which does nothing to a sprite that is not a glow): the
+// client sets the renderamt of every kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities). EF_FULLBRIGHT is no way to unlit: it is bit 27, the entity state
+// carries the effects in 8 bits, and the client would be sent 255, which has EF_NODRAW in it. The pack keeps its icon's entity in iuser3; the icon keeps its pack in iuser1 and
+// the number it was made in in iuser2.
+new g_ItemIconSheet[] = "sprites/h9_arpicons.spr"
+new g_ItemIconList[] = "sprites/h9_arpicons.txt"
+new g_ItemIconClassname[] = "arp_item_icon"
+new g_ItemIconIdx	// the sheet's model index: 0 when the sheet or its list is not there (or arp.cfg has arp_h9_itemicon 0), and no icon is made
+new Trie:g_ItemIconFrames	// an item's name in lower case -> its frame in the sheet
+new g_ItemIconSerial	// the number the last icon was made in
+new p_H9ItemIcon
+new p_H9ItemIconMax
+new p_H9ItemIconScale
+#define H9_ITEMICON_MAX 128	// the most icons arp_h9_itemicon_max can allow
+#define H9_ITEMICON_SPARE 100	// the edicts left free for the engine and the other plugins: no icon is made when fewer are left
+
+// H9: the glow of a pack that has just been dropped (arp_h9_itemglow, H9_ItemGlowStart, H9_ItemGlowBeat, H9_ItemGlowPulse): a point light in a purple that shows the pack in a dark corner, sent
+// as a pulse that fades out by itself in a second and a quarter and sent again every beat while the pack has time left to glow. It is a message and no entity: nothing in the entity table and
+// nothing to take down. The game's time a pack glows until is kept in its fuser1; a pack that has none (one a map places) never glows. The beat is a task that runs only while a pack glows.
+new p_H9ItemGlow
+new p_H9ItemGlowTime
+new p_H9ItemGlowRadius
+new p_H9ItemGlowColor
+#define H9_ITEMGLOW_BEAT 1.5	// the seconds between one pulse of the light and the next
+#define H9_ITEMGLOW_MAX 32	// the most packs that are sent a pulse in one beat
+#define H9_ITEMGLOW_TASK 94780	// the beat's task
 
 // H9: the forwards ARP_Inventory implements when it is loaded (include\ApolloRP_Items.inc); with none loaded each answers 0 and the core is stock ARP
 new g_H9FwdCount
@@ -386,6 +426,9 @@ public plugin_init()
 	#endif
 	
 	set_task(1.0,"GodEnts")
+
+	// H9: the icons of the dropped items whose packs are gone are taken down (H9_ItemIconSweep)
+	set_task(5.0,"H9_ItemIconSweep",0,"",0,"b")
 	
 	if(module_exists("tsfun") || module_exists("tsx")) g_Mod = TS
 	else if(module_exists("tfcx")) g_Mod = TFC
@@ -999,6 +1042,18 @@ public plugin_precache()
 	p_HoverMessage = register_cvar("arp_hover_message","1")
 	// H9: 1 names a dropped item the player looks toward (H9_AimedItem); 0 is stock ARP, which says nothing of it
 	p_H9ItemHover = register_cvar("arp_h9_itemhover","1")
+	// H9: 1 shows the picture of a dropped item over its pack (H9_ItemIconMake); 0 is stock ARP. arp_h9_itemicon_max is the most icons that stand at a time (the oldest makes way; 0
+	// makes none), arp_h9_itemicon_scale the size of one (1.0 is 32 units across)
+	p_H9ItemIcon = register_cvar("arp_h9_itemicon","1")
+	p_H9ItemIconMax = register_cvar("arp_h9_itemicon_max","64")
+	p_H9ItemIconScale = register_cvar("arp_h9_itemicon_scale","0.6")
+	// H9: 1 makes a pack that has just been dropped glow, a purple point light over it that pulses every second and a half, so that it shows in a dark corner and is easy to find and pick up
+	// (H9_ItemGlowStart); 0 is stock ARP, which gives the pack no light. arp_h9_itemglow_time is the seconds it glows for after the drop (0 to 600; 0 gives none), arp_h9_itemglow_radius how far
+	// the light reaches (units, 40 to 600) and arp_h9_itemglow_color its colour (red green blue, 0 to 255 each)
+	p_H9ItemGlow = register_cvar("arp_h9_itemglow","1")
+	p_H9ItemGlowTime = register_cvar("arp_h9_itemglow_time","12")
+	p_H9ItemGlowRadius = register_cvar("arp_h9_itemglow_radius","200")
+	p_H9ItemGlowColor = register_cvar("arp_h9_itemglow_color","180 60 255")
 	// H9: what Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that fades, to the games that draw H9 panels:
 	// 0 chat as stock ARP, 1 the popup in place of the chat line, 2 both
 	p_Toast = register_cvar("arp_h9_toast","1")
@@ -1056,6 +1111,19 @@ public plugin_precache()
 	register_cvar(g_PoliceAccessCvar,"a")
 	register_cvar(g_MedicalAccessCvar,"b")
 	register_cvar(g_AdminAccessCvar,"z")
+
+	// H9: the access letters of the Insurgency's jobs and properties. The Affiliation line of the look-at plaque says Insurgency for a player whose job
+	// holds one and for a door whose property lists one; a job with the police letter, the medical letter or g says Middle Sea Republic.
+	register_cvar(g_H9InsurgentAccessCvar,"i")
+	
+	// H9: team play (docs\APOLLO_RP.txt, 10). arp_teamplay 1 puts a roleplay map on TS's team rules with three teams (g_H9TeamNames: the Middle Sea Republic, the Insurrection
+	// and the Proletarians), and each player on the team of his job; 0 is stock ARP, which never touches a team. arp_teamplay_on is ARP_TS's word that TS reports the three teams on this
+	// map: it is 0 until then and on every map afresh. game.cfg runs the command h9_arp_teams after its team lines of the match mode; it is registered here, before the
+	// roleplay test, so that it exists on every map and game.cfg never meets an unknown command (a map that does not ask for team play leaves it a no-op).
+	p_H9Teamplay = register_cvar("arp_teamplay","0")
+	p_H9TeamplayOn = register_cvar("arp_teamplay_on","0",FCVAR_SPONLY)
+	set_pcvar_num(p_H9TeamplayOn,0)
+	register_srvcmd("h9_arp_teams","H9_TeamsHook")
 	
 	// H9: Apollo RP plays on roleplay maps only. On any other map every ARP plugin stands down
 	// here, before its precache, its init and every hook: no config, no database, no player data.
@@ -1064,6 +1132,8 @@ public plugin_precache()
 		H9_StandDown()
 		return
 	}
+	
+	H9_TeamsPrecache()
 	
 	arpvgui_precache()
 	
@@ -1116,6 +1186,8 @@ public plugin_precache()
 		format(g_Query,sizeof g_Query - 1,"Item model missing: %s",g_ItemModel)
 		UTIL_ARP_ThrowError(0,0,g_Query,0)
 	}
+
+	H9_ItemIconPrecache()
 	
 	g_ItemsArray = array_create()
 	
@@ -1159,6 +1231,78 @@ bool:H9_RoleplayMap()
 	get_mapname(MapName,sizeof MapName - 1)
 	
 	return equali(MapName,"rp_",3) || equali(MapName,"tsrp_",5) || containi(MapName,"_rp_") != -1 || containi(MapName,"_tsrp_") != -1
+}
+
+// The map's team list as TS reads mp_teamlist: the names of g_H9TeamNames in the order of the numbers, ";" between them.
+H9_TeamList(List[],Len)
+{
+	List[0] = 0
+	
+	for(new Team = ARP_H9_TEAM_FIRST;Team <= ARP_H9_TEAMS;Team++)
+	{
+		if(Team > ARP_H9_TEAM_FIRST)
+			add(List,Len,";")
+		
+		add(List,Len,g_H9TeamNames[Team])
+	}
+}
+
+// H9: the game's half of team play, on a roleplay map. The world spawns right after this precache, and TS decides then, from mp_teamplay, whether teams work at all; it
+// reads its team list as it makes its rules, straight after game.cfg (H9_TeamsHook writes it there). arp_teamplay 1 in arp.cfg or the map's mapconfig, on a game that has
+// the TS modules, makes the map a team map (ts_matchmode, which precaches first, has set mp_teamplay for the map's name already) and keeps TS from ever writing a
+// player's model (mp_teammodels_force 0, reTS: reference\DEVIATIONS.md), so that each keeps the model he chose whatever team he joins. The server runs both files only after
+// this precache, so h9_teams_requested reads them.
+H9_TeamsPrecache()
+{
+	g_H9TeamsAsked = false
+	
+	if(!h9_teams_requested())
+		return
+	
+	// a mapconfig that says mp_teamplay 0 keeps the map off team rules, as it does for ts_matchmode
+	if(h9_mapcfg_num("mp_teamplay",1) == 0)
+	{
+		log_amx("[ARP] arp_teamplay is 1, but this map's mapconfig says mp_teamplay 0: team play stays off.")
+		return
+	}
+	
+	if(!module_exists("tsfun") && !module_exists("tsx"))
+	{
+		log_amx("[ARP] arp_teamplay is 1, but this game is not The Specialists: team play stays off.")
+		return
+	}
+	
+	g_H9TeamsAsked = true
+	
+	set_cvar_num("mp_teamplay",1)
+	if(cvar_exists("teamplay"))
+		set_cvar_num("teamplay",1)
+	if(cvar_exists("mp_teammodels_force"))
+		set_cvar_num("mp_teammodels_force",0)
+	
+	new List[128]
+	H9_TeamList(List,charsmax(List))
+	
+	log_amx("[ARP] arp_teamplay is 1: this map plays on TS's team rules (mp_teamplay 1) with the teams %s; each player is put on the team of his job once TS reports them.",List)
+}
+
+// H9: the server command h9_arp_teams, which ts\game.cfg runs after the match mode's team lines. With team play asked for it writes ARP's three teams as the map's team
+// list, and friendly fire on: the list is read when TS makes its rules, straight after game.cfg, so no other place can change it, and game.cfg sets mp_friendlyfire 0
+// (ARP_TS sets both again for the first minute of the map, after the server's other files have run). Anywhere else it does nothing.
+public H9_TeamsHook()
+{
+	if(!g_H9TeamsAsked)
+		return
+	
+	new List[128]
+	H9_TeamList(List,charsmax(List))
+	
+	set_cvar_string("mp_teamlist",List)
+	set_cvar_num("mp_friendlyfire",1)
+	if(cvar_exists("mp_teammodels_force"))
+		set_cvar_num("mp_teammodels_force",0)
+	
+	log_amx("[ARP] game.cfg ran h9_arp_teams: mp_teamlist is ^"%s^", mp_friendlyfire 1.",List)
 }
 
 // H9: off a roleplay map, every loaded ARP plugin (ARP_*.amxx) is paused, this core last.
@@ -2620,6 +2764,9 @@ H9_MakePack(id,ItemId,Num)
 	drop_to_floor(Ent)
 	entity_set_origin(id,Origin)
 
+	H9_ItemIconMake(Ent,Name)
+	H9_ItemGlowStart(Ent)
+
 	return Ent
 }
 
@@ -2667,6 +2814,7 @@ H9_PickUp(id,Ent)
 
 	client_print(id,print_chat,"[ARP] You have picked up %d %s%s.",Quantity,ItemName,Quantity == 1 ? "" : "s")
 
+	H9_ItemIconOf(Ent)
 	remove_entity(Ent)
 }
 
@@ -2858,8 +3006,18 @@ H9_AccessMask(const Cvar[])
 	return ARP_AccessToInt(Letters)
 }
 
-// The affiliation of a set of access letters (a property's, or a player's job's): the police letter or the Lord Minister's g is the Ministry of Defense, the medical
-// letter the Medical Division, both say both, the admin letter alone Administration, anything else Civilian.
+// What the plaque calls the affiliation of no letter: Proletarian while H9's team play runs (arp_teamplay with TS reporting the three teams: the Proletarians are the third
+// team), the stock Civilian everywhere else. The client draws either as a plain outline (h9_arphud.cpp, KIND_PLQ_TAG).
+H9_CivilianWord(Out[],Len)
+{
+	if(get_pcvar_num(p_H9Teamplay) != 0 && get_pcvar_num(p_H9TeamplayOn) != 0)
+		copy(Out,Len,"Proletarian")
+	else
+		copy(Out,Len,"Civilian")
+}
+
+// The affiliation of a property's access letters: the police letter or the Lord Minister's g is the Ministry of Defense, the medical letter the Medical Division, both
+// say both, a letter of arp_h9_insurgent_access the Insurgency, the admin letter alone Administration, anything else no affiliation (H9_CivilianWord).
 H9_Affiliation(Access,Out[],Len)
 {
 	Out[0] = 0
@@ -2874,11 +3032,84 @@ H9_Affiliation(Access,Out[],Len)
 		add(Out,Len,"Medical Division")
 	}
 
+	if(!Out[0] && (Access & H9_AccessMask(g_H9InsurgentAccessCvar)))
+		copy(Out,Len,"Insurgency")
+
 	if(!Out[0] && (Access & H9_AccessMask(g_AdminAccessCvar)))
 		copy(Out,Len,"Administration")
 
 	if(!Out[0])
-		copy(Out,Len,"Civilian")
+		H9_CivilianWord(Out,Len)
+}
+
+// The team that the access letters of a job put a player on, the one rule of team play (include\ApolloRP_H9Teams.inc): the police letter, the medical letter or the Lord
+// Minister's g make him the Middle Sea Republic's, a letter of arp_h9_insurgent_access the Insurrection's, anything else the Proletarians'. The Republic is asked first, so a job
+// that holds letters of both is the Republic's. The affiliation line of the plaque asks it as well.
+H9_TeamOfAccess(Access)
+{
+	if(Access & (H9_AccessMask(g_PoliceAccessCvar) | H9_AccessMask(g_MedicalAccessCvar) | H9_ACCESS_G))
+		return ARP_H9_TEAM_MSR
+	
+	if(Access & H9_AccessMask(g_H9InsurgentAccessCvar))
+		return ARP_H9_TEAM_INSURRECTION
+	
+	return ARP_H9_TEAM_PROLETARIAN
+}
+
+// H9: team play runs on this map: arp_teamplay is 1 and ARP_TS has found TS reporting the three teams (arp_teamplay_on)
+bool:H9_TeamsLive()
+	return get_pcvar_num(p_H9Teamplay) != 0 && get_pcvar_num(p_H9TeamplayOn) != 0
+
+// The team of a player, what ARP_H9_TeamOf answers: 0 while team play does not run; the team of the letters of his job (H9_TeamOfAccess); for a bot, which has no job, the
+// team field of its entity, which the plugin that runs it sets. This is the one place that says where the answer comes from.
+H9_PlayerTeam(id)
+{
+	if(!H9_TeamsLive() || id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
+		return ARP_H9_TEAM_NONE
+	
+	if(is_user_bot(id))
+	{
+		new Team = entity_get_int(id,EV_INT_team)
+		return (Team >= ARP_H9_TEAM_FIRST && Team <= ARP_H9_TEAMS) ? Team : ARP_H9_TEAM_NONE
+	}
+	
+	return H9_TeamOfAccess(g_Access[id])
+}
+
+// What the plaque calls a team: the Republic's is the Middle Sea Republic, the Insurrection's the Insurgency (the scoreboard calls the team Insurrection) and the Proletarians'
+// Proletarian while team play runs, else Civilian (H9_CivilianWord; the scoreboard calls the team Proletarians). These are the plaque's own words, not the teams' names (g_H9TeamNames).
+H9_TeamAffiliation(Team,Out[],Len)
+{
+	switch(Team)
+	{
+		case ARP_H9_TEAM_MSR:
+			copy(Out,Len,"Middle Sea Republic")
+		case ARP_H9_TEAM_INSURRECTION:
+			copy(Out,Len,"Insurgency")
+		default:
+			H9_CivilianWord(Out,Len)
+	}
+}
+
+// The affiliation of a player, from the access letters of his job: the team they put him on says it (H9_TeamOfAccess), the admin letter alone Administration.
+H9_PlayerAffiliation(Access,Out[],Len)
+{
+	new Team = H9_TeamOfAccess(Access)
+	
+	if(Team == ARP_H9_TEAM_PROLETARIAN && (Access & H9_AccessMask(g_AdminAccessCvar)))
+		copy(Out,Len,"Administration")
+	else
+		H9_TeamAffiliation(Team,Out,Len)
+}
+
+// The affiliation of the player another one looks at: the letters of his job say it; a bot has no job, so while team play runs its team field does (a citizen is of the
+// Proletarians, which the plaque calls Proletarian, an insurgent of tsrp_roambots of the Insurrection, which it calls Insurgency).
+H9_AffiliationOfPlayer(Index,Out[],Len)
+{
+	if(is_user_bot(Index) && H9_TeamsLive())
+		H9_TeamAffiliation(H9_PlayerTeam(Index),Out,Len)
+	else
+		H9_PlayerAffiliation(g_Access[Index],Out,Len)
 }
 
 // Who a locked property asks for, for the Restricted line: its access letters in words, "keyholders" for a property that names none.
@@ -2894,6 +3125,13 @@ H9_AccessWho(Access,Out[],Len)
 		if(Out[0])
 			add(Out,Len," / ")
 		add(Out,Len,"Medical Division")
+	}
+
+	if(Access & H9_AccessMask(g_H9InsurgentAccessCvar))
+	{
+		if(Out[0])
+			add(Out,Len," / ")
+		add(Out,Len,"Insurgency")
 	}
 
 	if(!Out[0] && (Access & H9_ACCESS_G))
@@ -3001,14 +3239,13 @@ H9_PlaqueDoor(id,Property)
 		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
 }
 
-// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
-// block names, and how to use it.
+// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), and how to use it. The property its npcs.ini block names
+// takes the profit of its sales (ARP_GetNpcProperty) and is not on the plaque: an NPC has no owner.
 H9_PlaqueNpc(Index)
 {
-	static Name[33],Handler[32],Role[16],Property[64]
+	static Name[33],Handler[32],Role[16]
 	entity_get_string(Index,EV_SZ_noise1,Name,32)
 	entity_get_string(Index,EV_SZ_noise,Handler,31)
-	entity_get_string(Index,EV_SZ_noise2,Property,63)
 
 	Role[0] = 0
 	if(equal(Handler,"EdekaHandle"))
@@ -3027,10 +3264,6 @@ H9_PlaqueNpc(Index)
 
 	if(Role[0])
 		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
-
-	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
-	if(Linked != -1)
-		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
 
 	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
 }
@@ -3051,7 +3284,7 @@ H9_PlaquePlayer(Index)
 	if(JobName[0])
 		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Job: %s",JobName)
 
-	H9_Affiliation(g_Access[Index],Affil,95)
+	H9_AffiliationOfPlayer(Index,Affil,95)
 	H9_PlaqueAdd(HUDK_PLAQUE_TAG,"Affiliation: %s",Affil)
 }
 
@@ -3064,8 +3297,354 @@ H9_PlaqueSend(id)
 		UTIL_ARP_AddHudItem(id,HUD_QUAT,g_PlaqueText[Count],(Count == g_PlaqueNum - 1 && !g_HudPending) ? 1 : 0,g_PlaqueKind[Count])
 }
 
+// H9: whether an entity is a pack of items on the floor (what a drop makes)
+bool:H9_IsItemPack(Ent)
+{
+	static Classname[33]
+	entity_get_string(Ent,EV_SZ_classname,Classname,32)
+
+	return equal(Classname,g_ItemClassname) ? true : false
+}
+
+// H9: reads the list of the picture sheet and precaches the sheet, unless arp.cfg says arp_h9_itemicon 0 (read from the file: the server executes arp.cfg after the precache, so a change
+// to 1 needs a map change). A name whose frame is not one of the sheet's (its header's number of frames) is left out, and an item that is not in the list has no icon.
+H9_ItemIconPrecache()
+{
+	g_ItemIconIdx = 0
+
+	if(!h9_cfg_num("arp_h9_itemicon",1))
+		return
+
+	if(!file_exists(g_ItemIconSheet) || !file_exists(g_ItemIconList))
+	{
+		log_amx("[ARP] arp_h9_itemicon is 1 but %s or %s is not on this server: no picture stands over a dropped item.",g_ItemIconSheet,g_ItemIconList)
+		return
+	}
+
+	new Sheet = fopen(g_ItemIconSheet,"rb"),Frames
+	if(!Sheet)
+		return
+
+	fseek(Sheet,28,SEEK_SET)
+	fread(Sheet,Frames,BLOCK_INT)
+	fclose(Sheet)
+
+	if(Frames < 1)
+		return
+
+	new File = fopen(g_ItemIconList,"rt")
+	if(!File)
+		return
+
+	g_ItemIconFrames = TrieCreate()
+
+	new Line[96],Name[40],Bar,Frame
+	while(!feof(File))
+	{
+		Line[0] = 0
+		fgets(File,Line,95)
+		trim(Line)
+
+		Bar = contain(Line,"|")
+		if(Bar < 1 || Line[0] == '#' || Line[0] == '/')
+			continue
+
+		copy(Name,min(Bar,39),Line)
+		strtolower(Name)
+
+		Frame = str_to_num(Line[Bar + 1])
+		if(Frame >= 0 && Frame < Frames)
+			TrieSetCell(g_ItemIconFrames,Name,Frame)
+	}
+	fclose(File)
+
+	if(TrieGetSize(g_ItemIconFrames))
+		g_ItemIconIdx = precache_model(g_ItemIconSheet)
+	else
+		log_amx("[ARP] %s names no frame of %s: no picture stands over a dropped item.",g_ItemIconList,g_ItemIconSheet)
+}
+
+// H9: the oldest icon that stands, and in Count how many do
+H9_ItemIconOldest(&Count)
+{
+	new Icon,Oldest,OldestSerial = cellmax
+	Count = 0
+
+	while((Icon = find_ent_by_class(Icon,g_ItemIconClassname)))
+	{
+		Count++
+
+		if(entity_get_int(Icon,EV_INT_iuser2) < OldestSerial)
+		{
+			OldestSerial = entity_get_int(Icon,EV_INT_iuser2)
+			Oldest = Icon
+		}
+	}
+
+	return Oldest
+}
+
+// H9: takes an icon down. Pack, when it is not 0, is the pack the icon must belong to: an entity number the server has given to something else since is left alone.
+H9_ItemIconRemove(Icon,Pack)
+{
+	if(Icon < 1 || !is_valid_ent(Icon))
+		return
+
+	static Classname[16]
+	entity_get_string(Icon,EV_SZ_classname,Classname,15)
+	if(!equal(Classname,g_ItemIconClassname))
+		return
+
+	new Owner = entity_get_int(Icon,EV_INT_iuser1)
+	if(Pack && Owner != Pack)
+		return
+
+	if(Owner > 0 && is_valid_ent(Owner) && H9_IsItemPack(Owner) && entity_get_int(Owner,EV_INT_iuser3) == Icon)
+		entity_set_int(Owner,EV_INT_iuser3,0)
+
+	remove_entity(Icon)
+}
+
+// H9: the pack is going: its icon goes with it
+H9_ItemIconOf(Pack)
+{
+	new Icon = entity_get_int(Pack,EV_INT_iuser3)
+	if(Icon)
+		H9_ItemIconRemove(Icon,Pack)
+}
+
+// H9: the picture of an item over its pack: the icon's entity, or 0 when there is none (arp_h9_itemicon is 0, the sheet or its list is not there, the item has no picture in the list,
+// arp_h9_itemicon_max is 0, the entity table has no room to spare). With arp_h9_itemicon_max icons standing, the oldest makes way, so the packs dropped last keep theirs.
+H9_ItemIconMake(Pack,const ItemName[])
+{
+	if(!g_ItemIconIdx || !get_pcvar_num(p_H9ItemIcon))
+		return 0
+
+	static Key[33]
+	copy(Key,32,ItemName)
+	strtolower(Key)
+
+	new Frame
+	if(!TrieGetCell(g_ItemIconFrames,Key,Frame))
+		return 0
+
+	new Max = clamp(get_pcvar_num(p_H9ItemIconMax),0,H9_ITEMICON_MAX)
+	if(Max < 1)
+		return 0
+
+	new Count,Oldest = H9_ItemIconOldest(Count)
+	if(Count >= Max)
+		H9_ItemIconRemove(Oldest,0)
+
+	// the engine stops the server when it has no edict left, and create_entity cannot say so: an icon is made only while the table has room to spare
+	if(entity_count() + H9_ITEMICON_SPARE >= get_global_int(GL_maxEntities))
+		return 0
+
+	new Ent = create_entity("info_target")
+	if(!Ent)
+		return 0
+
+	new Float:Scale = get_pcvar_float(p_H9ItemIconScale)
+	if(Scale < 0.2)
+		Scale = 0.2
+	else if(Scale > 4.0)
+		Scale = 4.0
+
+	// the middle of the picture: the height of a backpack, half the picture and a little air over the pack
+	new Float:Origin[3]
+	entity_get_vector(Pack,EV_VEC_origin,Origin)
+	Origin[2] += 16.0 + 16.0 * Scale + 4.0
+
+	entity_set_string(Ent,EV_SZ_classname,g_ItemIconClassname)
+	entity_set_model(Ent,g_ItemIconSheet)
+	entity_set_origin(Ent,Origin)
+	entity_set_int(Ent,EV_INT_movetype,MOVETYPE_NONE)
+	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
+	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
+	entity_set_int(Ent,EV_INT_renderfx,kRenderFxNoDissipation)
+	entity_set_float(Ent,EV_FL_renderamt,0.0)
+	entity_set_float(Ent,EV_FL_scale,Scale)
+	entity_set_float(Ent,EV_FL_frame,float(Frame))
+	entity_set_int(Ent,EV_INT_iuser1,Pack)
+	entity_set_int(Ent,EV_INT_iuser2,++g_ItemIconSerial)
+	entity_set_int(Pack,EV_INT_iuser3,Ent)
+
+	return Ent
+}
+
+// H9: every few seconds an icon whose pack is gone, is another or does not name it back is taken down (the pack was removed by something that knows nothing of icons), the icons that
+// stand are no more than arp_h9_itemicon_max, and with arp_h9_itemicon 0 none stand
+public H9_ItemIconSweep()
+{
+	new Icon,Pack,bool:On = get_pcvar_num(p_H9ItemIcon) ? true : false
+
+	while((Icon = find_ent_by_class(Icon,g_ItemIconClassname)))
+	{
+		Pack = entity_get_int(Icon,EV_INT_iuser1)
+
+		if(!On || Pack < 1 || !is_valid_ent(Pack) || !H9_IsItemPack(Pack) || entity_get_int(Pack,EV_INT_iuser3) != Icon)
+			H9_ItemIconRemove(Icon,0)
+	}
+
+	new Count,Oldest = H9_ItemIconOldest(Count),Max = clamp(get_pcvar_num(p_H9ItemIconMax),0,H9_ITEMICON_MAX)
+	for(new Guard;Count > Max && Oldest && Guard < H9_ITEMICON_MAX;Guard++)
+	{
+		H9_ItemIconRemove(Oldest,0)
+		Oldest = H9_ItemIconOldest(Count)
+	}
+}
+
+// H9: the settings of the glow: the colour in Rgb (arp_h9_itemglow_color; the purple when it does not read as three numbers or is all 0), the reach of the light in units (40 to 600) and the
+// seconds a pack glows for (0 to 600)
+H9_ItemGlowRead(Rgb[3],&Radius,&Seconds)
+{
+	static Shade[32],Red[8],Green[8],Blue[8]
+	get_pcvar_string(p_H9ItemGlowColor,Shade,31)
+
+	new Parsed = parse(Shade,Red,7,Green,7,Blue,7)
+
+	Rgb[0] = clamp(str_to_num(Red),0,255)
+	Rgb[1] = clamp(str_to_num(Green),0,255)
+	Rgb[2] = clamp(str_to_num(Blue),0,255)
+
+	// fewer than three numbers (the strings are static, so the ones a colour lacks hold what an earlier call left) or a colour of no light at all is the purple
+	if(Parsed < 3 || (!Rgb[0] && !Rgb[1] && !Rgb[2]))
+	{
+		Rgb[0] = 180
+		Rgb[1] = 60
+		Rgb[2] = 255
+	}
+
+	Radius = clamp(get_pcvar_num(p_H9ItemGlowRadius),40,600)
+	Seconds = clamp(get_pcvar_num(p_H9ItemGlowTime),0,600)
+}
+
+// H9: one pulse of the glow over a pack: a point light a little over it, in the open air, that fades out by itself in 1.2 seconds (its radius falls to nothing as its life ends). Left is the
+// seconds the pack has yet to glow: over the last three the light shrinks, so that the glow dies away and does not stop. The message goes to whoever can see the point (MSG_PVS) and to nobody else.
+H9_ItemGlowPulse(Pack,Float:Left,Radius,const Rgb[3])
+{
+	new Float:Pos[3],Origin[3]
+	entity_get_vector(Pack,EV_VEC_origin,Pos)
+
+	Origin[0] = floatround(Pos[0])
+	Origin[1] = floatround(Pos[1])
+	Origin[2] = floatround(Pos[2]) + 12
+
+	if(Left < 3.0)
+		Radius = floatround(float(Radius) * Left / 3.0)
+
+	new Tens = clamp(Radius / 10,2,60)
+
+	message_begin(MSG_PVS,SVC_TEMPENTITY,Origin)
+	write_byte(TE_DLIGHT)
+	write_coord(Origin[0])
+	write_coord(Origin[1])
+	write_coord(Origin[2])
+	write_byte(Tens)	// the radius, in tens of units
+	write_byte(Rgb[0])
+	write_byte(Rgb[1])
+	write_byte(Rgb[2])
+	write_byte(12)	// the life, in tenths of a second
+	write_byte(Tens * 10 / 12)	// the decay, in tens of units a second: the radius is gone when the life is
+	message_end()
+}
+
+// H9: a pack that has just been made glows for arp_h9_itemglow_time seconds, beginning with a pulse now; the game's time it glows until is kept in its fuser1. The beat that sends the pulses after
+// this one starts here if it is not running
+H9_ItemGlowStart(Pack)
+{
+	if(!get_pcvar_num(p_H9ItemGlow))
+		return
+
+	new Rgb[3],Radius,Seconds
+	H9_ItemGlowRead(Rgb,Radius,Seconds)
+
+	if(Seconds < 1)
+		return
+
+	entity_set_float(Pack,EV_FL_fuser1,get_gametime() + float(Seconds))
+	H9_ItemGlowPulse(Pack,float(Seconds),Radius,Rgb)
+
+	if(!task_exists(H9_ITEMGLOW_TASK))
+		set_task(H9_ITEMGLOW_BEAT,"H9_ItemGlowBeat",H9_ITEMGLOW_TASK,"",0,"b")
+}
+
+// H9: every beat each pack that has glow time left is sent a pulse (at most H9_ITEMGLOW_MAX of them), and when none has any left the beat stops, until the next drop starts it again. With
+// arp_h9_itemglow 0 no pulse is sent and the beat stops at its next turn.
+public H9_ItemGlowBeat()
+{
+	new Float:Now = get_gametime(),Float:Until,Lit,Ent
+
+	if(get_pcvar_num(p_H9ItemGlow))
+	{
+		new Rgb[3],Radius,Seconds
+		H9_ItemGlowRead(Rgb,Radius,Seconds)
+
+		while((Ent = find_ent_by_class(Ent,g_ItemClassname)))
+		{
+			Until = entity_get_float(Ent,EV_FL_fuser1)
+			if(Until <= Now)
+				continue
+
+			if(++Lit <= H9_ITEMGLOW_MAX)
+				H9_ItemGlowPulse(Ent,Until - Now,Radius,Rgb)
+		}
+	}
+
+	if(!Lit)
+		remove_task(H9_ITEMGLOW_TASK)
+}
+
+// H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second; arp_h9_itemhover 0 leaves
+// it out). GetMsg calls it when nothing else is aimed at.
+H9_ItemLook(id)
+{
+	if(!get_pcvar_num(p_H9ItemHover) || get_gametime() < g_H9ItemScan[id])
+		return
+
+	g_H9ItemScan[id] = get_gametime() + 0.25
+
+	new Item = H9_AimedItem(id)
+	if(!Item)
+		return
+
+	static Message[128],ItemName[33]
+	entity_get_string(Item,EV_SZ_noise,ItemName,32)
+	new Quantity = entity_get_int(Item,EV_INT_iuser2)
+
+	if(Quantity > 1)
+		format(Message,127,"%s x%d",ItemName,Quantity)
+	else
+		copy(Message,127,ItemName)
+
+	if(get_entity_distance(id,Item) <= 50)
+		add(Message,127,"^nPress use (default e) to pick up")
+
+	// H9: a game that draws the HUD as a panel and says _h9vgui 7 is sent the item's picture as well, a line of kind HUDK_ICON that the panel
+	// draws above the notice (docs\ARP_INVENTORY_WINDOW.txt, 4); every other game gets the text alone
+	if(get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id] && h9vgui_protocol(id) >= H9VGUI_CREDIT_PROTOCOL)
+	{
+		static Icon[40]
+		formatex(Icon,39,"icon:%s",ItemName)
+		TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
+		UTIL_ARP_AddHudItem(id,HUD_QUAT,Icon,0,HUDK_ICON)
+		UTIL_ARP_AddHudItem(id,HUD_QUAT,Message,!g_HudPending,HUDK_EXTRA)
+	}
+	else
+		UTIL_ARP_ClientPrint(id,"%s",Message)
+}
+
 GetMsg(id,Index)
 {
+	// H9: nothing is aimed at (the world: a pack on the floor is too small for the crosshair) or the crosshair is on the pack itself: a dropped item the player
+	// looks toward names itself, and a plaque that was held for a door is forgotten
+	if(!Index || (is_valid_ent(Index) && H9_IsItemPack(Index)))
+	{
+		g_PlaqueKey[id] = 0
+		H9_ItemLook(id)
+		return
+	}
+
 	if(!is_valid_ent(Index))
 		return
 	
@@ -3090,47 +3669,6 @@ GetMsg(id,Index)
 		break
 	}
 	
-	// H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second;
-	// arp_h9_itemhover 0 leaves it out)
-	if(!Index && get_pcvar_num(p_H9ItemHover) && get_gametime() >= g_H9ItemScan[id])
-	{
-		g_H9ItemScan[id] = get_gametime() + 0.25
-		
-		new Item = H9_AimedItem(id)
-		if(Item)
-		{
-			static ItemName[33]
-			entity_get_string(Item,EV_SZ_noise,ItemName,32)
-			new Quantity = entity_get_int(Item,EV_INT_iuser2)
-			
-			if(Quantity > 1)
-				format(Message,127,"%s x%d",ItemName,Quantity)
-			else
-				copy(Message,127,ItemName)
-			
-			if(get_entity_distance(id,Item) <= 50)
-				add(Message,127,"^nPress use (default e) to pick up")
-			
-			// H9: a game that draws the HUD as a panel and says _h9vgui 7 is sent the item's picture as well, a line of kind HUDK_ICON that the panel
-			// draws above the notice (docs\ARP_INVENTORY_WINDOW.txt, 4); every other game gets the text alone
-			if(get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id] && h9vgui_protocol(id) >= H9VGUI_CREDIT_PROTOCOL)
-			{
-				static Icon[40]
-				formatex(Icon,39,"icon:%s",ItemName)
-				TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
-				UTIL_ARP_AddHudItem(id,HUD_QUAT,Icon,0,HUDK_ICON)
-				UTIL_ARP_AddHudItem(id,HUD_QUAT,Message,!g_HudPending,HUDK_EXTRA)
-			}
-			else
-				UTIL_ARP_ClientPrint(id,"%s",Message)
-		}
-	}
-	
-	if(!Index)
-	{
-		g_PlaqueKey[id] = 0
-		return
-	}
 
 	entity_get_string(Index,EV_SZ_classname,Classname,32)
 
@@ -3237,7 +3775,7 @@ GetMsg(id,Index)
 			AffilLine[0] = 0
 			if(Plaque)
 			{
-				H9_Affiliation(g_Access[Index],Affil,95)
+				H9_AffiliationOfPlayer(Index,Affil,95)
 				formatex(AffilLine,111,"^nAffiliation: %s",Affil)
 			}
 
@@ -3247,6 +3785,10 @@ GetMsg(id,Index)
 			//	client_print(id,print_chat,"Hud Added")
 		}
 	}
+	// H9: the crosshair is on something none of the branches above names (a prop; a player, while arp_hover_message is 0): the dropped item toward which he looks says what it is (the
+	// crosshair on the world or on the pack itself is dealt with at the top of this function; a door of no property and an NPC return or print above)
+	else
+		H9_ItemLook(id)
 
 	if(!g_HudPending)
 	{
@@ -3331,6 +3873,8 @@ public plugin_natives()
 	register_native("ARP_FindJobId","_ARP_FindJobId")
 	register_native("ARP_AddJob","_ARP_AddJob")
 	register_native("ARP_DeleteJob","_ARP_DeleteJob")
+	// H9: the salary a job pays, set from outside (ARP_PayScale)
+	register_native("ARP_H9SetJobSalary","_ARP_H9SetJobSalary")
 	
 	register_native("ARP_RegisterItem","_ARP_RegisterItem")
 	register_native("ARP_ValidItemId","_ARP_ValidItemId")
@@ -3344,6 +3888,10 @@ public plugin_natives()
 	register_native("ARP_ItemSet","_ARP_ItemSet")
 	register_native("ARP_ItemDone","_ARP_ItemDone")
 	register_native("ARP_H9Toast","_ARP_H9Toast")
+	
+	// H9: the team of a player and the names of the teams (include\ApolloRP_H9Teams.inc)
+	register_native("ARP_H9_TeamOf","_ARP_H9_TeamOf")
+	register_native("ARP_H9_TeamName","_ARP_H9_TeamName")
 
 	// H9: the item menu's paths for the inventory window, and what it needs of the core
 	register_native("ARP_UserUseItem","_ARP_UserUseItem")
@@ -5073,7 +5621,7 @@ public _ARP_PropertySetOwnerAuth(Plugin,Params)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
 	}
 	
-	new Property = get_param(1) - 1,OwnerAuth[33]
+	new Property = get_param(1) - 1,OwnerAuth[36]
 	if(!UTIL_ARP_ValidProperty(Property))
 	{
 		format(g_Query,4095,"Property does not exist: %d",Property)
@@ -5082,7 +5630,8 @@ public _ARP_PropertySetOwnerAuth(Plugin,Params)
 	
 	UTIL_ARP_PropertyChanged(Property)
 	
-	get_string(2,OwnerAuth,32)
+	// H9: the whole key of a character (35 characters on H9XASH), not the 32 stock ARP kept
+	get_string(2,OwnerAuth,35)
 	array_set_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth)
 	
 	return SUCCEEDED
@@ -5096,14 +5645,15 @@ public _ARP_PropertyGetOwnerAuth(Plugin,Params)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
 	}
 	
-	new Property = get_param(1) - 1,OwnerAuth[33]
+	new Property = get_param(1) - 1,OwnerAuth[36]
 	if(!UTIL_ARP_ValidProperty(Property))
 	{
 		format(g_Query,4095,"Property does not exist: %d",Property)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
 	}
 	
-	array_get_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth,33)
+	// H9: the whole key, so that ARP_PropertyGetOwner (a player's key is 35 characters) finds the owner who is in the game
+	array_get_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth,35)
 	set_string(2,OwnerAuth,get_param(3))
 	
 	return SUCCEEDED
@@ -5624,6 +6174,32 @@ public _ARP_SetUserHunger(Plugin,Params)
 	return FAILED
 }
 
+public _ARP_H9_TeamOf(Plugin,Params)
+{
+	if(Params != 1)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 1, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+	
+	return H9_PlayerTeam(get_param(1))
+}
+
+public _ARP_H9_TeamName(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+	
+	new Team = get_param(1)
+	if(Team < ARP_H9_TEAM_FIRST || Team > ARP_H9_TEAMS)
+		return 0
+	
+	return set_string(2,g_H9TeamNames[Team],get_param(3))
+}
+
 public _ARP_GetUserAccess(Plugin,Params)
 {
 	if(Params != 1)
@@ -5721,6 +6297,37 @@ public _ARP_GetJobSalary(Plugin,Params)
 	}
 	
 	return array_get_int(array_get_int(g_JobsArray,JobId),2)
+}
+
+// H9: sets the salary the core holds for a job (what the job's row said when it was read: the row itself is not touched, and the next map load reads it again) and the salary of
+// each player in the game who has the job, so that he is paid it from the next payday and ARP_GetJobSalary and arp_joblist say it (include\ApolloRP_H9Pay.inc; ARP_PayScale)
+public _ARP_H9SetJobSalary(Plugin,Params)
+{
+	if(Params != 2)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 2, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new JobId = get_param(1) - 1,Salary = get_param(2)
+
+	if(!UTIL_ARP_ValidJobId(JobId))
+	{
+		format(g_Query,4095,"Invalid job id: %d",JobId)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	array_set_int(array_get_int(g_JobsArray,JobId),2,Salary)
+
+	// the players ShowHud pays: not the bots
+	new Players[MAX_PLAYERS],Playersnum
+	get_players(Players,Playersnum,"c")
+
+	for(new Count;Count < Playersnum;Count++)
+		if(g_JobId[Players[Count]] == JobId)
+			g_Salary[Players[Count]] = Salary
+
+	return SUCCEEDED
 }
 
 public _ARP_GetJobAccess(Plugin,Params)

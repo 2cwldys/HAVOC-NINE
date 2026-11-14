@@ -224,6 +224,14 @@ def make_base(T):
                 "ts/.xash_id", "ts/custom.hpk", "ts/PID.PID", "ts/node_modules/n.js", "ts/addons/ts_downloads/z.txt",
                 "ts/userconfig.d/u.cfg", "ts/x.tmp", "ts/y.orig"):
         w(S, rel, "x\n")
+    # databases are a server's players: left out wherever they are, with their journal, WAL and shared-memory files
+    for rel in ("ts/addons/amxmodx/data/sqlite3/arp.sq3", "ts/addons/amxmodx/data/sqlite3/arp.sq3-journal",
+                "ts/addons/amxmodx/data/sqlite3/other.sqlite", "ts/addons/amxmodx/data/Other.SQLITE3-WAL",
+                "ts/stray.db", "ts/Stray2.DB-shm"):
+        w(S, rel, b"SQLite format 3\0" + bytes(20))
+    # kept: a map's own SQL file (the default jobs, properties and doors), and a data file that only looks like a database
+    w(S, "ts/addons/amxmodx/configs/arp/maps/h9_test/h9_test.sql", "INSERT OR IGNORE INTO arp_jobs VALUES ('Citizen',10,'');\n")
+    w(S, "ts/addons/amxmodx/data/GeoLite2-Country.mmdb", b"geo")
     # not a backup by the rule (.bak must end the name or be followed by . _ or -): kept
     w(S, "ts/foo.cfg.bak2", "x\n")
     os.makedirs(os.path.join(S, "ts", "emptydir"), exist_ok=True)
@@ -538,6 +546,16 @@ def mode_of(m):
     return (m["attr"] >> 16) & 0o777
 
 
+def database_rules(label, names):
+    """No database file in a package, an empty folder for the first one, and the maps' own SQL files kept."""
+    dbs = [n for n in names if not n.endswith("/") and re.search(r"\.(sq3|sqlite3?|db)(-journal|-wal|-shm)?$", n, re.I)]
+    check(not dbs, label + ": no database file in the ZIP", "\n".join(dbs[:10]))
+    check("H9XASH/ts/addons/amxmodx/data/sqlite3/" in names, label + ": an empty sqlite3 folder for the first database")
+    check("H9XASH/ts/addons/amxmodx/configs/arp/maps/h9_test/h9_test.sql" in names,
+          label + ": a map's SQL file (the default jobs, properties and doors) stays in")
+    check("H9XASH/ts/addons/amxmodx/data/GeoLite2-Country.mmdb" in names, label + ": a .mmdb file is not taken for a database")
+
+
 def rules_windows_zip(label, path):
     ms = read_zip(path)
     names = [m["name"] for m in ms]
@@ -548,6 +566,7 @@ def rules_windows_zip(label, path):
     check(not linux, label + ": no Linux-only file", "\n".join(linux))
     check("H9XASH/ts/addons/amxmodx/data/vault/" in names and "H9XASH/ts/addons/amxmodx/logs/" in names,
           label + ": entries for the empty vault and logs folders")
+    database_rules(label, names)
     check("H9XASH/ts/dlls/thing.sox" in names, label + ": a .sox file is not taken for a library")
     check("H9XASH/HAVOC 9.exe" in names and "H9XASH/ts/dlls/mp.dll.patch" in names, label + ": Windows files present")
     return ms
@@ -558,8 +577,9 @@ def skipped_names_absent(label, ms):
     leak_names = ("user_id.ini", "device_id.ini", "listip.cfg", "video.cfg", "mail.env", "thumbs.db", "system.reg",
                   ".gitattributes", ".xash_id", "custom.hpk", "h9_presence.cfg", "h9_presence.key", "x_resolved.cfg")
     leak_dirs = ("logs", "save", "screenshots", "downloads", "node_modules", "drive_c", "userconfig.d", ".h9xash-updater",
-                 "ts_downloads")
-    leak_ext = (".log", ".bak", ".bak_2", ".env", ".key", ".dem", ".sav", ".tmp", ".orig", ".pid")
+                 "ts_downloads", "sqlite3")
+    leak_ext = (".log", ".bak", ".bak_2", ".env", ".key", ".dem", ".sav", ".tmp", ".orig", ".pid",
+                ".sq3", ".sqlite", ".sqlite3", ".db", ".sq3-journal", ".sqlite3-wal", ".db-shm")
     leaked = []
     for n in sorted(names):
         if n.endswith("/"):
@@ -594,6 +614,7 @@ def rules_unix_zip(label, path, native=False, expect_over=()):
     check(not bad, label + ": modes (.sh and ELF 0755, the rest 0644, folders 0755) and LF in .sh files", "\n".join(bad[:10]))
     check("H9XASH/ts/addons/amxmodx/data/vault/" in names and "H9XASH/ts/addons/amxmodx/logs/" in names,
           label + ": entries for the empty vault and logs folders")
+    database_rules(label, names)
     low = [n.lower() for n in names]
     if native:
         check(not any(x.endswith(WINDOWS_EXT) for x in low), label + ": no .exe .dll .bat .cmd .ps1 in a native package")

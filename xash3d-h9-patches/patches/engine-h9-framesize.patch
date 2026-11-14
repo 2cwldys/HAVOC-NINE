@@ -1,0 +1,22 @@
+--- a/engine/server/sv_frame.c
++++ b/engine/server/sv_frame.c
+@@ -723,9 +723,18 @@
+ SV_SendClientDatagram
+ =======================
+ */
++// H9: one client's frame is one message: the time, the clientdata, the entities in view and the unreliable data the game and the
++// plugins queued for the client (cl->datagram, MAX_DATAGRAM). A frame that passes its buffer is thrown away whole, the client stands
++// still and its next update is a whole one again, and the first update after a spawn holds every entity in view whole: about 10 bytes
++// each and a player about 30, more than MAX_DATAGRAM on a big map. The netchan carries up to NET_MAX_MESSAGE unreliable bytes and splits
++// them into packets; what bounds a frame is the packet a client puts back together, NET_MAX_FRAGMENT. SV_H9_FRAME_MAX holds the most a
++// frame can be (MAX_VISIBLE_PACKET entities, a player in every slot and a full cl->datagram) and stays under that bound.
++#define SV_H9_FRAME_MAX		( MAX_DATAGRAM * 3 )
++typedef char sv_h9_frame_fits_a_packet[( SV_H9_FRAME_MAX < NET_MAX_FRAGMENT ) ? 1 : -1];
++
+ static void SV_SendClientDatagram( sv_client_t *cl )
+ {
+-	byte	msg_buf[MAX_DATAGRAM];
++	byte	msg_buf[SV_H9_FRAME_MAX];
+ 	sizebuf_t	msg;
+ 
+ 	memset( msg_buf, 0, sizeof( msg_buf ));

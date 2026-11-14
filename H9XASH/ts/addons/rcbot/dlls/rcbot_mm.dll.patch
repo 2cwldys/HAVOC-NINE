@@ -1,6 +1,6 @@
 H9 rcbot_mm.dll -- built from patched source
 
-Built from APGRoboCop/rcbotold at v1.51b13 (43ecb57) with the eleven patches in
+Built from APGRoboCop/rcbotold at v1.51b13 (43ecb57) with the twelve patches in
 rcbot-patch/, applied in this order (rcbot-patch/README.txt, REBUILDING):
 
   1. rcbot-ts-teams.patch         CHANGES 1-4: TS teams from pev->team, nopowerup
@@ -49,12 +49,22 @@ rcbot-patch/, applied in this order (rcbot-patch/README.txt, REBUILDING):
                                   group, the M60 for a near one and for an
                                   emptied launcher -- and aims and fires the
                                   launcher itself; weapons 37 to 63 have a place
-                                  in the weapon tables (this build's diff
-                                  against the build before is the last below)
+                                  in the weapon tables (that build's diff
+                                  against the build before is below)
+  12. rcbot-ts-roam-teams.patch   CHANGE 14: with Apollo RP's team play (the
+                                  teams are in pev->team) an insurgent roamer's
+                                  enemies are every player and every bot that
+                                  is not on its own team, and never one that is;
+                                  a client with no team yet is nobody's (this
+                                  build's diff against the build before is the
+                                  last below)
 
 Size   : 485888 bytes
-SHA256 : C31FC07047199ABE5C3D4A0EFD8A05E587BD126F12A36E0946DD3F98D8C8471B
-Built  : 2026-11-10 16:31, from the eleven patches as rcbot-patch\src now has them (a clean v1.51b13 with the eleven applied in order gives src\ file for file). The build before it
+SHA256 : 03C4A17A081A2666AE4F300C58DE4BA235A1501918C1998CA8090D381E24EDA7
+Built  : 2026-11-11 19:58, from the twelve patches as rcbot-patch\src now has them (a clean v1.51b13 with the twelve applied in order gives src\ file for file). The build before it
+         (2026-11-10 16:31, 485888 bytes, SHA256
+         C31FC07047199ABE5C3D4A0EFD8A05E587BD126F12A36E0946DD3F98D8C8471B, the eleven patches) is kept as
+         rcbot_mm.dll.bak_pre_teams beside this one in rcbot-patch\; the build before that
          (2026-11-09 19:37, 473600 bytes, SHA256
          D08602698DF1B260FF4FAB16F9E35083ADAA03394C1A90F2C0272C51302B439F, the ten patches) is kept as
          rcbot_mm.dll.bak_pre_mech beside this one in rcbot-patch\; the build before that
@@ -74,7 +84,7 @@ Built  : 2026-11-10 16:31, from the eleven patches as rcbot-patch\src now has th
          rcbot_mm.dll.bak_roam2.
 
 Patch 3 is the part of the 10/22 build no patch held: patches 1 and 2 alone give
-a tree that does not compile. With it, the eleven patches on a fresh checkout of
+a tree that does not compile. With it, the twelve patches on a fresh checkout of
 v1.51b13 give, file for file, the source this DLL was built from (line endings
 aside), checked against src\. MSBuild, MetaMod Release, Win32, MSVC v145.
 
@@ -5425,3 +5435,74 @@ index d461040..a52af57 100644
  //#else
  //	#define MAX_WEAPONS	32
  //#endif
+
+CHANGE 14, this build (README.txt, CHANGE 14): bot.cpp, against the source of the build before
+
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index c0c8a40..5ad1ada 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -4747,8 +4747,10 @@ void CBot::Think()
+ //   tsrp_roambots_defend_time      how long, in seconds, it goes on without being hurt again
+ //                                  before it lets him be (ROAM_DEFEND_TIME without the cvar)
+ //   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
+-//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
+-//                                  number: only on the players of that team (pev->team)
++//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot (with the
++//                                  teams in use, on every bot of another team too); a team number:
++//                                  only on the players of that team (pev->team), and with the teams
++//                                  in use on its bots
+ // They are read once a second. A cvar that does not exist reads 0, so a server without the
+ // plugin has no roamers and nothing here changes how its bots play.
+ //
+@@ -4779,7 +4781,8 @@ void CBot::Think()
+ //
+ // INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
+ // every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
+-// them with what it carries.
++// them with what it carries. With the teams in use (CHANGE 14) that is every player and every bot
++// that is not on the roamer's own team, and the ones of its own team are never enemies.
+ //
+ // THE PLUGIN'S HOLD. While two citizens stop to talk, the plugin holds them with FL_FROZEN and
+ // turns them to face each other: a roamer with FL_FROZEN stands, presses nothing and leaves its
+@@ -5024,8 +5027,8 @@ edict_t* CBot::RoamAttacker() const
+ }
+ 
+ // Whom a roamer fights: its attacker, and, while the citizens are insurgents, every player who is
+-// not a bot -- or only the players of tsrp_roambots_insurgent_team. Never anything else, not even
+-// a door in its way.
++// not a bot -- or only the players of tsrp_roambots_insurgent_team -- and, with the teams in use,
++// every bot of another team as well (CHANGE 14). Never anything else, not even a door in its way.
+ bool CBot::RoamIsEnemy(edict_t* pEntity) const
+ {
+ 	if (pEntity == nullptr || pEntity == m_pEdict || !(pEntity->v.flags & FL_CLIENT))
+@@ -5039,9 +5042,28 @@ bool CBot::RoamIsEnemy(edict_t* pEntity) const
+ 
+ 	const RoamSettings& roam = RoamNow();
+ 
+-	if (!roam.bHostile || (pEntity->v.flags & FL_FAKECLIENT))
++	if (!roam.bHostile)
+ 		return false;
+ 
++	// The teams are in use when the server gives the roamer a team in pev->team: tsrp_roambots puts every citizen on team 2 while an
++	// insurgency lasts (3 otherwise), and Apollo RP's ARP_TS puts a player on the team of his job, 2 for an insurgent's. With none in use both read 0.
++	// Then only a player is an enemy, as in CHANGE 8. With the teams in use the insurgent fights everyone who is on another team,
++	// players and bots alike (the guards of the Middle Sea Republic are bots), and never one of its own team, whoever the roamer is
++	// set on: a client no team is set on yet (a player ARP has not placed) is nobody's enemy until it is. Its attacker stays an
++	// enemy: it is answered above, whatever team he is on.
++	//
++	// This is the insurgents' rule, and every roamer is a citizen so far. A roamer of another kind (a guard, on the Middle Sea
++	// Republic's team, which fights the insurgents) takes its own rule here, ahead of this one, told by its team.
++	if (pev->team > 0)
++	{
++		if (pEntity->v.team <= 0 || pEntity->v.team == pev->team)
++			return false;
++	}
++	else if (pEntity->v.flags & FL_FAKECLIENT)
++	{
++		return false;
++	}
++
+ 	return roam.iHostileTeam <= 0 || pEntity->v.team == roam.iHostileTeam;
+ }
+ 

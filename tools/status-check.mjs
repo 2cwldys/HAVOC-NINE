@@ -172,7 +172,7 @@ if (wanted("secrets")) {
   const hard = [
     [/-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/, "a private key"],
     [/\bAKIA[0-9A-Z]{16}\b/, "an AWS access key id"],
-    [/https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d{15,}\/[\w-]{30,}/, "a Discord webhook URL"],
+    [/^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d{15,}\/[\w-]{30,}/, "a Discord webhook URL", true],
     [/\bxox[baprs]-[0-9A-Za-z-]{10,}/, "a Slack token"],
     [/\bgh[pousr]_[A-Za-z0-9]{36,}\b/, "a GitHub token"],
   ];
@@ -183,7 +183,12 @@ if (wanted("secrets")) {
     const buf = readNow(f);
     if (!buf || buf.length > 8 * 1024 * 1024 || (buf.indexOf(0) >= 0 && buf.indexOf(0) < 8192)) continue;
     const text = buf.toString("latin1");
-    for (const [re, what] of hard) { const m = re.exec(text); if (m) fails.push(`${f}:${text.slice(0, m.index).split("\n").length}: ${what}`); }
+    for (const [re, what, perWord] of hard) {
+      // an anchored URL rule is tried on each URL-shaped word, so a host name cannot hide inside a longer word
+      let m = null;
+      if (perWord) { for (const w of text.matchAll(/[A-Za-z0-9:\/._-]+/g)) { if (re.test(w[0])) { m = w; break; } } } else m = re.exec(text);
+      if (m) fails.push(`${f}:${text.slice(0, m.index).split("\n").length}: ${what}`);
+    }
     const m = soft.exec(text);
     if (m && !/example|placeholder|changeme|your[_-]|xxxx/i.test(m[0])) warns.push(`${f}:${text.slice(0, m.index).split("\n").length}: a quoted value after ${m[0].split(/[:=]/)[0].trim()} (a secret? the file is not printed here)`);
   }

@@ -1,0 +1,7 @@
+# One relay's own settings and its host list: never committed. Only the .example files are tracked.
+relay.config.json
+hosts.json
+relay.site.ini
+*.pem
+*.key
+node_modules/

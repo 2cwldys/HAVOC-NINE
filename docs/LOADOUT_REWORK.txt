@@ -95,8 +95,8 @@
    wallet. So "funded by the cash and credits system" cannot be enforced by
    TS: the existing comment that an empty wallet makes TS refuse a purchase is
    not what the source does (weaponrestriction 1 is what refuses). The rework
-   therefore keeps the account itself (section 4). reTS-proposals\
-   loadout-cash-economy.diff is the change that would make TS do it.
+   therefore keeps the account itself (section 4). loadout-cash-economy.diff is the
+   change that would make TS do it; it was kept in reTS-proposals\ and is in the git history (the folder left the tree).
 
  - tsm_block_buy 1 swallows tkw/tka/tki/rst_cfg/cashala in every state
    (cmd_blockbuy) and "13_3"-style names (client_command). Warmup buying was
@@ -183,7 +183,9 @@
 
  (a) Cash. A class's allowance is tsm_lr_cash (8500: a rifle, a pistol, a
      knife and kevlar), or tsm_lr_cash_<n> for class n when that cvar is
-     non-empty (n = the tsm_classN number). The figure the player's TS wallet
+     non-empty (n = the tsm_classN number); a class whose own kit carries a
+     weapon on tsm_lr_deny (the Marksman's Barrett) has that weapon's price
+     added to it (lr_budget). The figure the player's TS wallet
      shows (set by hold_cash through lr_wallet) is the allowance minus the cost
      of the loadout he holds, while his buy window is open, and 0 otherwise.
      Before a class is picked the DEFAULT class (tsm_default_class) stands for
@@ -209,15 +211,15 @@
 
  (c) Refusals. An apply is judged as a whole. Refused, with a chat and centre
      line saying why, and the player keeps what he held: an id the menu does
-     not sell, an id on tsm_lr_deny (default 32,18,40,34: the M60E3, the
-     Barrett, the laser rifle, the katana -- the class weapons; the word
-     kevlar refuses the vest), the stealth shoes, a second copy of a gun with
-     no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a total over the
-     allowance, and a total weight over tsm_lr_slotcap slots (81 by default,
-     0 for no limit). With the class kit no longer handed over, a Marksman
-     cannot have his Barrett and an Officer his laser rifle or katana unless
-     tsm_lr_deny lets them buy it (the Barrett is 9000, over the default
-     allowance in any case).
+     not sell, an id on tsm_lr_deny that the player's class does not carry
+     in its own kit (default 32,18: the M60E3 and the Barrett, the class
+     weapons; the word kevlar refuses the vest), the stealth shoes, a second
+     copy of a gun with no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a
+     total over the allowance, and a total weight over tsm_lr_slotcap slots
+     (81 by default, 0 for no limit). The Marksman, whose kit carries the
+     Barrett, may buy it (9000 and 70 slots, with 9000 added to his
+     allowance); every other covered class is told "the Barrett is not for
+     your class". The laser rifle and the katana are on sale to every class.
 
  (d) Windows (lr_window_open). A covered human (lr_eligible: not a bot, the
      rework usable, his class covered) whose loadout is not final may buy in:
@@ -363,15 +365,35 @@
 
  EDGE CASES
   late join        A player who connects while a match runs is benched until it
-                   ends (g_locked_out) and cannot buy. One who gets a side
-                   through a halted match (ready-up with the score kept) has no
-                   set and is not final: he buys in the ready-up and in his
-                   first freeze, and is made final at his first go-live.
-  class change     The class is picked once, in the first freeze, and locked.
-                   A pick of another covered class refits the set to its cash
-                   (a line to him); a pick of the Heavy or the Mech ignores the
-                   set (a line to him) and hands the kit. An admin tool that
-                   changes a class later is refitted at the next arm.
+                   ends (g_locked_out) and cannot buy, unless tsm_latejoin lets
+                   him in (on by default; docs\GAME_MODES.txt). He then
+                   takes a side and waits as a ghost, out of play and with no
+                   window, and is let in at his side's next respawn. A wave
+                   brings him as it brings a fallen player: the revive window
+                   opens (tsm_lr_buy_seconds), and opens again at every later
+                   revive, because he has been through no go-live and his
+                   loadout is not final; he has bought nothing, so he comes with
+                   his fists (the class kit with tsm_lr_kitfallback 1) until he
+                   buys. A round's start lets him in as a player of the round:
+                   the freeze is his window and the go-live makes it final.
+                   One who gets a side through a halted match (ready-up with the
+                   score kept) has no set and is not final: he buys in the
+                   ready-up and in his first freeze, and is made final at his
+                   first go-live.
+  class change     The class is picked once, in the first freeze, and locked,
+                   unless tsm_classchange lets him ask for another (on by
+                   default). A pick outside the freeze is held and
+                   goes on at his next respawn (a wave's revive, else the next
+                   round's start), and what the first pick did is done then,
+                   before the kit is handed: a pick of another covered class
+                   refits the set to its cash (a line to him: what no longer
+                   fits is left out, and a later switch to a richer class does
+                   not bring it back); a pick of the Heavy or the Mech ignores
+                   the set (a line to him) and hands the kit. In the freeze a
+                   pick is the class at once, as before. A late joiner's first
+                   pick is held the same way and settled as he is let in. An
+                   admin tool that changes a class later is refitted at the next
+                   arm.
   side change      Sides change in warmup and ready-up only; the set follows the
                    player, so a side change costs him nothing.
   reconnect        His set and his lock are gone (a new player in the slot);
@@ -432,19 +454,27 @@
     is removed. The DLL performs the disarm and nothing in a plugin can refuse
     it, so he is bare-handed for up to a quarter second. Any strip of a living
     Mech in a live round is undone the same way (the plugin's own strips are of
-    eliminated players, who are skipped).
+    eliminated players, who are skipped). The guard reads the item bits of
+    pev->weapons (user_carries), which stop at weapon 31: the Mech's M60 (32) and
+    launcher (41) are not among them, so for those two it sees nothing and hands
+    nothing back, and it is the refusal in the game library (below) that stops a
+    disarm of them.
  The game library of this build makes the same refusals itself for a player the
  plugin marks in pev->fuser4 (lr_arm_begin) while tsm_loadoutrework is on:
  CBasePlayer::DropWeapon (dlls\ts_gun.cpp) neither disarms him nor lets him
  drop, and PickUpWeapon (dlls\ts_player.cpp) takes no dropped weapon for him.
  The plugin's guard above is what backs that up, and what a mp.dll without it
- relies on.
+ relies on. With tsm_mech_nodrop on (default 1) CBasePlayer::DropWeapon also
+ refuses a marked Mech's disarm, the drop key, drop_<n> and the death scatter of
+ his weapons whatever the rework says (the CTF flag still drops with the key when
+ his hands are bare); the refusal of a dropped weapon's pickup stays with the
+ rework.
 
  The floor guard and the touch refusal above do not need the rework: tsm_mech_nopickup
  (default 1, independent of tsm_loadoutrework) makes them apply to a Mech by class
  whatever the rework says, except that his own gear (the M60, the minigun that
- replaces it, the rocket launcher) may still be taken up, so that a disarm, which
- tsm_mech_nodrop does not stop, never leaves him bare-handed. With the rework on the
+ replaces it, the rocket launcher) may still be taken up, so that a game library
+ that lets a disarm through never leaves him bare-handed. With the rework on the
  guard refuses every weapon, as described, because the rework hands a disarmed
  Mech his gun back itself and the game library refuses a dropped weapon too.
  He is told once in a few seconds ("A Mech does not pick up weapons.") when the use
@@ -455,12 +485,12 @@
 8. RETS PROPOSALS AND WHAT THE GAME LIBRARIES HOLD
 -------------------------------------------------------------------------------
 
- reTS-proposals\loadout-mech-nodisarm-nopickup.diff
+ loadout-mech-nodisarm-nopickup.diff (it was in reTS-proposals\, now in the git history)
      DropWeapon and PickUpWeapon refuse for a player the plugin marks in
      pev->fuser4, while tsm_loadoutrework is on. Taken into the game library
      (section 7) and into the plugin (lr_arm_begin writes the mark).
 
- reTS-proposals\loadout-cash-economy.diff
+ loadout-cash-economy.diff (it was in reTS-proposals\, now in the git history)
      CashBased() follows usecash, BuyWeapon charges, the client menu's budget is
      the wallet. Would let TS enforce the money, and the menu show the class's
      cash instead of its constant 30000. Not needed for the rework as built; it
@@ -663,14 +693,16 @@
   itself after the class pick. A server that would rather not risk it sets
   tsm_lr_kitfallback 1.
 
-  Class weapons. The Marksman's Barrett and the Officer's laser rifle and
-  katana are on tsm_lr_deny, so with the class kit gone they are in nobody's
-  hands unless the list lets a class buy them (the Barrett costs 9000, over the
-  default allowance anyway). An empty deny list lets any class buy them; the
-  Heavy's and Mech's M60 are theirs by kit.
+  Class weapons. The Marksman's Barrett and the M60E3 are on tsm_lr_deny: only
+  a class whose own kit carries a listed weapon may buy it, so the Barrett is
+  the Marksman's alone (9000 is added to his allowance, so it leaves the rest
+  of his cash alone; it weighs 70 of the 81 slots) and the M60E3 stays the
+  Heavy's and the Mech's by kit, which the rework does not cover. The
+  Officer's laser rifle and katana are on sale to every class. An empty deny
+  list lets any class buy all of them.
 
   Economy balance. A player who buys gives firepower up or takes more than the
-  old kit: the Medic can now have a rifle, a Marksman cannot have his Barrett,
+  old kit: the Medic can now have a rifle, a Marksman buys his Barrett,
   and nobody gets a free class kit. tsm_lr_cash_<n> per class, tsm_lr_deny and
   tsm_lr_slotcap are the knobs. Ammunition is free with the weapon (3 +
   tsm_clip_bonus magazines): a gun that eats ammunition buys the same as one

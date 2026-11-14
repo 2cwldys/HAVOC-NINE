@@ -6,7 +6,7 @@ xash.dll.patch, rcbot_mm.dll.patch, amxmodx_mm.dll.patch ...): what it was built
 file. The note is what lets anyone check a binary against its source, so a change to the source (or a rebuilt binary) that does not
 change the note leaves the binary unexplained.
 
-.github/workflows/patch-notes.yml runs tools/patch-notes-check.mjs on every push to main and every pull request. It fails when:
+.github/workflows/patch-notes.yml runs tools/patch-notes-check.mjs on every push to main and every pull request. It fails when (1 or 3 below):
 
   1. a source changed and none of the notes that belong to it did. Which notes belong to which source is tools/patch-notes-map.json:
        reTS\cl_dll                  -> ts\cl_dlls\client.dll.patch
@@ -19,8 +19,11 @@ change the note leaves the binary unexplained.
        apollo-rp ...\scripting      -> apollo-rp\H9-arpfix.patch, H9-menus.patch or ORIGIN.txt
   2. an engine patch changed (xash3d-h9-patches\patches\*.patch). The paths its diff touches say which binary it lands in, the same
      lists xash.bat's :dllpatch calls hold: ref\gl is ref_gl.dll, filesystem is filesystem_stdio.dll, 3rdparty\mainui is menu.dll,
-     3rdparty\freevgui is vgui.dll, game_launch is HAVOC 9.exe, the rest is xash.dll. Each of those binaries' notes must change too.
-  3. a binary that has a note changed and its note did not.
+     3rdparty\freevgui is vgui.dll, game_launch is HAVOC 9.exe, the rest is xash.dll. This one never fails: it is reported as a note
+     ("engine patch -> ref_gl.dll.patch ... changed and its binary did not"), because a tweak of a patch that builds no binary, a
+     default, a comment or a description, has nothing to say in a binary's note. The note changes with the build that makes the
+     binary, and a binary that changed without it is rule 3.
+  3. a binary that has a note changed and its note did not. This is what the check is for: a binary never changes unexplained.
 
 Any change to the note passes (it asks that the note was touched, not what it says: xash.bat and the reTS build write the notes, and a
 build that changed a binary leaves the note changed). Two warnings, which fail only with --strict: a note that records a SHA256 that is

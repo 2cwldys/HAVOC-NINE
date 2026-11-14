@@ -34,6 +34,11 @@ if not exist serverlist.cfg (
     echo Created serverlist.cfg from serverlist.cfg.example.
 )
 
+if not exist blacklisted.ini (
+    copy /y blacklisted.ini.example blacklisted.ini >nul
+    echo Created blacklisted.ini from blacklisted.ini.example. It blacklists nothing until you add a line.
+)
+
 echo.
 echo Dependencies are in place.
 echo.

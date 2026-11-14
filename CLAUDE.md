@@ -161,6 +161,28 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   (work folders, builds, caches, downloads, test copies) will be stored
   before it proceeds. Never assume %TEMP% or C:; drive space differs per
   machine and C: may be a small SSD.
+- Licenses: LICENSE.md at the root says which license covers which folder (the GPLv3 over the gamemode plugin code and the code
+  around it, the Half-Life SDK license over the mod code in reTS/ and its built libraries only; MIT and Apache 2.0 parts beside
+  them), and THIRD_PARTY_LICENSES/ holds a copy of each third-party license text. Whenever anything comes in from another project
+  (code, a library, a tool, a model, a sound, a data file, a patch to its source):
+  1. Find its license first, before the file goes in. No license file or header means no permission: stop and ask the owner.
+  2. It may join the plugin side (plugins, h9web, p2p, tools, docs, ...) only if the license is compatible with the GPLv3: MIT,
+     BSD, zlib, Apache 2.0 and the GPLv3 itself are. GPLv2-only, non-commercial, no-redistribution, "attribution and no
+     modification" and unlicensed material are not: stop and ask the owner rather than adding it.
+  3. Never put GPLv3 code, or anything whose license is not free-of-charge-compatible with the Half-Life SDK license, into
+     reTS/ (the mod code), and never copy Half-Life SDK code out of reTS/ into the plugin side: the two stay separate.
+  4. When it is compatible and goes in, in the same piece of work: its license text sits beside it, a copy goes into
+     THIRD_PARTY_LICENSES/, and LICENSE.md gets its row (what it is, where it lives, which license). A removed component loses
+     its row. A part of the repository that is another project's own repository is a git submodule, as SMAK is.
+  5. If the license does not fit, say so in plain words to the owner and do not add the file.
+- Every cvar added for any reason, on the engine side (a patch's `Cvar_Get` or `CVAR_DEFINE`), the module side (reTS) or the
+  plugin side (an AMX Mod X `register_cvar`), is listed in `CVARS.md` in the same piece of work, in parity with
+  `docs\COMMANDS.txt` and the shipped config that sets it: its row in COMMANDS.txt, its line and its comment in the config
+  (`ts_matchmode.cfg`, `ts_assault.cfg`, `arp.cfg` and the others), and its row in CVARS.md all carry the same default and the same
+  meaning. `CVARS.md` is written by `python tools\gen_cvar_index.py` from the sources, the config comments and the COMMANDS.txt
+  rows, so write the cvar's COMMANDS.txt row and config comment first and then run the tool; a cvar left undocumented shows as
+  "(no description yet)", and `--check` exits 1 when CVARS.md is out of date. A removed or renamed cvar leaves all three. A cvar the
+  tool cannot see (a registration in a form it does not read) is taught to the tool, never added to CVARS.md by hand.
 - A third-party file (a binary, an include, a data file) ships with its license beside it,
   in every folder that holds a copy: `easy_http_LICENSE.txt` next to AmxxEasyHttp's module,
   CA bundle and include (compts, H9XASH, the Steam install, the git copy), and
@@ -176,6 +198,11 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   the `.amxx` files (the workflow `preset-hash.yml` fails otherwise) and have an admin import
   it into the site (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
   `ts_matchmode.sma` (what the plugin registers, so what the site lists): bump it with the update.
+  `stage-h9xash.ps1` does the bump and the hashes itself when it packs the ZIPs
+  (`tools\release-prepare.mjs`, `docs\H9_RELEASE.txt` 5): a changed plugin or module since the last
+  staged package raises the build by one, runs `build.bat` and `export.bat` under the heavy-job
+  lock and writes the presets; `-NoPrepare` skips it, `-DryRun` only says what it would do. The
+  join gate's release date (`h9_release.txt`) is never touched by it.
 - `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
   N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
   rebuild, applies/verifies the whole patch chain above), then `export.bat`

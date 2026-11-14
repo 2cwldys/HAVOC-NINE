@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "auth": { "mode": "tokens", "hostsFile": "hosts.json" },
+  "publicUdp": { "host": "CHANGE-ME.relay.example.org", "port": 27248 },
+  "bind": {
+    "http": { "host": "127.0.0.1", "port": 28247 },
+    "udp": { "host": "0.0.0.0", "port": 27248 }
+  },
+  "trustProxyHeader": "",
+  "direct": { "enabled": true },
+  "relay": { "enabled": true },
+  "listing": { "enabled": true, "ttlSeconds": 45, "inviteSeconds": 600 },
+  "publicPorts": { "range": "", "max": 0 },
+  "limits": {}
+}

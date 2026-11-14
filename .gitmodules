@@ -1,0 +1,5 @@
+[submodule "SMAK"]
+	path = SMAK
+	url = https://github.com/deoroot/SMAK
+	branch = main
+	ignore = dirty

@@ -61,7 +61,9 @@ new p_CuffSprite
 public plugin_precache()
 {
 	arpvgui_precache()
-	if(file_exists(g_CuffIconModel))
+	// H9: the symbol's sprite is precached unless arp.cfg says arp_h9_cuffsprite 0 (read from the file: the server executes arp.cfg after the precache, so a change to 1 needs a
+	// map change): a client needs the file only when the symbol is on
+	if(h9_cfg_num("arp_h9_cuffsprite",1) && file_exists(g_CuffIconModel))
 		g_CuffIconIdx = precache_model(g_CuffIconModel)
 }
 
@@ -140,6 +142,25 @@ public H9_Restrained(id)
 	return (Mode == 1 && Proximity(id)) || (Mode == 2 && IsJailed(id)) ? 1 : 0
 }
 
+// H9: whether the player is cuffed, as /cuff decides whether it cuffs or frees him (not in jail: that is H9_Restrained's); ARP_H9Ctx's menu says Free to him and Cuff to any other
+public H9_Cuffed(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return 0
+
+	// the cuff flag is in the class that loads after he joins (and never with arp_jail_mode 0 or arp_jail_reconnect 0): IsCuffed on a class that is not loaded is a runtime error,
+	// which callfunc hands on to the plugin that asked, so until the class is here the saved speed that cuffing sets stands for it
+	if(!g_Class[id])
+	{
+		if(g_MaxSpeed[id])
+			return 1
+
+		return 0
+	}
+
+	return IsCuffed(id) ? 1 : 0
+}
+
 // H9: the handcuff symbol: a sprite entity that follows the cuffed player (MOVETYPE_FOLLOW: his origin, whatever the offset), with the height in the
 // sprite's own frame. Shown once whatever the number of times the cuffs are put on (a spawn does it again), taken down with the cuffs
 H9_CuffIconShow(id)
@@ -157,10 +178,13 @@ H9_CuffIconShow(id)
 	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
 	entity_set_edict(Ent,EV_ENT_aiment,id)
 	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
-	entity_set_float(Ent,EV_FL_renderamt,255.0)
+	// the client lights an alpha-test sprite whose renderamt is above 127, and the symbol is to read in a dark cell. It is drawn solid and unlit with a renderamt of 0 under a renderfx
+	// that is not none: the client sets the renderamt of every kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities), and kRenderFxNoDissipation does nothing to
+	// a sprite that is not a glow. EF_FULLBRIGHT is no way to unlit: it is bit 27, the entity state carries the effects in 8 bits, and the client would be sent 255, which has
+	// EF_NODRAW in it
+	entity_set_int(Ent,EV_INT_renderfx,kRenderFxNoDissipation)
+	entity_set_float(Ent,EV_FL_renderamt,0.0)
 	entity_set_float(Ent,EV_FL_scale,0.7)
-	// EF_FULLBRIGHT is 1<<27 in this engine: the map's light does not darken it
-	entity_set_int(Ent,EV_INT_effects,134217728)
 	g_CuffIcon[id] = Ent
 }
 

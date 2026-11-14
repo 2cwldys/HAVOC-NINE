@@ -110,9 +110,11 @@ reload 1, draw 2, shots 3 and 4, the last-round shot 4) and its draw, shot and r
 the M4A1's models (`TSMechRocketResolveAssets`, run at the head of both weapon precache lists). The row's own values: the
 name "Mech Rocket", no fire sound, no shell, a four-rocket clip (one salvo), 1.5 s from a salvo to the next pull, 3.0 s to
 reload (the length of the viewmodel's reload sequence), a salvo of four rockets 0.12 s apart (`iSalvo`, `flStagger`: two
-fields at the end of `s_weapon_info`, 0 in every other row), fire modes 2 (single only), fire type 0 (in no weapon
-restriction category), caliber 13 (the Contender's, 7.62 x 51mm: all sixteen calibers are taken, so the reserve is that
-pool; the client's ammo box names it "Missile" for this weapon), weight 10 (it fits beside the M60E3's 70), price 0 and no
+fields at the end of `s_weapon_info`, 0 in every other row), fire modes 6 (burst, the volley and the default, and semi, one rocket a
+pull: `TSDefaultFireMode` prefers burst; the generic burst machine, which queues rounds in `m_burstOrPhase`, is skipped for this weapon, and
+the client's ammo box shows Volley and Single), fire type 0 (in no weapon restriction category), caliber 8 (the Barrett's 50BMG: all sixteen
+calibers are taken, and caliber 13, the M60E3's belt, would make the Mech's M60 reserve the launcher's too; the client's ammo box names the
+reserve "Missile" for this weapon), weight 10 (it fits beside the M60E3's 70), price 0 and no
 buy menu row, no scope, attachment, right-click stance or gunbash, and the combat feel 6.0 view kick, no spread.
 
 A pull (`CTSGun::MechRocketFire`) launches a salvo: `iSalvo` rockets (what a partial clip holds, if that is fewer),
@@ -142,7 +144,7 @@ kill feed names it "Mech Rocket". A file the art needs that is not on disk is re
 precached. The weapon is deleted, not dropped, when its owner dies, drops it or is disarmed (`h9_mechrocket_nodrop`, 1).
 
 The cvars (`dlls/game.cpp`): `h9_mechrocket` (1, read-only in effect: a plugin tells a library with the weapon from one
-without), `h9_mechrocket_damage` (200), `_radius` (260), `_speed` (900), `_rate` (1.5, from a salvo's last rocket to the
+without), `h9_mechrocket_damage` (200), `_radius` (260), `_speed` (1100), `_rate` (1.5, from a salvo's last rocket to the
 next pull), `_clip` (4), `_salvo` (4), `_stagger` (0.12), `_spread` (2.5 degrees), `_reload` (3.0), `_nodrop` (1),
 `_selfdamage` (0), `_push` (400) and `_lift` (250). The clip, rate, reload, salvo and stagger are copied into the weapon table
 every rules think (`TSMechRocketSyncCvars`, through `TS_ApplyMechRocketSetting`, which clamps them) and, when one
@@ -155,6 +157,15 @@ overwrite the prediction every frame.
 What it breaks, against the original and plugins built for it: the original client has no id 41 (see the PPSh-41) and
 drops the `SrvSett` ids above 3 (harmless); `s_weapon_info` has two more fields; `CTSGun::m_items` has one more element; a plugin or module that sizes a table by the weapon count must know 41 (H9's TSX
 keeps kung fu's own stats slot at 41 and must move it to 42).
+
+### A marked Mech lets go of no weapon (server)
+
+ts_matchmode sets `pev->fuser4` to 1 on a player of its Mech class each time it hands the kit over (match mode on); a library without the plugin never sees
+the mark, and a player without it is TS's own. `CBasePlayer::DropWeapon` (`dlls/ts_gun.cpp`), the one entry for the drop key, `drop_<n>`, a melee disarm
+and the death scatter, returns at its head for a marked player: with the server cvar `tsm_loadoutrework` on for every drop (and `PickUpWeapon` takes
+no dropped weapon for him), and with `tsm_mech_nodrop` on (1 by default, a cvar of the plugin) for the disarm (type -2) and for every weapon (types 1 to
+41), so that a melee hit does nothing to him and his death throws none of his weapons. The CTF briefcase (`drop_0`) and the flag dropped bare-handed are
+no weapons and still go. The plugin refuses the drop key and the weapon bar's drop for his M60 and launcher on its own too.
 
 ### h9_customweapons (the PPSh-41 and the laser rifle, on or off)
 

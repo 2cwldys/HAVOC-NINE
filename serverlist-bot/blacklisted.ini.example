@@ -1,0 +1,22 @@
+; blacklisted.ini -- the servers the list will not list. Copy this file to blacklisted.ini and add lines.
+; blacklisted.ini is git-ignored: it names other people's servers, so it stays on the machine that runs the list.
+;
+; One entry to a line. A ; or # starts a comment, so a note can follow an entry.
+;
+; The list reads the file when it starts and again whenever it changes: an edit takes hold within
+; poll_seconds (serverlist.ini) with no restart, and a server that is on the list when an entry
+; names it is taken off then. Every way of getting on is held to it: a heartbeat with or without the
+; key, servers.txt and /addserver. A heartbeat from a blacklisted address is answered 403.
+;
+; An address: every server there, on any port.
+;203.0.113.7
+;
+; One server: an address or a host name, and its port.
+;203.0.113.7:27016
+;
+; A range of addresses (IPv4, CIDR).
+;203.0.113.0/24
+;
+; A host name: the servers that name stands for. A name that resolves to a blacklisted address is refused too.
+;fake.example.com
+;fake.example.com:27015

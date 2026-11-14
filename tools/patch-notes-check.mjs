@@ -11,9 +11,10 @@ patch-notes-check.mjs -- a change to source or to a shipped binary needs its .pa
 What it asks, from tools/patch-notes-map.json:
   1. A source a rule names changed: at least one of that rule's notes must be changed in the same set of changes. Which notes is the
      point: reTS\cl_dll asks for client.dll.patch, reTS\dlls for mp.dll.patch, an AMX Mod X module for its own module's note, and so on.
-  2. A patch of xash3d-h9-patches\patches changed: the paths its diff touches say which engine binaries it lands in (ref\gl is
+  2. A patch of xash3d-h9-patches\patches changed: the paths its diff touches say which engine binary it lands in (ref\gl is
      ref_gl.dll, filesystem is filesystem_stdio.dll, 3rdparty\mainui is menu.dll, 3rdparty\freevgui is vgui.dll, game_launch is the
-     launcher, the rest is xash.dll; the lists xash.bat's :dllpatch calls hold), and each of those binaries' notes must change too.
+     launcher, the rest is xash.dll). This is only NOTED, never failed: a tweak of a patch (a default, a comment, a description) builds no
+     binary. What fails is a binary that changed without its note, which is rule 3.
   3. A binary that carries a note changed: its note must change, whatever the sources did.
 Any change to the note passes: this checks that the note was touched, not what it says. Two warnings besides (an error with --strict):
 a note that records a SHA256 which is not the binary's, and a binary or note changed without the other.
@@ -95,6 +96,7 @@ const { files, range, base, head } = changedFiles();
 const changed = new Set(files);
 const fails = [];
 const warns = [];
+const notices = [];
 const passed = [];
 
 function needNotes(rule, trigger, notes) {
@@ -137,7 +139,13 @@ for (const f of files) {
     byNote.get(note).push(f);
   }
 }
-for (const [note, patches] of byNote) needNotes("engine patch -> " + path.basename(note), patches, [note]);
+// an engine patch changed: if its note changed too, fine; if not, it is only noted. The binary the patch builds is what needs its note
+// (the loop below), and a patch tweak that builds no binary does not.
+for (const [note, patches] of byNote) {
+  const rule = "engine patch -> " + path.basename(note);
+  if (changed.has(note)) passed.push({ rule, trigger: patches, note });
+  else notices.push({ rule, trigger: patches, note });
+}
 for (const b of [...eng.binaries, eng.default]) {
   if (changed.has(b.binary) && !changed.has(b.note)) fails.push({ rule: "engine binary " + path.basename(b.binary) + " (the binary itself)", trigger: [b.binary], notes: [b.note] });
 }
@@ -175,19 +183,22 @@ out.push("patch-notes-check: " + files.length + " changed file(s), " + range);
 for (const p of passed) out.push("  ok    " + p.rule + ": " + p.note + " changed");
 for (const f of fails) out.push((skipReason !== null ? "  waived  " : "  FAIL  ") + f.rule + ": " + f.trigger.slice(0, 3).join(", ") + (f.trigger.length > 3 ? " (+" + (f.trigger.length - 3) + ")" : "") + " changed, none of " + f.notes.join(" | ") + " did");
 for (const w of warns) out.push("  warn  " + w.what);
-if (!passed.length && !fails.length && !warns.length) out.push("  nothing in this range needs a patch note");
+for (const n of notices) out.push("  note  " + n.rule + ": " + n.trigger.slice(0, 3).join(", ") + (n.trigger.length > 3 ? " (+" + (n.trigger.length - 3) + ")" : "") + " changed and its binary did not: " + path.basename(n.note) + " changes with the build that makes the binary");
+if (!passed.length && !fails.length && !warns.length && !notices.length) out.push("  nothing in this range needs a patch note");
 if (skipReason !== null && fails.length) out.push("  a commit in the range says Patch-Notes: skip " + skipReason);
 console.log(out.join("\n"));
 
 if (process.env.GITHUB_ACTIONS) {
   for (const f of fails) console.log("::" + (skipReason !== null ? "warning" : "error") + " title=patch note missing::" + f.rule + ": change one of " + f.notes.join(", ") + " (the note says what changed in the binary), or say Patch-Notes: skip <reason> in a commit message");
   for (const w of warns) console.log("::warning file=" + w.file + " title=patch note hash::" + w.what);
+  for (const n of notices) console.log("::notice title=engine patch changed::" + n.rule + ": " + n.trigger.join(", ") + " changed, its binary did not (the note changes when the binary is rebuilt)");
 }
 if (process.env.GITHUB_STEP_SUMMARY) {
   const md = ["### Patch notes", "", "| | rule | changed | note |", "|---|---|---|---|"];
   for (const p of passed) md.push("| ok | " + p.rule + " | " + p.trigger.length + " file(s) | `" + p.note + "` |");
   for (const f of fails) md.push("| **missing** | " + f.rule + " | `" + f.trigger.slice(0, 2).join("`, `") + "` | " + f.notes.map((n) => "`" + n + "`").join(" or ") + " |");
   for (const w of warns) md.push("| warn | " + w.what + " | | |");
+  for (const n of notices) md.push("| notice | " + n.rule + " | `" + n.trigger.slice(0, 2).join("`, `") + "` | changes when the binary does |");
   if (skipReason !== null) md.push("", "A commit in the range says `Patch-Notes: skip " + skipReason + "`.");
   try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.join("\n") + "\n"); } catch { /* the log has it */ }
 }

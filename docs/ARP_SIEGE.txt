@@ -1,0 +1,130 @@
+ARP SIEGE AND TOWN CONTROL -- how it works
+==========================================
+
+STATUS: DESIGNED. NOT IN THE GAME YET.
+Phase 1 (the siege itself) is being built. This page says what it will do, so you can check it when it lands, and it is
+updated with the build. docs\ARP_H9_ADDITIONS.txt lists everything else H9 added to Apollo RP; the siege is the one thing in
+it that is not built. Where a line says "default", it is the plan: a "no" is one cvar or one line of siege.ini.
+
+1. THE IDEA
+-----------
+The hive has three towns: Alexandria (key al), Paradise City (pc) and Xenon City (xe). Each is held by one side: the Ministry
+(msr), the Insurrection (ins) or the Proletarians (pro). Today the Ministry holds all three. An admin opens a siege on a town.
+While it lasts, any player can take the town for his own side by holding E on a console in the Ministry's detention area. The
+side that holds a town owns its Ministry buildings, its name on the plaques and the money in its treasury.
+A player cannot start a siege. Only the server console, rcon or an ARP admin (if allowed) can. That is on purpose: the admins
+decide when a town can change hands.
+
+2. A SIEGE, FROM THE COMMAND TO THE END
+---------------------------------------
+ 1. The admin types  arp_h9_siege "pc"  ("al", "pc", "xe" or "all"). Or  arp_h9_siege_start pc 30  for a siege that ends by
+    itself after 30 minutes.
+ 2. The town is in siege at once. A chat line says so. The siege mode's siren (bloblarm.wav) loops for everybody for as long as it
+    lasts, and a "BREACH IN PROGRESS" banner shows every 20 seconds.
+ 3. The roaming citizens (the TSRP bots, 32 of them) turn into insurgents. They leave insurgent players alone and shoot
+    everybody else.
+ 4. Every Ministry and Civil Protection door of that town opens to anybody who presses E: gates, offices, armouries, labs. The
+    prison cells, the Paradise lift screen and the Throne Room stay shut.
+ 5. In the Ministry's detention area of that town the command console wakes up: it glows orange and has an orange ring on the
+    floor.
+ 6. A player whose side does not hold the town holds E on the console for 30 seconds under an orange bar. A civilian can do it
+    too: he takes the town for the Proletarians. The first to finish takes the town for his side and becomes its claimant.
+ 7. That ENDS the siege. The siren stops, the insurgent citizens become civilians again, the doors that were left open shut again,
+    and the doors now answer to the new holder's cop jobs, its leaders and the claimant, not the old holder's.
+A siege also ends if the admin types  arp_h9_siege_end pc , sets  arp_h9_siege "0" , the minutes run out, or the map changes.
+A siege is never saved. The holder is.
+
+3. WHERE THE THREE CONSOLES ARE
+-------------------------------
+Each stands in the Ministry's detention area of its town. The spots are data (configs\arp\maps\h9_tsrp_hive\siege.ini): if one is
+wrong, it is one line.
+ * ALEXANDRIA: the Ministry's Detention Facility 07 on the lower level. Ride a lift down (the funicular from the Paradise portal,
+   the other lift from the Xenon portal) and walk to the "MSR DET FAC 07" gate. Ed's Steak House is on the same street. The console
+   is in the big hall behind the gate, near its west wall, facing the gate.
+ * PARADISE CITY: the Ministry of Defense Facility, across the street from the second bank kiosk (the one with the rotating BANK
+   sign). The console is in the middle of the hall behind the gate.
+ * XENON CITY: the Civil Protection post at the north end of the concourse, the lowest stop of the main elevator. The console is in
+   the front hall behind the CP gate, near the Licensing Clerk.
+Known limit: a player who comes through the Paradise portal lands where no walking route reaches Xenon's concourse. He has to
+come round through Alexandria's portal to reach the Civil Protection post.
+
+4. WHAT OPENS AND WHAT STAYS SHUT
+---------------------------------
+A "cop property" is a state property (no owner, price 0) sealed to a cop letter: the Ministry's and the Civil Protection's
+posts, armouries, offices and labs. During a siege their doors open to everyone in the sieged town. They shut again when the
+siege ends. Lifts and map doors that are not properties work as the map makes them.
+Stay shut during a siege: the eight cells (an open cell would free its prisoner), the Paradise lift screen and the Throne Room.
+arp_h9_siege_doors_scope 1 makes a siege open every town's doors instead of one town's.
+
+5. WHO CAN TAKE A TOWN
+----------------------
+Any player whose side does not hold it. A civilian counts as a Proletarian. Only one claim is made per siege: the first to fill
+the bar. A bot cannot claim or defend: bots press no buttons.
+
+6. AFTER A CLAIM
+----------------
+ * The town's holder is saved in the database (the faction column of the treasury table, plus a log of who gave which town to
+   whom). It stays after a restart.
+ * The plaques and the HUD name the new holder: "Ministry of Defense", "Insurgent Headquarters" or "Labor Protection", with a
+   "Held by:" line on the screen.
+ * The doors answer to the new holder's cop jobs and leaders, and to the claimant. The old holder's do not open them.
+ * The town's treasury, and what is in it, goes with the town to the new holder.
+An admin can also hand a town to a side without a siege: arp_h9_siege_hand <town> <msr|ins|pro> [player], when
+arp_h9_town_hand is 1.
+
+7. THE PROLETARIAN COP JOBS
+---------------------------
+The Proletarians had no cop jobs. They get eight, under the name "Consolidated Labor Protection" (plaques say "Labor Protection"):
+Security Associate, Patrol Officer, Senior Officer; Shift Supervisor, Site Supervisor; Security Manager, Regional Director, Chief
+of Protection.
+ * They open the doors of a town the Proletarians hold, as the Ministry's and the Insurrection's cops open theirs.
+ * They are not police: no cuffs and no jail menu (that needs the Ministry's letter, which would make them Ministry). Taking one of
+   these jobs moves nobody to another team.
+ * Who hires them, with arp_employ: an admin; anybody given a "p", "pq" or "pqr" job right with arp_setjobright; and the claimant
+   of a town the Proletarians hold, while he is its claimant (arp_h9_holder_hire).
+ * They pay 20 to 90 credits like the other ranks. One pay.ini line each changes that. The unemployed stay at 0.
+
+8. JOINING AND LEAVING A SIDE
+-----------------------------
+There is no recruiter NPC. Everybody starts as a Proletarian. Accept an arp_employ offer for a Ministry or Insurrection job and you
+are on that side at once, because a player's team follows his job. /unemploy takes you back to Proletarian.
+
+9. THE SWITCHES
+---------------
+Each feature has its own cvar. Plugin default = off (stock). The second number is what configs\arp\arp.cfg is planned to ship.
+  arp_h9_siege "<towns>"          0 / 0   the gate. "0": no siege. "pc", "al,xe", "all". Live. Typing it starts sieges.
+  arp_h9_siege_start/_end/_status the admin commands (server console, rcon, and ARP admins if arp_h9_siege_cmd is 1)
+  arp_h9_siege_cmd                0 / 0   1: an in-game ARP admin may use the commands. The console and rcon always may.
+  arp_h9_town_hand                0 / 1   the hand-over command
+  arp_h9_claim, arp_h9_claim_secs 0 / 1, 30   the console and the length of the hold (5 to 600 seconds)
+  arp_h9_siege_doors              0 / 1   a siege opens the cop doors
+  arp_h9_siege_doors_scope        0 / 0   0: the sieged town; 1: every town while any siege runs
+  arp_h9_siege_doors_close        0 / 1   the doors a siege opened shut again at the end
+  arp_h9_holder_doors             0 / 1   the doors follow the holder
+  arp_h9_holder_names, _hud       0 / 1   the plaque words and the "Held by:" line
+  arp_h9_holder_hire              0 / 1   the claimant may hire the Proletarian cop jobs
+  arp_h9_cops_pro                 "o" / "o"   the Proletarian cop letter
+  arp_h9_siege_alarm              0 / 1   the siren and banner (_vol 0.3, _every 20, _msg "BREACH|IN PROGRESS|{town}", _scope 0)
+  arp_h9_siege_bots               0 / 1   the citizens turn insurgent during a siege (needs arp_teamplay 1 and the TSRP bots on)
+Off is clean for each: nothing half-running, and what a feature saved (the holders, the log) is kept.
+
+10. NOT IN PHASE 1
+------------------
+ * The treasury terminals in each detention area, where leaders check, add and withdraw the town's money (an H9 panel).
+ * Paid tax going into the treasury, and eviction by the leaders.
+ * Guards at the posts, and the drug inspection (contraband is drugs other than cigarettes).
+ * Forced models by faction (arp_h9_forcemodel, with a list of allowed models for each).
+ * Posts that must fall before the console wakes.
+ * A way to start a war from inside the game, and a price for it.
+
+11. WHAT ONLY A GAME CAN SHOW
+-----------------------------
+The feel of holding E, the orange glow and ring, the siren, the plaque words, and the fight at the gates. The engineers' test
+server has bots only, and a bot cannot press E.
+
+12. THE PLUGINS AND FILES (planned)
+-----------------------------------
+ARP_Siege.sma (the switch, the holders, the claim, the end), ARP_SiegeClaim.sma (the consoles), ARP_SiegeDoors.sma (the doors rule,
+the plaque words, the hiring right), ARP_SiegeAlarm.sma (the siren and the bots), include\ApolloRP_H9Siege.inc, and
+configs\arp\maps\h9_tsrp_hive\siege.ini (the console spots, the names, the shut doors). Two small hooks go into ARP_Core and
+ARP_Commands, and the siege mode's siren needs no change to ts_matchmode.

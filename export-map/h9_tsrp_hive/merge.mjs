@@ -407,6 +407,15 @@ function cityBox(brushes) {
   return { min, max };
 }
 
+/** Throws unless an entity's brushes, taken back to the city's own coordinates, fill exactly the box `wanted` names. */
+function checkOwnBox(cityName, wanted, entity, shift) {
+  const box = cityBox(entity.brushes ?? []);
+  const own = { min: box.min.map((v, a) => v - shift[a]), max: box.max.map((v, a) => v - shift[a]) };
+  const off = [...own.min.map((v, a) => Math.abs(v - wanted.min[a])), ...own.max.map((v, a) => Math.abs(v - wanted.max[a]))];
+  if (off.some((distance) => !(distance <= 0.05)))
+    throw new Error(`${cityName}: ${wanted.targetname} fills ${own.min.map(round)} .. ${own.max.map(round)}, not ${wanted.min} .. ${wanted.max} -- the source changed`);
+}
+
 /** The pictures that need a substitute, everywhere they appear. */
 function substituteTextures(brushes) {
   for (const brush of brushes) for (const face of brush.faces) if (TEXTURE_SUBSTITUTE[face.texture]) face.texture = TEXTURE_SUBSTITUTE[face.texture];
@@ -619,8 +628,33 @@ const USABLE_PANELS = {
     { targetname: "clabshores", classname: "func_door", spawnflags: "32" },
     { targetname: "shoresclab", classname: "func_door", spawnflags: "32" },
   ],
+  // Xenon's four underground blast doors (216 x 177, rising into the lintel, a 4-second wait) are named, carry no Use flag
+  // and nothing fires them, so no player could open one. The Use flag lets the use key work them; their travel and their
+  // wait stay. Each is checked against its box in the city's own coordinates, so a changed source stops the build.
+  xenon: [
+    { targetname: "ug_pub_1", classname: "func_door", spawnflags: "0", min: [-974, -2059, -449], max: [-893, -1843, -272] },
+    { targetname: "ug_pub_2", classname: "func_door", spawnflags: "0", min: [-2195, -332, -449], max: [-1979, -251, -272] },
+    { targetname: "ug_com_1", classname: "func_door", spawnflags: "0", min: [-1955, -1407, -449], max: [-1874, -1191, -272] },
+    { targetname: "ug_com_2", classname: "func_door", spawnflags: "0", min: [-1324, -1659, -449], max: [-1108, -1578, -272] },
+  ],
 };
 const DOOR_USE_ONLY = 256;
+
+/**
+ * Alexandria's clandestine armory is shut by a vent grille in an alley wall, `clandesarmory`: a func_door of 8 x 40 x 48
+ * (texture {gratestep3) that carries the Specialists' door-breaking keys (maxdamage 50, doormaterial 2) and a master,
+ * `allms`, which a puzzle of switches turns on. Apollo RP makes every func_door unbreakable (arp_goddoors, 1 in arp.cfg,
+ * sets takedamage 0 on every func_door and func_door_rotating), so as a door the grille could never be shot, whatever its
+ * maxdamage says; a func_breakable stays breakable (arp_godwindows 0). It is made a func_breakable of metal with 50 health,
+ * so a shot or a blow breaks it as it breaks every other vent of the city. The manager the puzzle fires (`whenallmm`) still
+ * fires it by name, which breaks it too, and the siren it fires as it opens sounds as it breaks. Checked against its box in
+ * the city's own coordinates, so a changed source stops the build.
+ */
+const BREAKABLE_VENTS = {
+  alexandria: [{ targetname: "clandesarmory", classname: "func_door", doormaterial: "2", maxdamage: "50", min: [-1802, 2616, -128], max: [-1794, 2656, -80], material: "2", health: "50" }],
+};
+/** The keys a func_door carries that a func_breakable has no use for. */
+const DOOR_ONLY_KEYS = ["master", "angles", "lip", "wait", "movesnd", "locked_sound", "speed", "maxdamage", "doormaterial", "spawnflags"];
 
 /**
  * The blue car's two doors slid sideways into its walls (angles 0 0 0, the same in the original compile). They
@@ -808,6 +842,27 @@ function alexandriaLift(map) {
 }
 
 /**
+ * ALEXANDRIA'S LADDERS. The compiled original (alexandria_msr_b4v3.bsp, and b5, which has the same six) carries six func_ladder models: clip volumes with no faces. The decompile left
+ * their entities empty and the empty entities are dropped below, so no ladder of Alexandria could be climbed, though the picture of each stands ({po_laddrust slabs, the {aladder5
+ * ladder of the Midgar stair). Each one is put back as a func_ladder brush on the box its model had, in the city's own coordinates (read with bsp_ent.mjs: the model's mins and maxs,
+ * the same numbers as the slab of the visible ladder where there is one). AAATRIGGER is the texture the other cities' ladders use.
+ */
+const ALEXANDRIA_LADDERS = [
+  { min: [-1696, 2648, -928], max: [-1692, 2680, -688] },
+  { min: [364, 244, -400], max: [368, 276, 160] },
+  { min: [-268, -24, -80], max: [-236, -20, 16] },
+  { min: [-1624, 432, -21], max: [-1592, 435, 232] },
+  { min: [-1192, -148, -400], max: [-1160, -144, 160] },
+  { min: [318, 36, -664], max: [320, 84, -400] },
+];
+
+function alexandriaLadders(map) {
+  map.entities = map.entities ?? [];
+  for (const ladder of ALEXANDRIA_LADDERS) map.entities.push(M.brushEntity("func_ladder", [M.box(ladder.min, ladder.max, "AAATRIGGER")], {}));
+  return ALEXANDRIA_LADDERS.length;
+}
+
+/**
  * One city, ready to stack: its brushes cut and moved, its entity names local, its origins moved, and
  * anything that lived entirely below its cut plane gone.
  */
@@ -819,6 +874,7 @@ function city(cityName) {
   const pushFixed = cityName === "alexandria" ? alexandriaPushFix(map) : 0;
   const dialFixed = cityName === "alexandria" ? alexandriaDialFix(map) : 0;
   const liftCut = cityName === "alexandria" ? alexandriaLift(map) : 0;
+  const laddersAdded = cityName === "alexandria" ? alexandriaLadders(map) : 0;
   const rampSnapped = cityName === "alexandria" ? ALEXANDRIA_RAMP_PLANES.reduce((sum, plane) => sum + snapRampPlane(map, plane), 0) : 0;
   const { shift, cut, key: prefix } = layout;
 
@@ -865,6 +921,7 @@ function city(cityName) {
   let droppedWeapons = 0;
   let reclassedFences = 0;
   let usablePanels = 0;
+  let breakableVents = 0;
   let cagesFixed = 0;
   let sunkDoors = 0;
   let strippedOrigins = 0;
@@ -933,8 +990,20 @@ function city(cityName) {
     if (panel) {
       if (entity.classname !== panel.classname || String(entity.spawnflags ?? "0") !== panel.spawnflags)
         throw new Error(`${cityName}: ${panel.targetname} is a ${entity.classname} with spawnflags ${entity.spawnflags ?? 0}, not the ${panel.classname} with ${panel.spawnflags} it is made usable from`);
+      if (panel.min) checkOwnBox(cityName, panel, entity, shift);
       entity.spawnflags = String(Number(panel.spawnflags) | DOOR_USE_ONLY);
       usablePanels++;
+    }
+    const vent = (BREAKABLE_VENTS[cityName] ?? []).find((wanted) => wanted.targetname === entity.targetname);
+    if (vent) {
+      if (entity.classname !== vent.classname || String(entity.doormaterial) !== vent.doormaterial || String(entity.maxdamage) !== vent.maxdamage || (entity.brushes ?? []).length !== 1)
+        throw new Error(`${cityName}: ${vent.targetname} is a ${entity.classname} (doormaterial ${entity.doormaterial}, maxdamage ${entity.maxdamage}, ${(entity.brushes ?? []).length} brushes), not the ${vent.classname} (${vent.doormaterial}, ${vent.maxdamage}, 1 brush) it is made breakable from`);
+      checkOwnBox(cityName, vent, entity, shift);
+      entity.classname = "func_breakable";
+      for (const key of DOOR_ONLY_KEYS) delete entity[key];
+      entity.material = vent.material;
+      entity.health = vent.health;
+      breakableVents++;
     }
     const sinking = (SINKING_DOORS[cityName] ?? []).find((wanted) => wanted.targetname === entity.targetname);
     if (sinking) {
@@ -953,13 +1022,15 @@ function city(cityName) {
   }
   if (usablePanels !== (USABLE_PANELS[cityName] ?? []).length)
     throw new Error(`${cityName}: ${usablePanels} of the ${(USABLE_PANELS[cityName] ?? []).length} panels to make usable were found`);
+  if (breakableVents !== (BREAKABLE_VENTS[cityName] ?? []).length)
+    throw new Error(`${cityName}: ${breakableVents} of the ${(BREAKABLE_VENTS[cityName] ?? []).length} vents to make breakable were found`);
   if (sunkDoors !== (SINKING_DOORS[cityName] ?? []).length)
     throw new Error(`${cityName}: ${sunkDoors} of the ${(SINKING_DOORS[cityName] ?? []).length} doors to sink were found`);
   if (cagesFixed !== (CELL_CAGES[cityName]?.count ?? 0))
     throw new Error(`${cityName}: ${cagesFixed} of the ${CELL_CAGES[cityName]?.count ?? 0} cell cages to free were found`);
 
   const named = prefixedEntities(entities, namesOf(map), prefix);
-  return { cityName, file: read.file, prefix, shift, brushes, entities: named, texlights, droppedBelow, droppedSun, droppedEmpty, droppedWeapons, reclassedFences, usablePanels, sunkDoors, cagesFixed, dialFixed, liftCut, rampSnapped, pushFixed, snapped: repaired.snapped, dropped: repaired.dropped, settled, pruned, deduped, strippedOrigins, shell: shell.length, sealed: { min: shellMin, max: shellMax } };
+  return { cityName, file: read.file, prefix, shift, brushes, entities: named, texlights, droppedBelow, droppedSun, droppedEmpty, droppedWeapons, reclassedFences, usablePanels, breakableVents, sunkDoors, cagesFixed, dialFixed, liftCut, laddersAdded, rampSnapped, pushFixed, snapped: repaired.snapped, dropped: repaired.dropped, settled, pruned, deduped, strippedOrigins, shell: shell.length, sealed: { min: shellMin, max: shellMax } };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1101,6 +1172,7 @@ function mergedTexlights(worn) {
 export function build() {
   const worldspawn = {
     ...readCity(CITIES.paradise).map.worldspawn,
+    message: "Hive City -- Roleplay", // the map's title, as the server list and the loading screen show it
     skyname: SKY,
     MaxRange: NO_CUT ? "8192" : "4096",
     wad: Object.values(WADS).filter(existsSync).map((path) => basename(path)),
@@ -1158,7 +1230,7 @@ for (const entity of map.entities) {
 console.log(`\n=== ${NAME}`);
 console.log(`  cities:`);
 for (const built of Object.values(cities)) {
-  console.log(`    ${built.cityName.padEnd(12)} ${String(built.brushes.length).padStart(5)} brushes  ${String(built.entities.length).padStart(4)} entities  shift ${built.shift.join(" ")}${built.droppedBelow ? `  (${built.droppedBelow} below the cut)` : ""}${built.droppedSun ? `  (${built.droppedSun} extra sun)` : ""}${built.droppedEmpty ? `  (${built.droppedEmpty} empty)` : ""}${built.droppedWeapons ? `  (${built.droppedWeapons} ground weapons dropped)` : ""}${built.reclassedFences ? `  (${built.reclassedFences} fences made solid)` : ""}${built.usablePanels ? `  (${built.usablePanels} doors and panels made usable)` : ""}${built.sunkDoors ? `  (${built.sunkDoors} doors made to sink)` : ""}${built.cagesFixed ? `  (${built.cagesFixed} cell cages freed)` : ""}${built.dialFixed ? `  (${built.dialFixed} lab dial given its brush)` : ""}${built.liftCut ? `  (a lift, its shaft cut from ${built.liftCut} brushes)` : ""}${built.rampSnapped ? `  (${built.rampSnapped} ramp faces put back on their planes)` : ""}${built.pushFixed ? `  (${built.pushFixed} push triggers fixed)` : ""}${built.snapped ? `  (${built.snapped} faces snapped)` : ""}${built.dropped ? `  (${built.dropped} slivers dropped)` : ""}${built.settled ? `  (${built.settled} contents settled)` : ""}${built.pruned ? `  (${built.pruned} pruned)` : ""}${built.deduped ? `  (${built.deduped} duplicate faces)` : ""}${built.strippedOrigins ? `  (${built.strippedOrigins} origin keys)` : ""}  (${built.shell} shell)`);
+  console.log(`    ${built.cityName.padEnd(12)} ${String(built.brushes.length).padStart(5)} brushes  ${String(built.entities.length).padStart(4)} entities  shift ${built.shift.join(" ")}${built.droppedBelow ? `  (${built.droppedBelow} below the cut)` : ""}${built.droppedSun ? `  (${built.droppedSun} extra sun)` : ""}${built.droppedEmpty ? `  (${built.droppedEmpty} empty)` : ""}${built.laddersAdded ? `  (${built.laddersAdded} ladders put back)` : ""}${built.droppedWeapons ? `  (${built.droppedWeapons} ground weapons dropped)` : ""}${built.reclassedFences ? `  (${built.reclassedFences} fences made solid)` : ""}${built.usablePanels ? `  (${built.usablePanels} doors and panels made usable)` : ""}${built.breakableVents ? `  (${built.breakableVents} vent made breakable)` : ""}${built.sunkDoors ? `  (${built.sunkDoors} doors made to sink)` : ""}${built.cagesFixed ? `  (${built.cagesFixed} cell cages freed)` : ""}${built.dialFixed ? `  (${built.dialFixed} lab dial given its brush)` : ""}${built.liftCut ? `  (a lift, its shaft cut from ${built.liftCut} brushes)` : ""}${built.rampSnapped ? `  (${built.rampSnapped} ramp faces put back on their planes)` : ""}${built.pushFixed ? `  (${built.pushFixed} push triggers fixed)` : ""}${built.snapped ? `  (${built.snapped} faces snapped)` : ""}${built.dropped ? `  (${built.dropped} slivers dropped)` : ""}${built.settled ? `  (${built.settled} contents settled)` : ""}${built.pruned ? `  (${built.pruned} pruned)` : ""}${built.deduped ? `  (${built.deduped} duplicate faces)` : ""}${built.strippedOrigins ? `  (${built.strippedOrigins} origin keys)` : ""}  (${built.shell} shell)`);
 }
 console.log(`  total: ${map.brushes.length} world brushes, ${map.entities.length} entities`);
 console.log(`  solids  min ${box.min.map((v) => Math.round(v)).join(" ")}  max ${box.max.map((v) => Math.round(v)).join(" ")}`);

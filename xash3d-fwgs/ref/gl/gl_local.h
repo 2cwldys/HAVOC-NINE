@@ -377,6 +377,12 @@ static inline void GL_GetSceneTargetSize( int *width, int *height )
 #endif // !XASH_GLES || !XASH_GL_STATIC
 
 //
+// gl_upscale.c
+//
+qboolean GL_UpscaleBlit( const gl_rendertarget_t *scene, const gl_rendertarget_t *screen );
+void GL_UpscaleShutdown( void );
+
+//
 // gl_draw.c
 //
 void R_Set2DMode( qboolean enable );
@@ -786,6 +792,8 @@ extern convar_t	gl_texture_lodbias;
 extern convar_t	gl_texture_nearest;
 extern convar_t	gl_lightmap_nearest;
 extern convar_t	gl_fbo_nearest;
+extern convar_t	h9_upscale;
+extern convar_t	h9_upscale_sharp;
 extern convar_t	gl_keeptjunctions;
 extern convar_t	gl_round_down;
 extern convar_t	gl_wireframe;

@@ -78,12 +78,17 @@ function fingerprint(step) {
     if (fs.statSync(p).isDirectory()) walk(p, files); else files.push(p);
     files.sort();
     for (const f of files) {
-      const st = fs.statSync(f);
-      if (st.size > 40 * 1024 * 1024) continue;
-      h.update(path.relative(ROOT, f).replace(/\\/g, "/") + "\0");
-      h.update(fs.readFileSync(f));
-      count++;
-      if (st.mtimeMs > newest) newest = st.mtimeMs;
+      const fd = fs.openSync(f, "r");
+      try {
+        const st = fs.fstatSync(fd);
+        if (st.size > 40 * 1024 * 1024) continue;
+        h.update(path.relative(ROOT, f).replace(/\\/g, "/") + "\0");
+        h.update(fs.readFileSync(fd));
+        count++;
+        if (st.mtimeMs > newest) newest = st.mtimeMs;
+      } finally {
+        fs.closeSync(fd);
+      }
     }
   }
   return { hash: h.digest("hex"), count, newest };

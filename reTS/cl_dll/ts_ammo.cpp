@@ -359,11 +359,14 @@ bool CHudTSAmmo::Draw(float flTime)
 		const int mode = (m_iFireMode >= 1 && m_iFireMode <= 5) ? m_iFireMode : 0;
 		y -= LINEH;
 		FillRGBA(x, y, 0x80, LINEH - 1, hr, hg, hb, 0x0f);
-		TSHud_DrawString(x + 2, y, SW, CHudTextMessage::BufferedLocaliseTextString(s_mode[mode]), tr, tg, tb);
+		// The Mech's launcher names its two modes for what they do: the burst is its volley, semi one rocket a pull.
+		const char* modeName = TS_IsRocketWeapon(m_iWeaponType) ? (mode == TSFM_BURST ? "Volley" : "Single")
+		                                                       : CHudTextMessage::BufferedLocaliseTextString(s_mode[mode]);
+		TSHud_DrawString(x + 2, y, SW, modeName, tr, tg, tb);
 		y -= LINEH;
 		FillRGBA(x, y, 0x80, LINEH - 1, hr, hg, hb, 0x0f);
-		// The caliber's name; the Mech's launcher keeps its rockets in the Contender's caliber (the only one left in the ammo
-		// table), so the row names what it holds instead.
+		// The caliber's name; the Mech's launcher keeps its rockets in the Barrett's caliber (all sixteen are taken), so the
+		// row names what it holds instead.
 		const char* ammoName = TS_IsRocketWeapon(m_iWeaponType) ? "Missile" : get_ammo_info(wi->iCaliber)->szName;
 		TSHud_DrawString(x + 2, y, SW, ammoName, tr, tg, tb);
 	}

@@ -173,6 +173,9 @@ def main():
         'ts/config.cfg': 'name "dev"\n', 'user_id.ini': '[client]\nid=' + 'a' * 32 + '\n', 'networking.ini': 'dev\n',
         'ts/tempdecal.wad': b'WAD3dev', 'ts/opengl.cfg.bak': 'x\n', 'ts/testonly_player.cfg': 'x\n',
         'ts/logs/L1.log': 'x\n', 'device_id.ini': '[device]\nid=' + 'b' * 32 + '\n',
+        # the developer's database, which never reaches a player, and a map's SQL file, which does
+        'ts/addons/amxmodx/data/sqlite3/arp.sq3': b'SQLite format 3\0dev', 'ts/stray.db': b'dev',
+        'ts/addons/amxmodx/configs/arp/maps/h9_test/h9_test.sql': "INSERT OR IGNORE INTO arp_jobs VALUES ('Citizen',10,'');\n",
     }
     for rel, data in files.items():
         write(os.path.join(h, rel), data)
@@ -183,7 +186,8 @@ def main():
     player = {'ts/config.cfg': 'name "me"\n', 'user_id.ini': '[client]\nid=' + 'c' * 32 + '\n',
               'ts/tempdecal.wad': b'WAD3mine', 'ts/logos/myspray.png': b'png', 'ts/save/s.sav': b's',
               'ts/console_history.txt': 'rcon_password x\n', 'ts/screenshots/a.bmp': b'b',
-              'ts/liblist.gam': 'game "TS" (old)\n', 'ts/testonly_player.cfg': 'mine\n'}
+              'ts/liblist.gam': 'game "TS" (old)\n', 'ts/testonly_player.cfg': 'mine\n',
+              'ts/addons/amxmodx/data/sqlite3/arp.sq3': b'SQLite format 3\0mine'}
     for rel, data in player.items():
         write(os.path.join(install, rel), data)
     before = {rel: sha(os.path.join(install, rel)) for rel in player if rel != 'ts/liblist.gam'}
@@ -197,7 +201,7 @@ def main():
     print('install over the existing folder')
     out = updater(common, cmd, 0, 'install')
     rel_ok = [r for r in files if not any(x in r for x in ('config.cfg', 'user_id', 'networking', 'tempdecal',
-                                                           '.bak', 'testonly', 'logs/', 'device_id'))]
+                                                           '.bak', 'testonly', 'logs/', 'device_id', 'sqlite3', '.db'))]
     check(all(read(os.path.join(install, r)).replace(b'\r\n', b'\n') == (files[r] if isinstance(files[r], bytes)
               else files[r].encode()) for r in rel_ok), 'every game file installed with its content')
     check(read(os.path.join(install, 'h9xash.bat')) == b'@echo off\r\necho hi\r\n', '.bat files get CRLF line ends')
@@ -209,6 +213,11 @@ def main():
         'the developer\'s backups, device id and logs not installed')
     check(not os.path.exists(os.path.join(install, 'README.txt')), 'nothing outside H9XASH\\ installed')
     check(os.path.isdir(os.path.join(install, 'ts/addons/amxmodx/data/vault')), 'empty vault folder made')
+    check(not os.path.exists(os.path.join(install, 'ts/stray.db')), 'the developer\'s database not installed')
+    check(read(os.path.join(install, 'ts/addons/amxmodx/data/sqlite3/arp.sq3')) == b'SQLite format 3\0mine',
+          'the player\'s own database is not replaced')
+    check(os.path.isfile(os.path.join(install, 'ts/addons/amxmodx/configs/arp/maps/h9_test/h9_test.sql')),
+          'a map\'s SQL file is installed')
     players_untouched('after install')
     st = json.load(open(os.path.join(install, '.h9xash-updater', 'installed.json')))
     check(len(st['files']) == len(rel_ok), 'installed.json owns the %d game files' % len(rel_ok))

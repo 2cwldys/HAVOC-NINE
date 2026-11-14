@@ -10,6 +10,7 @@
 #include "vgui_TeamFortressViewport.h"
 #include "h9_vgui.h"
 #include "h9_arpinv.h" // H9ArpInv_Wanted: the protocol a game says
+#include "h9_arpctx.h" // H9ArpCtx_Wanted: and whether it has the context menu
 #include "vgui_H9Panel.h"
 #include "h9_theme.h" // the colour the player gives the panels: h9theme::Init makes the cvars
 #include "triangleapi.h" // WorldToScreen: a mark's place on the screen
@@ -835,7 +836,7 @@ int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
 
 // ---- every frame ------------------------------------------------------------------------------
 
-void CloseAll()
+void CloseAll(bool forgetMenus = true)
 {
 	s_bLookMate = false;
 	s_bLookAll = false;
@@ -846,8 +847,9 @@ void CloseAll()
 		n.used = false;
 	for (PanelSlot& p : s_Panels)
 		ClosePanel(p);
-	for (H9MenuDef& m : s_Menus)
-		m.used = false;
+	if (forgetMenus)
+		for (H9MenuDef& m : s_Menus)
+			m.used = false;
 	for (H9Mark& m : s_Marks)
 		m.used = false;
 	s_iStripTall = 0;
@@ -969,9 +971,10 @@ void SyncUserinfo()
 	if (!s_cvInfo)
 		return;
 	char want[8];
-	// the inventory window is Apollo RP's menu as a panel: a game that keeps those as text menus, or the inventory as text, says 5
+	// the inventory window is Apollo RP's menu as a panel: a game that keeps those as text menus, or the inventory as text, says 5; the context menu comes with the
+	// inventory window (its Trade and Search are the window's), and a game that does not want it says 9
 	const bool inventory = H9ArpInv_Wanted() && (!s_cvArp || s_cvArp->value != 0.0f);
-	snprintf(want, sizeof(want), "%d", Enabled() ? (inventory ? H9V_PROTOCOL : H9V_PROTOCOL_NO_INVENTORY) : 0);
+	snprintf(want, sizeof(want), "%d", Enabled() ? (inventory ? (H9ArpCtx_Wanted() ? H9V_PROTOCOL : H9V_PROTOCOL_NO_CTXMENU) : H9V_PROTOCOL_NO_INVENTORY) : 0);
 	if (!s_cvInfo->string || 0 != strcmp(s_cvInfo->string, want))
 		gEngfuncs.Cvar_Set("_h9vgui", want);
 	if (s_cvArp && s_cvArpInfo)
@@ -1295,7 +1298,11 @@ public:
 	}
 	void InitHUDData() override
 	{
-		CloseAll(); // a new map, or a new server
+		// A new map, or a new server. The menu definitions stay: the server sends one once and re-offers the menu with only a TWIN while its
+		// cache holds (h9_vgui.inc), and a map change keeps this game connected, so the first menu of the new map can arrive BEFORE this
+		// InitHUD. Forgetting it here left that menu, and every re-offer, to the text menu. A new server starts with a cold cache and sends
+		// each definition again before its first TWIN.
+		CloseAll(false);
 	}
 };
 CHudH9Vgui s_Hud;

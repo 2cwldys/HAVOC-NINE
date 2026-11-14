@@ -123,6 +123,30 @@ if /i "%H9PRIO%"=="Realtime" set "H9PRIOSW=/HIGH"
 if /i "%H9PRIO%"=="Realtime" echo [ts] priority=Realtime in networking.ini runs as High.
 if defined H9PRIO if /i not "%H9PRIO%"=="Normal" if /i not "%H9PRIO%"=="AboveNormal" if /i not "%H9PRIO%"=="High" if /i not "%H9PRIO%"=="Realtime" echo [ts] priority= in networking.ini is not Normal, AboveNormal or High: AboveNormal is used.
 
+REM ---- the P2P helper ----------------------------------------------------------------
+REM Only when p2p.ini beside this file says enabled=1 (docs\P2P_JOIN.txt): the helper that lets friends
+REM join this server without a forwarded port is started in the background, its output in p2p.log, and
+REM stopped again when the server exits. A helper that is running already is left alone, and only one
+REM started here is stopped (P2POURS), like the Discord bot above. No p2p.ini, or enabled=0: nothing
+REM happens here. It needs Node.js 20 or newer; h9_p2p_find.bat says what is missing.
+set "P2POURS="
+set "P2PON="
+if exist "p2p.ini" for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("p2p.ini") do if /i "%%a"=="enabled" set "P2PON=%%b"
+if not "%P2PON%"=="1" goto :p2pdone
+call "%~dp0h9_p2p_find.bat"
+if errorlevel 1 goto :p2pskipped
+"%P2PNODE%" "%P2PHELPER%" ensure --ini "%~dp0p2p.ini"
+set "P2PRC=%ERRORLEVEL%"
+if "%P2PRC%"=="0" set "P2POURS=1"
+if "%P2PRC%"=="10" echo [ts] A P2P helper is running already: leaving it alone.
+if not "%P2PRC%"=="0" if not "%P2PRC%"=="10" echo [ts] The P2P helper did not start ^(code %P2PRC%, see p2p.log^): the server starts without it.
+goto :p2pdone
+
+:p2pskipped
+echo [ts] p2p.ini says enabled=1, but the P2P helper cannot run here ^(see above^): the server starts without it.
+
+:p2pdone
+
 REM ---- the H9 server list ------------------------------------------------------------
 REM h9_heartbeat.ps1 runs beside the server: every two minutes while HAVOC 9.exe -dedicated
 REM on that port runs, it tells the H9 server list (heartbeat_url in networking.ini,
@@ -159,6 +183,9 @@ goto :afterbot
 echo [ts] Leaving the Discord bot running -- it was already up before this run.
 
 :afterbot
+
+REM The same for the P2P helper: stopped only if this run started it (its path closes at the relay).
+if defined P2POURS "%P2PNODE%" "%P2PHELPER%" stop --ini "%~dp0p2p.ini"
 
 echo.
 echo ===============================================================

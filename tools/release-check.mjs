@@ -29,7 +29,8 @@ const root = path.resolve(opt("root", path.resolve(here, "..")));
 const rel = (p) => path.relative(root, p).replace(/\\/g, "/");
 
 const read = (p) => { try { return fs.readFileSync(p, "latin1"); } catch { return null; } };
-const first = (...candidates) => candidates.map((p) => path.join(root, p)).find((p) => fs.existsSync(p)) || null;
+const canOpen = (p) => { try { fs.closeSync(fs.openSync(p, "r")); return true; } catch { return false; } };
+const first = (...candidates) => candidates.map((p) => path.join(root, p)).find((p) => canOpen(p)) || null;
 
 const problems = [];
 const notes = [];
@@ -47,8 +48,8 @@ if (!sma) {
 
 const page = path.join(root, "havoc9.org", "downloads", "index.html");
 const noteRe = /(<p class="download-note">Version )([^<]*)(<\/p>)/g;
-if (build && fs.existsSync(page)) {
-  const html = read(page);
+const html = build ? read(page) : null;
+if (build && html !== null) {
   const seen = [...html.matchAll(noteRe)].map((m) => m[2]);
   if (!seen.length) {
     problems.push(rel(page) + ": no <p class=\"download-note\">Version ...</p> note to carry the build");

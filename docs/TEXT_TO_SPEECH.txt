@@ -255,6 +255,12 @@
        cl_h9_tts_mydepth N         -10 deeper to 10 higher (each step is 2.5 percent of the speed and pitch)
        cl_h9_tts_test man Hello    speaks as you sound to others: with your myvoice and mydepth, in the middle
 
+   The first time a game runs with this client and its player has never chosen (cl_h9_tts_voice_set 0), it gives him a variant (1 to 99) and, when he has set no
+   depth, a step of depth (-2 to 2) at random, writes them to those two cvars (which are saved with his config) and sets cl_h9_tts_voice_set to 1. So the players
+   of a server do not all sound alike, and each keeps the voice he was given on every server and in every listener's game. A pick he made is kept as it is, and
+   a 0 he sets afterwards stays 0 (each listener's game then chooses for him, as cl_h9_tts_individual says). cl_h9_tts_voice_set 0 makes the game give him
+   another at its next start.
+
    The game sends the two to the server as the client command h9_ttsvoice <variant> <depth> (not through the userinfo,
    which is full): when the server asks as you join (the plugin sends H9Tts with slot 0 and flag bit 1, so a server without
    the plugin is never sent a command it does not have), and again whenever you change either cvar. The server puts them
@@ -311,6 +317,14 @@
        cl_h9_tts_reload       stops the helper and starts it again and forgets
                               its failures (a helper that gave up, a helper
                               that was replaced)
+
+   A new install starts from the stock config (ts\config.stock.cfg), which
+   sets cl_h9_tts_engine auto and cl_h9_tts_threads 8: a new player has the
+   Kokoro voices, with 8 threads, without typing anything. A player who
+   already has a config.cfg keeps what he has (the stock file is read only
+   when there is none). The web client has no Kokoro and ignores both lines.
+   On a machine with fewer than 8 logical processors cl_h9_tts_threads 0
+   lets the game choose (the machine's count, and none below 4 under auto).
 
    The helper starts when the server asks the game for its voice picks (a
    server with h9_tts.amxx does, as a player joins), so a player on any other

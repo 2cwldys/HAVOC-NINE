@@ -1,7 +1,10 @@
-# The list's secrets (the Discord token and the heartbeat key) and what it writes as it runs:
-# never committed. Only serverlist.cfg.example is tracked.
+# The list's secrets (the Discord token and the heartbeat key), its blacklist (other people's
+# servers) and what it writes as it runs: never committed. Only the two .example files are tracked.
 serverlist.cfg
 serverlist.cfg.*
 !serverlist.cfg.example
+blacklisted.ini
+blacklisted.ini.*
+!blacklisted.ini.example
 serverlist.log
 __pycache__/

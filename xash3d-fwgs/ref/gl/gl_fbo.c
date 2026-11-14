@@ -324,6 +324,10 @@ static void GL_DrawTargetQuad( const gl_rendertarget_t *rt, int width, int heigh
 
 static void GL_BlitTarget( const gl_rendertarget_t *src, GLuint dst_fbo, int dst_width, int dst_height, GLenum filter )
 {
+	// the scene's frame into the screen target: with h9_upscale on, FSR 1 draws it in place of the blit (gl_upscale.c)
+	if( src == &tr.targets.scene && dst_fbo == tr.targets.screen.fbo && GL_UpscaleBlit( src, &tr.targets.screen ))
+		return;
+
 	pglBindFramebuffer( GL_READ_FRAMEBUFFER, src->fbo );
 	pglBindFramebuffer( GL_DRAW_FRAMEBUFFER, dst_fbo );
 	pglBlitFramebuffer( 0, 0, src->width, src->height, 0, 0, dst_width, dst_height, GL_COLOR_BUFFER_BIT, filter );

@@ -4220,6 +4220,77 @@ In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb0
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 a71d084a2a83f781d3a81abd6cb339b5e290e33382772bc601943dc1cc877b59, the diff below.
 
+Generated Wed 11/11/2026 15:30:41.65, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 de4935da3fe8d27e5245d589e251875ca4905df75def3eccc846798de127cb10, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -14239,6 +14310,22 @@ index 0084a31f..0d8945c5 100644
  
  	// fill it cls.userinfo, svs.serverinfo
  	if( !Cvar_UpdateInfo( var, fixed_string, true ))
+diff --git a/engine/common/dedicated.c b/engine/common/dedicated.c
+index 4be46bd4..6785b4f1 100644
+--- a/engine/common/dedicated.c
++++ b/engine/common/dedicated.c
+@@ -106,6 +106,11 @@ void CL_Disconnect( void )
+ 
+ }
+ 
++void CL_Presence_Frame( void )
++{
++
++}
++
+ void Host_Credits( void )
+ {
+ 
 diff --git a/engine/common/h9_overflowlog.c b/engine/common/h9_overflowlog.c
 new file mode 100644
 index 00000000..56a49581
@@ -16410,7 +16497,7 @@ index c95ce9a7..003d4f0a 100644
  		}
  
 diff --git a/engine/server/sv_frame.c b/engine/server/sv_frame.c
-index 3ff8edbf..7d6eeb09 100644
+index 3ff8edbf..d9ddf3b0 100644
 --- a/engine/server/sv_frame.c
 +++ b/engine/server/sv_frame.c
 @@ -488,7 +488,12 @@ static void SV_EmitPings( sizebuf_t *msg )
@@ -16498,7 +16585,27 @@ index 3ff8edbf..7d6eeb09 100644
  	// it will break all connected clients, but it takes more than one week to overflow it
  	if(( (uint)svs.next_client_entities ) + frame_ents.num_entities >= 0x7FFFFFFE )
  	{
-@@ -725,11 +775,57 @@ SV_UpdateUserInfo
+@@ -673,9 +723,18 @@ FRAME UPDATES
+ SV_SendClientDatagram
+ =======================
+ */
++// H9: one client's frame is one message: the time, the clientdata, the entities in view and the unreliable data the game and the
++// plugins queued for the client (cl->datagram, MAX_DATAGRAM). A frame that passes its buffer is thrown away whole, the client stands
++// still and its next update is a whole one again, and the first update after a spawn holds every entity in view whole: about 10 bytes
++// each and a player about 30, more than MAX_DATAGRAM on a big map. The netchan carries up to NET_MAX_MESSAGE unreliable bytes and splits
++// them into packets; what bounds a frame is the packet a client puts back together, NET_MAX_FRAGMENT. SV_H9_FRAME_MAX holds the most a
++// frame can be (MAX_VISIBLE_PACKET entities, a player in every slot and a full cl->datagram) and stays under that bound.
++#define SV_H9_FRAME_MAX		( MAX_DATAGRAM * 3 )
++typedef char sv_h9_frame_fits_a_packet[( SV_H9_FRAME_MAX < NET_MAX_FRAGMENT ) ? 1 : -1];
++
+ static void SV_SendClientDatagram( sv_client_t *cl )
+ {
+-	byte	msg_buf[MAX_DATAGRAM];
++	byte	msg_buf[SV_H9_FRAME_MAX];
+ 	sizebuf_t	msg;
+ 
+ 	memset( msg_buf, 0, sizeof( msg_buf ));
+@@ -725,11 +784,57 @@ SV_UpdateUserInfo
  */
  static void SV_UpdateUserInfo( sv_client_t *cl )
  {
@@ -16557,7 +16664,7 @@ index 3ff8edbf..7d6eeb09 100644
  /*
  =======================
  SV_UpdateToReliableMessages
-@@ -748,9 +844,10 @@ static void SV_UpdateToReliableMessages( void )
+@@ -748,9 +853,10 @@ static void SV_UpdateToReliableMessages( void )
  		if( cl->state != cs_spawned )
  			continue;
  
@@ -16569,7 +16676,7 @@ index 3ff8edbf..7d6eeb09 100644
  				SV_UpdateUserInfo( cl );
  		}
  
-@@ -775,6 +872,21 @@ static void SV_UpdateToReliableMessages( void )
+@@ -775,6 +881,21 @@ static void SV_UpdateToReliableMessages( void )
  		MSG_Clear( &sv.spec_datagram );
  	}
  

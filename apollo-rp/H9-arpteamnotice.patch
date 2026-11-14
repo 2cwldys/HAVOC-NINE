@@ -1,0 +1,110 @@
+--- a/apollo-rp/base/addons/amxmodx/scripting/ARP_TS.sma
++++ b/apollo-rp/base/addons/amxmodx/scripting/ARP_TS.sma
+@@ -644,6 +644,8 @@
+ new Float:g_TeamFirst		// when the first player was found in the game
+ new g_TeamCorrected		// the settings TeamEnsure has had to put back, one bit each, logged once
+ new bool:g_TeamWrote		// a team field of an entity was written, so the switch's going off has something to take back
++new bool:g_TeamLoaded		// arp_teamplay was 1 in the server's files (arp.cfg, the map's mapconfig) as this map loaded, so ARP set the game's half of team play up for it (ARP_Core, H9_TeamsPrecache)
++new bool:g_TeamLateSaid		// TeamLate has said that the console's arp_teamplay 1 does nothing on this map
+ new const g_TeamSettings[4][] = {"mp_friendlyfire","mp_defaultteam","mp_teammodels_force","mp_teamlist"}
+ 
+ TeamInit()
+@@ -692,18 +694,25 @@
+ }
+ 
+ // arp_teamplay asked for in the server's files (arp.cfg and the map's mapconfig, which the server runs only after this): the settings TS reads as it goes are written now,
+-// before the first player joins and the first citizen is added
++// before the first player joins and the first citizen is added. The files are the one place a map's load asks in: TS makes its rules as the map loads and ARP reads
++// arp_teamplay then, so the cvar as it is typed later (g_TeamLoaded false) changes nothing on this map.
+ TeamConfigured()
+ {
+ 	g_TeamStart = get_gametime()
++	g_TeamLoaded = p_Teamplay && h9_teams_requested()
+ 
+-	if(p_Teamplay && h9_teams_requested())
++	if(g_TeamLoaded)
+ 		TeamEnsure()
+ }
+ 
+-bool:TeamAsked()
++// The switch is on, wherever it was set: arp.cfg, a mapconfig, the console
++bool:TeamSwitched()
+ 	return p_Teamplay && get_pcvar_num(p_Teamplay) != 0
+ 
++// The switch is on and the map's load asked for team play, so ARP's half of it is set up and this plugin works; a switch turned on later changes nothing on the map
++bool:TeamAsked()
++	return TeamSwitched() && g_TeamLoaded
++
+ bool:TeamLive()
+ 	return TeamAsked() && p_TeamplayOn && get_pcvar_num(p_TeamplayOn) != 0
+ 
+@@ -886,7 +895,7 @@
+ 
+ public TeamTick()
+ {
+-	if(!TeamAsked())
++	if(!TeamSwitched())
+ 	{
+ 		// the switch is off: ARP touches no team, and takes back what it wrote to the entities
+ 		if(g_TeamWrote)
+@@ -905,6 +914,14 @@
+ 		return
+ 	}
+ 
++	// the switch is on, but the map's load did not ask for team play: TS has made its rules, so nothing is set, judged or moved
++	if(!g_TeamLoaded)
++	{
++		TeamLate()
++
++		return
++	}
++
+ 	if(!g_TeamMsgNames || !g_TeamMsgSay)
+ 		TeamHook()
+ 
+@@ -924,6 +941,26 @@
+ 		TeamPlace(Players[Count])
+ }
+ 
++// arp_teamplay is 1, typed at the console (or set by a file that the server runs after the map's start), on a map whose load did not ask for team play: said once, to the
++// server's console and the log, in the words an admin needs, and nothing is touched.
++TeamLate()
++{
++	if(g_TeamLateSaid)
++		return
++
++	g_TeamLateSaid = true
++	g_TeamVerdict = -1
++
++	new Map[64]
++	get_mapname(Map,63)
++
++	// the server's console cuts a line at 254 characters, so the console gets it in three
++	server_print("[ARP] arp_teamplay is 1 now, but team play cannot start on %s while the map runs.",Map)
++	server_print("[ARP] TS makes its rules once, as a map loads, and ARP reads arp_teamplay then, from configs\arp\arp.cfg and from a line in the map's own mapconfig, never from the console or another file.")
++	server_print("[ARP] Put arp_teamplay ^"1^" in one of those two files and change the map. Teams are left alone on this map.")
++	log_amx("[ARP] arp_teamplay is 1 now, but team play cannot start on %s while the map runs: put arp_teamplay ^"1^" in configs\arp\arp.cfg or in the map's mapconfig and change the map (TS makes its rules once, as a map loads). Teams are left alone.",Map)
++}
++
+ // Whether TS runs ARP's teams, from what it has told: a TeamNames message with ARP's list says it does; one with another list (the match mode's) says it runs a list that is
+ // not ARP's, and none at all, a while after the first player is in the game, says it runs no team rules
+ TeamJudge()
+@@ -958,7 +995,7 @@
+ 	if(get_gametime() - g_TeamFirst > TEAM_JUDGE_SECS)
+ 	{
+ 		g_TeamVerdict = -1
+-		log_amx("[ARP] arp_teamplay is 1, but TS has reported no team on %s since a player came in (mp_teamplay is %d): the map does not run TS's team rules. Teams are left alone; a change needs a map change.",Map,get_cvar_num("mp_teamplay"))
++		log_amx("[ARP] arp_teamplay is 1 in the files, but TS has reported no team on %s since a player came in: the map does not run TS's team rules (TS read mp_teamplay once, as the map loaded; it is %d now). Teams are left alone; a change needs a map change.",Map,get_cvar_num("mp_teamplay"))
+ 	}
+ }
+ 
+@@ -1049,6 +1086,9 @@
+ 	get_cvar_string("mp_teamlist",List,127)
+ 	console_print(id,"[ARP] TS: mp_teamplay %d, mp_friendlyfire %d, mp_defaultteam %d, mp_teammodels_force %d, mp_teamlist ^"%s^".",get_cvar_num("mp_teamplay"),get_cvar_num("mp_friendlyfire"),get_cvar_num("mp_defaultteam"),get_cvar_num("mp_teammodels_force"),List)
+ 
++	if(TeamSwitched() && !g_TeamLoaded)
++		console_print(id,"[ARP] arp_teamplay is 1 now, but this map did not ask for team play in arp.cfg or its mapconfig as it loaded: put the line in one of them and change the map.")
++
+ 	new Players[MAX_PLAYERS],Playersnum,Player,Name[32]
+ 	get_players(Players,Playersnum)
+ 	for(new Count;Count < Playersnum;Count++)

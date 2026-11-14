@@ -424,6 +424,9 @@
  ARP_TS (ns arpts)
    ARP <gun> Attachments RAW  a gun item with attachments: flashlight, lasersight, scope, suppressor
                               arpts.attach     AttachMenuHandle
+ ARP_PropertyTax (ns arptax)
+   ARP Property Tax    RAW    say /renew, /paytax facing a door of the player's property (arp_h9_tax_manual 1): what it costs and owes, 1 Pay, 2 Automatic payment
+                              ON or OFF, 0 Close                              arptax.pay     TaxMenuHandle
  ARP_HUD, ARP_HungerMod, ARP_RobMod and ARP_Zones show no menu. ARP_CS and ARP_TFC are not built, and
  the author's extra\ plugins are not shipped. ARP is paused on a map that is not a roleplay map
  (apollo-rp\ORIGIN.txt 1), so none of this runs there.
@@ -445,7 +448,7 @@
 (HUDK_PLAQUE heading, _ROW a "<Label>: <value>" field, _TAG the affiliation, _OPEN and _SEALED the status, _WARN a restriction, _HINT a hint; what a player looks at: a property door, an NPC, a
 player): the client draws it, with cl_h9_arphud_plaque 1, as one plate on the "#panel" art at 0.45, in the notice's place and held 2.5 seconds (the notice 3), of one width
 for the screen (26 percent of it, 200 px to 45 percent), its heading and labels and values in upper case, the heading in 182 145 234 with the rail under it, a label in 166 154 192, the
-affiliation and the status as a framed wash (the rail's purple, or the dim purple for CIVILIAN; green 96 200 120 for OPEN, yellow 236 204 84 for SEALED), a restriction in red 236 96 96,
+affiliation and the status as a framed wash (the rail's purple, or the dim purple for CIVILIAN and PROLETARIAN; green 96 200 120 for OPEN, yellow 236 204 84 for SEALED), a restriction in red 236 96 96,
 a hint dim; a game without it draws the lines as the plain notice they read as (docs\APOLLO_RP.txt, 2). A need (the kind HUDK_NEED, 8; the text "<label>: <0 to 100>%"; ARP_AddNeedItem
  adds one) is a row of its own in any HUD but the notice: the label (the widest label sets the column, at most two fifths of the
  room), a bar on a dark track (alpha 160) with the rail's frame, filled to the value in a colour that is green 96 200 120 at 0,
@@ -616,6 +619,10 @@ a hint dim; a game without it draws the lines as the plain notice they read as (
        VGUI: drawn by the HUD, driven by the slot keys, and clickable
        through IN_MouseEvent (inputw32.cpp:500-501). A precedent for a
        menu that works from the keys alone.
+   The context menu      h9_arpctx.cpp, h9_arpctx_ui.h and h9_arpctx_model.h (docs\ARP_INVENTORY_WINDOW.txt, 7). Like the inventory window a HUD
+       element and not a VGUI panel: its cursor is UpdateCursorState's (it asks H9ArpCtx_IsUp), its buttons come from IN_MouseEvent and its keys from
+       TeamFortressViewport::KeyInput, before every other rule. A list of rows with a reason on each greyed one, for a plugin's own list of choices
+       that is a short list of what can be done now (ARP_H9Ctx, the use key on a player).
 
  3b. Text menus and keys
 
@@ -849,7 +856,8 @@ a hint dim; a game without it draws the lines as the plain notice they read as (
  to a game of protocol 4 or more), "5" when it also reads H9Look (2026-11-10, section 4j), "6" when it also draws Apollo RP's inventory and exchange windows (H9Inv and H9Trade, docs\ARP_INVENTORY.txt; a game that keeps the text inventory says 5), "7" when it also draws the credit sign (the
  cent sign Apollo RP shows for money with arp_h9_credits 1: the single byte 0xA2 in a panel's or the HUD font's text, U+00A2 as UTF-8 in
  console, chat and centre text; include\h9_vgui.inc H9VGUI_CREDIT_PROTOCOL), "8" when it also draws the search of a handcuffed player (H9Search, docs\ARP_INVENTORY_WINDOW.txt, 3.4; ARP_Inventory
-carries the constant until include\h9_vgui.inc has it), "9" when it also takes money from the player searched (H9Search op 5, MONEY; H9VGUI_SEARCHMONEY_PROTOCOL, carried by ARP_Inventory likewise). A plugin
+carries the constant until include\h9_vgui.inc has it), "9" when it also takes money from the player searched (H9Search op 5, MONEY; H9VGUI_SEARCHMONEY_PROTOCOL, carried by ARP_Inventory likewise), "10" when it also draws the context menu of the use key on a player (H9Ctx,
+docs\ARP_INVENTORY.txt, 10; H9VGUI_CTXMENU_PROTOCOL, carried by ARP_H9Ctx likewise; a game with cl_h9_ctxmenu 0 says 9). A plugin
  sends a STATUS only to a game of protocol 2 or more (h9vgui_status says
  whether it did) and a MARK only to a game of protocol 3 or more (h9vgui_mark), and
  the rest keep the hudmessage or what the plugin gives them instead. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
@@ -1626,6 +1634,10 @@ carries the constant until include\h9_vgui.inc has it), "9" when it also takes m
  at the top with two buttons (keys 1 and 2; clickable only if
  he allows the mouse); his choice comes back through h9vgui_event(). ESC
  closes either and sends "h9vgui rc.ask 0 close" for the panel.
+
+ An entry in the context menu of the use key on a player (a shove, a faction NPC's order, a siege claim) is not a panel of the plugin's own: it takes include\ApolloRP_H9Ctx.inc,
+ the forward ARP_H9CtxBuild(id, target) and the native ARP_H9CtxAdd(label, handler, enabled, note), and the menu draws it, greyed with the note as the reason when it is not enabled,
+ for a player whose game says 10 (docs\ARP_INVENTORY.txt, 10).
 
 
  9. THE PURPLE: THE RECOLOUR MADE WITH THIS DESIGN

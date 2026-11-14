@@ -259,6 +259,10 @@ void CHudTSBuyMenu::Reset()
 	m_prevButtons = 0;
 	memset(m_slots, 0, sizeof(m_slots));
 	m_iFlags &= ~HUD_ACTIVE;
+	// The menu may have been up when this respawn's ResetHUD came, and the cursor with it: give the mouse back, as Close() does. Without
+	// this the menu was gone and the cursor stayed on the screen, with no game mouse input, until another panel updated the cursor.
+	if (gViewPort)
+		gViewPort->UpdateCursorState();
 }
 
 // FUN_10036670 — open: load the last-applied config; on the FIRST open of the map, randomize the

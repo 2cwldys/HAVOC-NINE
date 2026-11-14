@@ -102,9 +102,9 @@ const JOIN_MODES = ["open", "request", "invite"];
 const VISIBILITIES = ["listed", "unlisted", "private"];
 
 function claimCode() {
-  const b = crypto.randomBytes(8);
   let s = "";
-  for (let i = 0; i < 8; i++) s += CLAIM_ALPHABET[b[i] % CLAIM_ALPHABET.length];
+  // randomInt draws without the bias that a modulo of a random byte has
+  for (let i = 0; i < 8; i++) s += CLAIM_ALPHABET[crypto.randomInt(CLAIM_ALPHABET.length)];
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 

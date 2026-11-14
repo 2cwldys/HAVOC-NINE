@@ -224,6 +224,10 @@
                           -Steps rets,assemble -Stage
    an engine patch, the xash3d-fwgs clone
                           -Steps engine,assemble -Stage
+                          (also for a patch that only touches ref\gl, the
+                          renderer, which the dedicated server does not
+                          contain: h9_upscale changes no byte of xashds, but
+                          linux-sync.mjs hashes the whole patch folder and clone)
    AMXMODX modules, linux\dedupe-engine-types.py
                           -Steps amxx,assemble -Stage
    rcbot-patch            -Steps rcbot,assemble -Stage

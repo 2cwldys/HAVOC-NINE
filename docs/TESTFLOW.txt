@@ -1,0 +1,98 @@
+TESTFLOW -- what to check in the game after the build of 2026-11-13
+===================================================================
+
+How to use this: go in order. Each step says what to do and what you should see. If a step fails, stop and tell me the
+step number and what you saw: the later steps depend on it. Nothing here was seen in a real game yet: the engineers tested
+on private servers with scripted bots. You are the first real player.
+The siege is NOT in this build (it is being built). docs\ARP_SIEGE.txt describes it.
+
+PART 0. START
+-------------
+ 0.1 Close the game completely. Start it again from your git copy. (The new graphics DLL and plugins load only at a fresh start.)
+ 0.2 Create a game on the map h9_tsrp_hive.
+ 0.3 In the console type  amxx plugins .  EXPECT: eighteen ARP plugins running (ARP_Core first), plus H9 P2P, and no plugin marked
+     "bad" or "error".
+ 0.4 To use admin commands, make yourself an ARP admin first (docs\ARP_ADMINS.txt). The steps below say "as admin" where needed.
+
+PART 1. THE ARP CHANGES
+-----------------------
+ 1.1 The panels. EXPECT a panel at the top left with the city name, your wallet and bank, the payday timer and your salary.
+     docs\ARP_HUD_CHECKS.txt has the long list; this is the quick look.
+ 1.2 The Location line. Go to each town (the portals join them). EXPECT the Location line to say Alexandria, Paradise City or
+     Xenon City, never "Unknown".
+ 1.3 Plaques. Look at a door of a shop or flat: EXPECT its name, FOR SALE and the price, or the owner. Look at an NPC: EXPECT its
+     name, its job and how to use it, and NO owner or affiliation row.
+ 1.4 The new NPCs. Paradise City, the hall under the plaza's east side: the Cafe Avalon cantina sells food. Under the two floating
+     BANK signs of Paradise City (one on the plaza level, one in the street of the Ministry of Defense Facility) stand two
+     invisible bank terminals: go to the kiosk under a sign, press E, EXPECT the teller's menu.
+ 1.5 Prices. EXPECT prices at three times the old scale: a storage unit 3,600, a flat 7,200 to 14,000, a shop 29,000, the big
+     places up to 110,000. The Paradise Bank's glass doors (the building at the north east of Paradise City) are state property:
+     EXPECT the plaque to say so, nobody can buy them, and they open for everyone.
+ 1.6 Money. As a new character with no job, EXPECT no salary (Unemployed pays 0). Take a job (arp_employ, or as admin arp_setjob).
+     EXPECT the salary to appear at the next payday (every 60 seconds). Admin: arp_h9_pay_dump lists what each job pays.
+ 1.7 Property tax by hand. As admin give yourself money (arp_createbank <you> 15000). Buy a flat (look at its door, say /buy).
+     Say /tax: EXPECT a popup with what the property owes and how long you have. Look at the door, say /renew: EXPECT the tax menu,
+     press 1 to pay, EXPECT your bank to drop at once. docs\ARP_TAX_CHECKS.txt, part C, has the full list (eviction after
+     72 hours unpaid, automatic payment).
+ 1.8 Needs. EXPECT a Needs panel at the top right with Hunger and Thirst rows (if both are on in arp.cfg). Drink a Soda: thirst goes down. Quit and rejoin: EXPECT your thirst to be
+     kept (arp_h9_thirst_keep 1).
+ 1.9 The use-key menu. Stand next to another player (a friend, or a second game) and press E on him. EXPECT a menu with a cursor:
+     Trade, Search, Cuff, Tie, Tape, Fine, Give money, Show license. A row that does not apply is grey and says why ("Cuff him
+     first", "You have no Cuffs", "Bots cannot trade"). As police (arp_setjob "<you>" "Cadet") EXPECT Cuff and Fine to work.
+     cl_h9_ctxmenu 0 turns it off. This is the first real test of it: tell me anything odd.
+ 1.10 Solid shelves. Four bookshelves and bookcases in Alexandria now stop you (near x 1588 y 29, x 1588 y -212, x -1178 y 1111
+     and x 2814 y 181). EXPECT that you cannot walk through them.
+ 1.11 Teams. EXPECT the scoreboard teams to follow your job: Ministry jobs blue, Insurrection red, civilians yellow. Accept an
+     arp_employ offer for a Ministry job: EXPECT to change team at once. /unemploy: back to Proletarian.
+ 1.12 Dropped items. Drop an item: EXPECT a purple glow around the pack for about 12 seconds. In the inventory window
+     (say /items) EXPECT the picture tiles, and no "Give to": goods change hands by E on a player.
+ 1.13 The docs. docs\ARP_H9_ADDITIONS.txt is the list of everything above with its switches. If something there does not match
+     what you see, tell me the line.
+
+PART 2. THE UPSCALER
+--------------------
+ 2.1 Open the console. Type  r_scene_scale 0.7 . EXPECT the 3D picture to get softer and the frame rate to go up. The HUD
+     stays sharp.
+ 2.2 Type  h9_upscale 1 . EXPECT the picture to get crisper at once, with the same low cost. If the console says it cannot do
+     it, copy the line to me: the plain picture stays.
+ 2.3 Type  h9_upscale_sharp 0.5  then  1 . EXPECT the edges to get stronger. 0.84 is the default. If you see bright halos
+     around edges at 1, go back down.
+ 2.4 Type  h9_upscale 0 . EXPECT the plain, softer picture again.
+ 2.5 Set  r_scene_scale 1  with  h9_upscale 1 . EXPECT at most a light sharpening and no scaling (docs\H9_UPSCALE.txt says what to expect).
+ 2.6 Quit and start again. EXPECT both settings to be remembered (they are saved with the graphics settings).
+ docs\H9_UPSCALE.txt has a quick start and the full list of commands.
+
+PART 3. P2P: A FRIEND JOINS WITHOUT A FORWARDED PORT
+----------------------------------------------------
+Needs Node.js 20 or newer on your PC (type  node --version  in a console). docs\P2P_RELAY.txt is the overview. You can test all
+of it on one PC.
+ 3.1 Run a relay of your own. Copy the p2p folder from the repository to a scratch folder of your own (call it relaytest). In it run  run.bat . It makes two
+     files and stops. Edit relay.config.json: set publicUdp host to 127.0.0.1, bind http and udp hosts to 127.0.0.1, and add
+     "allowPrivatePeers": true (this is for a test on one PC only). Run  run.bat token Mike : it prints a token once. Run
+     run.bat --check : EXPECT "fine". Run  run.bat  and leave the window open.
+ 3.2 Copy p2p.ini.example (in the game folder) to p2p.ini. Put the relay's address after service= (http://127.0.0.1:28247) and the
+     token after token=.
+ 3.3 In the game's console type  h9_p2p 1  and then  h9_p2p_status . Then run  h9_p2p_host.bat  in a second window. EXPECT
+     "the path is open" in that window. Type  h9_p2p_status  again: EXPECT "helper: running".
+ 3.4 Type  h9_p2p_invite Mike . EXPECT a code like H9-7KQMX-2PDRT in the console.
+ 3.5 In a third window run  h9_p2p_join.bat <the code> --no-game  (the game is already open). EXPECT a line "ready: connect
+     127.101.x.y:27015". Type that line in the console of a second game window (a second copy on this PC works) or on a second PC. EXPECT to join, and
+     the host console to say "Mike joined by the relay". Play a minute. The same code again: EXPECT "not valid".
+ 3.6 Type  h9_p2p_list  then  h9_p2p_kick 1 . EXPECT the friend to be dropped.
+ 3.7 Public list: type  h9_p2p_public 1 . Within half a minute  http://127.0.0.1:28247/v1/public  (in a browser) shows your
+     game: name, map, players, no address. The website's servers page shows it under "P2P games" when the site runs
+     (docs\P2P_HOSTING.txt). EXPECT the game NOT to be in the game's own Find Servers list: that is the known limit.
+ 3.8 Type  h9_p2p 0 . EXPECT the helper window to say the path is closed, and nothing else to run. Type  h9_p2p 1  again:
+     EXPECT it to come back.
+ The engineers' fuller lists: docs\P2P_JOIN.txt (the guide) and docs\P2P_HOSTING.txt (the relay).
+
+PART 4. OTHER CHANGES IN THIS BUILD
+-----------------------------------
+ 4.1 Mech Warrior: the Mech's M60 bullets leave a thin white trail that fades behind them.
+ 4.2 The five drainage maps: the train is silent; a rumble starts as it comes and the ground shakes as it leaves the tunnel.
+ 4.3 Loadouts (the buy-menu match modes): a Marksman can buy his Barrett; no other class can. The laser rifle and the katana are
+     on sale to every class.
+
+PART 5. WHAT TO TELL ME
+-----------------------
+For each failed step: the step number, what you typed, what you saw, and the last lines of the console. For the siege: nothing yet.

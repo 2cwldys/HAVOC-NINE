@@ -1,0 +1,276 @@
+===============================================================================
+ P2P JOIN: LET A FRIEND JOIN YOUR GAME WITHOUT FORWARDING A PORT
+===============================================================================
+
+ This file is for the host (the player whose game it is) and for the friend who
+ joins. Whoever runs a relay reads docs\P2P_HOSTING.txt instead. The short overview is
+ docs\P2P_RELAY.txt.
+
+ CONTENTS
+    1. How it works, in plain words
+    2. The host: turn it on
+    3. The friend: join
+    4. Public games, and where they show
+    5. What you can do while it runs
+    6. What is safe, and what is not
+    7. If it does not work
+    8. What is not here
+    9. For admins and scripts: the files, the helper, Linux
+
+ 1. HOW IT WORKS, IN PLAIN WORDS
+ -------------------------------
+   Normally a friend can join your game only if your router lets him in. You have
+   to "forward a port". Many people cannot do that. This is the other way.
+
+   * You and your friend both connect OUT to a small server on the internet. It is
+     called the relay. Connecting out works from behind any normal router.
+   * The relay passes the game's packets between you. Nobody has to open a port.
+   * You give your friend a code. It is called an invite. It works once. After
+     ten minutes it is dead, used or not.
+   * Neither game changes. His game thinks your server is on his own PC. A small
+     program on each PC, the helper, passes the packets on. It needs Node.js.
+   * Sometimes the two PCs can talk to each other straight, without the relay. You
+     must allow that for each invite, and then each of you can see the other's
+     network address. Without it the relay is the only one who sees both.
+   * Anybody can run a relay. It is a folder in the repository (p2p), started with
+     one command, on a PC at home or on a server. havoc9.org can run one too.
+     docs\P2P_HOSTING.txt says how.
+   * Everything is off until you turn it on (h9_p2p 1). With it off, nothing runs,
+     nothing is written, nothing is sent.
+
+ 2. THE HOST: TURN IT ON
+ -----------------------
+   You need
+     * Node.js 20 or newer. Get the LTS installer at https://nodejs.org. Nothing is
+       downloaded for you.
+     * The relay's address, and a host token for it. The person who runs the relay
+       gives you both (docs\P2P_HOSTING.txt says how they make a token).
+     * A file called p2p.ini next to h9xash.bat. Copy p2p.ini.example to p2p.ini. Put
+       the relay's address after service= and the token after token=. The token is a
+       password: never share this file, never commit it.
+
+   Then, for a game you started with Create Game:
+     1. In the game's console type:           h9_p2p 1
+        and then:                             h9_p2p_status
+        (The plugin looks at h9_p2p when a map starts and when one of its commands
+        runs. After you type h9_p2p 1, run h9_p2p_status once.)
+     2. Open a second window and run:         h9_p2p_host.bat
+        On Linux:                             ./h9_p2p_host.sh
+        Leave it open while friends play. Windows may ask once if Node.js may use the
+        network. Say yes.
+     3. Type h9_p2p_status again. It should say "helper: running".
+     4. Type:                                 h9_p2p_invite Mike
+        The console prints the code:
+            [P2P] invite for Mike: H9-7KQMX-2PDRT (10 min, 1 use). The friend runs:
+            h9_p2p_join.bat H9-7KQMX-2PDRT
+     5. Send Mike the code and the relay's address.
+     6. When Mike joins the console says so: "Mike joined by the relay, number 1".
+        A map change does not end it.
+     7. To stop, type h9_p2p 0, or press Ctrl+C in the helper's window. Both close it
+        at once and every friend and invite goes. (If you just close the window, the
+        relay notices within a minute.)
+
+   For a dedicated server (a PC or a VPS) do the same from the server's console or
+   rcon. To start the helper by itself with the server, put  enabled=1  in p2p.ini.
+   Then h9xash_server.bat (h9xash_server.sh on Linux) starts the helper beside the
+   server, with its output in p2p.log, and stops it when the server ends. A helper
+   that already runs is left alone and never started twice. Over rcon the answer to
+   h9_p2p_invite cannot carry the code, because it arrives a moment later. Run
+   h9_p2p_list and the code is there.
+
+   Two words you can add to an invite:
+     h9_p2p_invite Mike direct    Mike's game and yours may talk straight. Each of you
+                                  then sees the other's network address. Without the
+                                  word, nobody does.
+     h9_p2p_invite Mike account   Mike must sign in to havoc9.org first, so you know
+                                  which account joined.
+   The name (Mike) is one word. It is only for you.
+
+ 3. THE FRIEND: JOIN
+ -------------------
+   You need Node.js 20 or newer, the code, and the relay's address.
+     1. Open p2p.ini.example, save a copy as p2p.ini, and put the relay's address after
+        service=. (Or give it on the command line, below.)
+     2. Run:    h9_p2p_join.bat H9-7KQMX-2PDRT
+        or:     h9_p2p_join.bat H9-7KQMX-2PDRT --service https://relay.example.org
+        On Linux: ./h9_p2p_join.sh ... You can type the code in small letters. A link
+        that ends in the code works too.
+     3. It prints a line like  ready: connect 127.101.12.34:27015  and starts the game
+        with that address. When you quit the game it stops by itself.
+   If the game is already running, it does not start a second one. Type the printed
+   line in the game's console. The same if you add --no-game, or put start_game=0 in
+   p2p.ini.
+   That address is on your own PC. You never see the host's address, and the host never
+   sees yours, unless the host said "direct".
+
+ 4. PUBLIC GAMES, AND WHERE THEY SHOW
+ ------------------------------------
+   With h9_p2p_public 1 (and h9_p2p 1, and the helper running) the game goes on the
+   relay's PUBLIC list. The list shows the game's name, its map, how many players, and
+   whether it has a password. It never shows an address.
+
+   WHERE IT SHOWS TODAY: on the website. havoc9.org/servers has a section "P2P games"
+   that lists the relay's public games. Each has a Join button. It gives the visitor a
+   one-use code. The visitor then runs h9_p2p_join.bat with that code.
+
+   IT DOES NOT SHOW IN THE GAME'S OWN SERVER BROWSER (Find Servers, the Internet tab) IN
+   THIS VERSION. Plainly why: that browser lists games by address and port. It asks each
+   address a plain question and expects a plain answer, and it joins with the normal
+   connect. A game behind a router that lets nobody in cannot answer. A game on the relay
+   has no address of its own to give. So the browser has nothing to show.
+
+   What would change that (planned, not built): the relay would give every public game
+   its own public port. It would answer the browser's question for the game, and pass a
+   normal connecting game on to the host. The main server list would then list that relay
+   address and port, and a friend could join from Find Servers with no helper at all.
+   docs\P2P_HOSTING.txt, "WHAT THE IN-GAME BROWSER NEEDS", says what that takes.
+
+   Rules of a public game:
+     * You see every guest in h9_p2p_list (marked "public list") and can kick them.
+     * h9_p2p_require_account 1: a guest needs a havoc9.org account.
+     * h9_p2p_direct_public 1 (and h9_p2p_direct 1): guests may talk straight too. The
+       default is relay only, so a guest never learns your address.
+     * h9_p2p_public 0 takes the game off the list within 10 seconds. Guests who are
+       already in stay until you kick them.
+     * h9_p2p_name sets the name on the list. Empty means the server's hostname.
+   Some relays do not list games. The helper then says so once in the game's console and
+   carries on without the list.
+
+ 5. WHAT YOU CAN DO WHILE IT RUNS
+ --------------------------------
+   These commands work in the server console, in rcon, in the console of the player of a
+   listen game, and for an AMX Mod X admin with ADMIN_RCON. Nobody else can use them.
+   COMMANDS.txt has each one in full, under P2P JOIN.
+     h9_p2p_invite <label> [direct] [account]   an invite for one friend
+     h9_p2p_list              who is in (number, name, account, relay or direct, how long)
+                              and which invites are not used yet, with their codes
+     h9_p2p_kick <n>          removes friend number n now
+     h9_p2p_revoke <invite>   kills an invite that was not used (its code, or its id)
+     h9_p2p_close             removes every friend, kills every invite and closes it. It
+                              stays closed until the next invite (or h9_p2p 0, then 1)
+     h9_p2p_status            the settings, whether the helper runs, friends, invites
+   The game sees each friend at an address of its own on the host's PC (127.100.x.y). So
+   the engine's own limits, status, kick and bans work on one friend at a time. A ban by
+   address holds for a friend who joins with an account. An anonymous friend gets a new
+   address with every invite.
+   The codes are shown in the server console and to the admin who asked, and nowhere else.
+   Not in chat, not in a cvar. A server started with -log also writes its console to
+   engine.log, so the codes are in that file too. They are dead in 15 minutes at most.
+
+ 6. WHAT IS SAFE, AND WHAT IS NOT
+ --------------------------------
+   * An invite is a secret. Whoever uses it first gets in. Send it like a password. You
+     see who joined and can kick.
+   * The relay sees both addresses and every packet it passes. The game's traffic is not
+     encrypted, here or anywhere else in this game. The relay keeps nothing on disk and
+     logs no address. Whoever runs the relay can see all this, so use one you trust.
+   * The host token lives in p2p.ini only. It goes to the relay once, when the path opens.
+     Use an https:// relay unless it runs on your own PC or LAN. The helper warns about a
+     plain http:// address that is neither. Never put the token in a cvar.
+   * The helper sends packets to three places only: the relay, your game on this PC, and,
+     for an invite that said "direct", that friend.
+   * The game's password (sv_password) still works for a friend who joins this way.
+   * havoc9.org does not recognise a friend who joins this way. The game builds a player's
+     id from the address it connected to, and here that is a local address. So there is no
+     playtime, no rank, and a server with h9_require_account 1 turns them away. A game on
+     this path is for friends, not for ranked play.
+   * A map the friend does not have is sent through the relay at the game's pace.
+
+ 7. IF IT DOES NOT WORK
+ ----------------------
+   "no answer ... from the helper" after h9_p2p_invite
+        The helper is not running, or has not seen the game yet. Type h9_p2p_status. Start
+        h9_p2p_host.bat. In the game h9_p2p must be 1.
+   "Node.js is not installed" or "is too old"
+        Install Node.js 20 or newer. Nothing is downloaded for you.
+   "p2p.ini still has the example token" or "no host token"
+        Put your token after token= in p2p.ini.
+   "the relay refused the host token (401)"
+        The token is wrong, or it is for another relay.
+   "cannot reach the relay: ECONNREFUSED" (or ENOTFOUND, or timeout)
+        The address after service= is wrong, the relay is down, or this network blocks it.
+   "the relay did not answer in 20 s: this network may block UDP"
+        The code worked but the packets did not. A network that blocks outgoing UDP stops
+        this completely.
+   "that invite is not valid"
+        Used, older than ten minutes, killed, mistyped, or for another relay. It cannot say
+        which. That is on purpose.
+   "the relay forgot this path ... opening it again"
+        The relay restarted. Invites made before are gone. Make new ones.
+   "the relay does not list games (403 or 404)"
+        h9_p2p_public needs a relay that lists games.
+   "a helper is already running for this folder"
+        One is. A second one would only fight it.
+   The path opens and drops at once, or "unauthorized"
+        The PC's clock is more than a minute wrong.
+   The friend connects but it is slow
+        The relay carries the game. Both routers cannot talk straight, or the relay is far
+        away. The host can try an invite with "direct".
+   Nothing happens after you typed h9_p2p 1
+        Type h9_p2p_status once. The plugin looks at the setting only when a map starts, or
+        when one of its commands runs.
+
+ 8. WHAT IS NOT HERE
+ -------------------
+   * Public games do not show in the game's own server browser. Section 4 says why and what
+     would change it.
+   * The engine's own NAT bypass (sv_nat, cl_nat) is not used and not changed.
+     docs\NETWORKING.txt, section 11, says what it is and why this does not build on it.
+   * The Discord "join" button on the Discord card needs a change in the engine. It is not
+     built. An invite is a code you send any way you like.
+   * The web client cannot join this way yet. A browser cannot send raw UDP, and the relay
+     hook in h9web is not written.
+   * The helper is Node.js. It is a first version, and it needs Node on both PCs. A native
+     helper, or the same code inside the engine, comes later.
+   * Ranking and playtime for friends who join this way (section 6).
+
+ 9. FOR ADMINS AND SCRIPTS: THE FILES, THE HELPER, LINUX
+ -------------------------------------------------------
+   THE FILES. AMX Mod X cannot start a program or open a socket for this. So the plugin and
+   the helper talk through small files in ts\addons\amxmodx\data\ of the game. The token is in
+   none of them.
+     h9_p2p_state.txt   The plugin writes it whole every 10 seconds while h9_p2p is 1. Lines
+                        key=value: v enabled stopping public direct relay direct_public
+                        require_account service ttl uses name map players maxplayers password
+                        time, and a last line end=1. One more write says enabled=0 when
+                        h9_p2p goes to 0. One says stopping=1 when the plugin ends (a map
+                        change, or a shutdown).
+     h9_p2p_cmd.txt     The plugin adds one line per command: "<unix time> <number> <command>".
+                        The command is  invite <label> [direct] [account] | kick <n> | revoke
+                        <invite> | close | public <0|1>  (and  quit,  which only the launchers
+                        send). The helper drops a line older than 30 seconds, and empties the
+                        file when it has read it all and the file is over 4 KB.
+     h9_p2p_out.txt     The helper adds "<unix time> <type> [re=<number>] <fields>". Types:
+                        status, invite, invite-end, joiner, left, error. The plugin reads it,
+                        replays it when a map starts, and prints what is new. The helper empties
+                        it when it starts, and when it grows past 32 KB.
+     h9_p2p_helper.pid  The helper's pid and the time, rewritten every 5 seconds. A second helper
+                        for the same folder will not start while it is fresh.
+   While the state says enabled=1 the helper keeps one session open at the relay. It closes it
+   when h9_p2p goes to 0, when the state is older than 60 seconds (180 if the plugin said
+   stopping=1, because a map change ends the plugin for a while), and on h9_p2p_close. With
+   h9_p2p 0 the plugin writes nothing, reads nothing and keeps no timer.
+
+   THE HELPER. The launchers run these. They are here for scripts, and for a server with no
+   launcher:  node p2p\bin\h9p2p.js ...
+     host --ini <p2p.ini>            the host's helper (what h9_p2p_host.bat runs). It prints
+                                     readable lines, never a code, a key or the token. The token
+                                     comes from the environment variable H9_P2P_TOKEN, else
+                                     --token, else p2p.ini.
+     host --ipc <data folder> ...    the same, with the folder named. Also --service, --token,
+                                     --game <host:port>, --idle-exit <minutes>.
+     ensure --ini <p2p.ini>          start it in the background unless one runs (exit 0 started,
+                                     10 already running)
+     stop --ini <p2p.ini>            ask it to stop
+     play <code> [--ini <p2p.ini>] [--service <url>] [--no-game] [--relay-only]
+                                     the friend (what h9_p2p_join.bat runs)
+     host --service <url> --token <t> ...   the first version's own mode, with no plugin
+   Exit codes of host: 2 the options are wrong (the message says which), 4 a helper runs already
+   for this folder. --bind <address> and --allow-private-peers are for tests and LAN play.
+   p2p.ini keys: service, token, game, data_dir, enabled, idle_exit, start_game.
+
+   LINUX. The plugin is the same on Linux and the helper is Node, so a Linux host runs both
+   as they are. h9_p2p_host.sh and h9_p2p_join.sh are the launchers (the join one starts
+   h9xash.sh, the game under Wine). h9xash_server.sh starts the helper beside the native
+   server when p2p.ini says enabled=1, and stops it with the server. The scripts look for the
+   helper in $H9_P2P_HELPER, then p2p/bin/h9p2p.js beside them, then ../p2p/bin/h9p2p.js.

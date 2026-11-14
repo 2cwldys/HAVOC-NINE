@@ -31,11 +31,59 @@ static void LoadIcons()
 	fclose(f);
 }
 
+// The HUD font of the game, the engine's creditsfont (valve/gfx.wad, lump CREDITSFONT: 19 pixels high, a width for each character): the scenes that say
+// "real font" measure and cut text with it, so that what fits in the picture is what fits in the game. Without the file the font is 8 pixels wide and 12 high.
+static int g_fontW[256];
+static int g_fontH = 0;
+static bool LoadGameFont()
+{
+	const char* env = getenv("ARP_GFXWAD");
+	const char* const tries[2] = {env, "D:/Downloads/TSM/H9XASH/valve/gfx.wad"};
+	for (int t = 0; t < 2; t++)
+	{
+		FILE* f = tries[t] ? fopen(tries[t], "rb") : nullptr;
+		if (!f)
+			continue;
+		std::vector<unsigned char> b;
+		unsigned char buf[8192];
+		size_t got;
+		while ((got = fread(buf, 1, sizeof(buf), f)) > 0)
+			b.insert(b.end(), buf, buf + got);
+		fclose(f);
+		auto i32 = [&](size_t o) { return (int)((unsigned)b[o] | ((unsigned)b[o + 1] << 8) | ((unsigned)b[o + 2] << 16) | ((unsigned)b[o + 3] << 24)); };
+		if (b.size() < 12 || memcmp(b.data(), "WAD3", 4) != 0)
+			continue;
+		const int n = i32(4), table = i32(8);
+		for (int k = 0; k < n && table + (size_t)(k + 1) * 32 <= b.size(); k++)
+		{
+			const size_t e = table + (size_t)k * 32;
+			char name[17] = {0};
+			memcpy(name, &b[e + 16], 16);
+			if (strcmp(name, "CREDITSFONT") != 0)
+				continue;
+			const size_t at = (size_t)i32(e);
+			if (at + 16 + 256 * 4 > b.size())
+				continue;
+			g_fontH = i32(at + 12);
+			for (int c = 0; c < 256; c++)
+				g_fontW[c] = (int)(short)(b[at + 16 + c * 4 + 2] | (b[at + 16 + c * 4 + 3] << 8));
+			return g_fontH > 0;
+		}
+	}
+	return false;
+}
+// the width of a character as TSHud_StringWidth counts it: the credit sign (0xA2) as a "c"
+static int FontWidth(unsigned char c)
+{
+	return g_fontW[c == 0xA2 ? 'c' : c];
+}
+
 struct Recorder : InvCanvas
 {
 	int w, h;
+	bool real; // measured and cut with the game's font
 	std::string out;
-	Recorder(int W, int H) : w(W), h(H) {}
+	Recorder(int W, int H, bool realFont = false) : w(W), h(H), real(realFont && g_fontH > 0) {}
 	int IconFrame(const char* name) override
 	{
 		for (size_t i = 0; i < g_icons.size(); i++)
@@ -57,6 +105,22 @@ struct Recorder : InvCanvas
 	}
 	void Text(int x, int y, int maxX, const char* s, int r, int g, int b) override
 	{
+		if (real)
+		{
+			// the game's font: a glyph at a time, each where the widths before it put it, and none that crosses maxX
+			int cx = x;
+			for (const char* p = s; *p && *p != '\n'; p++)
+			{
+				const int cw = FontWidth((unsigned char)*p);
+				if (cx + cw > maxX)
+					break;
+				char one[2] = {*p, 0};
+				if (*p != ' ')
+					Glyph(cx, y, one, r, g, b);
+				cx += cw;
+			}
+			return;
+		}
 		// cut as the engine does: stop before a glyph crosses maxX
 		std::string t;
 		int cx = x;
@@ -89,10 +153,39 @@ struct Recorder : InvCanvas
 		snprintf(b2, sizeof(b2), "\",%d,%d,%d],\n", r, g, b);
 		out += b2;
 	}
-	int TextW(const char* s) override { return (int)strlen(s) * 8; }
-	int CharH() override { return 12; }
+	int TextW(const char* s) override
+	{
+		if (!real)
+			return (int)strlen(s) * 8;
+		int n = 0;
+		for (const char* p = s; *p && *p != '\n'; p++)
+			n += FontWidth((unsigned char)*p);
+		return n;
+	}
+	int CharH() override { return real ? g_fontH : 12; }
 	int Width() override { return w; }
 	int Height() override { return h; }
+
+	// one glyph as an operation of its own
+	void Glyph(int x, int y, const char* ch, int r, int g, int b)
+	{
+		char b2[64];
+		const unsigned char c = (unsigned char)ch[0];
+		if (c >= 0x80)
+		{
+			// a byte above 127 is Latin-1 in the HUD text (0xA2 is the credit sign), written as a JSON unicode escape
+			snprintf(b2, sizeof(b2), "[\"t\",%d,%d,\"\\u00%02x\",%d,%d,%d],\n", x, y, c, r, g, b);
+		}
+		else if (c == '"' || c == '\\')
+		{
+			snprintf(b2, sizeof(b2), "[\"t\",%d,%d,\"\\%c\",%d,%d,%d],\n", x, y, c, r, g, b);
+		}
+		else
+		{
+			snprintf(b2, sizeof(b2), "[\"t\",%d,%d,\"%c\",%d,%d,%d],\n", x, y, c, r, g, b);
+		}
+		out += b2;
+	}
 };
 
 struct Msg
@@ -178,9 +271,9 @@ static void Write(const char* dir, const char* name, Recorder& r, int w, int h)
 	printf("wrote %s (%d bytes of operations)\n", path.c_str(), (int)r.out.size());
 }
 
-static void Scene(const char* dir, const char* name, int w, int h, Model& md, Ui& ui, float now)
+static void Scene(const char* dir, const char* name, int w, int h, Model& md, Ui& ui, float now, bool realFont = false)
 {
-	Recorder rec(w, h);
+	Recorder rec(w, h, realFont);
 	InvPainter p(rec, md, ui, now);
 	p.DrawAll();
 	Write(dir, name, rec, w, h);
@@ -205,6 +298,8 @@ int main(int argc, char** argv)
 {
 	const char* dir = argc > 1 ? argv[1] : ".";
 	LoadIcons();
+	const bool font = LoadGameFont();
+	printf("the game's HUD font: %s\n", font ? "read (creditsfont)" : "not found, the scenes with it use 8 x 12");
 	g_nearPlayers = NearHook;
 	g_textW = [](const char* s) { return (int)strlen(s) * 8; };
 
@@ -381,6 +476,20 @@ int main(int argc, char** argv)
 		bu.sScroll = 2;
 		bu.sSelected = 14;
 		Scene(dir, "23_search_long_over_capacity", 1280, 720, big, bu, 73.0f);
+	}
+	// 29 to 32. The owner's screen, with the game's own font (creditsfont, 19 pixels high): the 96 pixel tiles with a picture and the name under it, the header's CREDITS
+	// (arp_h9_credits 1) and WALLET with the dollar sign (0), a 48 pixel tile of a screen under 700 pixels high, which holds the picture alone, and an exchange
+	{
+		Model md = Stocked(32, true);
+		Ui ui;
+		ui.selected = 9; // the Flashlight
+		ui.hover = 3;
+		Scene(dir, "29_inventory_1920x1080_credits_real_font", 1920, 1080, md, ui, 6.0f, true);
+		Model cash = Stocked(32, false);
+		Scene(dir, "30_inventory_1920x1080_cash_real_font", 1920, 1080, cash, ui, 6.0f, true);
+		Scene(dir, "31_inventory_800x600_credits_real_font", 800, 600, md, ui, 6.0f, true);
+		OpenTrade(md, 20.0f);
+		Scene(dir, "32_exchange_1920x1080_real_font", 1920, 1080, md, ui, 25.0f, true);
 	}
 	return 0;
 }

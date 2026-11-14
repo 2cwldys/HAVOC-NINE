@@ -617,7 +617,7 @@ index 0636c3f..e857567 100644
  	// H9: 1 sends the HUD as a panel to the games that draw it, 0 sends everyone the text HUD; the seconds before a HUD that
  	// has not changed is sent again (5 to 60)
  	p_HudPanel = register_cvar("arp_hud_panel","1")
-@@ -2822,6 +2838,232 @@ H9_AimedItem(id)
+@@ -2822,6 +2838,227 @@ H9_AimedItem(id)
  	return Best
  }
  
@@ -784,14 +784,13 @@ index 0636c3f..e857567 100644
 +		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
 +}
 +
-+// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
-+// block names, and how to use it.
++// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), and how to use it. The property its npcs.ini block names
++// takes the profit of its sales (ARP_GetNpcProperty) and is not on the plaque: an NPC has no owner.
 +H9_PlaqueNpc(Index)
 +{
-+	static Name[33],Handler[32],Role[16],Property[64]
++	static Name[33],Handler[32],Role[16]
 +	entity_get_string(Index,EV_SZ_noise1,Name,32)
 +	entity_get_string(Index,EV_SZ_noise,Handler,31)
-+	entity_get_string(Index,EV_SZ_noise2,Property,63)
 +
 +	Role[0] = 0
 +	if(equal(Handler,"EdekaHandle"))
@@ -810,10 +809,6 @@ index 0636c3f..e857567 100644
 +
 +	if(Role[0])
 +		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
-+
-+	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
-+	if(Linked != -1)
-+		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
 +
 +	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
 +}
@@ -850,7 +845,7 @@ index 0636c3f..e857567 100644
  GetMsg(id,Index)
  {
  	if(!is_valid_ent(Index))
-@@ -2885,60 +3127,127 @@ GetMsg(id,Index)
+@@ -2885,60 +3122,127 @@ GetMsg(id,Index)
  	}
  	
  	if(!Index)

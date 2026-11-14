@@ -1,11 +1,12 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
+  # SMAK is a submodule of deoroot/SMAK: a pull request moves its pointer to the newest commit of the branch main, daily
+  - package-ecosystem: gitsubmodule
     directory: /
     schedule:
-      interval: weekly
-  - package-ecosystem: npm
-    directory: /SMAK
+      interval: daily
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
       interval: weekly
   - package-ecosystem: npm

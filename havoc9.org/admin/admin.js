@@ -118,10 +118,10 @@
 
   // ---- tabs --------------------------------------------------------------------------------------
 
-  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, needs: showNeeds, renames: showRenames, presence: showPresence, levels: showLevels, audit: showAudit };
+  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, needs: showNeeds, renames: showRenames, presence: showPresence, levels: showLevels, site: showSite, audit: showAudit };
 
   function open(tab) {
-    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "levels" || tab === "audit")) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) tab = forumOn ? "reports" : "accounts";
+    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "levels" || tab === "audit" || tab === "site")) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) tab = forumOn ? "reports" : "accounts";
     for (const b of $("panelTabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false");
     for (const name of Object.keys(TABS)) $("tab-" + name).hidden = name !== tab;
     TABS[tab]($("tab-" + tab));
@@ -888,6 +888,35 @@
     const editor = el("div");
     section.append(box("WHAT WE NEED", el("p", { class: "forum-row-meta" }, "What the team is looking for, on ", link, "."), editor));
     window.H9ForumRender.needsEditor(editor, d, call);
+  }
+
+  // ---- site: which parts of the site are open (h9web's lib/siteflags.js) ----
+
+  const SITE_PARTS = [
+    ["downloads", "THE DOWNLOAD AREA", "Closed, the pages grey it out and the server refuses its files."],
+    ["webclient", "THE WEB CLIENT", "Closed, its page and its relay of the game's traffic are refused."],
+  ];
+
+  async function showSite(section) {
+    const res = await call("GET", "site");
+    section.textContent = "";
+    if (res.status !== 200) return section.append(el("p", { class: "forum-error", text: problem(res) }));
+    for (const [part, title, what] of SITE_PARTS) {
+      const s = res.data[part];
+      const note = el("input", { type: "text", maxlength: "200", value: s.note || "", placeholder: "A note visitors see while it is closed (optional)", "aria-label": title + " note" });
+      const msg = el("p", { class: "forum-row-meta", text: what });
+      const button = el("button", { type: "button", class: "btn btn-ghost", text: s.enabled ? "CLOSE IT" : "OPEN IT" });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        const r = await call("POST", "admin/site", { part, enabled: !s.enabled, note: note.value });
+        if (r.status === 200) showSite(section);
+        else {
+          button.disabled = false;
+          msg.textContent = problem(r);
+        }
+      });
+      section.append(box(title, el("p", { class: "forum-row-meta", text: s.enabled ? "OPEN" : "CLOSED" }), note, button, msg));
+    }
   }
 
   // ---- levels: the career's Lv 0-99, the ranked servers, the seasons (h9web's modules/presence/compete.js) ----

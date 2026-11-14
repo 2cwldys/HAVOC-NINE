@@ -28,9 +28,8 @@ apart), so the flags decide, not the fighting alone. By default the first round 
 ---------------
 
 The flags. A flag is a banner on a pole (models\tsm_flag.mdl, made with SMAK by export-map\h9_drainage\flag.mjs)
-standing on its pad, and it CHANGES COLOUR WITH POSSESSION: at its pad it wears its own side's colour (side 1's
-blue, side 2's red); an enemy who carries it turns it to the carrier's colour; where it lies, dropped, it is
-grey. Carried, it is worn up the carrier's back. Flags exist only while a round is live; the pad rings and BASE
+standing on its pad, and it KEEPS ITS OWN SIDE'S COLOUR (side 1's blue, side 2's red) at its pad and on the back
+of whoever carries it; where it lies, dropped, it is grey. Carried, it is worn up the carrier's back. Flags exist only while a round is live; the pad rings and BASE
 marks stay up all map.
 
 Taking one. Every tenth of a second each flag that is not carried looks for the NEAREST living player in play
