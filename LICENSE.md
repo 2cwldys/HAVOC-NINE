@@ -64,6 +64,7 @@ component keeps its own license text beside it, and is not relicensed.
 | License | Component | Where |
 |---|---|---|
 | MIT | **SMAK**, the map kit (git submodule of [deoroot/SMAK](https://github.com/deoroot/SMAK)) | `SMAK/` |
+| MIT | **emsdk**, the Emscripten SDK scripts that install the web client's toolchain (Emscripten authors) | `emsdk/LICENSE` |
 | MIT | **compts**, the Elo plugin backend (Xjiro) | `compts/LICENSE.MD` |
 | MIT | **bat2exe** (dehoisted) | `bat2exe/LICENSE.md` |
 | MIT | **AMD FidelityFX Super Resolution 1** (the scene upscaler in the engine patch) | `H9XASH/ref_gl.FSR1-LICENSE.txt` |
@@ -73,6 +74,14 @@ component keeps its own license text beside it, and is not relicensed.
 
 Other permissive files keep their notices beside them too: **AsmJit** (zlib license, `AMXMODX/extern/asmjit/`) and
 Microsoft's **WebView2** loader (`H9XASH/h9webview.WebView2-LICENSE.txt`).
+
+**The web client** (`webclient-bin/`, and `webclient-build/` when it is built) is compiled with **Emscripten** 6.0.12. Its
+JavaScript (`engine/xash.js`) carries Emscripten's runtime library code, and its WebAssembly files link the system
+libraries Emscripten provides (musl libc, LLVM's libc++ and compiler-rt, and others). Emscripten is under the MIT license
+and the University of Illinois/NCSA license, both permissive and both compatible with the GPLv3; its own text is
+[THIRD_PARTY_LICENSES/Emscripten-LICENSE.txt](THIRD_PARTY_LICENSES/Emscripten-LICENSE.txt). The libraries it links keep
+their own permissive licenses, which ship in the Emscripten release that `build-webclient.ps1` fetches (under
+`emscripten\system\lib\`). None of it is relicensed.
 
 ## Third-party license texts, gathered
 
@@ -100,6 +109,8 @@ Microsoft's **WebView2** loader (`H9XASH/h9webview.WebView2-LICENSE.txt`).
 | `PCRE-LICENCE.txt` | PCRE (AMXMODX/tools/pcre/) | PCRE's BSD-style licence |
 | `AmxxEasyHttp-LICENSE.txt` | AmxxEasyHttp module (the easy_http files) | AmxxEasyHttp's own license text |
 | `AMBuild-LICENSE.txt` | AMBuild (the Linux build) | AMBuild's license |
+| `Emscripten-LICENSE.txt` | Emscripten, the web client's compiler and runtime (`webclient-bin/`) | MIT and University of Illinois/NCSA |
+| `Emscripten-emsdk-MIT.txt` | emsdk, the Emscripten SDK scripts (`emsdk/`) | MIT |
 | `Asset-PPSh-41-ATTRIBUTION.txt` | PPSh-41 weapon models (zillious) | Creative Commons, attribution |
 | `Asset-LaserRifle-ATTRIBUTION.txt` | laser rifle weapon models (Jett Spaulding) | Creative Commons, attribution |
 
