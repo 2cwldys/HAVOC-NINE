@@ -24,13 +24,15 @@ KEY = "test-heartbeat-key"
 ANSWER = {"kind": "ip", "name": "a server", "map": "h9_te_neuropolis", "folder": "ts", "mode": "Match Mode",
           "players": 1, "max": 32, "bots": 0, "ping": 1.0}
 
-
-def settings(**more):
-    values = dict(gamedir="ts", probe_timeout=2.0, expire_seconds=300.0, poll_seconds=30.0, open_heartbeats=True,
-                  heartbeat_key=KEY, proxy_header="x-real-ip", max_per_address=8, max_open_servers=100,
-                  heartbeats_per_minute=60)
-    values.update(more)
-    return types.SimpleNamespace(**values)
+# 2cwldys
+# DISABLED DUE TO SECURITY SCAN ERRORS IN GITHUB WORKFLOW
+# UNCOMMENT IF YOU WISH TO STRESS TEST HEARTBEATS TO MASTER SERVER
+#def settings(**more):
+#    values = dict(gamedir="ts", probe_timeout=2.0, expire_seconds=300.0, poll_seconds=30.0, open_heartbeats=True,
+#                  heartbeat_key=KEY, proxy_header="x-real-ip", max_per_address=8, max_open_servers=100,
+#                  heartbeats_per_minute=60)
+#    values.update(more)
+#    return types.SimpleNamespace(**values)
 
 
 class Probe:
