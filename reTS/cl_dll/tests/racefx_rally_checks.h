@@ -185,12 +185,10 @@ inline void Run(int& failed, int& checked)
 		RCHECK(a[0] == 349.0f);
 		VecToAngles(V3(0, 0, 5), a);
 		RCHECK(a[0] == 90.0f && a[1] == 0.0f);
-		// level ground: (yaw, -pitch, 0) normalized: along +X for any heading but 0, and a vector of no length for 0
+		// the direction of travel crossed with the ground: the car's right, whatever the heading (HL Rally's own: always the world's X)
 		RCHECK(CloseV(SkidRight(V3(0, 500, 0), V3(0, 0, 1)), V3(1, 0, 0)));
-		RCHECK(CloseV(SkidRight(V3(-300, -300, 0), V3(0, 0, 1)), V3(1, 0, 0)));
-		RCHECK(CloseV(SkidRight(V3(500, 0, 0), V3(0, 0, 1)), V3(0, 0, 0)));
-		const V3 s = SkidRight(V3(0, 500, 100), V3(0, 0, 1)); // (90, -11, 0) normalized
-		RCHECK(Close(s.x, 90.0f / sqrtf(90.0f * 90.0f + 121.0f)) && Close(s.y, -11.0f / sqrtf(90.0f * 90.0f + 121.0f)));
+		RCHECK(CloseV(SkidRight(V3(500, 0, 0), V3(0, 0, 1)), V3(0, -1, 0)));
+		RCHECK(CloseV(SkidRight(V3(-300, -300, 0), V3(0, 0, 1)), V3(-0.70710678f, 0.70710678f, 0)));
 		RCHECK(SkidTexOf("tarmac") == SKT_ROAD && SkidTexOf("ROADGRAS1") == SKT_DIRT && SkidTexOf("dirt") == SKT_DIRT && SkidTexOf("mud") == SKT_DIRT &&
 			SkidTexOf("soil") == SKT_DIRT && SkidTexOf("3dmroad") == SKT_DIRT && SkidTexOf("Gras") == SKT_DIRT);
 		RCHECK(SkidTexOf("sand") == SKT_SAND && SkidTexOf("desert") == SKT_SAND && SkidTexOf("snow") == SKT_SNOW);
@@ -230,7 +228,7 @@ inline void Run(int& failed, int& checked)
 		RCHECK(CloseV(q[0].v[3], q[0].v[0] + V3(-4, 0, 0)) && CloseV(q[1].v[3], q[1].v[0] + V3(4, 0, 0)));
 		RCHECK(CloseV(q[2].v[3], q[2].v[0] + V3(-4, 0, 0)) && CloseV(q[3].v[3], q[3].v[0] + V3(4, 0, 0)));
 		RCHECK(q[0].tex == SKT_ROAD);
-		// driving along X: the angles' cross is zero and the quads are lines (re:1066, a fact of HL Rally's)
+		// driving along X: the width goes along Y, 4 wide as on any heading (HL Rally's own are lines here; not kept)
 		SkidState sx;
 		FlatWorld w2;
 		in.yaw = 0.0f;
@@ -239,7 +237,7 @@ inline void Run(int& failed, int& checked)
 		SkidStep(sx, in, w2, q);
 		in.origin = V3(40, 0, 0);
 		RCHECK(SkidStep(sx, in, w2, q) == 4);
-		RCHECK(CloseV(q[0].v[3], q[0].v[0]) && CloseV(q[0].v[2], q[0].v[1]));
+		RCHECK(CloseV(q[0].v[3], q[0].v[0] + V3(0, 4, 0)) && CloseV(q[1].v[3], q[1].v[0] + V3(0, -4, 0)));
 		// no gate, no mark: nothing, and the position is kept (re:1226-1240)
 		SkidState sg;
 		in.gear = 0; // MarkGate: gear 0 gives none

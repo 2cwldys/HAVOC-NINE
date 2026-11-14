@@ -662,13 +662,7 @@ struct RallyPainter : Painter
 
 	void Paint()
 	{
-		if (ResultsShown(m, now)) // not HL Rally's (its table is the scoreboard's): kept, see the report
-		{
-			o = o0;
-			drop = drop0;
-			Results();
-			return;
-		}
+		// No results table here: HL Rally's HUD has none (its results are the scoreboard's, vgui_ScorePanel).
 		Speed3();
 		if (IsRacing(m, now))
 		{

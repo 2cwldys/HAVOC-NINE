@@ -324,14 +324,12 @@ inline void VecToAngles(const V3& v, float ang[3])
 }
 
 // re:1064-1068: the mark's width direction. HL Rally crosses the ANGLES (pitch, yaw, 0 in degrees, not a direction) with the ground's normal and
-// normalizes. On level ground that is (yaw, -pitch, 0) normalized, so it is the world's X axis for any heading but 0: a mark is 4 wide along X
-// whatever way the car goes (and a line, no width, when the car drives along X). Kept as HL Rally has it.
+// normalizes: on level ground that is the world's X axis for any heading, so its marks are 4 wide along X whatever way the car goes, and a line
+// of no width when it drives along X. NOT kept (the owner's word, 2026-11-14): the direction of travel is crossed with the normal, which is what
+// HL Rally's comment (`Fix the skidmark widths`) means to do. For a car going along Y the two give the same vector.
 inline V3 SkidRight(const V3& vel, const V3& normal)
 {
-	float r[3];
-	VecToAngles(vel, r);
-	const V3 a(r[0], r[1], r[2]);
-	return Normalize(a.Cross(normal));
+	return Normalize(vel.Cross(normal));
 }
 
 // What the ground says, for the skid step: a point trace (no hit: the end point and a normal of zero), and the texture under the car.

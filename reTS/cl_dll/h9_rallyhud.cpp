@@ -191,6 +191,17 @@ void H9RallyHud_NoteView(const struct ref_params_s* pp)
 		s_viewOrg[i] = pp->vieworg[i];
 		s_viewAng[i] = pp->viewangles[i];
 	}
+	// HL Rally outside the chase view (in_camera.cpp:292-297: `!cam_thirdperson || cam_viewmode >= 2`) hands the countdown the
+	// player's view angles with yaw and pitch exchanged (`cam_anglesx = viewangles[YAW]; cam_anglesy = viewangles[PITCH];`),
+	// so its numerals stand where the car's heading says to pitch. Kept as it is, at the owner's word (2026-11-14).
+	if (gEngfuncs.pfnGetCvarFloat("cl_h9_rallyview") != 0.0f)
+	{
+		float va[3];
+		gEngfuncs.GetViewAngles(va);
+		s_viewAng[0] = va[1];
+		s_viewAng[1] = va[0];
+		s_viewAng[2] = 0;
+	}
 	s_haveView = true;
 }
 
