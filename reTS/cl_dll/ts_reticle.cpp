@@ -23,6 +23,7 @@
 #include "r_studioint.h" // IEngineStudio.IsHardware
 
 #include <math.h>
+#include "h9_racehud.h" // H9: H9RaceHud_Driving
 
 extern "C" int CL_IsThirdPerson(); // in_camera.cpp (engine export, C linkage)
 
@@ -363,6 +364,10 @@ void CHudTSReticle::DrawCrosshair()
 bool CHudTSReticle::Draw(float flTime)
 {
 	if (gHUD.m_iHideHUDDisplay & HIDEHUD_ALL)
+		return true;
+
+	// H9: no crosshair for a racer at the wheel (h9_racehud.cpp). Outside a race this is never true.
+	if (H9RaceHud_Driving())
 		return true;
 
 	// The scope: reTS draws quarterscope.spr in screen space with black side bars and a pinned dot

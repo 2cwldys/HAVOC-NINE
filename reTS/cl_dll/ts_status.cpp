@@ -33,6 +33,7 @@
 #include "vgui_TeamFortressViewport.h" // iTeamColors / iNumberOfTeamColors (team box color)
 
 #include <stdio.h>
+#include "h9_racehud.h" // H9: H9RaceHud_Driving
 
 extern "C" int CL_IsThirdPerson();
 void CAM_ToThirdPerson();
@@ -260,6 +261,11 @@ bool CHudTSStatus::Draw(float flTime)
 		return true;
 
 	if (gHUD.m_iHideHUDDisplay & (HIDEHUD_HEALTH | HIDEHUD_ALL))
+		return true;
+
+	// H9: a racer at the wheel has the race HUD; the team dots, the aim names and the health panel mean nothing in a car
+	// (h9_racehud.cpp). Outside a race this is never true.
+	if (H9RaceHud_Driving())
 		return true;
 
 	// The status draw (0x10049ea0) runs these only while nohud is 0, not dead and not spectating: the

@@ -26,6 +26,7 @@
 #include <stdio.h>
 
 #include "vgui_TeamFortressViewport.h"
+#include "h9_racehud.h" // H9: H9RaceHud_ChatLeft
 
 extern float* GetClientColor(int clientIndex);
 
@@ -34,7 +35,8 @@ extern float* GetClientColor(int clientIndex);
 
 // allow 20 pixels on either side of the text
 #define MAX_LINE_WIDTH (ScreenWidth - 40)
-#define LINE_START 10
+// H9: 10, and past the race HUD's map while the player races (h9_racehud.cpp): the chat stands where the map is drawn
+#define LINE_START H9RaceHud_ChatLeft()
 static float SCROLL_SPEED = 5;
 
 static char g_szLineBuffer[MAX_LINES + 1][MAX_CHARS_PER_LINE];

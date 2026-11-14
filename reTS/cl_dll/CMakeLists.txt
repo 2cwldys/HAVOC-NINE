@@ -183,6 +183,7 @@ target_sources(client PRIVATE
 	h9_arphud.cpp
 	h9_arpinv.cpp
 	h9_buywindow.cpp
+	h9_racehud.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
 	h9_tts_kokoro.cpp
@@ -296,6 +297,8 @@ target_sources(client PRIVATE
 	h9_arpinv_model.h
 	h9_arpinv_ui.h
 	h9_buywindow.h
+	h9_racehud.h
+	h9_racehud_draw.h
 	h9_chatbubble.h
 	h9_tts.h
 	h9_tts_catalogue.h
@@ -399,3 +402,11 @@ target_sources(client PRIVATE
 	../pm_shared/pm_shared.h
 
 	../public/interface.h)
+
+# The race HUD's arithmetic and layout alone, with no engine; given a folder it also draws the HUD into PNG pictures there.
+#   cmake --build <dir> --target racehud_test --config Release, then run racehud_test [<folder> [<a .map>]]
+add_executable(racehud_test EXCLUDE_FROM_ALL
+	tests/racehud_test.cpp
+	h9_racehud_draw.h
+	../dlls/race.h)
+target_include_directories(racehud_test PRIVATE ../dlls)

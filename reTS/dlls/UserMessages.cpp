@@ -18,6 +18,7 @@
 #include "cbase.h"
 #include "shake.h"
 #include "UserMessages.h"
+#include "race.h" // H9: RaceLinkUserMessages
 
 // The TS gmsg globals are DEFINED in their original-file homes; they are all REGISTERED here,
 // centrally, exactly like the original's LinkUserMessages @0xc7db0 (star_LinkUserMessages.md):
@@ -120,6 +121,9 @@ void LinkUserMessages()
 	// the original's registration block, dossier-gmsg U0 + star_LinkUserMessages.md. The stock
 	// sends are neutered in player.cpp; the HLU 64-bit weapon-bits message removal is
 	// PLAYTEST-GATED.)
+
+	// H9: the race HUD's messages (race.cpp), after every one of the original's so that none of their numbers moves.
+	RaceLinkUserMessages();
 }
 
 // Declared-only DEAD globals in the original (present in .data, ZERO references — no relocs,

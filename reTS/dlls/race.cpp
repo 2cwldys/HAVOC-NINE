@@ -26,7 +26,10 @@
 *                     5 (green, at the start; back to 0 three seconds later). Also a class: a studio model
 *                     (key model, default models/h9/rc_gantry.mdl) that names itself race_gantry
 *
-*  The HUD is server text only (TE_TEXTMESSAGE on four channels), sent a few times a second at most.
+*  The HUD is the client's for a game that has it (cl_dll/h9_racehud.cpp): such a game says so in its userinfo
+*  (_h9race), and gets the H9R* user messages that race.h lists, sent from the think like everything else. Any
+*  other game gets server text (TE_TEXTMESSAGE on four channels), sent a few times a second at most. RaceText is
+*  the one door of the text: it lets nothing through to a player with the HUD.
 *  Cvars: mp_racelaps (0 = the map's `laps`), mp_racewarmup (seconds before each countdown, 10).
 ***/
 #include "extdll.h"
@@ -35,6 +38,7 @@
 #include "player.h"
 #include "race.h"
 #include "race_book.h"
+#include "UserMessages.h"
 
 #include <math.h>
 
@@ -253,6 +257,44 @@ private:
 	void Gantry(int skin);
 	void Beep(const char* sample, int pitch);
 
+public:
+	bool HudOn(int index) const { return index >= 1 && index <= RACE_MAX_PLAYERS && m_hud[index].on; }
+
+private:
+	// What a player's game has been sent of the HUD (race.h). All of it goes back to nothing when he leaves, when
+	// another player takes his place, and when his game stops saying it has the HUD.
+	struct Hud
+	{
+		int userid = -1;       // who this is about
+		bool on = false;       // his game has the HUD, and is in the map
+		float nextAsk = 0;     // when his userinfo is read again
+		int lineStage = 0;     // the lap's line: 0 its points, 1 the checkpoints, 2 all sent
+		int lineSent = 0;      // how many of that stage have gone
+		int stateSerial = -1;  // the H9RState he has
+		int resultsSerial = 0; // the results he has
+		float nextStatus = 0, nextPos = 0;
+	};
+	// What H9RState says; when any of it changes, everybody is told.
+	struct HudState
+	{
+		int state = -1, laps = 0, racers = 0;
+		bool results = false;
+		float t0 = 0;
+	};
+	void HudFrame();
+	bool HudLinePart(CBasePlayer* pPlayer, Hud& hud);
+	void HudSendState(CBasePlayer* pPlayer);
+	void HudSendStatus(int index, CBasePlayer* pPlayer);
+	void HudSendPositions(CBasePlayer* pPlayer);
+	void HudSendResults(CBasePlayer* pPlayer);
+	void HudNote(int index, CBasePlayer* pPlayer, int kind, int a, int b, int flags, float time, float diff);
+	float HudProgress(const RaceRacer& racer) const;
+
+	Hud m_hud[RACE_MAX_PLAYERS + 1]; // by player index
+	HudState m_hudState;
+	int m_iHudSerial = 0;     // counts the changes of m_hudState
+	int m_iResultsSerial = 0; // counts the results shown
+
 	// settings (keys)
 	int m_iLaps = 3;
 	float m_flCountdown = 5, m_flMaxTime = 0, m_flFinishWait = 30;
@@ -322,10 +364,19 @@ static void RaceText(CBaseEntity* pPlayer, int channel, float x, float y, int r,
 	parms.fadeoutTime = 0.15f;
 	parms.holdTime = hold;
 	parms.channel = channel;
+	// a player whose game draws the race HUD gets none of the text
 	if (pPlayer)
-		UTIL_HudMessage(pPlayer, parms, text);
-	else
-		UTIL_HudMessageAll(parms, text);
+	{
+		if (!g_pRace || !g_pRace->HudOn(pPlayer->entindex()))
+			UTIL_HudMessage(pPlayer, parms, text);
+		return;
+	}
+	for (int index = 1; index <= gpGlobals->maxClients; index++)
+	{
+		CBaseEntity* pEach = UTIL_PlayerByIndex(index);
+		if (pEach && (!g_pRace || !g_pRace->HudOn(index)))
+			UTIL_HudMessage(pEach, parms, text);
+	}
 }
 
 static void RaceBig(CBaseEntity* pPlayer, int r, int g, int b, float hold, const char* text)
@@ -645,6 +696,7 @@ void CRaceRules::RaceThink()
 		return;
 	}
 	Roster();
+	HudFrame();
 	if (m_flGantryOff > 0 && now >= m_flGantryOff)
 	{
 		m_flGantryOff = 0;
@@ -806,14 +858,20 @@ void CRaceRules::Tell(int index, CBasePlayer* pPlayer, RaceEvent event, int chec
 		else
 			snprintf(text, sizeof(text), "CHECKPOINT %d/%d   %s", checkpoint, m_iCheckpoints - 1, RaceTime(racer->split));
 		RaceNote(pPlayer, 120, 220, 255, text);
+		HudNote(index, pPlayer, RACE_NOTE_CHECKPOINT, checkpoint, m_iCheckpoints - 1, racer->hasSplitDiff ? RACE_NF_DIFF : 0,
+			racer->split, racer->splitDiff);
 		break;
 	case RACE_EV_LAP:
 		snprintf(text, sizeof(text), "LAP %d   %s%s", racer->lap, RaceTime(racer->lastLap), racer->lastLap <= racer->bestLap ? "   BEST LAP" : "");
 		RaceNote(pPlayer, 255, 255, 120, text);
+		// at the line the split is the lap, and its difference is against the best lap before this one
+		HudNote(index, pPlayer, RACE_NOTE_LAP, racer->lap, m_book.Laps(),
+			(racer->hasSplitDiff ? RACE_NF_DIFF : 0) | (racer->lastLap <= racer->bestLap ? RACE_NF_BEST : 0), racer->lastLap, racer->splitDiff);
 		break;
 	case RACE_EV_FINISH:
 		snprintf(text, sizeof(text), "FINISH\n%s   %s", RaceOrdinal(racer->finishPlace), RaceTime(racer->total));
 		RaceBig(pPlayer, 60, 255, 80, 5.0f, text);
+		HudNote(index, pPlayer, RACE_NOTE_FINISH, racer->finishPlace, Racers(), 0, racer->total, racer->bestLap);
 		snprintf(text, sizeof(text), "* %s finishes %s in %s (best lap %s)\n", STRING(pPlayer->pev->netname),
 			RaceOrdinal(racer->finishPlace), RaceTime(racer->total), RaceTime(racer->bestLap));
 		UTIL_ClientPrintAll(HUD_PRINTTALK, text);
@@ -835,7 +893,7 @@ void CRaceRules::Status(int index, CBasePlayer* pPlayer)
 	Seat& seat = m_seats[index];
 	const RaceRacer* racer = m_book.Find(index);
 	const float now = gpGlobals->time;
-	if (!racer || !pPlayer->IsNetClient())
+	if (!racer || !pPlayer->IsNetClient() || HudOn(index)) // a game with the HUD is told by HudFrame
 		return;
 	if (now >= seat.nextStatus)
 	{
@@ -896,6 +954,7 @@ void CRaceRules::Race(float dt)
 		{
 			m_book.Retire(index);
 			RaceBig(pPlayer, 255, 40, 40, 4.0f, "OUT OF TIME");
+			HudNote(index, pPlayer, RACE_NOTE_OUTOFTIME, racer->lap + 1 > m_book.Laps() ? m_book.Laps() : racer->lap + 1, m_book.Laps(), 0, 0, 0);
 		}
 	}
 	m_book.Rank();
@@ -929,6 +988,7 @@ void CRaceRules::Results()
 		SetState(RACE_FINISHED);
 	m_book.Rank();
 	m_flResultsEnd = gpGlobals->time + RACE_RESULTS_TIME;
+	m_iResultsSerial++; // HudFrame sends the table to the games that draw it
 
 	const RaceRacer* order[RACE_MAX_RACERS];
 	const int count = m_book.Order(order, RACE_MAX_RACERS);
@@ -1008,6 +1068,334 @@ void CRaceRules::Placed(CBasePlayer* pPlayer)
 	m_seats[index].hasLast = false;
 	m_seats[index].inside = 0;
 	m_book.Placed(index);
+}
+
+// ── the client's HUD (race.h lists the messages; cl_dll/h9_racehud.cpp reads them) ──
+
+int gmsgRaceStat = 0, gmsgRaceState = 0, gmsgRaceNote = 0, gmsgRaceLine = 0, gmsgRacePos = 0, gmsgRaceRes = 0;
+
+void RaceLinkUserMessages()
+{
+	if (gmsgRaceStat != 0)
+		return;
+	gmsgRaceStat = REG_USER_MSG("H9RStat", RACE_MSG_STAT_SIZE);
+	gmsgRaceState = REG_USER_MSG("H9RState", RACE_MSG_STATE_SIZE);
+	gmsgRaceNote = REG_USER_MSG("H9RNote", RACE_MSG_NOTE_SIZE);
+	gmsgRaceLine = REG_USER_MSG("H9RLine", -1);
+	gmsgRacePos = REG_USER_MSG("H9RPos", -1);
+	gmsgRaceRes = REG_USER_MSG("H9RRes", -1);
+}
+
+// Seconds as hundredths, to the nearest.
+static int RaceHundredths(float seconds)
+{
+	return (int)floorf(seconds * 100.0f + 0.5f);
+}
+
+// A map coordinate as the HUD's messages carry it.
+static int RaceHudCoord(float value)
+{
+	const int scaled = (int)floorf(value / RACE_HUD_COORD + 0.5f);
+	return scaled < -32768 ? -32768 : (scaled > 32767 ? 32767 : scaled);
+}
+
+static int RaceByte(int value)
+{
+	return value < 0 ? 0 : (value > 255 ? 255 : value);
+}
+
+// Every frame, from the think (the server's clock): who has the HUD, and what each of them is owed.
+void CRaceRules::HudFrame()
+{
+	const float now = gpGlobals->time;
+
+	// what everybody is told when it changes
+	HudState state;
+	state.state = m_state;
+	state.laps = m_book.Laps();
+	state.racers = Racers();
+	state.results = m_flResultsEnd > 0;
+	switch (m_state)
+	{
+	case RACE_WAITING: state.t0 = m_flWarmEnd; break;
+	case RACE_COUNTDOWN: state.t0 = m_flGo; break;
+	case RACE_RACING: state.t0 = m_book.StartTime(); break;
+	case RACE_FINISHED: state.t0 = m_flFinishEnd; break;
+	}
+	if (state.state != m_hudState.state || state.laps != m_hudState.laps || state.racers != m_hudState.racers ||
+		state.results != m_hudState.results || state.t0 != m_hudState.t0)
+	{
+		m_hudState = state;
+		m_iHudSerial++;
+	}
+
+	for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+	{
+		Hud& hud = m_hud[index];
+		CBasePlayer* pPlayer = index <= gpGlobals->maxClients ? RacePlayer(index) : NULL;
+		// A user message reaches only a game that is in the map (the engine drops it before); m_fGameHUDInitialized is
+		// set when the player's first HUD messages have gone.
+		if (!pPlayer || !pPlayer->IsNetClient() || !pPlayer->m_fGameHUDInitialized)
+		{
+			hud = Hud();
+			continue;
+		}
+		const int userid = GETPLAYERUSERID(pPlayer->edict());
+		if (userid != hud.userid)
+		{
+			hud = Hud();
+			hud.userid = userid;
+		}
+		if (now >= hud.nextAsk || now < hud.nextAsk - 1.0f)
+		{
+			hud.nextAsk = now + 0.5f;
+			const char* value = g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict()), RACE_HUD_INFOKEY);
+			const bool on = value && atoi(value) != 0;
+			if (on != hud.on)
+			{
+				hud = Hud(); // from the beginning, either way
+				hud.userid = userid;
+				hud.on = on;
+				hud.nextAsk = now + 0.5f;
+				ALERT(at_aiconsole, "race: %s %s the race HUD\n", STRING(pPlayer->pev->netname), on ? "has" : "has not");
+			}
+		}
+		if (!hud.on)
+			continue;
+
+		if (hud.lineStage < 2 && HudLinePart(pPlayer, hud))
+			continue; // one part a frame, and nothing else in that frame
+		if (hud.stateSerial != m_iHudSerial)
+		{
+			hud.stateSerial = m_iHudSerial;
+			HudSendState(pPlayer);
+		}
+		if (m_flResultsEnd > 0 && hud.resultsSerial != m_iResultsSerial)
+		{
+			hud.resultsSerial = m_iResultsSerial;
+			HudSendResults(pPlayer);
+		}
+		if (!m_seats[index].in || !m_book.Find(index))
+			continue;
+		if (now >= hud.nextStatus || now < hud.nextStatus - 1.0f)
+		{
+			hud.nextStatus = now + RACE_HUD_STATUS_EVERY;
+			HudSendStatus(index, pPlayer);
+		}
+		if (now >= hud.nextPos || now < hud.nextPos - 1.0f)
+		{
+			hud.nextPos = now + RACE_HUD_POS_EVERY;
+			HudSendPositions(pPlayer);
+		}
+	}
+}
+
+// The next part of the lap's line, or of the checkpoints; false when there was nothing left to send.
+bool CRaceRules::HudLinePart(CBasePlayer* pPlayer, Hud& hud)
+{
+	for (; hud.lineStage < 2; hud.lineStage++, hud.lineSent = 0)
+	{
+		const int kind = hud.lineStage;
+		const int total = kind == 0 ? m_iMarks : m_iCheckpoints;
+		int count = total - hud.lineSent;
+		if (count > RACE_HUD_LINE_POINTS)
+			count = RACE_HUD_LINE_POINTS;
+		// a map with no line still sends one empty part of kind 0: it takes the line of the map before away
+		if (count <= 0 && !(kind == 0 && total == 0 && hud.lineSent == 0))
+			continue;
+		MESSAGE_BEGIN(MSG_ONE, gmsgRaceLine, NULL, pPlayer->pev);
+		WRITE_BYTE(kind);
+		WRITE_SHORT(total);
+		WRITE_SHORT(hud.lineSent);
+		WRITE_BYTE(count);
+		for (int i = 0; i < count; i++)
+		{
+			const Vector& at = kind == 0 ? m_marks[hud.lineSent + i].at : m_checkpoints[hud.lineSent + i].centre;
+			WRITE_SHORT(RaceHudCoord(at.x));
+			WRITE_SHORT(RaceHudCoord(at.y));
+		}
+		MESSAGE_END();
+		hud.lineSent += count;
+		if (hud.lineSent >= total)
+		{
+			hud.lineStage++;
+			hud.lineSent = 0;
+		}
+		return true;
+	}
+	return false;
+}
+
+void CRaceRules::HudSendState(CBasePlayer* pPlayer)
+{
+	const int tenths = (int)(m_flCountdown * 10.0f + 0.5f);
+	MESSAGE_BEGIN(MSG_ONE, gmsgRaceState, NULL, pPlayer->pev);
+	WRITE_BYTE(m_hudState.state);
+	WRITE_BYTE(m_hudState.results ? 1 : 0);
+	WRITE_BYTE(RaceByte(m_hudState.laps));
+	WRITE_BYTE(RaceByte(m_hudState.racers));
+	WRITE_FLOAT(gpGlobals->time);
+	WRITE_FLOAT(m_hudState.t0);
+	WRITE_SHORT(tenths > 32767 ? 32767 : tenths);
+	MESSAGE_END();
+}
+
+void CRaceRules::HudSendStatus(int index, CBasePlayer* pPlayer)
+{
+	const RaceRacer* racer = m_book.Find(index);
+	if (!racer)
+		return;
+	const bool running = m_book.Running(); // false in the warm-up and the countdown: the book still holds the race before
+	const int laps = m_book.Laps();
+	int flags = 0;
+	if (running && racer->wrongWay)
+		flags |= RACE_SF_WRONGWAY;
+	if (running && racer->finished)
+		flags |= RACE_SF_FINISHED;
+	if (running && racer->retired)
+		flags |= RACE_SF_RETIRED;
+	CBaseEntity* pCar = pPlayer->m_pTank;
+	float speed = pCar ? pCar->pev->fuser2 : 0; // h9_car: the speed along the nose, the slip, the top speed
+	const float slip = pCar ? pCar->pev->fuser1 : 0;
+	const float top = pCar ? pCar->pev->fuser3 : 0;
+	speed = speed < -32000 ? -32000 : (speed > 32000 ? 32000 : speed);
+	const float limit = running && m_flMaxTime > 0 ? m_book.StartTime() + m_flMaxTime + racer->bonus : 0;
+
+	MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, gmsgRaceStat, NULL, pPlayer->pev);
+	WRITE_BYTE(m_state);
+	WRITE_BYTE(flags);
+	WRITE_BYTE(RaceByte(running ? (racer->lap + 1 > laps ? laps : racer->lap + 1) : 1));
+	WRITE_BYTE(RaceByte(laps));
+	WRITE_BYTE(RaceByte(running ? (racer->finished ? racer->finishPlace : racer->place) : 0));
+	WRITE_BYTE(RaceByte(Racers()));
+	WRITE_SHORT((int)speed);
+	WRITE_BYTE(RaceByte((int)(slip * 255.0f + 0.5f)));
+	WRITE_SHORT(top > 0 && top < 32000 ? (int)top : 0);
+	WRITE_FLOAT(gpGlobals->time);
+	WRITE_FLOAT(m_book.StartTime());
+	WRITE_FLOAT(racer->lapStart);
+	WRITE_FLOAT(limit);
+	WRITE_LONG(running && racer->bestLap > 0 ? RaceHundredths(racer->bestLap) : 0);
+	WRITE_LONG(running && racer->finished ? RaceHundredths(racer->total) : 0);
+	MESSAGE_END();
+}
+
+// How far a racer has come since the green light, along the lap's line: the laps he has closed, the line up to
+// his next checkpoint, less what he still has to go to it. For the gaps of H9RPos only (the places are the book's).
+float CRaceRules::HudProgress(const RaceRacer& racer) const
+{
+	float toNext = m_flLine; // the line itself is next: a whole lap from the line
+	if (racer.next > 0 && racer.next < m_iCheckpoints)
+	{
+		toNext = m_checkpoints[racer.next].along - m_checkpoints[0].along;
+		if (toNext < 0)
+			toNext += m_flLine;
+	}
+	return racer.lap * m_flLine + toNext - racer.distance;
+}
+
+// Where every racer is, his place, and how far behind the first still racing.
+void CRaceRules::HudSendPositions(CBasePlayer* pPlayer)
+{
+	const bool running = m_book.Running();
+	const bool measured = running && m_iMarks > 0 && m_flLine > 0;
+	float lead = 0;
+	bool hasLead = false;
+	if (measured)
+	{
+		for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+		{
+			const RaceRacer* racer = m_seats[index].in ? m_book.Find(index) : NULL;
+			if (!racer || racer->finished || racer->retired || !racer->hasDistance)
+				continue;
+			const float progress = HudProgress(*racer);
+			if (!hasLead || progress > lead)
+				lead = progress;
+			hasLead = true;
+		}
+	}
+	int index = 1;
+	bool first = true;
+	do
+	{
+		// the racers of this part
+		int ids[RACE_HUD_POS_RACERS];
+		int count = 0;
+		for (; index <= RACE_MAX_PLAYERS && count < RACE_HUD_POS_RACERS; index++)
+		{
+			if (m_seats[index].in && m_book.Find(index) && RacePlayer(index))
+				ids[count++] = index;
+		}
+		MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, gmsgRacePos, NULL, pPlayer->pev);
+		WRITE_BYTE(first ? RACE_PF_FIRST : 0);
+		WRITE_BYTE(count);
+		for (int i = 0; i < count; i++)
+		{
+			const RaceRacer* racer = m_book.Find(ids[i]);
+			const Vector at = RacePosition(RacePlayer(ids[i]));
+			int place = running ? ((racer->finished ? racer->finishPlace : racer->place) & RACE_PP_PLACE) : 0;
+			if (running && racer->finished)
+				place |= RACE_PP_FINISHED;
+			if (running && racer->retired)
+				place |= RACE_PP_RETIRED;
+			int gap = 0xFFFF;
+			if (measured && hasLead && racer->hasDistance && !racer->finished && !racer->retired)
+			{
+				const float behind = (lead - HudProgress(*racer)) / RACE_HUD_GAP;
+				gap = behind < 0 ? 0 : (behind > 65534 ? 65534 : (int)behind);
+			}
+			WRITE_BYTE(ids[i]);
+			WRITE_BYTE(place);
+			WRITE_SHORT(RaceHudCoord(at.x));
+			WRITE_SHORT(RaceHudCoord(at.y));
+			WRITE_SHORT(gap);
+		}
+		MESSAGE_END();
+		first = false;
+	} while (index <= RACE_MAX_PLAYERS);
+}
+
+// The results, in the order of the places, RACE_HUD_RES_ROWS to a message.
+void CRaceRules::HudSendResults(CBasePlayer* pPlayer)
+{
+	const RaceRacer* order[RACE_MAX_RACERS];
+	const int total = m_book.Order(order, RACE_MAX_RACERS);
+	const int laps = m_book.Laps();
+	for (int first = 0; first < total; first += RACE_HUD_RES_ROWS)
+	{
+		const int count = total - first < RACE_HUD_RES_ROWS ? total - first : RACE_HUD_RES_ROWS;
+		MESSAGE_BEGIN(MSG_ONE, gmsgRaceRes, NULL, pPlayer->pev);
+		WRITE_BYTE(first);
+		WRITE_BYTE(total);
+		WRITE_BYTE(RaceByte(laps));
+		WRITE_BYTE(count);
+		for (int i = 0; i < count; i++)
+		{
+			const RaceRacer* racer = order[first + i];
+			WRITE_BYTE(RaceByte(racer->place));
+			WRITE_BYTE(RaceByte(racer->id));
+			WRITE_BYTE((racer->finished ? RACE_RF_FINISHED : 0) | (racer->retired ? RACE_RF_RETIRED : 0));
+			WRITE_BYTE(RaceByte(racer->lap + 1 > laps ? laps : racer->lap + 1));
+			WRITE_LONG(racer->finished ? RaceHundredths(racer->total) : 0);
+			WRITE_LONG(racer->bestLap > 0 ? RaceHundredths(racer->bestLap) : 0);
+		}
+		MESSAGE_END();
+	}
+}
+
+// What a racer is told in the middle of his screen; nothing to a game without the HUD (it had the text).
+void CRaceRules::HudNote(int index, CBasePlayer* pPlayer, int kind, int a, int b, int flags, float time, float diff)
+{
+	if (!HudOn(index))
+		return;
+	MESSAGE_BEGIN(MSG_ONE, gmsgRaceNote, NULL, pPlayer->pev);
+	WRITE_BYTE(kind);
+	WRITE_BYTE(RaceByte(a));
+	WRITE_BYTE(RaceByte(b));
+	WRITE_BYTE(flags);
+	WRITE_LONG(RaceHundredths(time));
+	WRITE_LONG(RaceHundredths(diff));
+	MESSAGE_END();
 }
 
 // ── the face (race.h) ──
