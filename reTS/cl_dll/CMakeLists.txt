@@ -184,6 +184,7 @@ target_sources(client PRIVATE
 	h9_arpinv.cpp
 	h9_buywindow.cpp
 	h9_racefx.cpp
+	h9_rallyfx.cpp
 	h9_rallycar.cpp
 	h9_rallysnd.cpp
 	h9_racehud.cpp
@@ -308,6 +309,8 @@ target_sources(client PRIVATE
 	h9_rallycam_calc.h
 	h9_rallysteer_calc.h
 	h9_racefx_calc.h
+	h9_rallyfx.h
+	h9_rallyfx_calc.h
 	h9_racehud.h
 	h9_racehud_draw.h
 	h9_chatbubble.h
@@ -427,7 +430,10 @@ target_include_directories(racehud_test PRIVATE ../dlls)
 #   cmake --build <dir> --target racefx_test --config Release, then run racefx_test
 add_executable(racefx_test EXCLUDE_FROM_ALL
 	tests/racefx_test.cpp
-	h9_racefx_calc.h)
+	tests/racefx_rally_checks.h
+	h9_racefx_calc.h
+	h9_rallyfx_calc.h
+	h9_rallysnd_calc.h)
 
 # Rally mode's cameras and the car's tilt, arithmetic alone: the tilt from four heights held to the studio's matrix, the chase and the
 # driver's camera, their frame-rate independence, the pull-in, the steering and the wheels.

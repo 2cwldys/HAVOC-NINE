@@ -3,6 +3,7 @@
 // wrap, the fade's end, the speed from positions, the shadow, the brake lights and the budgets.
 //   cmake --build <dir> --target racefx_test --config Release, then run racefx_test
 #include "../h9_racefx_calc.h"
+#include "racefx_rally_checks.h"
 
 #include <stdio.h>
 #include <math.h>
@@ -376,6 +377,9 @@ int main()
 		const Dims s = SmallCar();
 		CHECK(Near(BrakeLightLocal(s, 0).y / a.y, 0.4f, 0.02f)); // scaled with the car
 	}
+
+	// ---- the rally effects (h9_rallyfx_calc.h): HL Rally's numbers ----
+	rallychecks::Run(g_failed, g_checked);
 
 	// ---- the switches --------------------------------------------------------------------------------------------------------------------
 	CHECK(On(1.0f) && !On(0.0f) && !On(0.49f) && On(0.5f) && On(2.0f));
