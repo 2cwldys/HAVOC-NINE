@@ -20,3 +20,4 @@
 "h" "+attack2"                // horn
 "l" "impulse 100"             // headlights
 "r" "+reload"                 // put the car back at the last checkpoint
+"i" "+h9_camdistance"

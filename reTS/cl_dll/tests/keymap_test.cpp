@@ -159,7 +159,7 @@ int main()
 		CHECK(n >= 15);
 		// every command is one that exists in the game; a + command's - twin is the engine's
 		static const char* const ok[] = {"+forward", "+back", "+left", "+right", "+jump", "+moveleft", "+moveright", "+attack2", "+reload",
-			"h9_gearup", "h9_geardown", "h9_rallycam", "h9_rallycam_zoom", "impulse 100"};
+			"h9_gearup", "h9_geardown", "h9_rallycam", "h9_rallycam_zoom", "impulse 100", "+h9_camdistance"};
 		for (int e = 0; e < f.count; e++)
 		{
 			bool known = false;
@@ -179,7 +179,7 @@ int main()
 			f.Parse(t);
 		CHECK(f.Find(K_UPARROW) >= 0 && strcmp(f.entries[f.Find(K_UPARROW)].cmd, "+forward") == 0);
 		CHECK(f.Find('a') >= 0 && strcmp(f.entries[f.Find('a')].cmd, "h9_gearup") == 0);
-		CHECK(f.Find('i') < 0); // +camdistance is left out
+		CHECK(f.Find('i') >= 0); // +h9_camdistance, HL Rally's i
 		free(t);
 		t = ReadFile("rally_wasd.txt");
 		Keymap w;

@@ -23,4 +23,4 @@
 "h" "+attack2"                // horn (HL Rally's +horn: the car's horn is the secondary fire button)
 "l" "impulse 100"             // headlights
 "k" "+reload"                 // put the car back at the last checkpoint (HL Rally's k, kill)
-// "i" "+camdistance"         // HL Rally's mouse zoom of the chase camera: not wired for rally mode here, left out
+"i" "+h9_camdistance"          // HL Rally's +camdistance: hold and move the mouse to bring the chase camera nearer or farther
