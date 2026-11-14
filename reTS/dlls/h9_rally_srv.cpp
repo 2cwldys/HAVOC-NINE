@@ -26,6 +26,8 @@
 #include "h9_rally.h" // the settings HL Rally's server runs with
 #include "entity_state.h" // clientdata_s
 
+extern int gmsgRallyLight; // race.cpp
+
 float GetSpeedBySlots(CBasePlayer* pPlayer); // ts_gun.cpp
 
 #include <stdlib.h>
@@ -148,6 +150,21 @@ void H9RallyServerThink(CBasePlayer* pl)
 			pl->SetPlayerSpeed(GetSpeedBySlots(pl)); // the loadout's speed again (a car's maxspeed is 3000)
 			H9RallySoundStop(pl); // the mode went off (the cvar to 0, or the race's vehicle changed): no loop is left
 			return;
+		}
+	}
+
+	// the headlights: HL Rally's flashlight impulse (100; its player.cpp:3565-3595 tells every client), read here before
+	// ImpulseCommands clears it
+	{
+		static bool s_lights[33];
+		const int idx = pl->entindex();
+		if (pev->impulse == 100 && idx >= 1 && idx <= 32 && gmsgRallyLight != 0)
+		{
+			s_lights[idx] = !s_lights[idx];
+			MESSAGE_BEGIN(MSG_ALL, gmsgRallyLight);
+			WRITE_BYTE(idx);
+			WRITE_BYTE(s_lights[idx] ? 1 : 0);
+			MESSAGE_END();
 		}
 	}
 

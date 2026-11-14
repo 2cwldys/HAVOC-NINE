@@ -271,6 +271,8 @@ private:
 
 public:
 	bool Rally() const { return RaceRallyClass() > 0; }
+	// the countdown's length: in rally mode HL Rally's own (dlls/rally_rounds.h: COUNTDOWN_TIME 3.6), whatever the map says
+	float CountdownLen() const { return Rally() ? 3.6f : m_flCountdown; }
 	bool RallyKey() const { return m_bRallyKey; }
 	bool HudOn(int index) const { return index >= 1 && index <= RACE_MAX_PLAYERS && m_hud[index].on; }
 
@@ -846,7 +848,7 @@ void CRaceRules::Wait()
 	// the laps are fixed here for the whole race
 	const int laps = mp_racelaps.value >= 1 ? (int)mp_racelaps.value : m_iLaps;
 	m_book.Configure(m_iCheckpoints, laps);
-	m_flGo = now + m_flCountdown;
+	m_flGo = now + CountdownLen();
 	m_iRound++; // the cars go to the grid (the car reads RaceRound)
 	if (Rally())
 	{
@@ -888,7 +890,7 @@ void CRaceRules::Countdown()
 		return;
 	}
 	// four reds, one after another over the countdown
-	int reds = 1 + (int)((m_flCountdown - left) / m_flCountdown * 4);
+	int reds = 1 + (int)((CountdownLen() - left) / CountdownLen() * 4);
 	Gantry(reds < 1 ? 1 : (reds > 4 ? 4 : reds));
 	const int number = (int)ceilf(left);
 	if (number != m_iShown)
@@ -1374,6 +1376,7 @@ void CRaceRules::RallyFrame(float dt)
 
 // ── the client's HUD (race.h lists the messages; cl_dll/h9_racehud.cpp reads them) ──
 
+int gmsgRallyLight = 0; // H9RLight: a rally car's headlights (byte entindex, byte on), HL Rally's Flashlight message
 int gmsgRaceStat = 0, gmsgRaceState = 0, gmsgRaceNote = 0, gmsgRaceLine = 0, gmsgRacePos = 0, gmsgRaceRes = 0;
 
 void RaceLinkUserMessages()
@@ -1386,6 +1389,7 @@ void RaceLinkUserMessages()
 	gmsgRaceLine = REG_USER_MSG("H9RLine", -1);
 	gmsgRacePos = REG_USER_MSG("H9RPos", -1);
 	gmsgRaceRes = REG_USER_MSG("H9RRes", -1);
+	gmsgRallyLight = REG_USER_MSG("H9RLight", 2);
 }
 
 // Seconds as hundredths, to the nearest.
@@ -1530,7 +1534,7 @@ bool CRaceRules::HudLinePart(CBasePlayer* pPlayer, Hud& hud)
 
 void CRaceRules::HudSendState(CBasePlayer* pPlayer)
 {
-	const int tenths = (int)(m_flCountdown * 10.0f + 0.5f);
+	const int tenths = (int)(CountdownLen() * 10.0f + 0.5f);
 	MESSAGE_BEGIN(MSG_ONE, gmsgRaceState, NULL, pPlayer->pev);
 	WRITE_BYTE(m_hudState.state);
 	WRITE_BYTE(m_hudState.results ? 1 : 0);

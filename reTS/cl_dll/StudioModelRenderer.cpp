@@ -34,6 +34,7 @@ const float* TS_PlayerGunAtt(int idx, int n)
 	return fallback;
 }
 #include "GameStudioModelRenderer.h"
+#include "h9_rallyfx.h" // H9RallyFx_NoteExhaust
 
 extern cvar_t* tfc_newmodels;
 
@@ -1818,6 +1819,16 @@ bool CStudioModelRenderer::StudioDrawCar(int flags, entity_state_t* pplayer, con
 		IEngineStudio.StudioSetRemapColors(0, 0);
 
 		StudioRenderModel();
+
+		// the exhaust's place (the model's attachment 0) for the backfire's flame (h9_rallyfx.cpp), as HL Rally reads it
+		cl_entity_t* h9me = gEngfuncs.GetLocalPlayer();
+		if (m_pStudioHeader->numattachments > 0 && h9me != NULL && h9me->index == saved.index)
+		{
+			const mstudioattachment_t* att = (mstudioattachment_t*)((byte*)m_pStudioHeader + m_pStudioHeader->attachmentindex);
+			float at[3];
+			VectorTransform(att[0].org, (*m_pbonetransform)[att[0].bone], at);
+			H9RallyFx_NoteExhaust(saved.index, at);
+		}
 	}
 
 	*m_pCurrentEntity = saved;
