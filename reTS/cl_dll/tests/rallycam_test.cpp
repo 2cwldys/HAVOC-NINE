@@ -417,11 +417,11 @@ int main()
 	// ---- the views: the `c` key goes chase, bonnet, side, [TV,] interior (rally.cfg changeview) ----
 	{
 		CHECK(NextView(VIEW_CHASE, true) == VIEW_BONNET && NextView(VIEW_BONNET, true) == VIEW_SIDE);
-		CHECK(NextView(VIEW_SIDE, true) == VIEW_INTERIOR && NextView(VIEW_INTERIOR, true) == VIEW_CHASE);
-		CHECK(NextView(VIEW_SIDE, false) == VIEW_CHASE); // no model: the interior is skipped
+		CHECK(NextView(VIEW_SIDE, true) == VIEW_TV && NextView(VIEW_TV, true) == VIEW_INTERIOR && NextView(VIEW_INTERIOR, true) == VIEW_CHASE);
+		CHECK(NextView(VIEW_TV, false) == VIEW_CHASE); // no model: the interior is skipped
 		CHECK(ViewInForce(VIEW_INTERIOR, false) == VIEW_CHASE && ViewInForce(VIEW_INTERIOR, true) == VIEW_INTERIOR);
-		CHECK(ViewInForce(VIEW_TV, true) == VIEW_CHASE && ViewInForce(VIEW_SIDE, false) == VIEW_SIDE);
-		CHECK(!ViewShowsCar(VIEW_INTERIOR) && ViewShowsCar(VIEW_CHASE) && ViewShowsCar(VIEW_BONNET) && ViewShowsCar(VIEW_SIDE));
+		CHECK(ViewInForce(VIEW_TV, true) == VIEW_TV && ViewInForce(VIEW_SIDE, false) == VIEW_SIDE);
+		CHECK(!ViewShowsCar(VIEW_INTERIOR) && ViewShowsCar(VIEW_CHASE) && ViewShowsCar(VIEW_BONNET) && ViewShowsCar(VIEW_SIDE) && ViewShowsCar(VIEW_TV));
 		// chase_zoom.cfg: middle 70, far 100, close 35, middle 70 ...
 		int step = 0;
 		CHECK(Near(ChaseZoomDistance(step), 70.0f, 1e-6f) && Near(ChaseZoomDistance(step), 100.0f, 1e-6f));
@@ -660,6 +660,62 @@ int main()
 	CHECK(Near(AirPitch(0, 400), 0.0f, 1e-4f));
 	CHECK(AirPitch(300, 300) > 0.0f && AirPitch(-300, 300) < 0.0f);
 	CHECK(AirPitch(9999, 0) <= 30.0f && AirPitch(-9999, 0) >= -30.0f);
+
+	// ---- HL Rally's TV camera (in_camera.cpp:880-906, 658-715) ----
+	{
+		// the nearest camera wins, by 3D distance, every frame; none: (0, 0, 100)
+		const V3 cams[3] = {V3(0, 0, 0), V3(1000, 0, 0), V3(0, 1000, 500)};
+		CHECK(NearV(TvPickCamera(cams, 3, V3(100, 0, 0)), cams[0], 1e-4f));
+		CHECK(NearV(TvPickCamera(cams, 3, V3(900, 0, 0)), cams[1], 1e-4f));
+		CHECK(NearV(TvPickCamera(cams, 3, V3(0, 900, 400)), cams[2], 1e-4f));
+		CHECK(NearV(TvPickCamera(cams, 0, V3(5, 5, 5)), V3(0, 0, 100), 1e-4f));
+		const V3 same[2] = {V3(10, 0, 0), V3(-10, 0, 0)};
+		CHECK(NearV(TvPickCamera(same, 2, V3(0, 0, 0)), same[0], 1e-4f)); // a tie goes to the first (strict <)
+		// no sight test and no hold: the middle flips with the car
+		CHECK(NearV(TvPickCamera(cams, 2, V3(499, 0, 0)), cams[0], 1e-4f) && NearV(TvPickCamera(cams, 2, V3(501, 0, 0)), cams[1], 1e-4f));
+		// the aim: yaw by atan2, pitch positive looking down, no roll
+		Pose a = TvAim(V3(0, 0, 0), V3(100, 0, 0));
+		CHECK(Near(a.yaw, 0, 1e-3f) && Near(a.pitch, 0, 1e-3f) && Near(a.roll, 0, 1e-6f));
+		a = TvAim(V3(0, 0, 0), V3(0, 100, 0));
+		CHECK(Near(a.yaw, 90, 1e-3f));
+		a = TvAim(V3(0, 0, 100), V3(100, 0, 0));
+		CHECK(Near(a.pitch, 45, 1e-3f)); // the car below the camera: look down
+		a = TvAim(V3(0, 0, 0), V3(-100, 0, 100));
+		CHECK(Near(fabsf(a.yaw), 180, 1e-3f) && Near(a.pitch, -45, 1e-3f));
+		CHECK(NearV(a.org, V3(0, 0, 0), 1e-6f));
+		// the FOV: 100 (105 held) near, 20 from 250, 11 from 450, 10 from 1050
+		CHECK(Near(TvFov(0), 100, 1e-4f) && Near(TvFov(49), 100, 1e-4f));
+		CHECK(Near(TvFov(60), 100, 1e-4f));  // 105 - 10*0.425 = 100.75, held to 100
+		CHECK(Near(TvFov(150), 62.5f, 1e-3f)); // 105 - 100*0.425
+		CHECK(Near(TvFov(250), 20, 1e-4f));
+		CHECK(Near(TvFov(350), 15.5f, 1e-3f)); // 20 - 100*0.045
+		CHECK(Near(TvFov(450), 11, 1e-4f) && Near(TvFov(849), 11, 1e-4f));
+		CHECK(Near(TvFov(950), 10.5f, 1e-3f));
+		CHECK(Near(TvFov(1050), 10, 1e-4f) && Near(TvFov(1e6f), 10, 1e-4f));
+		// never wider than 100 nor narrower than 2.5, and never widening with distance
+		float prev = 1000;
+		bool mono = true;
+		for (int d = 0; d <= 3000; d += 5)
+		{
+			const float f = TvFov((float)d);
+			if (f > prev + 1e-4f || f < 2.5f || f > 100.0f)
+				mono = false;
+			prev = f;
+		}
+		CHECK(mono);
+		// the cameras from an entity string: the info_camera ones only, in order, with their own origins
+		const char* ents =
+			"{\n\"classname\" \"worldspawn\"\n\"wad\" \"x.wad\"\n}\n"
+			"{\n\"origin\" \"10 20 30\"\n\"classname\" \"info_camera\"\n}\n"
+			"{\n\"classname\" \"info_player_start\"\n\"origin\" \"1 2 3\"\n}\n"
+			"{\n\"classname\" \"info_camera\"\n\"origin\" \"-40.5 0 200\"\n\"angles\" \"0 90 0\"\n}\n";
+		V3 got[8];
+		const int n = TvParseCameras(ents, got, 8);
+		CHECK(n == 2 && NearV(got[0], V3(10, 20, 30), 1e-4f) && NearV(got[1], V3(-40.5f, 0, 200), 1e-4f));
+		CHECK(TvParseCameras(nullptr, got, 8) == 0 && TvParseCameras("", got, 8) == 0);
+		CHECK(TvParseCameras(ents, got, 1) == 1); // the cap
+		CHECK(TvParseCameras("{ \"classname\" \"info_camera\"", got, 8) == 0); // cut off: nothing half-read
+	}
 
 	// ---- angles ----
 	CHECK(Near(Wrap180(190.0f), -170.0f, 1e-4f) && Near(Wrap180(-190.0f), 170.0f, 1e-4f) && Near(Wrap180(720.0f), 0.0f, 1e-3f));

@@ -13,6 +13,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
 
 namespace rallycam
 {
@@ -475,12 +476,12 @@ inline Pose FirstStep(FirstState& s, const V3& car, float heading, const Tilt& t
 // ---- the views, and the key that goes round them ----
 //
 // HL Rally's `c` key (rally.cfg: alias changeview, with chasecam, bonnetcam, sidecam, tvcam and interior) goes: chase, bonnet, side camera, TV
-// camera, interior, chase... Ours has no TV camera (it needs info_camera entities in the map: HL Rally's CAM_TV_Mode), so it goes chase, bonnet,
-// side, interior, chase; and without the interior's model, chase, bonnet, side, chase.
+// camera, interior, chase... Without the interior's model it goes chase, bonnet, side, TV, chase. (rally.cfg is not in the source we read; the
+// order is the one this file already carried. The TV camera itself is cam_viewmode 1, in_camera.cpp:645.)
 enum RallyView
 {
 	VIEW_CHASE = 0,
-	VIEW_TV = 1, // HL Rally's cam_viewmode numbers; the TV camera is not made
+	VIEW_TV = 1, // HL Rally's cam_viewmode numbers
 	VIEW_BONNET = 2,
 	VIEW_SIDE = 3,
 	VIEW_INTERIOR = 4
@@ -492,19 +493,160 @@ inline int NextView(int now, bool haveInterior)
 	{
 	case VIEW_CHASE: return VIEW_BONNET;
 	case VIEW_BONNET: return VIEW_SIDE;
-	case VIEW_SIDE: return haveInterior ? VIEW_INTERIOR : VIEW_CHASE;
-	default: return VIEW_CHASE; // the interior, the TV camera, anything else
+	case VIEW_SIDE: return VIEW_TV;
+	case VIEW_TV: return haveInterior ? VIEW_INTERIOR : VIEW_CHASE;
+	default: return VIEW_CHASE; // the interior, anything else
 	}
 }
 
-// The view in force: the interior without its model is the chase camera; the TV camera is the chase camera.
+// The view in force: the interior without its model is the chase camera.
 inline int ViewInForce(int wanted, bool haveInterior)
 {
 	if (wanted == VIEW_INTERIOR)
 		return haveInterior ? VIEW_INTERIOR : VIEW_CHASE;
-	if (wanted == VIEW_BONNET || wanted == VIEW_SIDE)
+	if (wanted == VIEW_BONNET || wanted == VIEW_SIDE || wanted == VIEW_TV)
 		return wanted;
 	return VIEW_CHASE;
+}
+
+// ---- HL Rally's TV camera (CAM_TV_Mode, in_camera.cpp:880-906, and the view's use of it, :645-715) ----
+//
+// The cameras are the map's info_camera entities (CAM_Load_TV, :723-792: the client reads the world's entity string itself; the server's
+// CInfoCamera, dlls/player.cpp:5084-5099, is an invisible point). EVERY frame the camera nearest the car (3D distance, no sight test, no
+// hold: a car passing the middle of two cameras may flip between them) is the eye, and it looks straight at the car's origin. With no camera
+// the eye is (0, 0, 100) (:892-894). The FOV follows the distance, narrowing to 10 far off (a long lens).
+const int kTvMaxCams = 150;                // MAX_CAMS, :719
+inline V3 TvDefaultEye() { return V3(0.0f, 0.0f, 100.0f); }
+
+// The nearest of `n` cameras to `target` (the first of equals), or the default eye.
+inline V3 TvPickCamera(const V3* cams, int n, const V3& target)
+{
+	V3 best = TvDefaultEye();
+	float closest = 999999.0f; // :884
+	for (int i = 0; i < n; i++)
+	{
+		const float d = (target - cams[i]).Length();
+		if (d < closest)
+		{
+			best = cams[i];
+			closest = d;
+		}
+	}
+	return best;
+}
+
+// The view's angles from the eye to the target (:660-669): yaw by atan2, pitch positive looking down, no roll.
+inline Pose TvAim(const V3& eye, const V3& target)
+{
+	const V3 v = target - eye;
+	Pose p;
+	p.org = eye;
+	p.yaw = Deg(atan2f(v.y, v.x));
+	p.pitch = -Deg(atan2f(v.z, sqrtf(v.x * v.x + v.y * v.y)));
+	p.roll = 0.0f;
+	return p;
+}
+
+// The FOV from the distance eye-to-target (:671-713): 105 under 50, easing down to 20 by 250, 20 to 250, to 11 by 450, 11 to 850, to 10 by 1050,
+// then 10; then held to 2.5..100 (so the 105 is 100). A distance under 1 counts as 1.
+inline float TvFov(float dist)
+{
+	const float d1 = 50, d2 = 250, d3 = 850, f1 = 105, f2 = 20, f3 = 11, f4 = 10, tr = 200;
+	float t = dist;
+	if (!(t >= 1.0f))
+		t = 1.0f;
+	float f;
+	if (t < d1)
+		f = f1;
+	else if (t < d1 + tr)
+		f = f1 - (t - d1) * ((f1 - f2) / tr);
+	else if (t < d2)
+		f = f2;
+	else if (t < d2 + tr)
+		f = f2 - (t - d2) * ((f2 - f3) / tr);
+	else if (t < d3)
+		f = f3;
+	else if (t < d3 + tr)
+		f = f3 - (t - d3) * ((f3 - f4) / tr);
+	else
+		f = f4;
+	return Clamp(f, 2.5f, 100.0f);
+}
+
+// The info_camera origins of an entity string (what CAM_Load_TV reads), at most kTvMaxCams, into `out`; returns how many. Our own tokenizer for
+// the same text. DIFFERENT from HL Rally in one thing: HL Rally takes the origin read LAST (so a "classname" before the "origin" in an entity
+// gets the previous entity's origin); here it is the entity's own origin, whatever the order.
+inline int TvParseCameras(const char* text, V3* out, int cap)
+{
+	int n = 0;
+	if (text == nullptr)
+		return 0;
+	const char* p = text;
+	char tok[256];
+	auto next = [&](bool& brace, bool& quoted) -> bool
+	{
+		brace = false;
+		quoted = false;
+		while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+			p++;
+		if (*p == 0)
+			return false;
+		if (*p == '{' || *p == '}')
+		{
+			tok[0] = *p++;
+			tok[1] = 0;
+			brace = true;
+			return true;
+		}
+		quoted = (*p == '"');
+		if (quoted)
+			p++;
+		int k = 0;
+		while (*p != 0 && (quoted ? *p != '"' : !(*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')))
+		{
+			if (k < (int)sizeof(tok) - 1)
+				tok[k++] = *p;
+			p++;
+		}
+		tok[k] = 0;
+		if (quoted && *p == '"')
+			p++;
+		return true;
+	};
+	bool brace, quoted;
+	while (next(brace, quoted))
+	{
+		if (!(brace && tok[0] == '{'))
+			return n;
+		bool isCam = false;
+		V3 org(0, 0, 0);
+		for (;;)
+		{
+			if (!next(brace, quoted))
+				return n;
+			if (brace && tok[0] == '}')
+				break;
+			char key[256];
+			strncpy(key, tok, sizeof key - 1);
+			key[sizeof key - 1] = 0;
+			size_t kl = strlen(key);
+			while (kl > 0 && key[kl - 1] == ' ') // :754-759
+				key[--kl] = 0;
+			if (!next(brace, quoted) || brace)
+				return n;
+			if (strcmp(key, "classname") == 0 && strcmp(tok, "info_camera") == 0)
+				isCam = true;
+			else if (strcmp(key, "origin") == 0)
+			{
+				float x = 0, y = 0, z = 0;
+				sscanf(tok, "%f %f %f", &x, &y, &z);
+				org = V3(x, y, z);
+			}
+		}
+		if (isCam && n < cap)
+			out[n++] = org;
+	}
+	return n;
 }
 
 // The car is seen from outside (the engine then draws the local player): every view but the interior.

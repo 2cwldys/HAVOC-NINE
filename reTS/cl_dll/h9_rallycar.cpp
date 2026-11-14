@@ -8,11 +8,13 @@
 // is found with the studio API's Mod_ForName, so it needs no precache from the server (the server may precache it all the same,
 // dlls/h9_rally_car.cpp, so a client without the file is told to fetch it).
 //
-// THE VIEWS (HL Rally's `c` key goes round them: chase, bonnet, side camera, TV camera, interior; ours has no TV camera). The default is the
+// THE VIEWS (HL Rally's `c` key goes round them: chase, bonnet, side camera, TV camera, interior). The default is the
 // interior (the owner's choice; HL Rally starts in the chase view) and a new map starts in it again (HL Rally: in_camera.cpp:256-263).
 //  chase     HL Rally's: it looks along the way the car is GOING, 40 behind and 15 degrees down, pulled in by a trace so it never goes through
 //            a wall; h9_rallycam_zoom walks 70, 100, 35.
 //  bonnet    on the car, 6 ahead and 15 up, the car's own tilt, the car drawn.   side   25 behind, 13.75 right and 10 up, the car drawn.
+//  TV        HL Rally's (in_camera.cpp:645-715, 880-906): the map's info_camera nearest the car, every frame, looking at the car, with a FOV
+//            that narrows with the distance (rallycam::TvFov). The cameras are read from the world's entity string when the level changes.
 //  interior  the weapon's slot holds models/h9/rally_interior.mdl, a view model with a wheel, a speedometer and a rev counter on bone
 //            controllers; the eye is 12 over the origin; a second view pass draws the rear-view mirror. Without the model it is the chase view.
 // The view's pitch the mouse gives is not used. The FOV is 90.
@@ -122,6 +124,27 @@ rallycam::FirstState s_first;
 rallycam::InteriorState s_int;
 int s_zoomStep = 0;           // HL Rally's changedistance alias: where it is in 70, 100, 35
 int s_viewNow = rallycam::VIEW_CHASE; // the view in force in this frame's refdef
+
+// The TV camera's cameras (HL Rally's cam_origins, in_camera.cpp:719-721), read again when the level's name changes (:886-890), and the FOV the
+// last TV frame asked for.
+rallycam::V3 s_tvCams[rallycam::kTvMaxCams];
+int s_tvCount = 0;
+char s_tvLevel[80] = "";
+float s_tvFov = 0.0f;
+
+void TvLoad()
+{
+	const char* lv = gEngfuncs.pfnGetLevelName ? gEngfuncs.pfnGetLevelName() : "";
+	if (lv == nullptr)
+		lv = "";
+	if (stricmp(lv, s_tvLevel) == 0)
+		return;
+	snprintf(s_tvLevel, sizeof s_tvLevel, "%s", lv);
+	s_tvCount = 0;
+	cl_entity_t* world = gEngfuncs.GetEntityByIndex(0);
+	if (world != nullptr && world->model != nullptr)
+		s_tvCount = rallycam::TvParseCameras(world->model->entities, s_tvCams, rallycam::kTvMaxCams);
+}
 bool s_mirrorPending = false;
 
 // The local player's refdef of this frame, for the car to be drawn where the camera saw it.
@@ -198,9 +221,12 @@ int ProbeHull()
 	return (v != nullptr && atoi(v) != 0) ? 0 : 2;
 }
 
-// One trace of HL Rally's terrain probes (TerrainTrace, StudioModelRenderer.cpp:1086-1140): from `from` to `to` through the world and its solid
-// things (a car or a player is passed through: it is a physent with a studio model and is not the ground; DEVIATION, HL Rally's trace stops on
-// them). True when anything is hit; the end point is where it stopped, `to` when nothing was in the way.
+// One trace of HL Rally's terrain probes (TerrainTrace, StudioModelRenderer.cpp:1086-1140: EV_PlayerTrace, PM_NORMAL, ignore -1, after
+// EV_SetTraceHull(0), :1193-1195): from `from` to `to` through the world and the physents. Another car or player is a physent with a studio model
+// and STOPS the trace, as in HL Rally (a car's tilt on another car's roof). HL Rally never excludes anything (ignore -1): the local player is not
+// among the physents there, the engine's prediction leaves out the player it predicts. Ours skips the local player's own physent as well, in case
+// this engine's list holds it (it is found by its entity index in `info`); that is the only difference. True when anything is hit; the end point
+// is where it stopped, `to` when nothing was in the way.
 bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpos, rallycam::V3& normal)
 {
 	using namespace rallycam;
@@ -209,6 +235,8 @@ bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpo
 	const V3 dir = (to - from).Unit();
 	endpos = to;
 	normal = V3(0, 0, 1);
+	cl_entity_t* local = gEngfuncs.GetLocalPlayer();
+	const int self = local != nullptr ? local->index : -1;
 	for (int tries = 0; tries < 4; tries++)
 	{
 		pmtrace_t* tr = gEngfuncs.PM_TraceLine((float*)&s, (float*)&e, PM_TRACELINE_PHYSENTSONLY, ProbeHull(), -1);
@@ -217,7 +245,7 @@ bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpo
 		if (tr->ent > 0)
 		{
 			physent_t* pe = gEngfuncs.pEventAPI->EV_GetPhysent(tr->ent);
-			if (pe != nullptr && pe->studiomodel != nullptr)
+			if (pe != nullptr && pe->studiomodel != nullptr && pe->info == self)
 			{
 				s = Vector(tr->endpos[0] + dir.x, tr->endpos[1] + dir.y, tr->endpos[2] + dir.z);
 				if ((V3(s.x, s.y, s.z) - from).Dot(dir) >= (to - from).Length())
@@ -438,7 +466,7 @@ void LocalPose(const cl_entity_t* ent, rallycam::V3& org, float& yaw)
 	yaw = va[1];
 }
 
-// h9_rallycam: HL Rally's `changeview` (its `c` key): the next view of chase, bonnet, side, interior.
+// h9_rallycam: HL Rally's `changeview` (its `c` key): the next view of chase, bonnet, side, TV, interior.
 void Cmd_View()
 {
 	const int next = rallycam::NextView(ViewInForce(), InteriorModel() != nullptr);
@@ -784,6 +812,18 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 		pose.pitch = io.camPitch;
 		pose.roll = io.camRoll;
 	}
+	else if (viewNow == VIEW_TV)
+	{
+		// HL Rally's TV camera: the nearest info_camera is the eye, which looks at the car's origin (in_camera.cpp:880-906, 658-669), with the
+		// FOV from the distance (:682-713)
+		s_int.init = false;
+		s_first.init = false;
+		s_chase.init = false;
+		TvLoad();
+		const V3 eye = TvPickCamera(s_tvCams, s_tvCount, car);
+		pose = TvAim(eye, car);
+		s_tvFov = TvFov((car - eye).Length());
+	}
 	else if (viewNow == VIEW_BONNET || viewNow == VIEW_SIDE)
 	{
 		s_int.init = false;
@@ -1046,6 +1086,8 @@ bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose)
 float H9RallyCam_Fov()
 {
 	const float f = CvF(s_cvFov, 90.0f);
+	if (H9RallyCam_LocalIsCar() && s_viewNow == rallycam::VIEW_TV && s_tvFov > 0.0f)
+		return s_tvFov; // HL Rally's TV camera sets its own FOV (in_camera.cpp:693-713)
 	return H9RallyCam_LocalIsCar() && f > 1.0f ? f : 0.0f;
 }
 
