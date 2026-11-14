@@ -102,7 +102,15 @@ int main()
 		float p, r;
 		EulerFromNormal(n, (float)yaw, p, r);
 		const Axes m = EntityMatrixColumns(p, (float)yaw, r);
-		CHECK(NearV(m.n, n, 1e-3f));
+		// HL Rally's own formula (StudioModelRenderer.cpp:1334-1336 and 1367-1368): the normal turned by the yaw, then the angle of each share
+		// (the matrix's roof is now only near the plane's normal: the two differ by under a degree on this slope)
+		{
+			const double ang = yaw * 0.0174532925199433;
+			const double r0 = n.x * cos(ang) + n.y * sin(ang), r1 = -(n.x * sin(ang)) + n.y * cos(ang), r2 = n.z;
+			CHECK(Near(p, (float)(atan2(r2, r0) * 180 / 3.14159265358979 - 90), 1e-3f));
+			CHECK(Near(r, (float)(atan2(r2, r1) * 180 / 3.14159265358979 - 90), 1e-3f));
+		}
+		CHECK(NearV(m.n, n, 0.02f));
 		CHECK(Near(m.f.Dot(m.n), 0.0f, 1e-4f) && Near(m.f.Dot(m.l), 0.0f, 1e-4f) && Near(m.l.Dot(m.n), 0.0f, 1e-4f));
 		CHECK(Near(m.f.Length(), 1.0f, 1e-4f) && Near(m.l.Length(), 1.0f, 1e-4f));
 		const float way = Deg(atan2f(m.f.y, m.f.x));
@@ -178,13 +186,13 @@ int main()
 	{
 		Cam c;
 		const V3 car(100, 200, 40);
-		// standing still, heading east: 40 west of the car, 26 up, looking 15 down along the nose; nothing is added at no speed
+		// standing still, heading east: 40 west of the car, 10 up (HL Rally's pivot: view.cpp:547 +26 and :416 -16), looking 15 down along the nose
 		Pose p = c.Step(car, 0.0f, V3(), 0.0f);
 		const Axes v = ViewVectors(p.pitch, p.yaw, p.roll);
 		CHECK(Near(p.yaw, 0.0f, 1e-3f) && Near(p.pitch, 15.0f, 1e-3f) && Near(p.roll, 0.0f, 1e-6f));
-		CHECK(NearV(p.org, V3(100, 200, 66) - v.f * 40.0f, 1e-3f));
-		// the camera looks along the direction it sits on: the point 26 over the car's origin is on the line of sight 40 ahead of it
-		CHECK(NearV(p.org + v.f * 40.0f, V3(100, 200, 66), 1e-3f));
+		CHECK(NearV(p.org, V3(100, 200, 50) - v.f * 40.0f, 1e-3f));
+		// the camera looks along the direction it sits on: the point 10 over the car's origin is on the line of sight 40 ahead of it
+		CHECK(NearV(p.org + v.f * 40.0f, V3(100, 200, 50), 1e-3f));
 		// going 240 u/s east: the distance rests 12 further (6 * min(240 / 120, 2))
 		for (int i = 0; i < 400; i++)
 			p = c.Step(car, 0.0f, V3(240, 0, 0), 1.0f / 99.0f);
@@ -354,17 +362,13 @@ int main()
 		CHECK(Near(endYaw[0], endYaw[1], 1.5f));
 		CHECK(NearV(endOrg[0], endOrg[1], 3.0f));
 	}
-	// the height follows the car's with a lag (a kerb is not a jolt) and gets there
+	// the height is the car's own at once (HL Rally eases none in third person, view.cpp:813): a kerb of 4 is 4 on the very next frame
 	{
 		Cam c;
 		c.Step(V3(0, 0, 0), 0.0f, V3(), 0.0f);
 		Pose p = c.Step(V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f);
 		V3 base = p.org + ViewVectors(p.pitch, p.yaw, 0).f * c.st.dist;
-		CHECK(base.z > 26.0f && base.z < 26.0f + 4.0f * 0.3f);
-		for (int i = 0; i < 120; i++)
-			p = c.Step(V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f);
-		base = p.org + ViewVectors(p.pitch, p.yaw, 0).f * c.st.dist;
-		CHECK(Near(base.z, 30.0f, 0.05f));
+		CHECK(Near(base.z, 14.0f, 1e-3f));
 	}
 	// a first frame (or one after a pause) puts the camera straight behind, no sweep
 	{
@@ -387,6 +391,181 @@ int main()
 		const Pose q = FirstStep(fs, V3(0, 0, 0), 120.0f, t, 1.0f / 99.0f, fp);
 		CHECK(Near(q.yaw, 120.0f, 1e-3f));
 	}
+
+	// ---- the side camera: HL Rally's view.cpp:739-746, forward * -25 + right * 13.75 + up * 10 ----
+	{
+		const FirstParams sp = FirstParams::Side();
+		CHECK(Near(sp.ahead, -25.0f, 1e-6f) && Near(sp.side, 13.75f, 1e-6f) && Near(sp.up, 10.0f, 1e-6f));
+		FirstState fs;
+		Tilt t;
+		t.init = true;
+		const Pose p = FirstStep(fs, V3(0, 0, 0), 90.0f, t, 0.0f, sp); // heading north: forward is +y, right is +x
+		CHECK(NearV(p.org, V3(13.75f, -25.0f, 10.0f), 1e-3f));
+		// tilted: the offset is along the car's own axes
+		Tilt u;
+		u.init = true;
+		u.pitch = 20.0f;
+		u.roll = -10.0f;
+		FirstState fs2;
+		const Pose q = FirstStep(fs2, V3(5, 6, 7), 30.0f, u, 0.0f, sp);
+		const Axes a = EntityMatrixColumns(20.0f, 30.0f, -10.0f);
+		CHECK(NearV(q.org, V3(5, 6, 7) + a.f * -25.0f + a.l * -13.75f + a.n * 10.0f, 1e-3f));
+	}
+
+	// ---- the views: the `c` key goes chase, bonnet, side, [TV,] interior (rally.cfg changeview) ----
+	{
+		CHECK(NextView(VIEW_CHASE, true) == VIEW_BONNET && NextView(VIEW_BONNET, true) == VIEW_SIDE);
+		CHECK(NextView(VIEW_SIDE, true) == VIEW_INTERIOR && NextView(VIEW_INTERIOR, true) == VIEW_CHASE);
+		CHECK(NextView(VIEW_SIDE, false) == VIEW_CHASE); // no model: the interior is skipped
+		CHECK(ViewInForce(VIEW_INTERIOR, false) == VIEW_CHASE && ViewInForce(VIEW_INTERIOR, true) == VIEW_INTERIOR);
+		CHECK(ViewInForce(VIEW_TV, true) == VIEW_CHASE && ViewInForce(VIEW_SIDE, false) == VIEW_SIDE);
+		CHECK(!ViewShowsCar(VIEW_INTERIOR) && ViewShowsCar(VIEW_CHASE) && ViewShowsCar(VIEW_BONNET) && ViewShowsCar(VIEW_SIDE));
+		// chase_zoom.cfg: middle 70, far 100, close 35, middle 70 ...
+		int step = 0;
+		CHECK(Near(ChaseZoomDistance(step), 70.0f, 1e-6f) && Near(ChaseZoomDistance(step), 100.0f, 1e-6f));
+		CHECK(Near(ChaseZoomDistance(step), 35.0f, 1e-6f) && Near(ChaseZoomDistance(step), 70.0f, 1e-6f));
+	}
+
+	// ---- the terrain probes' points give the tilt, as the diagonals do ----
+	{
+		PlaneGround g = {0.21f, -0.33f, 7};
+		const float cy = cosf(Rad(40.0f)), sy = sinf(Rad(40.0f));
+		auto P = [&](float px, float py) {
+			const float x = 300 + cy * px - sy * py, y = -120 + sy * px + cy * py;
+			return V3(x, y, g.At(x, y));
+		};
+		const V3 n1 = NormalFromPoints(P(kProbeForward, kProbeRight), P(kProbeForward, -kProbeRight), P(-kProbeForward, kProbeRight), P(-kProbeForward, -kProbeRight));
+		const V3 n2 = NormalOn(g, 300, -120, 40.0f, kProbeForward, kProbeRight);
+		CHECK(NearV(n1, n2, 1e-4f));
+		CHECK(Near(kProbeForward, 12.0f, 1e-6f) && Near(kProbeRight, 8.0f, 1e-6f) && Near(kProbeReach, 2.0f, 1e-6f)); // :1091, :1258-1259
+	}
+
+	// ---- the roughness: the texture rule, the noise's size, the wheel's wobble (StudioModelRenderer.cpp:1338-1378, 1602-1650) ----
+	{
+		CHECK(Near(RoughMul("dirt1", false), 0.006f, 1e-7f) && Near(RoughMul("GRASS", true), 0.006f, 1e-7f) && Near(RoughMul("snow2", false), 0.006f, 1e-7f));
+		CHECK(Near(RoughMul("road01", false), 0.002f, 1e-7f) && Near(RoughMul("ROAD01", true), 0.003f, 1e-7f));
+		CHECK(Near(RoughMul("roadgras", false), 0.006f, 1e-7f)); // it is grass first
+		CHECK(Near(RoughMul("concrete", true), 0.006f, 1e-7f) && Near(RoughMul(nullptr, false), 0.006f, 1e-7f));
+		CHECK(Near(RoughAngle(150.0f, 0.006f, 1.0f), 0.9f, 1e-5f));
+		CHECK(Near(RoughAngle(1000.0f, 0.006f, 1.0f), 1.8f, 1e-5f) && Near(RoughAngle(1000.0f, 0.002f, -1.0f), -0.6f, 1e-5f)); // +-1.8, +-0.6 at 300 and over
+		CHECK(Near(WheelRough(5.0f, 0.006f, 1.0f), 0.0f, 1e-7f));
+		CHECK(Near(WheelRough(200.0f, 0.003f, 1.0f), 1.2f, 1e-5f) && Near(WheelRough(900.0f, 0.006f, -1.0f), -6.0f, 1e-5f)); // up to +-6 bytes on dirt
+		// the noise is drawn at HL Rally's 99 a second at any frame rate
+		const int fps[4] = {60, 99, 200, 300};
+		for (int k = 0; k < 4; k++)
+		{
+			NoiseHold n;
+			int draws = 0;
+			for (int i = 0; i < fps[k] * 10; i++)
+				if (NoiseDue(n, 1.0f / (float)fps[k]))
+					draws++;
+			if (fps[k] <= 99)
+				CHECK(draws >= fps[k] * 10 - 12);
+			else
+				CHECK(draws > 975 && draws < 1000);
+		}
+	}
+
+	// ---- the interior's controllers, with the byte's wrap (StudioModelRenderer.cpp:1533-1544, 1632, 1717-1726) ----
+	{
+		CHECK(SpeedoController(0.0f) == 251);   // -5 at rest wraps to 251: the needle at -4.7 degrees
+		CHECK(SpeedoController(100.0f) == 236); // -20.26 cut to -20
+		CHECK(SpeedoController(812.5f) == 6 && SpeedoController(5000.0f) == 6); // held at -250: byte 6, the needle at -293 degrees
+		CHECK(TachoController(15.0f) == 238 && TachoController(100.0f) == 136 && TachoController(250.0f) == 1 && TachoController(0.0f) == 0);
+		CHECK(Near(WheelController(0.0f, 0.0f), 127.0f, 1e-6f) && Near(WheelController(2.0f, 0.0f), 157.0f, 1e-6f));
+		CHECK(Near(WheelController(10.0f, 0.0f), 255.0f, 1e-6f) && Near(WheelController(-10.0f, 3.0f), 0.0f, 1e-6f));
+		CHECK(Near(WheelController(8.0f, 0.0f), 247.0f, 1e-6f) && Near(WheelController(8.5f, 0.0f), 254.5f, 1e-4f)); // full lock from 8.47
+		CHECK(ControllerByte(-5.0f) == 251 && ControllerByte(-0.9f) == 0 && ControllerByte(255.0f) == 255);
+	}
+
+	// ---- the interior's filter: (new + 9 old) / 10 a reference frame, 9 degrees off for the model, the wheel's (new + old) / 2 ----
+	{
+		InteriorState st;
+		InteriorOut o = InteriorStep(st, true, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 15.0f, 0.0f); // the first frame takes the target whole
+		o = InteriorStep(st, true, 10.0f, -5.0f, 0.0f, 0.0f, 0.0f, 15.0f, 1.0f / 99.0f);
+		CHECK(Near(st.pitchHist, 1.0f, 1e-3f) && Near(st.rollHist, -0.5f, 1e-3f));
+		CHECK(Near(o.camPitch, -1.0f, 1e-3f) && Near(o.camRoll, -0.5f, 1e-3f)); // the view's pitch is the tilt's, turned about (a nose up looks up)
+		CHECK(Near(o.modelPitch, 1.0f - 9.0f, 1e-3f) && Near(o.modelRoll, -0.5f, 1e-3f));
+		CHECK(o.speedo == 251 && o.tacho == 238 && o.wheel == 127);
+		// the wheel to 255 from 127: half the way in a frame
+		InteriorState w;
+		InteriorStep(w, true, 0, 0, 0.0f, 0.0f, 0, 15, 0.0f);
+		o = InteriorStep(w, true, 0, 0, 10.0f, 0.0f, 0, 15, 1.0f / 99.0f);
+		CHECK(o.wheel == 191);
+		// the same after a tenth of a second at 60 and 200 frames a second
+		float ends[2];
+		const int rates[2] = {60, 200};
+		for (int k = 0; k < 2; k++)
+		{
+			InteriorState q;
+			InteriorStep(q, true, 0, 0, 0, 0, 0, 15, 0.0f);
+			for (int i = 0; i < rates[k] / 10; i++)
+				InteriorStep(q, true, 10.0f, 0, 0, 0, 0, 15, 1.0f / (float)rates[k]);
+			ends[k] = q.pitchHist;
+		}
+		CHECK(Near(ends[0], ends[1], 1e-3f) && Near(ends[0], 10.0f * (1.0f - powf(0.9f, 9.9f)), 1e-2f));
+		// in the air the pitch sinks 4.4 a second and the roll stays; no wobble in the wheel
+		InteriorState a;
+		InteriorStep(a, true, 3.0f, 2.0f, 0, 0, 0, 15, 0.0f);
+		o = InteriorStep(a, false, 9.0f, 9.0f, 0, 5.0f, 0, 15, 0.5f);
+		CHECK(Near(a.pitchHist, 3.0f - 2.2f, 1e-4f) && Near(a.rollHist, 2.0f, 1e-6f));
+	}
+
+	// ---- the body: HL Rally's filters (new + 4 old) / 5 for the pitch and (new + 3 old) / 4 for the roll (:1440-1441), in the air 12.4 / 20.4 a second ----
+	{
+		Tilt t;
+		TiltStep(t, 0, 0, 0.0f, RefTau(0.8f), RefTau(0.75f));
+		TiltStep(t, 10, 10, 1.0f / 99.0f, RefTau(0.8f), RefTau(0.75f));
+		CHECK(Near(t.pitch, 2.0f, 1e-3f) && Near(t.roll, 2.5f, 1e-3f));
+		float p = 0, r = 0;
+		AirDrift(p, r, true, 0.1f);
+		CHECK(Near(p, -1.24f, 1e-4f) && Near(r, -1.24f, 1e-4f)); // nose down, roll away from 0 (to the negative side at exactly 0)
+		p = 0;
+		r = 5.0f;
+		AirDrift(p, r, false, 0.1f);
+		CHECK(Near(p, -2.04f, 1e-4f) && Near(r, 6.24f, 1e-4f));
+		// no squat while the tyres slip (:1432), and the interior's has no such test
+		float pit = 0, rol = 0;
+		BodyMotion(100.0f, 0.0f, false, true, pit, rol, true);
+		CHECK(Near(pit, 0.0f, 1e-6f));
+	}
+
+	// ---- the front wheels' steering byte (:2013-2020): 127 - 20 * the wheel, held 0..255, cut ----
+	CHECK(CarSteerByte(0.0f) == 127 && CarSteerByte(3.0f) == 67 && CarSteerByte(-3.0f) == 187);
+	CHECK(CarSteerByte(10.0f) == 0 && CarSteerByte(-10.0f) == 255 && CarSteerByte(6.35f) == 0 && CarSteerByte(-6.0f) == 247);
+	CHECK(CarSteerByte(0.5f) == 117 && CarSteerByte(-0.025f) == 127);
+
+	// ---- the tyres' turn (StudioProcessGait): a factor of the rolling the speed gives ----
+	{
+		float bt = 0;
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, 0.0f, 0.01f), 1.0f, 1e-6f));
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, false, true, 0.0f, 0.01f), 0.0f, 1e-6f)); // the handbrake stops them
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, false, true, false, 0.5f, 0.01f), 5.0f, 1e-6f)); // a slide: five times
+		CHECK(Near(WheelSpinFactor(bt, 30.0f, true, false, false, 0.0f, 0.01f), -1.0f, 1e-6f)); // the back key under 40: reversing, turned back
+		// braking at 200 u/s: fps = 80, so after 40 reference frames half of it is left, after 80 none
+		bt = 0;
+		float f = 1.0f;
+		for (int i = 0; i < 40; i++)
+			f = WheelSpinFactor(bt, 200.0f, true, false, false, 0.0f, 1.0f / 99.0f);
+		CHECK(Near(f, 0.5f, 0.02f));
+		for (int i = 0; i < 40; i++)
+			f = WheelSpinFactor(bt, 200.0f, true, false, false, 0.0f, 1.0f / 99.0f);
+		CHECK(Near(f, 0.0f, 0.02f));
+		// the throttle pressed with the key takes the lock off
+		CHECK(Near(WheelSpinFactor(bt, 200.0f, true, true, false, 0.0f, 0.01f), 1.0f, 1e-6f) && Near(bt, 0.0f, 1e-6f));
+	}
+
+	// ---- the mirror (view.cpp:1287-1302): a third wide from the top edge, ScreenHeight / 6.5 high, pitch and roll + 180 ----
+	{
+		const MirrorView m = MirrorOf(1920, 1080, 5.0f, 3.0f);
+		CHECK(m.x == 640 && m.y == 0 && m.w == 640 && m.h == 166);
+		CHECK(Near(m.pitch, 185.0f, 1e-4f) && Near(m.roll, 183.0f, 1e-4f));
+		const MirrorView n = MirrorOf(1024, 768, 200.0f, 190.0f); // over 360 comes back by 360
+		CHECK(n.x == 341 && n.w == 341 && n.h == 118 && Near(n.pitch, 20.0f, 1e-4f) && Near(n.roll, 10.0f, 1e-4f));
+	}
+
+	// ---- the interior's heights: the eye 12 over the car, the model 11 (view.cpp:416-417, 544-545, 761-763, 782-789) ----
+	CHECK(Near(kInteriorEyeUp, 28.0f - 16.0f, 1e-6f) && Near(kInteriorModelUp, 28.0f - 17.0f - 1.0f + 1.0f, 1e-6f));
 
 	// ---- the body's motion: roll in a slide (at most 7.5), dive under the brake, squat on the throttle below 300 ----
 	{
@@ -418,21 +597,9 @@ int main()
 		TiltStep(t, 0, 0, 0.0f, RefTau(0.9f));
 		TiltStep(t, 10, 0, 1.0f / 99.0f, RefTau(0.9f));
 		CHECK(Near(t.pitch, 1.0f, 1e-3f));
-		// the wheel the driver has: full lock from 8.5 up, to the left when the wheel is to the left (negative)
-		CHECK(Near(WheelShown(0, 32), 0.0f, 1e-6f) && Near(WheelShown(-10, 32), 32.0f, 1e-4f) && Near(WheelShown(10, 32), -32.0f, 1e-4f));
-		CHECK(Near(WheelShown(-4.25f, 32), 16.0f, 1e-4f));
 	}
 
-	// ---- the steering and the tyres ----
-	CHECK(Near(SteerShown(0, 32, 400), 0, 1e-6f));
-	CHECK(Near(SteerShown(400, 32, 400), 32, 1e-4f));   // turning left at the full rate: full left lock
-	CHECK(Near(SteerShown(-800, 32, 400), -32, 1e-4f)); // never past the lock
-	CHECK(Near(SteerShown(200, 32, 400), 16, 1e-4f));
-	CHECK(SteerByte(0, 45) == 128 || SteerByte(0, 45) == 127);
-	CHECK(SteerByte(45, 45) == 255);
-	CHECK(SteerByte(-45, 45) == 0);
-	CHECK(SteerByte(100, 45) == 255);
-	CHECK(SteerByte(22.5f, 45) > 190 && SteerByte(22.5f, 45) < 194);
+	// ---- the tyres ----
 	{
 		// 100 units along a tyre of 23 round is 4.35 turns; the phase is the fraction of one
 		float ph = 0;

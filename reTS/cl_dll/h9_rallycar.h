@@ -1,5 +1,5 @@
-// H9 rally mode on the client: the player that is a car is drawn as one, and the local player has two cameras (a chase one and the
-// driver's), the weapon and the parts of TS's HUD that mean nothing in a car gone. The arithmetic is in h9_rallycam_calc.h (tested by
+// H9 rally mode on the client: the player that is a car is drawn as one, and the local player has HL Rally's views (chase, bonnet, side,
+// interior with its mirror), the weapon and the parts of TS's HUD that mean nothing in a car gone. The arithmetic is in h9_rallycam_calc.h (tested by
 // tests/rallycam_test.cpp); this file asks the engine. Nothing here is sent or received: what makes a player a car is his box
 // (mins.z 0, maxs.z 16, set by dlls/h9_rally_srv.cpp and sent by the engine to everyone), and for the local player also the physinfo
 // key "rally" (pm_shared/h9_rally.h).
@@ -37,11 +37,19 @@ bool H9RallyCar_Pose(struct cl_entity_s* ent, const struct entity_state_s* st, H
 
 // The local player is a car now (physinfo "rally", alive, not a spectator).
 bool H9RallyCam_LocalIsCar();
-// ...and is seen from behind (the engine then draws the local player's model, and the TS code sees a third-person view).
+// ...and is seen from outside (chase, bonnet or side view: the engine then draws the local player's model, and the TS code sees a third-person view).
 bool H9RallyCam_ChaseActive();
 // Called by V_CalcNormalRefdef at the end of its work: replaces the view origin and angles by the car's camera and takes the weapon
 // away. False (nothing touched) when the local player is not a car.
 bool H9RallyCam_Apply(struct ref_params_s* pparams, struct cl_entity_s* viewmodel);
+
+// The rear-view mirror (HL Rally's second view pass through ref_params.nextView, interior view only, cvar cl_h9_rally_rearview). Begin: at the
+// end of V_CalcRefdef's first pass, asks the engine for a second; Pass: at the start of the second, sets the rectangle and turns the view round.
+// Pass returns true when it handled the call (V_CalcRefdef then does nothing else).
+void H9RallyCam_MirrorBegin(struct ref_params_s* pparams);
+bool H9RallyCam_MirrorPass(struct ref_params_s* pparams);
+// For the studio renderer, drawing the view model `drawn`: the interior's windscreen overlay model, or null.
+struct model_s* H9RallyCam_InteriorChrome(const struct model_s* drawn);
 
 // ---- the steering (h9_rallysteer_calc.h; the client's half of HL Rally's rule) -----------------------------------------------------
 // CL_CreateMove, while the local player is a car: the mouse and the keys are an INPUT; the heading is kept here and is what goes to the
