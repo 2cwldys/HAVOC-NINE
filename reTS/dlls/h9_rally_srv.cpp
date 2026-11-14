@@ -24,6 +24,9 @@
 #include "h9_rally_car.h"
 #include "race.h"
 #include "h9_rally.h" // the settings HL Rally's server runs with
+#include "h9_rally_shop_srv.h" // the car menu's rules: money, parts, the car chosen
+#include "UserMessages.h"
+#include "ts_utils.h" // TSHudMessageOne
 #include "entity_state.h" // clientdata_s
 
 extern int gmsgRallyLight; // race.cpp
@@ -87,11 +90,243 @@ int H9RallyCvarClass()
 	return v < 0 ? 0 : (v > H9R_NUM_CARS ? H9R_NUM_CARS : v);
 }
 
-// The class asked for: the cvar's, else the one a race map in rally mode (race_rules `vehicle "rally"`) gives, else off.
-static int WantedClass()
+// What the server keeps of each player, by entity index: the car he chose, his money, his parts (h9_rally_shop_srv.h).
+static RallyShop s_shop[33];
+static int g_gmsgRallyMoney = 0, g_gmsgRallyParts = 0, g_gmsgRallyCar = 0;
+
+static bool ValidIndex(int index)
 {
-	const int v = H9RallyCvarClass();
-	return v > 0 ? v : RaceRallyClass();
+	return index >= 1 && index <= 32;
+}
+
+// The class asked for, for this player: the cvar's (a server override that wins), else the car he chose, else the one a race map in
+// rally mode (race_rules `vehicle "rally"`) gives, else off.
+static int WantedClass(int index)
+{
+	return RallyEffectiveClass(H9RallyCvarClass(), RaceRallyClass(), ValidIndex(index) ? s_shop[index] : s_shop[0]);
+}
+
+int H9RallyClassOf(int index)
+{
+	return WantedClass(index);
+}
+
+bool H9RallyChosen(int index)
+{
+	return ValidIndex(index) && s_shop[index].chosen;
+}
+
+int H9RallyTopAdd(int index)
+{
+	return ValidIndex(index) ? RallyShopTopAdd(s_shop[index].parts) : 0;
+}
+
+void H9RallyLinkUserMessages()
+{
+	if (g_gmsgRallyMoney != 0)
+		return;
+	g_gmsgRallyMoney = REG_USER_MSG("H9RMoney", 4); // long: his money now
+	g_gmsgRallyParts = REG_USER_MSG("H9RParts", 4); // long: bit p set = part p held
+	g_gmsgRallyCar = REG_USER_MSG("H9RCar", 1);     // byte: his car class now, 0 none chosen
+}
+
+static void SendMoney(int index)
+{
+	if (g_gmsgRallyMoney == 0 || !ValidIndex(index))
+		return;
+	MESSAGE_BEGIN(MSG_ONE, g_gmsgRallyMoney, NULL, INDEXENT(index));
+	WRITE_LONG(s_shop[index].money);
+	MESSAGE_END();
+}
+
+static void SendParts(int index)
+{
+	if (g_gmsgRallyParts == 0 || !ValidIndex(index))
+		return;
+	MESSAGE_BEGIN(MSG_ONE, g_gmsgRallyParts, NULL, INDEXENT(index));
+	WRITE_LONG((int)s_shop[index].parts);
+	MESSAGE_END();
+}
+
+// His car now: the class he drives as when he has chosen one, else 0.
+static void SendCar(int index)
+{
+	if (g_gmsgRallyCar == 0 || !ValidIndex(index))
+		return;
+	MESSAGE_BEGIN(MSG_ONE, g_gmsgRallyCar, NULL, INDEXENT(index));
+	WRITE_BYTE(s_shop[index].chosen ? WantedClass(index) : 0);
+	MESSAGE_END();
+}
+
+static void SendMenu(int index)
+{
+	MESSAGE_BEGIN(MSG_ONE, gmsgVGUIMenu, NULL, INDEXENT(index));
+	WRITE_BYTE(5); // MENU_INTRO: in a rally race map the client turns it into the rally main menu
+	MESSAGE_END();
+}
+
+void H9RallyShopJoin(int index)
+{
+	if (!ValidIndex(index))
+		return;
+	RallyShopJoin(s_shop[index]);
+	RaceRallySitOut(index, false);
+}
+
+void H9RallyShopLeave(int index)
+{
+	if (!ValidIndex(index))
+		return;
+	s_shop[index] = RallyShop();
+	RaceRallySitOut(index, false);
+}
+
+void H9RallyJoinMessages(CBasePlayer* pl)
+{
+	const int index = pl ? pl->entindex() : 0;
+	if (!ValidIndex(index) || !RaceRallyMode())
+		return;
+	SendMoney(index);
+	SendParts(index);
+	SendCar(index);
+	SendMenu(index);
+}
+
+static void AddMoney(int index, int amount)
+{
+	if (ValidIndex(index) && RallyShopAdd(s_shop[index], amount))
+		SendMoney(index); // at every change (HL Rally's UpdateMoney was only at the finish: its figure lagged the checkpoints)
+}
+
+void H9RallyMoneyCheckpoint(int index)
+{
+	AddMoney(index, RallyMoneyCheckpoint(false));
+}
+
+void H9RallyMoneyFinish(int index, int place)
+{
+	AddMoney(index, RallyMoneyFinish(place));
+}
+
+void H9RallyLeaveObserver(CBasePlayer* pl)
+{
+	pl->m_flTSRespawnTime = 0.0f; // TS's gate (a joiner's 5 s, a death's wait) does not hold a car that has been chosen
+	pl->StopObserver();
+}
+
+// A decimal number and nothing else.
+static bool ParseInt(const char* s, int& out)
+{
+	if (!s || !*s)
+		return false;
+	for (const char* c = s; *c; c++)
+		if (*c < '0' || *c > '9')
+			return false;
+	out = atoi(s);
+	return true;
+}
+
+// A car was chosen: HL Rally's three cases (client.cpp:872-892). No race running: the car is there now, on its slot. A race running: a
+// racer who has not finished and has not used selectcar joins from lap 0 (mp_joinmidrace), any other is an observer until the next race.
+// A player who was an observer is made alive by TS's own spawn (StopObserver -> respawn) and the race seats him on his slot on its next frame.
+static void ApplyChoice(CBasePlayer* pl)
+{
+	const int index = pl->entindex();
+	const int rule = RallyJoinRuleFor(RaceRallyRunning(), RaceRallyDone(pl) || RaceRallySittingOut(index), RaceRallyJoinMidRace());
+	if (rule == RALLY_JOIN_OUT)
+	{
+		if (!pl->IsObserver())
+			pl->TSEnterSpectate(false);
+		RaceRallySitOut(index, true);
+		return;
+	}
+	if (pl->IsObserver())
+		H9RallyLeaveObserver(pl);
+	else
+		RaceRallyPutOnSlot(pl);
+}
+
+bool H9RallyCommand(CBasePlayer* pl, const char* cmd)
+{
+	if (!pl || !cmd || !RaceRallyMode())
+		return false;
+	const int index = pl->entindex();
+	if (!ValidIndex(index))
+		return false;
+	const bool isChange = FStrEq(cmd, "changecar"), isSpectate = FStrEq(cmd, "spectate"), isSelect = FStrEq(cmd, "selectcar"),
+			   isBuy = FStrEq(cmd, "buy");
+	if (!isChange && !isSpectate && !isSelect && !isBuy)
+		return false;
+	RallyShop& shop = s_shop[index];
+
+	if (isChange)
+	{
+		// HL Rally: an unknown car is ignored (client.cpp:850-851); the money stays, the parts go (:866-867)
+		int cls = 0;
+		if (CMD_ARGC() < 2 || !ParseInt(CMD_ARGV(1), cls) || !RallyShopChange(shop, cls))
+			return true;
+		SendCar(index);
+		SendParts(index);
+		ApplyChoice(pl);
+	}
+	else if (isSpectate)
+	{
+		// HL Rally (client.cpp:896-908): an observer, and `fuser1 = 0` so that he is out of the next race. allow_spectators is not
+		// added: TS has no such cvar and the audit leaves it to the owner; spectating is allowed.
+		shop.chosen = false;
+		if (!pl->IsObserver())
+			pl->TSEnterSpectate(false);
+		SendCar(index);
+	}
+	else if (isSelect)
+	{
+		// HL Rally (client.cpp:716-723): only while a race runs; `fuser1 = 0`, observer, the main menu, and "don't let them join this race again"
+		if (!RaceRallyRunning())
+			return true;
+		shop.chosen = false;
+		if (!pl->IsObserver())
+			pl->TSEnterSpectate(false);
+		RaceRallySitOut(index, true);
+		SendCar(index);
+		SendMenu(index);
+	}
+	else
+	{
+		int part = 0;
+		if (CMD_ARGC() < 2 || !ParseInt(CMD_ARGV(1), part))
+			return true;
+		if (RallyShopBuy(shop, part) == 0)
+		{
+			SendMoney(index); // the client's own subtraction is not copied: the server says what he has
+			SendParts(index);
+		}
+	}
+	return true;
+}
+
+bool H9RallyRespawnRefused(CBasePlayer* pl)
+{
+	if (!pl || !RaceRallyMode() || pl->pev->iuser1 == 0)
+		return false;
+	const int index = pl->entindex();
+	if (!ValidIndex(index))
+		return false;
+	if (!s_shop[index].chosen)
+	{
+		// HL Rally: a player who has not chosen stays an observer, and Enter opens the main menu (S:cl_dll/vgui_TeamFortressViewport.cpp:2077-2095)
+		SendMenu(index);
+		return true;
+	}
+	if (RaceRallySittingOut(index))
+	{
+		if (gpGlobals->time > pl->m_flSpecMsgTime)
+		{
+			pl->m_flSpecMsgTime = gpGlobals->time + 1.0f;
+			TSHudMessageOne(195, 45, 45, 16, 20, "You have to wait until the next round.", pl->pev);
+		}
+		return true;
+	}
+	return false;
 }
 
 // A number in this player's physinfo (0 when the key is not there).
@@ -121,9 +356,19 @@ void H9RallyClientData(const edict_t* ent, struct clientdata_s* cd)
 	cd->vuser4 = ent->v.vuser4;
 }
 
+// A number in this player's physinfo, set when it differs.
+static void SetPhysInt(edict_t* ent, const char* key, int value)
+{
+	if (PhysInt(ent, key) == value)
+		return;
+	char buf[16];
+	snprintf(buf, sizeof buf, "%d", value);
+	g_engfuncs.pfnSetPhysicsKeyValue(ent, key, buf);
+}
+
 void H9RallyServerThink(CBasePlayer* pl)
 {
-	const int want = WantedClass();
+	const int want = WantedClass(pl->entindex());
 	const int cur = CurrentClass(pl->edict());
 	ApplyMovevars(want > 0);
 
@@ -156,6 +401,14 @@ void H9RallyServerThink(CBasePlayer* pl)
 			H9RallySoundStop(pl); // the mode went off (the cvar to 0, or the race's vehicle changed): no loop is left
 			return;
 		}
+	}
+
+	// the parts' stat additions, for pmove on both sides (pm_shared/h9_rally.cpp adds them to the car's handling and top speed)
+	{
+		const int idx = pl->entindex();
+		const unsigned parts = ValidIndex(idx) ? s_shop[idx].parts : 0;
+		SetPhysInt(pl->edict(), "rh", RallyShopHandlingAdd(parts));
+		SetPhysInt(pl->edict(), "rt", RallyShopTopAdd(parts));
 	}
 
 	// the headlights: HL Rally's flashlight impulse (100; its player.cpp:3565-3595 tells every client), read here before

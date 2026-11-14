@@ -63,11 +63,18 @@
 
 static cvar_t mp_racelaps = {"mp_racelaps", "0", FCVAR_SERVER};
 static cvar_t mp_racewarmup = {"mp_racewarmup", "10", FCVAR_SERVER};
+// HL Rally's mp_joinmidrace (dlls/game.cpp:460, FCVAR_ARCHIVE, default 1): a player who picks a car while a race runs joins it from lap 0
+// (0: he waits for the next race). Needed because the changecar rule branches on it.
+static cvar_t mp_joinmidrace = {"mp_joinmidrace", "1", FCVAR_ARCHIVE};
+
+// Out of the race until the next one is set up (HL Rally's `pev->iuser3 = numlaps` after selectcar), by player index.
+static bool s_sitOut[33];
 
 void RaceRegisterCvars()
 {
 	CVAR_REGISTER(&mp_racelaps);
 	CVAR_REGISTER(&mp_racewarmup);
+	CVAR_REGISTER(&mp_joinmidrace);
 }
 
 //=========================================================
@@ -212,6 +219,9 @@ public:
 	int Round() const { return m_iRound; }
 	bool Holds(CBasePlayer* pPlayer);
 	bool FinishedCar(CBasePlayer* pPlayer);
+	bool Running() const { return m_book.Running() && m_flResultsEnd == 0; } // HL Rally's m_RoundState == 1
+	bool Done(CBasePlayer* pPlayer) const;
+	void PutOnSlot(CBasePlayer* pPlayer);
 	int SlotOf(CBasePlayer* pPlayer);
 	bool RespawnPoint(CBasePlayer* pPlayer, Vector& origin, Vector& angles);
 	void Placed(CBasePlayer* pPlayer);
@@ -740,6 +750,17 @@ void CRaceRules::Beep(const char* sample, int pitch)
 // A new race is set up: back to waiting; the warm-up is free driving, and the countdown calls the cars to the grid.
 void CRaceRules::NewRace()
 {
+	// the next race: the players who sat this one out are let in (HL Rally's round restart brings back everybody with fuser1 set;
+	// one who has not chosen a car again stays an observer, and a car he picks now is applied at once)
+	for (int index = 1; index <= RACE_MAX_PLAYERS; index++)
+	{
+		if (!s_sitOut[index])
+			continue;
+		s_sitOut[index] = false;
+		CBasePlayer* pPlayer = RacePlayer(index);
+		if (Rally() && pPlayer && pPlayer->IsObserver() && H9RallyChosen(index))
+			H9RallyLeaveObserver(pPlayer);
+	}
 	m_book.Stop();
 	m_flWarmEnd = 0;
 	m_flResultsEnd = 0;
@@ -968,6 +989,8 @@ void CRaceRules::Tell(int index, CBasePlayer* pPlayer, RaceEvent event, int chec
 		else
 			snprintf(text, sizeof(text), "CHECKPOINT %d/%d   %s", checkpoint, m_iCheckpoints - 1, RaceTime(racer->split));
 		RaceNote(pPlayer, 120, 220, 255, text);
+		if (Rally())
+			H9RallyMoneyCheckpoint(index); // HL Rally: +20 at a checkpoint that is not the line (rally_checkpoint.cpp:355)
 		HudNote(index, pPlayer, RACE_NOTE_CHECKPOINT, checkpoint, m_iCheckpoints - 1, racer->hasSplitDiff ? RACE_NF_DIFF : 0,
 			racer->split, racer->splitDiff);
 		break;
@@ -981,6 +1004,8 @@ void CRaceRules::Tell(int index, CBasePlayer* pPlayer, RaceEvent event, int chec
 	case RACE_EV_FINISH:
 		snprintf(text, sizeof(text), "FINISH\n%s   %s", RaceOrdinal(racer->finishPlace), RaceTime(racer->total));
 		RaceBig(pPlayer, 60, 255, 80, 5.0f, text);
+		if (Rally())
+			H9RallyMoneyFinish(index, racer->finishPlace); // HL Rally: the place's pay and 600 (rally_checkpoint.cpp:200-207)
 		HudNote(index, pPlayer, RACE_NOTE_FINISH, racer->finishPlace, Racers(), 0, racer->total, racer->bestLap);
 		snprintf(text, sizeof(text), "* %s finishes %s in %s (best lap %s)\n", STRING(pPlayer->pev->netname),
 			RaceOrdinal(racer->finishPlace), RaceTime(racer->total), RaceTime(racer->bestLap));
@@ -1149,6 +1174,27 @@ bool CRaceRules::FinishedCar(CBasePlayer* pPlayer)
 	return m_book.Running() && racer && (racer->finished || racer->retired);
 }
 
+// Finished the last lap or out of time: HL Rally's `pev->iuser3 == numlaps`.
+bool CRaceRules::Done(CBasePlayer* pPlayer) const
+{
+	const RaceRacer* racer = pPlayer ? m_book.Find(pPlayer->entindex()) : NULL;
+	return m_book.Running() && racer && (racer->finished || racer->retired);
+}
+
+// His car on its slot (a car change before the race, or a mid-race one that keeps him in it), if he has one.
+void CRaceRules::PutOnSlot(CBasePlayer* pPlayer)
+{
+	const int index = pPlayer ? pPlayer->entindex() : 0;
+	if (index < 1 || index > RACE_MAX_PLAYERS || !m_seats[index].in)
+		return;
+	Vector origin, angles;
+	if (RaceGridSlot(m_seats[index].slot, origin, angles))
+	{
+		RallyPut(pPlayer, origin, angles);
+		Placed(pPlayer);
+	}
+}
+
 int CRaceRules::SlotOf(CBasePlayer* pPlayer)
 {
 	const int index = pPlayer ? pPlayer->entindex() : 0;
@@ -1205,7 +1251,7 @@ void CRaceRules::DriveState(CBasePlayer* pPlayer, float& speed, float& slip, flo
 			false, false, 0);
 		speed = RaceRallyGaugeSpeed(d.speed);
 		slip = d.slip;
-		top = RaceRallyTopSpeed(RaceRallyClass());
+		top = RaceRallyTopSpeed(H9RallyClassOf(pPlayer->entindex()), H9RallyTopAdd(pPlayer->entindex())); // his own car and parts
 		return;
 	}
 	CBaseEntity* pCar = pPlayer->m_pTank;
@@ -1282,7 +1328,8 @@ void CRaceRules::RallyRoster()
 	{
 		Seat& seat = m_seats[index];
 		CBasePlayer* pPlayer = RacePlayer(index);
-		if (pPlayer && (!pPlayer->IsAlive() || pPlayer->IsObserver()))
+		// a racer is a living player who has chosen a car (HL Rally's fuser1) and is not sitting this race out
+		if (pPlayer && (!pPlayer->IsAlive() || pPlayer->IsObserver() || !H9RallyChosen(index) || s_sitOut[index]))
 		{
 			if (seat.in)
 				RallyRelease(pPlayer);
@@ -1713,6 +1760,38 @@ void CRaceRules::HudNote(int index, CBasePlayer* pPlayer, int kind, int a, int b
 }
 
 // ── the face (race.h) ──
+
+bool RaceRallyRunning()
+{
+	return RaceActive() && g_pRace->Running();
+}
+
+bool RaceRallyDone(CBasePlayer* pPlayer)
+{
+	return RaceActive() && g_pRace->Done(pPlayer);
+}
+
+void RaceRallySitOut(int index, bool out)
+{
+	if (index >= 1 && index <= RACE_MAX_PLAYERS)
+		s_sitOut[index] = out;
+}
+
+bool RaceRallySittingOut(int index)
+{
+	return index >= 1 && index <= RACE_MAX_PLAYERS && s_sitOut[index];
+}
+
+void RaceRallyPutOnSlot(CBasePlayer* pPlayer)
+{
+	if (RaceActive())
+		g_pRace->PutOnSlot(pPlayer);
+}
+
+bool RaceRallyJoinMidRace()
+{
+	return mp_joinmidrace.value != 0;
+}
 
 bool RaceRallyAskPut(int index)
 {

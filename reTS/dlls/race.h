@@ -55,6 +55,19 @@ int RaceRallyClass();
 // True when the race is in rally mode (RaceRallyClass() > 0).
 bool RaceRallyMode();
 
+// The car menu's side of the race (h9_rally_srv.cpp's changecar/spectate/selectcar, HL Rally's respawn rules).
+// True from the green light until the results table: HL Rally's m_RoundState == 1.
+bool RaceRallyRunning();
+// He has crossed the last line or run out of time: HL Rally's `pev->iuser3 == numlaps`.
+bool RaceRallyDone(CBasePlayer* pPlayer);
+// Out of the race until the next one starts (HL Rally's selectcar: "don't let them join this race again"); cleared when the next race is set up.
+void RaceRallySitOut(int index, bool out);
+bool RaceRallySittingOut(int index);
+// The car on its grid slot, at rest, if the race has seated him.
+void RaceRallyPutOnSlot(CBasePlayer* pPlayer);
+// mp_joinmidrace (HL Rally's cvar, default 1): a player who picks a car in a running race joins it from lap 0.
+bool RaceRallyJoinMidRace();
+
 // The race_waypoint with this number (for the AI drivers of a later wave). False when the map has none.
 bool RaceWaypoint(int number, Vector& origin, float& speed, float& spread);
 

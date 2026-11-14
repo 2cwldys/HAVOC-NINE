@@ -59,6 +59,13 @@ bool PM_CheckStuck();
 void PM_CheckVelocity();
 bool PM_AddToTouched(pmtrace_t tr, Vector impactvelocity);
 
+// A whole number in this player's physinfo (0 when the key is not there): "rally" the car class, "rh" and "rt" the stat % his parts add.
+static int PhysInfoInt(const char* key)
+{
+	const char* v = pmove->PM_Info_ValueForKey(pmove->physinfo, key);
+	return v ? atoi(v) : 0;
+}
+
 float g_h9RallyCrashAmount = 0; // velocity along the wall's normal at the last body check, 0 when no wall
 
 namespace
@@ -469,7 +476,7 @@ void DebugLine(const Dbg& d, bool held, const Vector& org0)
 
 void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 {
-	const H9RallyCar& car = H9RallyCarByClass(H9RallyClass());
+	const H9RallyCar car = H9RallyCarWithParts(H9RallyCarByClass(H9RallyClass()), PhysInfoInt("rh"), PhysInfoInt("rt"));
 	d.fuser1 = pmove->fuser1;
 	d.engineFrametime = pmove->frametime;
 
@@ -682,8 +689,7 @@ void MoveInner(Dbg& d, bool& heldOut, Vector& org0Out)
 // The car class this player is in (0: not in rally mode). Read from the physinfo string on both sides.
 int H9RallyClass()
 {
-	const char* v = pmove->PM_Info_ValueForKey(pmove->physinfo, "rally");
-	return v ? atoi(v) : 0;
+	return PhysInfoInt("rally");
 }
 
 bool H9RallyStoredTilt(float* pitch, float* yaw, float* roll)

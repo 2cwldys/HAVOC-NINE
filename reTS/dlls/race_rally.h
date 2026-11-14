@@ -103,9 +103,10 @@ static inline float RaceRallyGaugeSpeed(float alongNose)
 }
 
 // The gauge's end for a car class: the speed the engine's pull meets the drag at on a road (HL Rally's fastest ground).
-static inline float RaceRallyTopSpeed(int cls)
+// `topAdd`: the stat % his parts add (physinfo "rt").
+static inline float RaceRallyTopSpeed(int cls, int topAdd = 0)
 {
-	const H9RallyCar& car = H9RallyCarByClass(cls);
+	const H9RallyCar car = H9RallyCarWithParts(H9RallyCarByClass(cls), 0, topAdd);
 	return H9R_ACCELERATE * H9RallyWish(car) / (H9R_FRICTION - 0.10f);
 }
 

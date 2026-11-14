@@ -15,6 +15,7 @@
 #include "../../pm_shared/h9_rally.h"
 #include "../h9_rally_snd.h"
 #include "../race_rally.h"
+#include "../h9_rally_shop_srv.h"
 #include "../../cl_dll/h9_rallysteer_calc.h" // the client's throttle: the forward move the command carries
 
 #include <cmath>
@@ -933,6 +934,49 @@ int main()
 			const RaceRallyDrive e = RaceRallyDriveOf(-3, 1, 0, false, false, false, 0);
 			Check(RaceRallyGaugeSpeed(e.speed) == 0, "gauge: 3 u/s backwards (a wall's bounce) does not read REVERSE");
 		}
+	}
+
+	// --- the car menu: a car for each player, and what parts add to it (h9_rally_shop_srv.h; HL Rally's client.cpp changecar/buy) ---------
+	{
+		// the class a player drives as: the cvar wins, else his own choice, else the map's, else off
+		RallyShop none, chose;
+		RallyShopJoin(none);
+		RallyShopJoin(chose);
+		RallyShopChange(chose, 7);
+		Check(RallyEffectiveClass(0, 1, none) == 1, "class: a map's rally race gives a player who has not chosen the map's class (1)");
+		Check(RallyEffectiveClass(0, 1, chose) == 7, "class: a player who chose a car drives that car, not the map's");
+		Check(RallyEffectiveClass(4, 4, chose) == 4 && RallyEffectiveClass(4, 1, none) == 4, "class: the cvar h9_rally > 0 is a server override that wins over his choice");
+		Check(RallyEffectiveClass(0, 0, chose) == 0, "class: no rally map and no cvar: nobody is a car");
+		RallyShop other;
+		RallyShopJoin(other);
+		RallyShopChange(other, 3);
+		Check(RallyEffectiveClass(0, 1, chose) != RallyEffectiveClass(0, 1, other), "class: two players drive two different classes at once");
+		Check(!RallyShopChange(other, 0) && !RallyShopChange(other, H9R_NUM_CARS + 1) && other.cls == 3, "class: a number that is no car changes nothing");
+
+		// parts: HL Rally's numbers (customise.txt) summed, handling and top into the stats, acceleration into nothing
+		Check(g_h9RallyParts[2].cost == 700 && g_h9RallyParts[2].handling == 7 && g_h9RallyParts[5].cost == 800 && g_h9RallyParts[5].top == 8 &&
+				  g_h9RallyParts[8].cost == 4500 && g_h9RallyParts[8].top == 15 && g_h9RallyParts[8].accel == 15 && g_h9RallyParts[9].cost == 3200 &&
+				  g_h9RallyParts[9].top == 8,
+			"parts: the table has customise.txt's rows (Rally tyres $700 +7 handling, Turbo-Back $800 +8 top, Single turbo $4500 +15/+15, Twin $3200 +8/+15)");
+		Check(RallyShopHandlingAdd(1u << 2) == 7 && RallyShopTopAdd(1u << 5) == 8 && RallyShopHandlingAdd((1u << 2) | (1u << 5)) == 7 &&
+				  RallyShopTopAdd((1u << 5) | (1u << 8)) == 23 && RallyShopAccelAdd((1u << 6) | (1u << 8)) == 19,
+			"parts: the sums over the parts held (handling 7; top 8 + 15 = 23; acceleration 4 + 15 = 19)");
+
+		const H9RallyCar& base = H9RallyCarByClass(1);
+		const H9RallyCar plus = H9RallyCarWithParts(base, 7, 8);
+		Check(plus.handlingStat == base.handlingStat + 7 && plus.topStat == base.topStat + 8 && plus.accelStat == base.accelStat,
+			"physinfo rh/rt: the car's handling and top stats take the additions, acceleration is left (nothing reads it, as in HL Rally)");
+		// worked out from HL Rally's formulas: wish = top x 15 (pm_shared.c:1787), the sideways hold = |handling - 40| / 50
+		Check(fabsf(H9RallyWish(plus) - (80.0f + 8.0f) * 15.0f) < 0.01f && fabsf(H9RallyHandling(plus) - fabsf(87.0f - 40.0f) / 50.0f) < 1e-5f,
+			"physinfo rh/rt: xsara with +7 handling and +8 top has wish 88 x 15 = 1320 and a hold of 47 / 50");
+		Check(fabsf(H9RallyWish(H9RallyCarWithParts(base, 0, 0)) - H9RallyWish(base)) < 1e-6f &&
+				  fabsf(H9RallyHandling(H9RallyCarWithParts(base, 0, 0)) - H9RallyHandling(base)) < 1e-6f,
+			"physinfo rh/rt: no parts (0, 0) is the car as it was");
+		Check(H9RallyWish(H9RallyCarWithParts(H9RallyCarByClass(6), 0, 0)) > H9RallyWish(H9RallyCarWithParts(H9RallyCarByClass(3), 0, 0)),
+			"physinfo rh/rt: another class has its own stats beside the first (octavia is faster than locust)");
+		Check(RaceRallyTopSpeed(1, 8) > RaceRallyTopSpeed(1) && fabsf(RaceRallyTopSpeed(1, 0) - RaceRallyTopSpeed(1)) < 1e-4f &&
+				  fabsf(RaceRallyTopSpeed(1, 8) / RaceRallyTopSpeed(1) - 88.0f / 80.0f) < 1e-4f,
+			"gauge: the end of the gauge follows the player's class and his top parts (class 1 +8 is 88/80 of 680)");
 	}
 
 	// --- numbers for the report -------------------------------------------------------------------------------------

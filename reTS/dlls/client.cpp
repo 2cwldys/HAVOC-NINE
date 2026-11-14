@@ -126,6 +126,8 @@ GLOBALS ASSUMED SET:  g_fGameOver
 */
 void ClientDisconnect(edict_t* pEntity)
 {
+	H9RallyShopLeave(ENTINDEX(pEntity)); // H9 rally: his money, car and parts go with him
+
 	// TS: drive the ts_playeramount relays (per-event counter -> disconnecttarget on == clients).
 	CBaseEntity* pRelay = nullptr;
 	while ((pRelay = UTIL_FindEntityByClassname(pRelay, "ts_playeramount")) != nullptr)
@@ -250,6 +252,9 @@ void ClientPutInServer(edict_t* pEntity)
 	int cash = 0;
 	sscanf(initial_cash.string, "%i", &cash);
 	pPlayer->GiveCash(cash);
+
+	// H9 rally: his own money ($600 every map), no car chosen, no parts (never TS's m_iCash)
+	H9RallyShopJoin(ENTINDEX(pEntity));
 
 	// @0x9cf44: a plain Spawn — the joiner is a live player until his first UpdateClientData, where
 	// CTSGameRules::InitHUD sends him to spectate (StartObserver @0x694c8). No spectate flag here,
@@ -676,7 +681,11 @@ void ClientCommand(edict_t* pEntity)
 		// sentinel — LMS lockout / round logic; NEVER set in plain DM). Firing during a normal
 		// countdown is SILENT (neither branch). The wait line is 1 Hz-throttled off the same
 		// +0x754 clock as the countdown.
-		if (player->pev->iuser1 != 0) // @0x9da2a: a player in any spectator mode
+		if (H9RallyRespawnRefused(player))
+		{
+			// H9 rally race map: nobody plays before he has chosen a car (the main menu opens again), nor in a race he sits out
+		}
+		else if (player->pev->iuser1 != 0) // @0x9da2a: a player in any spectator mode
 		{
 			if (player->m_flTSRespawnTime < 0)
 			{
@@ -693,6 +702,9 @@ void ClientCommand(edict_t* pEntity)
 				player->pev->impulse = 0;
 			}
 		}
+	}
+	else if (H9RallyCommand(player, pcmd)) // H9 rally race map: changecar <class>, spectate, selectcar, buy <part> (pm_shared/h9_rally_shop.h)
+	{
 	}
 	else if (FStrEq(pcmd, "motd")) // TS: re-send the MOTD to this client
 	{

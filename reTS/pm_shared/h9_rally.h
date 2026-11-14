@@ -125,6 +125,17 @@ static const H9RallyCar g_h9RallyCars[H9R_NUM_CARS] = {
 	{"corolla", 80.0f, 70.0f, 90.0f},      // Toyota corolla, 80/70/90
 };
 
+// A car with the stat % the player's parts add (HL Rally adds the parts' values to the stats it gives pmove: dlls/client.cpp:1044
+// `pev->vuser4 = pev->vuser4 + vUpdates`, then PM_SetStats; pmove reads vuser4[1] and [2], pm_shared/pm_shared.c:1982-1984 and :1787).
+// Here the server sends the sums in the physinfo keys "rh" (handling) and "rt" (top speed); Acceleration's are read by nothing, as in HL Rally.
+static inline H9RallyCar H9RallyCarWithParts(const H9RallyCar& base, int handlingAdd, int topAdd)
+{
+	H9RallyCar c = base;
+	c.handlingStat += (float)handlingAdd;
+	c.topStat += (float)topAdd;
+	return c;
+}
+
 static inline float H9RallyWish(const H9RallyCar& c)
 {
 	return c.topStat * H9R_WISH_PER_STAT;

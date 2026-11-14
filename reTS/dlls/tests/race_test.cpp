@@ -8,6 +8,7 @@
 ***/
 #include "../race_book.h"
 #include "../race_rally.h"
+#include "../h9_rally_shop_srv.h"
 
 #include <cstdio>
 
@@ -252,6 +253,86 @@ int main()
 		Check(!k.Press(false, 10.6f) && !k.Press(true, 10.99f), "put-back: a press inside the second after one does nothing");
 		Check(!k.Press(false, 11.0f) && k.Press(true, 11.0f), "put-back: and from a second after the first it works again");
 		Check(!k.Press(false, 11.5f) && !k.Press(true, 11.9f), "put-back: the refused press at 10.99 did not push the next one back");
+	}
+
+	// the car menu's money (HL Rally: S:dlls/player.cpp:314-382, S:dlls/rally_checkpoint.cpp:180-207, 355)
+	{
+		RallyShop p;
+		RallyShopJoin(p);
+		Check(p.money == 600 && !p.chosen && p.cls == 0 && p.parts == 0, "money: $600 at join, nothing chosen, no parts");
+		RallyShopChange(p, 2);
+		RallyShopBuy(p, 0);
+		RallyShopJoin(p);
+		Check(p.money == 600 && !p.chosen && p.parts == 0, "money: joining again (a new map) is $600 and nothing held, whatever he had");
+		Check(RallyMoneyCheckpoint(false) == 20, "money: +20 at a checkpoint");
+		Check(RallyMoneyCheckpoint(true) == 20, "money: and +20 only for the first car through (HL Rally's +100 is dead code: iuser4 == 1 after it was set to 0)");
+		Check(RallyMoneyFinish(1) == 1400 && RallyMoneyFinish(2) == 1200 && RallyMoneyFinish(3) == 1000 && RallyMoneyFinish(4) == 800,
+			"money: a finish pays 800/600/400/200 for places 1 to 4 and 600 more to every finisher (1400, 1200, 1000, 800)");
+		Check(RallyMoneyFinish(5) == 600 && RallyMoneyFinish(9) == 600 && RallyMoneyFinish(0) == 600,
+			"money: a fifth place or later gets the 600 and no place pay (HL Rally's out-of-range read of scores[4] is not copied)");
+		RallyShop q;
+		RallyShopJoin(q);
+		Check(RallyShopAdd(q, 20) && q.money == 620, "money: add changes the figure and says so");
+		q.money = 6990;
+		Check(RallyShopAdd(q, 100) && q.money == 7000, "money: the cap is $7000");
+		Check(!RallyShopAdd(q, 20) && q.money == 7000, "money: at the cap an addition changes nothing (nothing to send)");
+		// a whole race for one car: 3 laps of 4 checkpoints (the line + 3): checkpoints 1, 2, 3 each lap, the line closes the first two laps with no pay
+		RallyShop r;
+		RallyShopJoin(r);
+		for (int lap = 0; lap < 3; lap++)
+			for (int cp = 1; cp <= 3; cp++)
+				RallyShopAdd(r, RallyMoneyCheckpoint(false));
+		RallyShopAdd(r, RallyMoneyFinish(2));
+		Check(r.money == 600 + 9 * 20 + 1200, "money: nine checkpoints and a second place come to 600 + 180 + 1200");
+	}
+
+	// the shop: buy rules (HL Rally's client.cpp:919-1058, player.cpp:355-368)
+	{
+		RallyShop p;
+		RallyShopJoin(p);
+		Check(RallyShopBuy(p, 0) == 2 && p.money == 600, "buy: with no car chosen nothing is sold and nothing is charged");
+		RallyShopChange(p, 1);
+		Check(RallyShopBuy(p, 99) == 1 && RallyShopBuy(p, -1) == 1, "buy: a part that does not exist is refused");
+		Check(RallyShopBuy(p, 8) == 3 && p.money == 600 && p.parts == 0, "buy: $600 does not buy a $4500 turbo, and nothing is taken");
+		Check(RallyShopBuy(p, 0) == 0 && p.money == 300 && p.parts == (1u << 0), "buy: street tyres ($300) are charged and held");
+		Check(RallyShopBuy(p, 3) == 0 && p.money == 100, "buy: money strictly above the cost buys (300 > 200): $100 left");
+		RallyShop e;
+		RallyShopJoin(e);
+		RallyShopChange(e, 1);
+		e.money = 300;
+		Check(RallyShopBuy(e, 0) == 3 && e.money == 300, "buy: exactly the price is not enough (HL Rally's `money > cost`): $300 does not buy a $300 part");
+		e.money = 301;
+		Check(RallyShopBuy(e, 0) == 0 && e.money == 1, "buy: $301 does");
+		// one part to a class: the new part replaces the one held, the old is not refunded
+		RallyShop t;
+		RallyShopJoin(t);
+		RallyShopChange(t, 4);
+		t.money = 7000;
+		Check(RallyShopBuy(t, 0) == 0 && RallyShopHandlingAdd(t.parts) == 3, "buy: street tyres add 3 handling");
+		Check(RallyShopBuy(t, 2) == 0 && RallyShopHandlingAdd(t.parts) == 7 && t.parts == (1u << 2) && t.money == 7000 - 300 - 700,
+			"buy: rally tyres take the place of the street ones: 7 handling, not 10; both prices paid, no refund");
+		Check(RallyShopBuy(t, 1) == 0 && RallyShopHandlingAdd(t.parts) == 5 && t.parts == (1u << 1),
+			"buy: a worse part in the class replaces the better one too, as HL Rally's swap does (5, not 7)");
+		Check(RallyShopBuy(t, 5) == 0 && RallyShopBuy(t, 8) == 0 && RallyShopTopAdd(t.parts) == 8 + 15 && RallyShopHandlingAdd(t.parts) == 5,
+			"buy: classes are independent: a turbo-back (+8 top) and a single turbo (+15 top) add up to 23, the tyres still 5");
+		t.money = 3000;
+		const int before = t.money;
+		Check(RallyShopBuy(t, 5) == 0 && t.money == before - 800 && RallyShopTopAdd(t.parts) == 23, "buy: the part already held is charged again and changes nothing");
+		// a car change drops every part and keeps the money
+		const int kept = t.money;
+		Check(RallyShopChange(t, 6) && t.parts == 0 && t.money == kept && t.cls == 6 && t.chosen, "change: a new car has no parts, the money stays");
+		Check(RallyShopHandlingAdd(t.parts) == 0 && RallyShopTopAdd(t.parts) == 0, "change: so the physinfo additions go to 0 and 0");
+		t.chosen = false; // spectate / selectcar
+		Check(RallyShopBuy(t, 0) == 2, "buy: after spectate (no car chosen) nothing is sold");
+	}
+
+	// the respawn rules of a car choice (HL Rally's client.cpp:872-892)
+	{
+		Check(RallyJoinRuleFor(false, false, true) == RALLY_JOIN_NOW && RallyJoinRuleFor(false, true, false) == RALLY_JOIN_NOW,
+			"join: before the race starts the car appears now, whatever else is set");
+		Check(RallyJoinRuleFor(true, false, true) == RALLY_JOIN_LAP0, "join: a race running, not finished, mp_joinmidrace 1: he is in it from lap 0");
+		Check(RallyJoinRuleFor(true, false, false) == RALLY_JOIN_OUT, "join: a race running and mp_joinmidrace 0: he waits for the next");
+		Check(RallyJoinRuleFor(true, true, true) == RALLY_JOIN_OUT, "join: a race running and he has finished (or used selectcar): observer until the next");
 	}
 
 	if (g_failed)
