@@ -23,6 +23,7 @@ int H9RallyCvarClass();
 
 // True when this player is a rally car now (his physinfo's rally class).
 bool H9RallyIsCar(edict_t* ent);
+int H9RallyCurrentClass(edict_t* ent); // the class his physinfo says (1..10), 0 when he is not a car
 
 // ---- the car menu's server side: per-player car, money and parts (pm_shared/h9_rally_shop.h is the contract with the client) ----
 // Registers H9RMoney, H9RParts and H9RCar; called from LinkUserMessages.

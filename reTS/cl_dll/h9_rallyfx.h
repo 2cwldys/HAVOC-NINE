@@ -38,4 +38,4 @@ void H9RallyFx_NoteExhaust(int index, const float attachment0[3]);
 // The studio renderer, drawing a rally car (the player seen from outside): the chrome overlay model (models/h9/rc_rally_xs_chrome.mdl, HL Rally's
 // rally_chrome), or null when the file is not on disk or cl_h9_rally_chrome is 0. To be drawn again after the car, added, on the same bones, with
 // the ambient light at 24 (StudioModelRenderer.cpp:2386-2420 of HL Rally).
-struct model_s* H9RallyFx_CarChrome();
+struct model_s* H9RallyFx_CarChrome(int carClass); // the class's brand chrome, else the generic one

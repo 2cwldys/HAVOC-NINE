@@ -396,6 +396,11 @@ static int CurrentClass(edict_t* ent)
 	return PhysInt(ent, "rally");
 }
 
+int H9RallyCurrentClass(edict_t* ent)
+{
+	return ent != nullptr ? CurrentClass(ent) : 0;
+}
+
 bool H9RallyIsCar(edict_t* ent)
 {
 	return ent != nullptr && CurrentClass(ent) > 0;

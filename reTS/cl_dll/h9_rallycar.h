@@ -17,6 +17,7 @@ struct H9RallyCarDraw
 	float origin[3];
 	float angles[3]; // entity angles: pitch nose up, yaw, roll left side up (see h9_rallycam_calc.h)
 	int skin;
+	int carClass; // 1..10 (0 unknown): which brand model and chrome draw it
 	int steerByte; // both steering controllers
 	float phase;   // the tyres' turn, 0..1 of the roll sequence
 	bool hasShock; // the local car: the four suspension offsets below are to be applied (h9_rallycam_calc.h kShockBone)

@@ -38,6 +38,7 @@
 #include "h9_rallycar.h"
 #include "h9_rallycam_calc.h"
 #include "h9_racefx.h"
+#include "h9_rallymodel.h"
 #include "h9_rallysteer_calc.h"
 
 #include <string.h>
@@ -50,15 +51,15 @@ extern bool g_iAlive; // entity.cpp
 namespace
 {
 
-const char* const CAR_MODEL = "models/h9/rc_rally_xs.mdl";
 const char* const INTERIOR_MODEL = "models/h9/rally_interior.mdl";
 const char* const CHROME_MODEL = "models/h9/rally_interior_chrome.mdl";
 const int MAX_SLOTS = 66;
 
 cvar_t *s_cvView, *s_cvBack, *s_cvPivot, *s_cvPitch, *s_cvFov, *s_cvMouse, *s_cvRear, *s_cvChrome, *s_cvManual;
 
-model_t* s_model = nullptr;
-float s_nextModelTry = 0;
+// one model for each brand (rallymodel::Brand; slot 0 is the generic one, which every other falls back to)
+model_t* s_models[rallymodel::BRAND_COUNT] = {};
+float s_nextModelTry[rallymodel::BRAND_COUNT] = {};
 model_t* s_interior = nullptr;
 float s_nextInteriorTry = 0;
 model_t* s_chrome = nullptr;
@@ -175,6 +176,17 @@ int LocalRallyClass()
 	return s_rallyClass;
 }
 
+// True when the file is on disk (a brand's model may be missing, and the engine is not asked to load one that is not).
+bool ModelOnDisk(const char* path)
+{
+	int len = 0;
+	byte* data = gEngfuncs.COM_LoadFile(path, 5, &len);
+	if (!data)
+		return false;
+	gEngfuncs.COM_FreeFile(data);
+	return len > 0;
+}
+
 // A model by name, looked up again every 10 seconds while it is not there (a file that is missing is not asked for every frame).
 model_t* FindModel(const char* name, model_t*& cache, float& nextTry)
 {
@@ -183,7 +195,7 @@ model_t* FindModel(const char* name, model_t*& cache, float& nextTry)
 	const float now = gEngfuncs.GetClientTime();
 	if (now < nextTry)
 		return nullptr;
-	model_t* m = IEngineStudio.Mod_ForName ? IEngineStudio.Mod_ForName(name, 0) : nullptr;
+	model_t* m = ModelOnDisk(name) && IEngineStudio.Mod_ForName ? IEngineStudio.Mod_ForName(name, 0) : nullptr; // never asked for a file that is not there
 	if (m != nullptr && IEngineStudio.Mod_Extradata(m) != nullptr)
 		cache = m;
 	else
@@ -191,7 +203,33 @@ model_t* FindModel(const char* name, model_t*& cache, float& nextTry)
 	return cache;
 }
 
-model_t* CarModel() { return FindModel(CAR_MODEL, s_model, s_nextModelTry); }
+// The model that draws a car of this class: its brand's, else the generic one (the brand's file is not there, or the class is 0 or unknown).
+// `name` gets the path of the model returned.
+model_t* CarModelFor(int cls, const char** name)
+{
+	const int b = rallymodel::BrandOf(cls);
+	model_t* m = FindModel(rallymodel::kBrandModel[b], s_models[b], s_nextModelTry[b]);
+	if (m != nullptr)
+	{
+		if (name != nullptr)
+			*name = rallymodel::kBrandModel[b];
+		return m;
+	}
+	m = FindModel(rallymodel::kGeneric, s_models[0], s_nextModelTry[0]);
+	if (name != nullptr)
+		*name = rallymodel::kGeneric;
+	return m;
+}
+model_t* CarModel() { return CarModelFor(0, nullptr); }
+
+// The class of the car this entity is: the local player's own from the physinfo, another's from the playerclass the server sets on his state
+// (dlls/client.cpp, AddToFullPack; it is sent to nobody about himself, so his own state says 0).
+int EntityClass(const cl_entity_t* ent, const entity_state_t* st, bool isLocal)
+{
+	if (isLocal)
+		return LocalRallyClass();
+	return st != nullptr ? st->playerclass : ent->curstate.playerclass;
+}
 model_t* InteriorModel() { return FindModel(INTERIOR_MODEL, s_interior, s_nextInteriorTry); }
 model_t* ChromeModel() { return FindModel(CHROME_MODEL, s_chrome, s_nextChromeTry); }
 
@@ -199,13 +237,13 @@ model_t* ChromeModel() { return FindModel(CHROME_MODEL, s_chrome, s_nextChromeTr
 int ViewInForce() { return rallycam::ViewInForce((int)(CvF(s_cvView, (float)rallycam::VIEW_INTERIOR) + 0.5f), InteriorModel() != nullptr); }
 
 // The model's own size: the tyres and the tilt's four points come from it.
-void CarSize(float& len, float& width)
+void CarSize(const model_t* model, float& len, float& width)
 {
 	len = 45.0f;
 	width = 18.0f;
-	if (s_model != nullptr)
+	if (model != nullptr)
 	{
-		const float l = s_model->maxs.x - s_model->mins.x, w = s_model->maxs.y - s_model->mins.y;
+		const float l = model->maxs.x - model->mins.x, w = model->maxs.y - model->mins.y;
 		if (l >= 8.0f && w >= 4.0f && l < 1024.0f && w < 1024.0f)
 		{
 			len = l;
@@ -302,7 +340,7 @@ float Unit() { return gEngfuncs.pfnRandomFloat(-1.0f, 1.0f); }
 // Brings a car's slot up to `time`: the wheels' roll and the tilt. Once for each time: a second call in the same frame (the camera and then the
 // draw) changes nothing. `local` is the player's own car (five probes, the filter, the body's motion, the wheels' rules); another car has the one
 // probe under it, the tilt as it is and nothing else of HL Rally's. `prevAnglesHlr` are the angles the server last sent for another car.
-Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const rallycam::V3& vel, const Dyn* dyn, bool local, const float* prevAnglesHlr)
+Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const rallycam::V3& vel, const Dyn* dyn, bool local, const float* prevAnglesHlr, const model_t* model)
 {
 	using namespace rallycam;
 	if (index < 0 || index >= MAX_SLOTS)
@@ -314,7 +352,7 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 	const bool fresh = !s.have || dt > 0.25f || dt < 0.0f || (org - s.org).Length() > 160.0f;
 
 	float len, width;
-	CarSize(len, width);
+	CarSize(model, len, width);
 	const float vh = sqrtf(vel.x * vel.x + vel.y * vel.y);
 	const V3 nose(cosf(Rad(yaw)), sinf(Rad(yaw)), 0);
 
@@ -622,11 +660,14 @@ void H9RallyCam_Init()
 
 void H9RallyCam_VidInit()
 {
-	s_model = nullptr;
+	for (int i = 0; i < rallymodel::BRAND_COUNT; i++)
+	{
+		s_models[i] = nullptr;
+		s_nextModelTry[i] = 0;
+	}
 	s_interior = nullptr;
 	s_chrome = nullptr;
 	s_hiddenViewModel = nullptr;
-	s_nextModelTry = 0;
 	s_nextInteriorTry = 0;
 	s_nextChromeTry = 0;
 	memset(s_slot, 0, sizeof(s_slot));
@@ -697,11 +738,12 @@ void H9RallyCar_AddEntity(int type, cl_entity_t* ent)
 	using namespace rallycam;
 	if (type != ET_PLAYER || ent == nullptr || ent->index <= 0 || !H9RallyCar_IsCarEntity(ent))
 		return;
-	model_t* m = CarModel();
-	if (m == nullptr)
-		return;
 	cl_entity_t* local = gEngfuncs.GetLocalPlayer();
 	const bool isLocal = local != nullptr && local->index == ent->index;
+	const char* modelName = rallymodel::kGeneric;
+	model_t* m = CarModelFor(EntityClass(ent, nullptr, isLocal), &modelName);
+	if (m == nullptr)
+		return;
 	V3 org(ent->origin[0], ent->origin[1], ent->origin[2]);
 	float yaw = ent->angles[1];
 	if (isLocal)
@@ -709,8 +751,8 @@ void H9RallyCar_AddEntity(int type, cl_entity_t* ent)
 	V3 vel(ent->curstate.velocity[0], ent->curstate.velocity[1], ent->curstate.velocity[2]);
 	if (isLocal && FreshNote())
 		vel = s_note.vel; // the predicted one
-	Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, isLocal ? DynPtr() : nullptr, isLocal, ent->prevstate.angles);
-	H9RaceFx_NoteEntity(ent, CAR_MODEL, m); // tyre marks, spray, shadow and brake lights, from the blending bytes the server sets
+	Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, isLocal ? DynPtr() : nullptr, isLocal, ent->prevstate.angles, m);
+	H9RaceFx_NoteEntity(ent, modelName, m); // tyre marks, spray, shadow and brake lights, from the blending bytes the server sets
 }
 
 bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw& out)
@@ -718,11 +760,12 @@ bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw&
 	using namespace rallycam;
 	if (ent == nullptr || st == nullptr)
 		return false;
-	model_t* m = CarModel();
-	if (m == nullptr)
-		return false;
 	cl_entity_t* local = gEngfuncs.GetLocalPlayer();
 	const bool isLocal = local != nullptr && local->index == ent->index;
+	const int cls = EntityClass(ent, st, isLocal);
+	model_t* m = CarModelFor(cls, nullptr);
+	if (m == nullptr)
+		return false;
 	V3 org(ent->origin[0], ent->origin[1], ent->origin[2]);
 	float yaw = ent->angles[1];
 	if (isLocal)
@@ -731,8 +774,9 @@ bool H9RallyCar_Pose(cl_entity_t* ent, const entity_state_t* st, H9RallyCarDraw&
 	if (isLocal && FreshNote())
 		vel = s_note.vel;
 	const Dyn* dyn = isLocal ? DynPtr() : nullptr;
-	Slot& s = Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, dyn, isLocal, ent->prevstate.angles);
+	Slot& s = Update(ent->index, org, yaw, gEngfuncs.GetClientTime(), vel, dyn, isLocal, ent->prevstate.angles, m);
 	out.model = m;
+	out.carClass = cls;
 	out.origin[0] = org.x;
 	out.origin[1] = org.y;
 	out.origin[2] = org.z;
@@ -793,7 +837,8 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	cl_entity_t* local = gEngfuncs.GetLocalPlayer();
 	if (local == nullptr)
 		return false;
-	model_t* m = CarModel();
+	const char* modelName = rallymodel::kGeneric;
+	model_t* m = CarModelFor(LocalRallyClass(), &modelName);
 
 	const V3 car(pp->simorg[0], pp->simorg[1], pp->simorg[2]);
 	const V3 vel(pp->simvel[0], pp->simvel[1], pp->simvel[2]);
@@ -805,7 +850,7 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	s_viewOrg = car;
 	s_viewYaw = heading;
 	H9RallySteer_NoteView(pp->simorg, pp->simvel, 0 != pp->onground, now);
-	const Slot& slot = Update(local->index, car, heading, now, vel, DynPtr(), true, local->prevstate.angles);
+	const Slot& slot = Update(local->index, car, heading, now, vel, DynPtr(), true, local->prevstate.angles, m);
 
 	const int viewNow = ViewInForce();
 	s_viewNow = viewNow;
@@ -933,7 +978,7 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 
 	// the race effects need the local car noted even where the engine does not offer it to HUD_AddEntity (the interior)
 	if (m != nullptr && H9RallyCar_IsCarEntity(local))
-		H9RaceFx_NoteEntity(local, CAR_MODEL, m);
+		H9RaceFx_NoteEntity(local, modelName, m);
 	return true;
 }
 

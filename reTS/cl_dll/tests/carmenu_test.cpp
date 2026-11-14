@@ -3,10 +3,12 @@
 // car's place, spin, drag and shadow, the map-info file name, and the `m` key in the two shipped key files.
 //   cmake --build <dir> --target carmenu_test --config Release, then run carmenu_test
 #include "../h9_carmenu_calc.h"
+#include "../../pm_shared/h9_rallymodel.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <math.h>
 
 using namespace carmenu;
@@ -335,6 +337,30 @@ static void TestShowroom()
 
 	// the livery by class, the eight of the car model
 	CHECK(ShowSkin(1) == 0 && ShowSkin(8) == 7 && ShowSkin(9) == 0 && ShowSkin(10) == 1 && ShowSkin(0) == 0);
+
+	// the model by class: the brand's, the generic one for class 0 and anything unknown (rallymodel::ClassToModel)
+	{
+		bool ok = true;
+		for (int cls = 1; cls <= 10; cls++)
+		{
+			const char* make = g_h9RallyCarShow[cls - 1].make;
+			char want[96];
+			snprintf(want, sizeof want, "models/h9/rc_rally_%s_xs.mdl", make);
+			for (char* p = want + 19; *p && *p != '_'; p++)
+				*p = (char)tolower((unsigned char)*p);
+			char wantChrome[112];
+			snprintf(wantChrome, sizeof wantChrome, "%.*s_chrome.mdl", (int)strlen(want) - 4, want);
+			ok = ok && strcmp(rallymodel::ClassToModel(cls), want) == 0 && strcmp(rallymodel::ClassToChrome(cls), wantChrome) == 0;
+		}
+		CHECK(ok);
+		CHECK(strcmp(rallymodel::ClassToModel(1), "models/h9/rc_rally_volkra_xs.mdl") == 0);
+		CHECK(strcmp(rallymodel::ClassToModel(2), "models/h9/rc_rally_amberline_xs.mdl") == 0);
+		CHECK(strcmp(rallymodel::ClassToModel(4), "models/h9/rc_rally_kestrel_xs.mdl") == 0);
+		CHECK(strcmp(rallymodel::ClassToChrome(4), "models/h9/rc_rally_kestrel_xs_chrome.mdl") == 0);
+		CHECK(strcmp(rallymodel::ClassToModel(0), rallymodel::kGeneric) == 0 && strcmp(rallymodel::ClassToModel(11), rallymodel::kGeneric) == 0 && strcmp(rallymodel::ClassToModel(-3), rallymodel::kGeneric) == 0);
+		CHECK(strcmp(rallymodel::ClassToChrome(0), rallymodel::kGenericChrome) == 0);
+		CHECK(rallymodel::BrandOf(0) == rallymodel::BRAND_GENERIC && rallymodel::BrandOf(8) == rallymodel::BRAND_VOLKRA);
+	}
 
 	// the spin: one degree a frame at 99 frames a second, the same in a second at any rate
 	Spin a, b, c;

@@ -26,6 +26,7 @@
 #include "h9_rallyfx.h"
 #include "h9_rallyfx_calc.h"
 #include "h9_rallycar.h"
+#include "h9_rallymodel.h"
 #include "h9_rallysnd.h"
 
 #include <string.h>
@@ -40,7 +41,6 @@ namespace
 {
 
 const char* const SPR_DIR = "sprites/h9/rally/";
-const char* const CHROME_PATH = "models/h9/rc_rally_xs_chrome.mdl";
 const int MAX_MARKS = 8192;
 const int MAX_PUFF_TICKS = 6; // HL Rally frames' worth of puffs made in one client frame at most (a long frame must not flood the pool)
 
@@ -190,7 +190,7 @@ struct ChromeCache
 	model_t* model;
 	float nextTry;
 };
-ChromeCache s_chrome = {nullptr, 0.0f};
+ChromeCache s_chrome[rallymodel::BRAND_COUNT] = {}; // one overlay for each brand; slot 0 is the generic one
 
 void ClearAll()
 {
@@ -199,8 +199,11 @@ void ClearAll()
 	s_local = Local();
 	s_marks.Clear();
 	s_exhaustAt = -10.0f;
-	s_chrome.model = nullptr;
-	s_chrome.nextTry = 0.0f;
+	for (int i = 0; i < rallymodel::BRAND_COUNT; i++)
+	{
+		s_chrome[i].model = nullptr;
+		s_chrome[i].nextTry = 0.0f;
+	}
 }
 
 // ---- the dust: a temporary entity with HL Rally's own update -----------------------------------------------------------------------------
@@ -452,23 +455,34 @@ void H9RallyFx_NoteExhaust(int index, const float attachment0[3])
 	s_exhaustAt = gEngfuncs.GetClientTime();
 }
 
-model_s* H9RallyFx_CarChrome()
+// One overlay's model by brand slot, looked for again every ten seconds while it is not there.
+static model_t* ChromeSlot(int b)
+{
+	ChromeCache& c = s_chrome[b];
+	if (c.model != nullptr)
+		return c.model;
+	const float now = gEngfuncs.GetClientTime();
+	if (now < c.nextTry)
+		return nullptr;
+	c.nextTry = now + 10.0f;
+	if (!OnDisk(rallymodel::kBrandChrome[b]) || IEngineStudio.Mod_ForName == nullptr)
+		return nullptr;
+	model_t* m = IEngineStudio.Mod_ForName(rallymodel::kBrandChrome[b], 0);
+	if (m != nullptr && IEngineStudio.Mod_Extradata(m) != nullptr)
+		c.model = m;
+	return c.model;
+}
+
+model_s* H9RallyFx_CarChrome(int carClass)
 {
 	Find(s_cvChromeOn, "cl_h9_rally_chrome"); // the cvar h9_rallycar.cpp makes: HL Rally's rally_chrome, 1
 	if (!Cv(s_cvChromeOn))
 		return nullptr;
-	if (s_chrome.model != nullptr)
-		return s_chrome.model;
-	const float now = gEngfuncs.GetClientTime();
-	if (now < s_chrome.nextTry)
-		return nullptr;
-	s_chrome.nextTry = now + 10.0f;
-	if (!OnDisk(CHROME_PATH) || IEngineStudio.Mod_ForName == nullptr)
-		return nullptr;
-	model_t* m = IEngineStudio.Mod_ForName(CHROME_PATH, 0);
-	if (m != nullptr && IEngineStudio.Mod_Extradata(m) != nullptr)
-		s_chrome.model = m;
-	return s_chrome.model;
+	const int b = rallymodel::BrandOf(carClass);
+	model_t* m = ChromeSlot(b);
+	if (m == nullptr && b != rallymodel::BRAND_GENERIC)
+		m = ChromeSlot(rallymodel::BRAND_GENERIC); // the brand's overlay is not there: the generic one has the same bones
+	return m;
 }
 
 void H9RallyFx_Frame(const H9RallyFxCar* cars, int n, float now, float dt)

@@ -1568,6 +1568,16 @@ int AddToFullPack(struct entity_state_s* state, int e, edict_t* ent, edict_t* ho
 		//
 		state->usehull = (ent->v.flags & FL_DUCKING) != 0 ? 1 : 0;
 		state->health = ent->v.health;
+
+		// H9 rally mode: the other clients draw this car with its class's brand model (cl_dll/h9_rallycar.cpp), so the class rides in the player's
+		// playerclass (4 bits in delta.lst's entity_state_player_t; classes are 1..10). Not to the car's own client: that one reads its physinfo,
+		// and a playerclass of its own would reach g_iPlayerClass (the stock class menus).
+		if (ent != host)
+		{
+			const int rallyClass = H9RallyCurrentClass(ent);
+			if (rallyClass > 0 && rallyClass <= 15)
+				state->playerclass = rallyClass;
+		}
 	}
 
 	CBaseEntity* pEntity = static_cast<CBaseEntity*>(GET_PRIVATE(ent));

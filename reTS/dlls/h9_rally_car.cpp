@@ -12,7 +12,7 @@
 #include "h9_rally_car.h"
 #include "h9_rally_snd.h"
 
-#define H9_RALLY_CAR_MODEL "models/h9/rc_rally_xs.mdl"
+#include "h9_rallymodel.h"
 #define H9_RALLY_INTERIOR_MODEL "models/h9/rally_interior.mdl"
 #define H9_RALLY_INTERIOR_CHROME "models/h9/rally_interior_chrome.mdl"
 
@@ -46,9 +46,10 @@ void H9RallyCarPrecache()
 		if (FileThere(H9_RALLY_INTERIOR_CHROME))
 			PRECACHE_MODEL((char*)H9_RALLY_INTERIOR_CHROME);
 	}
-	if (!FileThere(H9_RALLY_CAR_MODEL))
-		return;
-	PRECACHE_MODEL((char*)H9_RALLY_CAR_MODEL);
+	// the generic car and each brand's, those that are there (a missing brand is drawn with the generic one)
+	for (int b = 0; b < rallymodel::BRAND_COUNT; b++)
+		if (FileThere(rallymodel::kBrandModel[b]))
+			PRECACHE_MODEL((char*)rallymodel::kBrandModel[b]);
 }
 
 // HL Rally's info_camera (dlls/player.cpp:5084-5099): an invisible point the TV camera sits at. The client reads the cameras from the map's own

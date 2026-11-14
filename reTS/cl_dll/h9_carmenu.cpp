@@ -12,6 +12,7 @@
 #include "parsemsg.h"
 #include "h9_carmenu.h"
 #include "h9_rallycar.h"
+#include "h9_rallymodel.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,7 +23,6 @@ namespace
 {
 using namespace carmenu;
 
-const char* const CAR_MODEL = "models/h9/rc_rally_xs.mdl"; // the one car model there is: every class shows it, by livery
 const char* const SHADOW_SPRITE = "sprites/h9/rally/r_shadow.spr"; // the race effects' own shadow
 const char* const FLOOR_SPRITE = "sprites/h9/rally/showroom_f.spr"; // the pool of light on the showroom's floor (our own picture)
 const int SHOW_MARK = 0x434d4e; // baseline.iuser1 of the showroom car's tempent
@@ -112,6 +112,12 @@ void LoadSpot()
 }
 
 // ---- the showroom car -----------------------------------------------------------------------------------------------------------------------
+struct ShowModel
+{
+	int state = -1; // the model: -1 not asked, 0 no file, 1 ready
+	int index = 0;
+	struct model_s* model = nullptr;
+};
 struct Show
 {
 	bool active = false; // a car is wanted
@@ -119,8 +125,7 @@ struct Show
 	float lastSeen = -100.0f; // the client time of the tempent's last callback
 	Spin spin;
 	float pos[3] = {0, 0, 0};
-	int state = -1; // the model: -1 not asked, 0 no file, 1 ready
-	int index = 0;
+	ShowModel models[rallymodel::BRAND_COUNT]; // each brand's model, and the generic one (slot 0)
 } s_show;
 
 struct Sprite
@@ -129,23 +134,36 @@ struct Sprite
 	struct model_s* model = nullptr;
 } s_shadow, s_floor;
 
-bool CarModelReady()
+const ShowModel* LoadShowModel(int b)
 {
-	if (s_show.state < 0)
+	ShowModel& sm = s_show.models[b];
+	if (sm.state < 0)
 	{
-		s_show.state = 0;
-		if (HaveFile(CAR_MODEL)) // never asked for a model that is not on disk
+		sm.state = 0;
+		const char* path = rallymodel::kBrandModel[b];
+		if (HaveFile(path)) // never asked for a model that is not on disk
 		{
 			int index = 0;
-			struct model_s* m = gEngfuncs.CL_LoadModel(CAR_MODEL, &index);
+			struct model_s* m = gEngfuncs.CL_LoadModel(path, &index);
 			if (m && index > 0)
 			{
-				s_show.index = index;
-				s_show.state = 1;
+				sm.index = index;
+				sm.model = m;
+				sm.state = 1;
 			}
 		}
 	}
-	return s_show.state == 1;
+	return sm.state == 1 ? &sm : nullptr;
+}
+
+// The showroom model of a class: its brand's, else the generic one; null when neither is there.
+const ShowModel* ShowModelFor(int cls)
+{
+	const int b = rallymodel::BrandOf(cls);
+	const ShowModel* sm = LoadShowModel(b);
+	if (sm == nullptr && b != rallymodel::BRAND_GENERIC)
+		sm = LoadShowModel(rallymodel::BRAND_GENERIC);
+	return sm;
 }
 
 struct model_s* SpriteModel(Sprite& sp, const char* path)
@@ -190,6 +208,12 @@ void ShowCallback(struct tempent_s* ent, float frametime, float currenttime)
 	ent->entity.angles[1] = s_show.spin.yaw;
 	ent->entity.angles[2] = 0;
 	ent->entity.curstate.skin = ShowSkin(s_show.cls);
+	const ShowModel* sm = ShowModelFor(s_show.cls); // the hovered class's own brand
+	if (sm != nullptr && ent->entity.model != sm->model)
+	{
+		ent->entity.model = sm->model;
+		ent->entity.curstate.modelindex = sm->index;
+	}
 	dlight_t* dl = gEngfuncs.pEfxAPI->CL_AllocElight(SHOW_LIGHT);
 	if (dl)
 	{
@@ -259,7 +283,8 @@ void H9CarMenu_ShowCar(int cls)
 	s_show.cls = cls;
 	if (ShowAlive())
 		return; // the car stands there: its livery follows the class by itself
-	if (!CarModelReady())
+	const ShowModel* first = ShowModelFor(cls);
+	if (first == nullptr)
 		return;
 	s_show.active = true;
 	s_show.lastSeen = gEngfuncs.GetClientTime();
@@ -268,7 +293,7 @@ void H9CarMenu_ShowCar(int cls)
 	VectorCopy(org, s_show.pos);
 	const float zero[3] = {0, 0, 0};
 	float ang[3] = {0, s_show.spin.yaw, 0};
-	TEMPENTITY* te = gEngfuncs.pEfxAPI->R_TempModel(org, (float*)zero, ang, 999.0f, s_show.index, TE_BOUNCE_NULL);
+	TEMPENTITY* te = gEngfuncs.pEfxAPI->R_TempModel(org, (float*)zero, ang, 999.0f, first->index, TE_BOUNCE_NULL);
 	if (!te)
 	{
 		s_show.active = false;

@@ -1833,8 +1833,8 @@ bool CStudioModelRenderer::StudioDrawCar(int flags, entity_state_t* pplayer, con
 		// The body's chrome overlay, the car being a player: HL Rally's rally_chrome (StudioModelRenderer.cpp:2390-2427). A second model, drawn after the
 		// first, added (kRenderTransAdd, :2408), on the first one's bones (StudioMergeBones, :2413), with 24 of ambient so the car shines a little in the
 		// dark (:2416-2419), then the render mode back to normal (:2425). HL Rally asks for models/player/<model>/<model>_chrome.mdl; this car has the one
-		// model, so its overlay is models/h9/rc_rally_xs_chrome.mdl (h9_rallyfx.cpp), found by H9RallyFx_CarChrome while cl_h9_rally_chrome (rally_chrome) is on.
-		model_t* h9Chrome = H9RallyFx_CarChrome();
+		// model, so its overlay is models/h9/the class's brand chrome (rc_rally_<brand>_xs_chrome.mdl, else rc_rally_xs_chrome.mdl; h9_rallyfx.cpp), found by H9RallyFx_CarChrome while cl_h9_rally_chrome (rally_chrome) is on.
+		model_t* h9Chrome = H9RallyFx_CarChrome(car.carClass);
 		if (h9Chrome != NULL)
 		{
 			studiohdr_t* chromeHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(h9Chrome);
