@@ -50,3 +50,19 @@ void H9RallyCarPrecache()
 		return;
 	PRECACHE_MODEL((char*)H9_RALLY_CAR_MODEL);
 }
+
+// HL Rally's info_camera (dlls/player.cpp:5084-5099): an invisible point the TV camera sits at. The client reads the cameras from the map's own
+// entity string (cl_dll/h9_rallycam_calc.h, TvParseCameras), so this only lets the entity exist on the server.
+class CInfoCamera : public CPointEntity
+{
+public:
+	void Spawn() override
+	{
+		UTIL_SetOrigin(pev, pev->origin);
+		pev->solid = SOLID_NOT;
+		pev->effects = EF_NODRAW;
+		pev->v_angle = g_vecZero;
+	}
+};
+
+LINK_ENTITY_TO_CLASS(info_camera, CInfoCamera);

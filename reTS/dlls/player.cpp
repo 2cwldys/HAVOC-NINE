@@ -1527,7 +1527,8 @@ void CBasePlayer::StartObserver(Vector vecPosition, Vector vecViewAngle)
 	// @0x8999d..0x899ba: the last mode StopObserver saved, or chase (OBS_CHASE_FREE) when there is
 	// none yet, so a joiner starts out chasing a player (Observer_SetMode falls back to roaming
 	// when there is nobody to chase).
-	Observer_SetMode(m_iObserverLastMode != 0 ? m_iObserverLastMode : OBS_CHASE_FREE);
+	// H9 rally mode: HL Rally's observer is always the freely-looking chase (rally_spectate.cpp:83)
+	Observer_SetMode(RaceRallyMode() ? OBS_CHASE_FREE : (m_iObserverLastMode != 0 ? m_iObserverLastMode : OBS_CHASE_FREE));
 
 	// @0x899c2: everyone is told he spectates (Spectator {idx, 1}). Sent here, so a teamplay joiner's
 	// team change, which calls StartObserver alone, sends one too (two for him, as TS 3.0).
