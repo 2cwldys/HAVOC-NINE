@@ -49,6 +49,8 @@ const char* const CAR_PREFIX = "models/h9/rc_";
 
 // ---- cvars ----------------------------------------------------------------------------------------------------------------------
 
+struct cvar_s* s_cvDebug = nullptr;
+float s_debugNext = 0;
 struct cvar_s *s_cvMaster, *s_cvMarks, *s_cvSpray, *s_cvShadow, *s_cvLights, *s_cvWeather;
 
 bool Cv(struct cvar_s* cv)
@@ -708,6 +710,7 @@ void DrawWeather(int mode)
 void H9RaceFx_Init()
 {
 	s_cvMaster = CVAR_CREATE("cl_h9_racefx", "1", FCVAR_ARCHIVE);
+	s_cvDebug = CVAR_CREATE("cl_h9_racefx_debug", "0", 0);
 	s_cvMarks = CVAR_CREATE("cl_h9_racefx_marks", "1", FCVAR_ARCHIVE);
 	s_cvSpray = CVAR_CREATE("cl_h9_racefx_spray", "1", FCVAR_ARCHIVE);
 	s_cvShadow = CVAR_CREATE("cl_h9_racefx_shadow", "1", FCVAR_ARCHIVE);
@@ -829,6 +832,18 @@ void H9RaceFx_Draw()
 		if (s_slot[i].used && s_now - s_slot[i].lastSeen > 1.5f)
 			s_slot[i].used = false;
 
+	if (s_cvDebug != nullptr && s_cvDebug->value != 0 && s_now >= s_debugNext)
+	{
+		// cl_h9_racefx_debug 1: once a second, what the effects see (cars this frame, marks kept, the dark sprite, a car's bytes)
+		s_debugNext = s_now + 1.0f;
+		const bool dark = BindSpr(SPR_OMBRA, 0);
+		gEngfuncs.Con_Printf("racefx: cars %d, marks %d, puffs on %d, ombra %s (handle %d), car0 at %.0f %.0f %.0f len %.1f slip %d state %d speed %.1f lengths/s
+",
+			nCars, s_marks.count, doSpray ? 1 : 0, dark ? "bound" : "NOT bound", (int)s_spr[SPR_OMBRA].handle,
+			nCars > 0 ? s_pend[0].origin.x : 0.0f, nCars > 0 ? s_pend[0].origin.y : 0.0f, nCars > 0 ? s_pend[0].origin.z : 0.0f,
+			nCars > 0 ? s_pend[0].dims.len : 0.0f, nCars > 0 ? s_pend[0].b0 : 0, nCars > 0 ? s_pend[0].b1 : 0,
+			nCars > 0 && FindSlot(s_pend[0].index) != nullptr ? FindSlot(s_pend[0].index)->speedLen : 0.0f);
+	}
 	DrawDark(doShadow ? nCars : 0);
 	DrawGlows(nCars);
 	if (doSpray)
