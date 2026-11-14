@@ -21,6 +21,8 @@
 
 #include "h9_racefx.h"
 #include "h9_racefx_calc.h"
+#include "h9_rallyfx.h" // rally cars have HL Rally's own effects (h9_rallyfx.cpp) instead of the ones below
+#include "h9_rallycar.h" // H9RallyCar_IsCarEntity, H9RallyCam_LocalIsCar
 
 #include <string.h>
 #include <math.h>
@@ -166,10 +168,14 @@ struct Pending
 	float yaw;
 	int b0, b1;
 	Dims dims;
+	bool rally;       // a rally car (h9_rallycar.h): HL Rally's effects, not these
+	bool local;       // ... and the player's own
+	float vel[3];     // ... and its velocity (HL Rally's: the entity's history for another car)
 };
 
 Pending s_pend[MAX_CARS];
 int s_nPend = 0;
+bool s_rallySeen = false; // a rally car has been noted since the map began: the weather and the like of the race effects are not for it
 
 // What is kept from frame to frame for each car.
 struct CarSlot
@@ -528,7 +534,7 @@ void DrawGlows(int nCars)
 		for (int i = 0; i < nCars; i++)
 		{
 			const Pending& p = s_pend[i];
-			if (!BrakeLightsOn(p.b1))
+			if (p.rally || !BrakeLightsOn(p.b1))
 				continue;
 			const float size = 0.05f * p.dims.len;
 			for (int side = 0; side < 2; side++)
@@ -717,11 +723,14 @@ void H9RaceFx_Init()
 	s_cvLights = CVAR_CREATE("cl_h9_racefx_lights", "1", FCVAR_ARCHIVE);
 	s_cvWeather = CVAR_CREATE("cl_h9_raceweather", "0", 0); // 0 none, 1 snow, 2 rain; a map's config sets it, it is not kept
 	ClearAll();
+	H9RallyFx_Init(); // HL Rally's effects for rally cars: its cvars and the headlights' message
 }
 
 void H9RaceFx_VidInit()
 {
 	ClearAll();
+	s_rallySeen = false;
+	H9RallyFx_VidInit();
 	for (int i = 0; i < SPR_N; i++)
 	{
 		s_spr[i].handle = 0; // handles change with every map load
@@ -770,6 +779,28 @@ void H9RaceFx_NoteEntity(struct cl_entity_s* ent, const char* modelname, const s
 	p.yaw = ent->angles.y;
 	p.b0 = ent->curstate.blending[0];
 	p.b1 = ent->curstate.blending[1];
+	p.rally = ent->player != 0 && H9RallyCar_IsCarEntity(ent);
+	p.local = false;
+	p.vel[0] = p.vel[1] = p.vel[2] = 0.0f;
+	if (p.rally)
+	{
+		s_rallySeen = true;
+		const cl_entity_t* me = gEngfuncs.GetLocalPlayer();
+		p.local = me != nullptr && me->index == ent->index;
+		// another car's velocity as HL Rally takes it (Rally_Effects.cpp:524-546): the last two entries of the entity's position history, the
+		// difference over their times. The local car's is replaced in H9RallyFx_Frame by the prediction's.
+		const int cp = ent->current_position & HISTORY_MASK, pp = (cp + HISTORY_MAX - 1) & HISTORY_MASK;
+		const float at = ent->ph[cp].animtime - ent->ph[pp].animtime;
+		if (at > 0.0001f)
+			for (int i = 0; i < 3; i++)
+				p.vel[i] = (ent->ph[cp].origin[i] - ent->ph[pp].origin[i]) / at;
+		else
+		{
+			p.vel[0] = ent->curstate.velocity[0];
+			p.vel[1] = ent->curstate.velocity[1];
+			p.vel[2] = ent->curstate.velocity[2];
+		}
+	}
 	s_nPend++;
 }
 
@@ -797,6 +828,8 @@ void H9RaceFx_Draw()
 	{
 		const Pending& p = s_pend[k];
 		s_shadow[k].on = false;
+		if (p.rally)
+			continue; // HL Rally's effects (h9_rallyfx.cpp), below
 		CarSlot* c = FindSlot(p.index);
 		if (c == nullptr)
 			continue; // more cars than slots: this one has no effects
@@ -843,16 +876,43 @@ void H9RaceFx_Draw()
 			nCars > 0 ? s_pend[0].dims.len : 0.0f, nCars > 0 ? s_pend[0].b0 : 0, nCars > 0 ? s_pend[0].b1 : 0,
 			nCars > 0 && FindSlot(s_pend[0].index) != nullptr ? FindSlot(s_pend[0].index)->speedLen : 0.0f);
 	}
-	DrawDark(doShadow ? nCars : 0);
+	int nRace = 0; // the cars that are not rally cars: only these have the shadow, brake lights and spray of this file
+	for (int k = 0; k < nCars; k++)
+		if (!s_pend[k].rally)
+			nRace++;
+	DrawDark(doShadow && nRace > 0 ? nCars : 0);
 	DrawGlows(nCars);
 	if (doSpray)
 		DrawPuffs();
 
+	// the weather and the water spray are this file's own, HL Rally has none: not in rally mode (the local player is a rally car, or one was seen)
 	const int weather = (int)(s_cvWeather != nullptr ? s_cvWeather->value + 0.5f : 0.0f);
-	if (weather == 1 || weather == 2)
+	if ((weather == 1 || weather == 2) && !s_rallySeen && !H9RallyCam_LocalIsCar())
 	{
 		Weather(weather, dt);
 		DrawWeather(weather);
 	}
+
+	// HL Rally's effects for the rally cars: the local car's skid marks, the dust and the shadow of each, the lamps, the headlights, the flame
+	H9RallyFxCar rc[MAX_CARS];
+	int nRally = 0;
+	for (int k = 0; k < nCars; k++)
+	{
+		const Pending& p = s_pend[k];
+		if (!p.rally)
+			continue;
+		H9RallyFxCar& r = rc[nRally++];
+		r.index = p.index;
+		r.local = p.local;
+		r.origin[0] = p.origin.x;
+		r.origin[1] = p.origin.y;
+		r.origin[2] = p.origin.z;
+		r.yaw = p.yaw;
+		r.vel[0] = p.vel[0];
+		r.vel[1] = p.vel[1];
+		r.vel[2] = p.vel[2];
+	}
+	if (s_rallySeen || nRally > 0)
+		H9RallyFx_Frame(rc, nRally, s_now, dt);
 	s_nPend = 0;
 }
