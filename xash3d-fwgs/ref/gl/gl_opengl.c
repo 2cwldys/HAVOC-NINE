@@ -11,6 +11,8 @@ CVAR_DEFINE_AUTO( gl_texture_lodbias, "0.0", FCVAR_GLCONFIG, "LOD bias for mipma
 CVAR_DEFINE_AUTO( gl_texture_nearest, "0", FCVAR_GLCONFIG, "disable texture filter" );
 CVAR_DEFINE_AUTO( gl_lightmap_nearest, "0", FCVAR_GLCONFIG, "disable lightmap filter" );
 CVAR_DEFINE_AUTO( gl_fbo_nearest, "0", FCVAR_GLCONFIG, "disable filter when upscaling the scene rendered with r_scene_scale" );
+CVAR_DEFINE_AUTO( h9_upscale, "0", FCVAR_GLCONFIG, "upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on)" );
+CVAR_DEFINE_AUTO( h9_upscale_sharp, "0.84", FCVAR_GLCONFIG, "how strongly h9_upscale sharpens (RCAS): 0 none, 1 the most, 0.84 is AMD's recommended 0.25 stops" );
 CVAR_DEFINE_AUTO( gl_keeptjunctions, "1", FCVAR_GLCONFIG, "removing tjuncs causes blinking pixels" );
 CVAR_DEFINE_AUTO( gl_check_errors, "1", FCVAR_GLCONFIG, "ignore video engine errors" );
 CVAR_DEFINE_AUTO( gl_polyoffset, "2", FCVAR_GLCONFIG, "polygon offset for decals" );
@@ -1263,6 +1265,8 @@ static void GL_InitCommands( void )
 	gEngfuncs.Cvar_RegisterVariable( &gl_texture_nearest );
 	gEngfuncs.Cvar_RegisterVariable( &gl_lightmap_nearest );
 	gEngfuncs.Cvar_RegisterVariable( &gl_fbo_nearest );
+	gEngfuncs.Cvar_RegisterVariable( &h9_upscale );
+	gEngfuncs.Cvar_RegisterVariable( &h9_upscale_sharp );
 	gEngfuncs.Cvar_RegisterVariable( &gl_check_errors );
 	gEngfuncs.Cvar_RegisterVariable( &gl_texture_anisotropy );
 	gEngfuncs.Cvar_RegisterVariable( &gl_texture_lodbias );
@@ -1397,6 +1401,7 @@ void R_Shutdown( void )
 
 	GL_RemoveCommands();
 	GL_FreeRenderTargets();
+	GL_UpscaleShutdown();
 	R_ShutdownImages();
 #if !XASH_GLES && !XASH_GL_STATIC
 	GL2_ShimShutdown();

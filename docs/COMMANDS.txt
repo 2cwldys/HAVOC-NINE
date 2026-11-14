@@ -2934,6 +2934,25 @@
                                  as recorded, 0.5 half, 0 silent; a whole number
                                  or a decimal. Saved with the player's config.
                                  The engine's (engine-h9-intro.patch)
+ h9_upscale 0|1                  the 3D scene drawn to the window by AMD's
+                                 FSR 1 (an edge adaptive upsampling, then a
+                                 sharpening) in place of the plain blit (0).
+                                 For a weak PC or laptop: r_scene_scale 0.67
+                                 to 0.77 and h9_upscale 1: the scene costs
+                                 about half the pixels and comes out sharper
+                                 than with r_scene_scale alone. The HUD stays
+                                 at the window's resolution. At r_scene_scale
+                                 1 it only sharpens; above 1 it does nothing.
+                                 Live; saved in opengl.cfg with r_scene_scale.
+                                 Needs OpenGL shader objects: where they or a
+                                 target fail it says so once and the plain
+                                 blit stays (h9_upscale 0 and then 1 tries
+                                 again). In the browser build it does nothing.
+                                 The engine's (engine-h9-upscale.patch,
+                                 docs\H9_UPSCALE.txt)
+ h9_upscale_sharp 0 to 1         how strongly h9_upscale sharpens (0.84): 0
+                                 none, 1 the strongest; 0.84 is AMD's own
+                                 recommended value. Live; saved in opengl.cfg
  tsm_show_zones 0|1              the marks drawn on the world, through the
                                  walls, where the point is (1); 0 draws none
                                  there, and the row of marks under the top

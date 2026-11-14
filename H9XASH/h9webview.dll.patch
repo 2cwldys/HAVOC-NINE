@@ -4,7 +4,7 @@ The splash MOTD's embedded web page: a server's h9_motd "page", shown inside the
 Microsoft Edge WebView2 (docs\H9_MOTD.txt). The engine loads it by name (cl_motd.c,
 engine-h9-motd.patch) and falls back to the page's picture or text without it.
 
-Built: Wed 11/11/2026 15:30:40.78, 32-bit, MSVC /O2 /MT, against the WebView2 SDK 1.0.4258.31 (NuGet
+Built: Fri 11/13/2026 17:16:06.01, 32-bit, MSVC /O2 /MT, against the WebView2 SDK 1.0.4258.31 (NuGet
 Microsoft.Web.WebView2, its LICENSE.txt shipped as h9webview.WebView2-LICENSE.txt), with
 WebView2LoaderStatic.lib linked in: no WebView2Loader.dll is needed.
 

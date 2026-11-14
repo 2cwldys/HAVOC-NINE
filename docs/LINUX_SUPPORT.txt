@@ -60,6 +60,11 @@
    colour a player gives H9's panels with cl_h9_vgui_r, _g and _b: docs\APOLLO_RP.txt, docs\ARP_INVENTORY_WINDOW.txt, docs\H9_VGUI.txt 4k): plain
    engine-API and VGUI code in cl_dll, the colour arithmetic a header with no platform file. The Wine package's client.dll has it, the web client
    once it is rebuilt, a native client would build it with the rest of cl_dll, and the Linux server's ARP plugins send it to them.
+   The engine's renderer upscaler (h9_upscale, docs\H9_UPSCALE.txt: AMD FSR 1 in ref_gl, GLSL 1.10 through the ARB shader-object calls the
+   renderer already loads) is plain OpenGL code with nothing platform specific, and client-only: a Linux player runs the Wine package's
+   ref_gl.dll, where Wine hands the shaders to the host's OpenGL driver; a native client would carry it in libref_gl.so, which builds for
+   Linux i386 and x86-64 with no warning and whose shaders run on Mesa's llvmpipe (checked there with a test harness, not in a game). The web
+   client's renderer compiles it out and keeps the cvars.
    Known oddity: at load AMX Mod X logs "Unable to load library engine (gameconf
    common.games)" five times. It finds an engine function by opening the engine's file as
    a library; xashds is a program (a PIE executable), which glibc will not dlopen and which
