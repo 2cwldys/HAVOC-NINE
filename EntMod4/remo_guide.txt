@@ -1,0 +1,937 @@
+---------------------------------------------------------------
+---------------------------------------------------------------
+1.Standart Commands
+2.Envs
+3.How to ...
+4.E_render
+5.Trigger
+6.Miscs
+---------------------------------------------------------------
+7.How to...
+8.All models weapons monsters....
+9.All standart ent commands explained
+---------------------------------------------------------------
+---------------------------------------------------------------
+//Standart commands:
+bind "KEY" "weapon_entmover" gives u weapon entmover
+bind "KEY" "+copyent" copy an entity
+bind "KEY" "+grabent" grabs an entity
+bind "KEY" "e_rotate_y" 
+bind "KEY" "e_rotate_x"
+bind "KEY" "e_rotate_z"
+mm_start
+mm_grab
+mm_end
+entmod_noclip 1/0 to noclip u
+e_god 1 point at a player/monster to god it 
+entmod_keys  shows keys about the entity which was used:)or the target from buttons etc..
+entmod_lookingat shows infos about model(monsters...)
+---------------------------------------------------------------
+//Login as admin:
+setinfo _entpass <password>
+---------------------------------------------------------------
+//Saving:
+es_start <name>
+es_grab 
+es_save 0/1 1 to move it
+es_load <name>
+saving monsters/commands...:
+es_graball monster_<monstername> then this
+es_grab monster_<monstername> first this 
+---------------------------------------------------------------
+//E_stack:
+e_stack <count> #x #y #z
+---------------------------------------------------------------
+---------------------------------------------------------------
+---------------------------------------------------------------
+//2.Env Commands//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//Env_render
+e_add env_render:origin:%HERE%:renderamt:255:rendercolor:255 0 0:renderfx:19:rendermode:1:targetname:button:target:monster
+button with target button and monster with targetname monster
+---------------------------------------------------------------
+//Env_glow
+e_add env_glow:origin:%HERE%(:targetname:lol:)model:sprites/glow01.mdl
+---------------------------------------------------------------
+//Env_blood
+e_add env_blood:origin:%HERE%:targetname:Boom:amount:1000:angles:-90 0 0:color:0:spawnflags:11
+---------------------------------------------------------------
+//Env_bubbles
+e_add env_bubbles:origin:%HERE%:density:5:current:100:frequency:5:   DONT WORKS!!! FUCK THE FUCKING SHIT!^^
+---------------------------------------------------------------
+//Env_beverage(soda machine)
+e_add env_beverage:origin:%HERE%:health:20:skin:6:targetname:Bever:
+than do the machine func_rot_button with target bever
+ 
+Skin values are:
+ 
+0 - Coca-Cola (default)
+1 - Sprite
+2 - Diet Coke
+3 - Orange
+4 - Surge
+5 - Moxie
+6 - Random
+---------------------------------------------------------------
+//Env fade
+e_add env_fade:origin:%HERE%:duration:5:holdtime:5:renderamt:100:rendercolor:255 255 255:targetname:lol:spawnflags:1
+---------------------------------------------------------------
+//Env_funnel
+e_classname env_funnel entmod_keyvalue targetname fun / and on button target fun/copy funnel push button hf^^
+---------------------------------------------------------------
+//Env_earthquake
+e_add env_shake:origin:HERE:targetname:quake:amplitude:16:duration:3:frequency:5:radius:40000
+---------------------------------------------------------------
+//Env_explosion
+e_add env_explosion:origin:%HERE%:iMagnitude:800:targetname:Boom:spawnflags:1:
+---------------------------------------------------------------
+//Env_laser
+take 2 objects on the first entmod_keyvalue LaserTarget <name>
+ 
+than point at the first and typ(without quotes) "e_classname env_laser;entmod_keyvalue spawnflags 1;entmod_keyvalue width 50;entmod_keyvalue rendercolor 255;entmod_keyvalue renderamt 255;
+entmod_keyvalue texture sprites/xenobeam.spr;entmod_keyvalue damage 1000;(entmod_keyvalue NoiseAmplitude 10-255)
+ 
+Spawnflags:
+1-Normal
+49-Sparks at start and end
+97-Sparks at the end
+ 
+on the second object entmod_keyvalue targetname <name as before>
+then copy first
+Move the second .. hf
+kill laser:
+e_kill env_laser 500
+---------------------------------------------------------------
+//Env_shooter
+e_classname env_shooter;entmod_keyvalue shootmodel *223;entmod_keyvalue shootsounds 0;entmod_keyvalue delay 0.3;entmod_keyvalue m_flGibLife 3;entmod_keyvalue m_flVariance 0.5;
+entmod_keyvalue m_flVelocity 100;entmod_keyvalue m_iGibs 1;entmod_keyvalue angles "0 90 0";entmod_keyvalue spawnflags 1 copy targetname button hf
+---------------------------------------------------------------
+//Env_smoker
+e_add env_smoker:origin:%HERE%:health:593487457834978397849789997535397:
+---------------------------------------------------------------
+//Env_spark
+e_add env_spark:origin:%HERE%:
+---------------------------------------------------------------
+---------------------------------------------------------------
+//3.How to... Commands//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//How to make smoke:
+e_add cycler_wreckage:origin:%HERE%
+---------------------------------------------------------------
+//How to make fire:
+e_add env_sprite:origin:%HERE%:model:sprites/fire.spr:rendermode:5:renderamt:255:spawnflags:1:framerate:30:scale:4
+---------------------------------------------------------------
+//How to make a cycler:
+e_add cycler:origin:%HERE%:model:models/<modelname>.mdl
+(dont works everytime)
+---------------------------------------------------------------
+//How To display a message when you walk thru the entity?
+e_classname trigger_multiple
+entmod_keyvalue message "text" 
+---------------------------------------------------------------
+//How to make a cycler_sprite
+e_add cycler_sprite:origin:%HERE%:model:sprites/<spritename>.spr:framerate:30:
+---------------------------------------------------------------
+//How to make a Path corner:
+Take 3 objects 
+on 2 of them do opposite targets/targetnames
+i.e 1 Object targetname lol target lol2
+    2 Object targetname lol target lol
+than do                                                           
+speed value 60/500
+e_classname path_corner Dont copy!!!!
+ 
+Take the 3rd Object and do a func_train on it Copy!!
+do damage value on it
+do targetname on it
+do target from 1 of the both path corner on it
+make button with target from train
+save load hf
+---------------------------------------------------------------
+//How to do Cameras:
+do button with target cam1
+and a targetname lol on an object where the camera shall look
+the following command on camera!
+ 
+e_add trigger_camera:origin:%HERE%:targetname:cam1:target:lol:hold:1:wait:20(:acceleration:500:deceleration:500)
+add moveto:name:speed:value to make a camera which follows a train or a person
+name of moveto must be first name of path 
+flags:
+2 start at player
+3 follow player
+4 freez player
+---------------------------------------------------------------
+//How to make an elevator:
+e_classname func_plat; entmod_keyvalue speed 100; entmod_keyvalue spawnflags 1; entmod_keyvalue height -60 
+ 
+(-) is necessary... 
+ 
+copy elevator make targetname with a button on it and save it
+ 
+load it and push button
+---------------------------------------------------------------
+//How to make something exploding when u shoot at it:
+e_classname func_breakable;entmod_keyvalue explodemagnitude 10000 ---> very high explosive
+---------------------------------------------------------------
+//How to make a rpg_rocket:
+entmod_create rpg_rocket 1
+---------------------------------------------------------------
+//How to give some1 health (careful max should be 999):
+entmod_keyvalue health <value>
+---------------------------------------------------------------
+//How to throw a player or monster away to the sky:
+entmod_keyvalue velocity "0 0 99999"
+---------------------------------------------------------------
+//How to make something faster:
+entmod_keyvalue speed <value>
+---------------------------------------------------------------
+//How to spawn kists with objects in it:
+e_add func_breakable:origin:%HERE%:model:<*modelnumber>:material:1:spawnobject:<object number>:spawnflags:6
+ 
+valid spawnnumbers:
+0 - Nothing (default)
+1 - Battery
+2 - Healthkit
+3 - 9mm Handgun
+4 - 9mm Clip
+5 - 9mm Assalt Rifle
+6 - Assalt Rifle Clip
+7 - Aassalt Rifle Grenades
+8 - Shotgun
+9 - Shotgun Shells
+10- Crossbow
+11- Crossbow Bolts
+12 - 357
+13 - 357 clip
+14 - RPG
+15 - RPG Clip
+16 - Gauss clip
+17 - Hand grenade
+18 - Tripmine
+19 - Satchel Charge
+20 - Snark
+21 - Hornet Gun
+ 
+materials:
+0 - Glass (default)
+1 - Wood
+2 - Metal
+3 - Flesh
+4 - Cinder Block
+5 - Ceiling Tile
+6 - Computer
+7 - Unbreakable Glass
+8 - Rocks
+---------------------------------------------------------------
+//How to make a prisoner?
+spawnflags:16 add this in addline 
+---------------------------------------------------------------
+//How to make some1 spinning:)
+entmod_keyvalue punchangle "999 999" 
+---------------------------------------------------------------
+//How to make a gibshooter:)
+e_add gibshooter:origin:%HERE%:delay:1:m_flGibLife:5:m_flVariance:0.3:m_flVelocity:100:m_iGibs:5:targetname:lol:spawnflags:1
+---------------------------------------------------------------
+//How to make a teleporter
+add a sprite of ur choise (should be precached:P)
+than do at same position 
+e_add trigger_teleport:origin:%HERE%:targetname:tele1
+than go where teleport should end 
+add again a sprite of ur choise (should be precached:P)
+than do at same position
+e_add info_teleport_destination:origin:%HERE%:target:tele1
+---------------------------------------------------------------
+//How to hurt a player when he press a button:
+make a button:
+	entmod_keyvalue target hurt1 on the button
+ 
+e_add game_player_hurt:origin:%HERE%:targetname:hurt1:dmg:999
+---------------------------------------------------------------
+//How to Change weapon models:
+ 
+e_add weapon_9mmhandgun:origin:%HERE%:iuser1:models/p_shotgun.mdl:iuser2:models/p_shotgun.mdl:iuser3:models/ball.mdl:
+ 
+Instructions:
+1. Go to weapons room. Look at every weapon.
+2. Type "entities" in the console (without the quotes), and go to the part with a bunch of models with w_ infront of them. these are all valid models for weapons. You can replace "w_" with "p_" or "v_".
+Examples: w_9mmhandgun, w_shotgun, w_9mmar.
+ 
+ 
+ 
+W_ models are WORLD models.
+V_ models are FIRSTPERSON models.
+P_ models are PLAYER models(the model when player is holding the weapon)
+ 
+                      Model keys:
+ 
+iuser1 - user thirdperson model (model while player is holding the weapon)
+iuser2 - world
+iuser3 - first person model
+ 
+Example:
+e_add weapon_shotgun:origin:%HERE%:iuser1:models/p_9mmhandgun.mdl:iuser2:models/w_9mmhandgun.mdl:iuser3:models/v_9mmhandgun.mdl:
+ 
+The above would make a shotgun that has all Hand Gun models.
+---------------------------------------------------------------
+//How to make a new spawn:
+e_add info_player_deathmatch:origin:%HERE%:
+---------------------------------------------------------------
+//How to make a safe zone:
+e_add game_player_hurt:origin:%HERE%:targetname:button:dmg:5000
+e_classname game_zone_player 
+entmod_keyvalue targetname:button
+entmod_keyvalue intarget:secure
+entmod_keyvalue outtarget:button
+copy 
+ 
+Do a button with the target button and hf :)
+---------------------------------------------------------------
+---------------------------------------------------------------
+//4.E_render Commands//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//E_render (players/Monsters) 0-255 means how intensiv the color is:
+e_render 1/5 0-255 19(must be 19 everytime) R(red) Y(yellow) B(blue)
+so:
+making red monster pulsing:
+e_render 5 200 19 255 0 0
+---------------------------------------------------------------
+//E_render (walls):
+e_render 1 0-255 1-4(pulsing slow or fast) R(red) Y(yellow) B(blue)
+---------------------------------------------------------------
+---------------------------------------------------------------
+//5.Trigger Commands//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//Trigger_hurt (for example healing wate;ice damage...)
+e_classname trigger_hurt;entmod_keyvalue damage -10;entmod_keyvalue spawnflags 1;than copy
+e_classname trigger_hurt;entmod_keyvalue damagetype 16;entmod_keyvalue damage 1
+ 
+Damagetypes:
+0 - GENERIC (default)
+1 - CRUSH
+2 - BULLET
+4 - SLASH
+8 - BURN
+16 - FREEZE
+32 - FALL
+64 - BLAST
+128 - CLUB
+256 - SHOCK
+512 - SONIC
+1024 - ENERGYBEAM
+16384 - DROWN
+32768 - PARALYSE
+65536 - NERVEGAS
+131072 - POISON
+262144 - RADIATION
+524288 - DROWNRECOVER
+1048576 - CHEMICAL
+2097152 - SLOWBURN
+4194304 - SLOWFREEZE
+---------------------------------------------------------------
+//Trigger_gravity
+e_classname trigger_gravity;entmod_keyvalue gravity 0.1-0.9
+---------------------------------------------------------------
+//Trigger_multiple (for example weapon removing laser)
+trigger_multiple entmod_keyvalue target lol
+e_add player_weaponstrip:origin:%HERE%:targetname:lol copy 
+---------------------------------------------------------------
+//Trigger_push
+e_classname trigger_push;entmod_keyvalue speed 10000;entmod_keyvalue angles "270 0 0" copy
+---------------------------------------------------------------
+//TriggerCondition
+TriggerCondition:<number> add this in an add line now u can give a monster a target for a new command
+ex: if u attack a monster the monster is starting a monstermaker
+ 
+numbers:
+0 - No Trigger (default)
+1 - See Player, Mad at Player
+2 - Take Damage
+3 - 50% Health Remaining
+4 - Death
+7 - Hear World
+8 - Hear Player
+9 - Hear Combat
+10 - See Player Unconditional
+11 - See Player, Not In Combat
+ 
+ex:
+e_add monster_zombie:origin:%HERE%:health:500:displayname:i am da evil zombie:TriggerCondition:4:TriggerTarget:test:
+than do a monstermaker with targetname test and if the monster dies the monstermaker will spawn new 1
+---------------------------------------------------------------
+---------------------------------------------------------------
+//6.Misc Commands//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//Multi_Manager
+e_add multi_manager:origin:%HERE%:targetname:<name>:<name>:<delay>:<name>:<delay>:<name>:<delay>:<name>:<delay>:....
+2nd 3rd .. names are targets no targetnames!
+---------------------------------------------------------------
+//Targets in map better than best entmap 2:
+target sun            //complete light
+target streetlights  //the light spot in the middle
+target thebigbang    // the explosion which kills all:P^^
+---------------------------------------------------------------
+//Worldcopy:
+entmod_worldcopy 1 than lift it 
+---------------------------------------------------------------
+//Worldrender:
+e_add func_wall_toggle:origin:0 0 0:model:maps/the_betterthanbest_entmap2.bsp:rendercolor:255 0 0:renderamt:100:rendermode:1:renderfx:0:targetname:lol
+ 
+change X in the origin to make the world copy farther up:
+:origin:0 0 X:
+if you know about origins, then you can also change the other values
+ 
+button with target lol hf 
+---------------------------------------------------------------
+//Light_enviorment
+e_add light_environment:origin:%HERE%:targetname:sun:_light:255 0 0 255:_fade:1:_falloff:2:
+ 
+_lgith has 4 values first three are RGB 4th is brightness
+---------------------------------------------------------------
+---------------------------------------------------------------
+//NEWBIE NORMAL COMMANDS
+---------------------------------------------------------------
+---------------------------------------------------------------
+//How to make a button:
+e_classname func_rot_button copy delete old 
+Spawnflags:
+1 - Not solid
+2 - Reverse Dir
+32 - Toggle
+64 - X Axis
+128 - Y Axis
+256 - Touch Activates
+//making the red button which is turning ^^
+add entmod_keyvalue spawnflags 128;entmod_keyvalue distance 180 save load 
+---------------------------------------------------------------
+//How to make a locked door:
+e_classname func_rot_button on a button copy destroy old
+entmod_keyvalue target <name>(choose 1) on button
+entmod_keyvalue targetname <same name as before> on door 
+---------------------------------------------------------------
+//How to add things:
+e_add weapon_<weaponname>(list below):origin:%HERE%
+e_add ammo_<ammoname>(list below):origin:%HERE%
+or 
+entmod_quickmake weapon_<weaponname>(list below)
+entmod_quickmake ammo_<ammoname>(listbelow)
+---------------------------------------------------------------
+//How to add an electric crowbar:
+e_add weapon_crowbar_electric:origin:%HERE%:spawnflags:1024
+---------------------------------------------------------------
+//How to make monster:
+e_add monster_<monstername>(listed below):origin:%HERE%:health:<value>:displayname:<name> -----> enemy monster 
+or
+e_add monster_<monstername>(listed below):origin:%HERE%:displayname:<name>:health:<value>:is_player_ally:1 ----> friendly monster
+---------------------------------------------------------------
+//How to make a chubby:
+e_add monster_headcrab:origin:%HERE:health:100000:displayname:chubby:textures:models/chumtoad:
+---------------------------------------------------------------
+//How to change model:
+e_add monster_<monstername>(listedbelow):origin:%HERE%:health:<value>:displayname:<name>:model:models/<modelname>.mdl
+---------------------------------------------------------------
+//How to make Monstermaker:
+e_add monstermaker:origin:%HERE%:monstertype:monster_<monstername>:delay:0.1:m_imaxlivechidren:2:monstercount:50
+---------------------------------------------------------------
+//How to make special grunts
+e_add monster_human_grunt:origin:%HERE%:head:(type number here):weapons:(typenumber here):is_player_ally:1
+---------------------------------------------------------------
+//How to make snarks look like banana
+e_add monster_snark:origin:HERE:model:models/cretegibs.mdl:displayname:Evil
+---------------------------------------------------------------
+//How to make water:
+e_classname func_water
+entmod_keyvalue skin -3
+//Making toxic:
+e_classname func_water
+entmod_keyvalue skin -4
+//Making lava:
+e_classname func_water
+entmod_keyvalue skin -5
+---------------------------------------------------------------
+//How to make special water:(rendered)
+entmod_keyvalue rendermode 1
+entmod_keyvalue renderamt 128
+ 
+Toon Water: entmod_keyvalue rendercolor "0 0 255"
+Light Blue Water: entmod_keyvalue rendercolor "0 128 255"
+Sea Water: entmod_keyvalue rendercolor "0 128 128"
+Dark Water: entmod_keyvalue rendercolor "0 0 128"
+---------------------------------------------------------------
+//How to make a mine:
+e_classname func_breakable
+entmod_keyvalue spawnflags 6
+entmod_keyvalue health 1
+entmod_keyvalue material 2
+entmod_keyvalue explodemagnitude 50
+(Copy)
+---------------------------------------------------------------
+//How to make a Rocket Tank:
+e_classname func_tankrocket
+(Copy)
+entmod_keyvalue targetname ...
+entmod_keyvalue yawrate 30
+entmod_keyvalue yawrange 180
+entmod_keyvalue yawtolerance 15
+entmod_keyvalue pitchrate 50
+entmod_keyvalue pitchtolerance 5
+entmod_keyvalue spritescale 1
+entmod_keyvalue firerate 1
+entmod_keyvalue bullet_damage 100
+entmod_keyvalue persistence 1
+entmod_keyvalue relation_player 2
+entmod_keyvalue relation_player_ally 2
+---------------------------------------------------------------
+//How to make things glass:
+entmod_keyvalue rendermode 2
+ 
+Invisible - entmod_keyvalue renderamt 50
+Normal Glass - entmod_keyvalue renderamt 128
+Opaque Glass - entmod_keyvalue renderamt 200
+---------------------------------------------------------------
+//How to activate a turret when you press a button:
+e_classname func_rot_button
+(copy and delete the old one)
+entmod_keyvalue targetname (think of a name) on the button
+entmod_keyvalue target (same name as before) on the turret
+---------------------------------------------------------------
+//How to make rotating things:
+e_classname func_rotating
+(copy and delete old one)
+entmod_keyvalue speed (speed 100 normal)
+e_use
+---------------------------------------------------------------
+//How to make a teleporter:
+e_telestart <name>
+e_teleend <name as before>
+e_teledestroy <name from tp>
+---------------------------------------------------------------
+//How to make a train:
+t_select <number> look at something
+t_start
+t_end
+t_go
+---------------------------------------------------------------
+---------------------------------------------------------------
+//8.Misc Shit weapons commands models ...//
+---------------------------------------------------------------
+---------------------------------------------------------------
+//[Funcs] (e_classname func_...):
+func_breakable
+func_button
+func_conveyor
+func_door
+func_door_rotating
+func_friction
+func_guntarget
+func_healthcharger
+func_illusionary
+func_ladder
+func_monsterclip
+func_mortar_fiel
+func_pendlum
+func_plat
+func_platrot
+func_pushable
+func_recharge
+func_rot_button
+func_rotating
+func_tank
+func_tankcontrols
+func_tanklaser   i know commands but to much i got script!
+func_tankmortar  i know commands but to much i got script!
+func_tankrocket  i know commands but to much i got script!
+*func_trackchange
+func_trackautochange
+func_tracktrain
+func_train
+func_traincontrols
+func_wall
+func_walltoggle
+func_water
+---------------------------------------------------------------
+[Triggers]:
+trigger_auto
+trigger_autosave
+trigger_camera
+trigger_cdaudio
+trigger_changelevel
+trigger_changetarget
+trigger_counter
+trigger_endsection
+trigger_gravity
+trigger_hurt
+trigger_macon1
+trigger_macon2
+trigger_monsterjump
+trigger_multiple
+trigger_once
+trigger_pusn
+trigger_relay
+trigger_teleport
+trigger_transition
+------------------------------------------------------------------
+[Envs]:
+env_beam
+env_beverage
+env_blood
+env_bubbles
+env_explosion
+env_fade
+env_funnel
+env_global
+env_glow
+env_laser
+env_message
+env_render
+env_shake
+env_shooter
+env_sound
+env_spark
+env_sprite
+------------------------------------------------------------------
+[Misc]
+multi_manager
+multisource
+gibshooter
+path_corner
+ambient_gerneric
+------------------------------------------------------------------
+//names:
+ammo_357
+ammo_556
+ammo_762 
+ammo_9mmAR 
+ammo_9mmbox 
+ammo_9mmclip 
+ammo_ARgrenades 
+ammo_buckshot 
+ammo_crossbow 
+ammo_gaussclip 
+ammo_glockclip 
+ammo_mp5clip 
+ammo_mp5grenades 
+ammo_rpgclip 
+ 
+weapon_357 
+weapon_9mmAR 
+weapon_9mmhandgun 
+weapon_9mm
+weapon_crossbow 
+weapon_crowbar 
+weapon_egon 
+weapon_gauss
+weapon_grapple 
+weapon_glock 
+weapon_handgrenade 
+weapon_hornetgun 
+weapon_mp5
+weapon_minigun
+weapon_medkit 
+weapon_python
+weapon_pipewrench 
+weapon_rpg 
+weapon_satchel
+weapon_shotgun
+weapon_snark
+weapon_sniperrifle
+weapon_tripmine
+weapon_uzi
+weapon_uziakimbo
+ 
+item_airtank 
+item_antidote 
+item_battery 
+item_healthkit 
+item_longjump 
+item_security  
+item_suit 
+ 
+monster_alien_controller
+monster_alien_grunt
+monster_alien_slave
+monster_apache
+monster_babycrab
+monster_barnacle
+monster_barney
+monster_barney_dead
+monster_bigmomma
+monster_bullchicken
+monster_cockroach
+monster_flyer_flock
+monster_gargantua
+monster_gman
+monster_handgrenade
+monster_headcrab
+monster_hevsuit_dead
+monster_hgrunt_dead
+monster_houndeye
+monster_human_assassin
+monster_human_grunt
+monster_ichthyosaur
+monster_leech
+monster_miniturret
+monster_nihilanth
+monster_osprey
+monster_rat
+monster_satchelcharge
+monster_scientist
+monster_scientist_dead
+monster_sentry
+monster_sitting_scientist
+monster_snark
+monster_tentacle
+monster_tripmine
+monster_turret
+monster_zombie
+---------------------------------------------------------------
+//Monsternames:
+barnacle              barnacle.mdl 
+headcrab              headcrab.mdl
+zombie                zombie.mdl 
+barney                barney.mdl/barnabus.mdl     
+barney_dead           barney.mdl                   
+otis                  otisf.mdl/otis.mdl
+otis_dead             otisf.mdl  
+female_assassin       hassassinf.mdl/hassassin.mdl
+male_assassin         massnf.mdl/massn.mdl              
+bigmomma              big_mom.mdl
+human_medic_ally      hgrunt_medicf.mdl/hgrunt_medic.mdl           
+human_grunt           hgruntf.mdl/hgrunt.mdl    
+robogrunt             rgruntf.mdl/rgrunt.mdl   
+alien_slave           islavef.mdl/islave.mdl     
+alien_grunt           agruntf.mdl/agrunt.mdl    
+pitdrone              pit_drone.mdl   
+shocktrooper          strooper.mdl       
+bullchicken           bullsquid.mdl    
+babygarg              babygarg.mdl  
+gargantua             garg.mdl  
+apache                apache.mdl
+houndeye              houndeye.mdl 
+cleansuit_scientist   cleansuit_scientist.mdl            
+hevsuit_dead          cleansuit_scientist.mdl    
+scientist             scientist.mdl          
+scientist_dead        scientist.mdl        
+sitting_scientist     scientist.mdl              
+gman                  gman.mdl
+gonome                gonome.mdl
+turret                turret.mdl
+mini_turret           miniturret.mdl    
+tentacel              tentacle2.mdl
+zombie_barney         zombie_barney.mdl
+zombie_soldier        zombie_soldier.mdl
+sentry turret         sturret
+alien controller      controller.mdl
+banana^^              cretegibs.mdl
+chubby                chumtoad.mdl
+can                   can.mdl^^
+---------------------------------------------------------------
+//Modelnames of monsters (look behind monsternames)
+model:models/zombie1.mdl  special only stripper plugin
+model:models/panther.mdl  special only stripper plugin
+model:models/garg1.mdl    special only stripper plugin
+model:models/apache1.mdl  special only stripper plugin
+------------------------------------------------------------------
+//Skins: entmod_keyvalue skins <number>
+-39;-999;-33;-77;-99;-88;12;-12;-60;-10;-55;-50;-59;66;-3
+special:454545;
+------------------------------------------------------------------
+//Lights
+entmod_keyvalue effect <number>
+------------------------------------------------------------------
+//Heads
+0-8 grunts 1-3 assains dont works on every map
+------------------------------------------------------------------
+//Materials
+1-8
+------------------------------------------------------------------
+//sounds from doors buttons etc
+Locked_sentence Locked Sentence:
+ 
+     0 - None 
+     2 - Access Denied
+     8 - Small zap
+     10 - Buzz
+     11 - Buzz Off
+     12 - Latch Locked
+ 
+General Sounds:
+ 
+     0 - None
+     1 - Big zap & Warmup
+     2 - Access Denied
+     3 - Access Granted
+     4 - Quick Combolock
+     5 - Power Deadbolt 1
+     6 - Power Deadbolt 2
+     7 - Plunger
+     8 - Small zap
+     9 - Keycard Sound
+     10 - Buzz
+     11 - Buzz Off
+     14 - Lightswitch
+ 
+Unlocked_sentence:
+ 
+     0 - None
+     1 - Gen. Access Granted
+     2 - Security Disengaged
+     3 - Blast Door
+     4 - Fire Door
+     5 - Chemical Door
+     6 - Radiation Door
+     7 - Gen. Containment
+     8 - Maintenance area
+ 
+Unlocked_sound:
+ 
+     0 - None
+     1 - Big zap & Warmup
+     3 - Access Granted
+     4 - Quick Combolock
+     5 - Power Deadbolt 1
+     6 - Power Deadbolt 2
+     7 - Plunger
+     8 - Small zap
+     9 - Keycard Sound
+     10 - Buzz
+     13 - Latch Unlocked
+     14 - Lightswitch
+ 
+Buttons:
+sounds
+ 
+     21 - Squeaky (default)
+     22 - Squeaky Pneumatic
+     23 - Ratchet Groan
+     24 - Clean Ratchet
+     25 - Gas Clunk
+------------------------------------------------------------------
+//How to use Door sounds
+entmod_keyvalue locked_sound <number>
+entmod_keyvalue locked_sentence <number>
+entmod_keyvalue unlocked_sound <number>
+entmod_keyvalue unlocked_sentence <number>
+save load 
+------------------------------------------------------------------
+------------------------------------------------------------------
+//Extreme other shit things ^^
+------------------------------------------------------------------
+------------------------------------------------------------------
+//all explained^^ i copied the list below from a nother site i got from google:
+ - Pulls out your entity mover. "Shoot" it at an entity to move it.
+e_telestart <name>
+ - Creates a teleport opening. The portal will lead to an exit made with e_teleend of the same name.
+e_teleend <name>
+ - Creates a teleport exit. The portal will begin at an entrace made with e_telestart of the same name.
+e_teledelete <name>
+ - Deletes a portal with the name specified.
+t_select <name>
+ - Selects an entity to be made into a train with the name specified. Name must be unique.
+t_start
+ - Begins setting the path for the train selected.
+t_end <speed>
+ - Ends the path for the train selected. An average speed is about 250, a slow speed is 100. Any number can be entered for the speed.
+t_go
+ - After setting the path, this will start the train.
+e_use
+ - "Uses" the entity. Different entities do different things. For example, using this on a breakable window will cause the window to break.
+e_god
+ - Gives the entity god mode (can't take damage).
+e_render <mode> <amt> <fx> <render color r> <render color g> <render color b>
+ - All parameters are optional. Enter a -1 for no change on any of the parameters. It's hard to explain this command in a few lines, but if you're a Half-Life mapper or coder, chances are that you'll understand this. More info on this command to come later.
+e_drop
+ - If the entity is close enough to the ground, it will cause the entity to drop to the ground. Doesn't always work with rotated entities.
+e_rotate <x> <y> <z>
+ - Rotates an entity.
+e_rotate_x
+ - A quick command to rotate an entity 15 degrees on the x axis.
+e_rotate_y
+ - A quick command to rotate an entity 15 degrees on the y axis.
+e_rotate_z
+ - A quick command to rotate an entity 15 degrees on the z axis.
+e_add <classname>:<key 1>:<value 1>:<key 2>:<value 2>....
+ - Adds any entity with any keys and values you want. %HERE% can be used in the command to stand for your current origin. For example, to add a turret in TFC that shoots team 2 (Red) at your location type in the console: e_add
+monster_zombie:origin:%HERE%:is_player_ally:1:displayname:killarag:health:1000 team:team_no:2  Make sure you DON'T INCLUDE quotes. Also, make sure the entity that you're trying to create is precached (a good way to check is to see if one is already in the map). This example could be used on well with no problems, but isn't limited to well.
+ 
+e_kill
+ - Kills the entity that you're looking at. If you're looking at a player it will kill him or her. However, it won't kill players in some mods. 
+e_classname <classname>
+ - Sets the classname of an entity.
+grabtype <classname> <search range>
+ - Searches for an entity of a certain type within a certain range to grab.
+stopgrab
+ - Drops an entity grabbed with grabtype.
++grabent
+ - When bound to a key, it can be used to move entities. Just look at an entity and hold down the key. When you let go, the entity will be dropped.
++copyent
+ - Works the same way as +grabent except it copies the entity and not just move it.
+e_undo
+ - Undos an entity move or deletion.
+showx
+ - Draws a line pointing in the positive x direction.
+showy
+ - Draws a line pointing in the positive y direction.
+showz
+ - Draws a line pointing in the positive z direction.
+e_stack <count> <x offset> <y offset> <z offset>
+ - Stacks the entity you're looking at a certain amount of times a certain offset of units away from the previous each time.
+mm_grab
+ - Selects an entity to be moved. You can select up to 128 to be moved at one time.
+mm_start
+ - Starts moving the selected entities.
+mm_end
+ - Drops the selected entities. This is also used to drop entities that follow you when loaded.
+e_show <classname>
+ - Shows all entities of a specific type.
+es_start <name>
+ - Starts an entsave. Name it whatever you want. If it already exists it will be overwritten.
+es_grab
+ - Selects the entity you're looking at to be saved.
+es_graball <classname> (targetname)
+ - Grabs all entities of a certain type. You can optionally specify a target name to grab a certain group of ents.
+es_ungrab
+ - Removes the last grabbed entity from the selected entities.
+es_save <1/0>
+ - Saves the entities. If the parameter is 1, it will follow you on load. It will be the same distance away as the distance between you and where it is now.
+es_list
+ - Doesn't work in Linux. Shows all entities saved on the current map.
+es_listall
+ - Doesn't work in Linux. Shows all creations.
+es_load <name>
+ - Loads a creation. If it follows you on load, use mm_end to drop it.
+entmod_addpack <team> <regen wait>
+ - TFC only. Adds an ammo pack.
+entmod_lookingat
+ - Shows info about the entity you're looking at.
+entmod_worldcopy <x> <y> <z> <angles x> <angles y> <angles z> <spin x> <spin y> <spin z>
+ - Creates a copy of the map at a certain offset, rotated a certain amount of degrees on each axis, and spinning a certain speed. Use the following command to kill all copys: e_kill "DF_worldcopy" 9999
+entmod_create <classname> <1/0>
+ - Creates a respawning entity ahead of you. Use 1 for the second parameter to bypass any precache warnings, but be aware that doing so could cause a crash.
+entmod_quickmake <classname> <1/0>
+ - Creates an entity at your location. Use 1 for the second parameter to bypass any precache warnings, but be aware that doing so could cause a crash.
+entmod_spawn <classname> <offset x> <offset y> <offset z> <1/0>
+ - Creates an entity a certain offset from your location. Use 1 for the second parameter to bypass any precache warnings, but be aware that doing so could cause a crash.
+entmod_spawn
+ - Creates an entity at a certain location. Use 1 for the second parameter to bypass any precache warnings, but be aware that doing so could cause a crash.
+e_search
+ - Lists entities in your area.
+entmod_keyvalue <key> <value>
+ - Sets a key and value on the entity you're looking at
+entmod_noclip 1 or 0
+entmod_noclip on or off
+---------------------------------------------------------------
+//things u should not do:
+copy dead bodys
+stack to many thing out of map
+producing to much monsters
+and so on ^^ :P
+ 
+ 
+contact:
+msn: remortal@msn.com
+icq: 242416878

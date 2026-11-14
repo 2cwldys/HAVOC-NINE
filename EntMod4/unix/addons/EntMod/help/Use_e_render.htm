@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="GENERATOR" CONTENT="Solutionsoft HelpBreeze HTML Help Edition">
+<TITLE>How to Use e_render</TITLE>
+
+<LINK REL="stylesheet" TYPE="text/css" HREF=htmlhelp.css> 
+<SCRIPT language=javascript SRC="master.js">
+</SCRIPT>
+
+</HEAD>
+
+<BODY><SPAN class=RVTS2>
+<P>
+<TABLE cellSpacing=0 cellPadding=3 width="100%" align=center border=1>
+  
+  <TR>
+    <TD>
+<P><SPAN class=RVTS2><FONT size=2><STRONG> This section will explain to 
+you how to use the e_render command in Ent Mod:</STRONG> 
+</FONT></SPAN></P>
+<P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+<P><SPAN class=RVTS2><FONT 
+      size=2>Command Use:</FONT></SPAN></P>
+<P><SPAN class=RVTS2><A class=exsection onclick="ExpandSection(c601, img601)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img601 >e_render</A><BR>
+      <TABLE class=exsectiontext id=c601 style="DISPLAY: none" 
+      onclick="ContractSection(c601, img601)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>e_render 
+            &lt;mode&gt; [amt] [fx] [r] [g] [b]</P>
+            <P>Description:<BR 
+            >&nbsp;Modes:<BR 
+            >&nbsp;&nbsp;0: Normal<BR 
+            >&nbsp;&nbsp;1: TransColor (makes an entity the 
+            color specified in r g b)<BR>&nbsp;&nbsp;2: 
+            TransTexture (amt sets the transparent on the entity 0 is invisible 
+            255 is fully opaque and any number in between can be used)<BR 
+            >&nbsp;&nbsp;3: Glow (makes a non-brush entity 
+            glow the color in R g b)<BR>&nbsp;&nbsp;4: 
+            TransAlpha (makes blue parts of the texture on the entity 
+            transparent)<BR>&nbsp;&nbsp;5: TransAdd (Gives 
+            the entity a brighter transparent effect)<BR 
+            >&nbsp;FX:<BR>&nbsp;&nbsp;0: 
+            None<BR>&nbsp;&nbsp;1: Pulse Slow<BR 
+            >&nbsp;&nbsp;2: Pulse Fast<BR 
+            >&nbsp;&nbsp;3: Pulse Slow Wide<BR 
+            >&nbsp;&nbsp;4: Pulse Fast Wide<BR 
+            >&nbsp;&nbsp;5: Fade Slow<BR 
+            >&nbsp;&nbsp;6: Fade Fast<BR 
+            >&nbsp;&nbsp;7: Solid Slow<BR 
+            >&nbsp;&nbsp;8: Solid Fast<BR 
+            >&nbsp;&nbsp;9: Strobe Slow<BR 
+            >&nbsp;&nbsp;10: Strobe Fast<BR 
+            >&nbsp;&nbsp;11: Strobe Faster<BR 
+            >&nbsp;&nbsp;12: Flicker Slow<BR 
+            >&nbsp;&nbsp;13: Flicker Fast<BR 
+            >&nbsp;&nbsp;14: No Dissipation<BR 
+            >&nbsp;&nbsp;15: Distort<BR 
+            >&nbsp;&nbsp;16: Hologram<BR 
+            >&nbsp;&nbsp;17: Dead Player (not recommended)<BR 
+            >&nbsp;&nbsp;18: Explode (sprites)<BR 
+            >&nbsp;&nbsp;19: Glow Shell<BR 
+            >&nbsp;&nbsp;20: Clamp Min Scale (sprites)</P></TD></TR></TABLE></SPAN></P>
+      <P>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT size=2 
+      >First, you will need to enter the command in 
+      the console while looking at the ent you change to 
+      change:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=505 hspace=0 src="Images/e_render-console2.JPG" width=586 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>In the example above, the ent needed to be blue have a slow 
+      fade.<BR>To do this, e_render 1 200 5 0 0 255 was 
+      entered.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>How&nbsp;was these these numbers come up 
+      with?</FONT></SPAN></P><SPAN class=RVTS2><FONT 
+size=2>
+      <BLOCKQUOTE dir=ltr style="MARGIN-RIGHT: 0px">
+            <P><EM>Usage:<BR>e_render 
+        &lt;mode&gt; [amt] [fx] [r] [g] [b]</EM> 
+                 </P>
+            <P><EM>Description:<BR 
+            >&nbsp;Modes:<BR 
+            >&nbsp;&nbsp;0: Normal<BR 
+            >&nbsp;&nbsp;1: TransColor (makes an entity the 
+            color specified in r g b)<BR>&nbsp;&nbsp;2: 
+            TransTexture (amt sets the transparent on the entity 0 is invisible 
+            255 is fully opaque and any number in between can be used)<BR 
+            >&nbsp;&nbsp;3: Glow (makes a non-brush entity 
+            glow the color in R g b)<BR>&nbsp;&nbsp;4: 
+            TransAlpha (makes blue parts of the texture on the entity 
+            transparent)<BR>&nbsp;&nbsp;5: TransAdd (Gives 
+            the entity a brighter transparent effect)<BR 
+            >&nbsp;FX:<BR>&nbsp;&nbsp;0: 
+            None<BR>&nbsp;&nbsp;1: Pulse Slow<BR 
+            >&nbsp;&nbsp;2: Pulse Fast<BR 
+            >&nbsp;&nbsp;3: Pulse Slow Wide<BR 
+            >&nbsp;&nbsp;4: Pulse Fast Wide<BR 
+            >&nbsp;&nbsp;5: Fade Slow<BR 
+            >&nbsp;&nbsp;6: Fade Fast<BR 
+            >&nbsp;&nbsp;7: Solid Slow<BR 
+            >&nbsp;&nbsp;8: Solid Fast<BR 
+            >&nbsp;&nbsp;9: Strobe Slow<BR 
+            >&nbsp;&nbsp;10: Strobe Fast<BR 
+            >&nbsp;&nbsp;11: Strobe Faster<BR 
+            >&nbsp;&nbsp;12: Flicker Slow<BR 
+            >&nbsp;&nbsp;13: Flicker Fast<BR 
+            >&nbsp;&nbsp;14: No Dissipation<BR 
+            >&nbsp;&nbsp;15: Distort<BR 
+            >&nbsp;&nbsp;16: Hologram<BR 
+            >&nbsp;&nbsp;17: Dead Player (not recommended)<BR 
+            >&nbsp;&nbsp;18: Explode (sprites)<BR 
+            >&nbsp;&nbsp;19: Glow Shell<BR 
+            >&nbsp;&nbsp;20: Clamp Min Scale 
+      (sprites)</EM>    </P></BLOCKQUOTE>
+            <P dir=ltr>You should always go by this chart when using e_render.</P>
+            <P dir=ltr>    &nbsp;</P>
+            <P dir=ltr>Next, we see the effect of entering this command:</P>
+            <P dir=ltr>    &nbsp;</P>
+            <P dir=ltr><IMG height=442 hspace=0 
+      src="Images/e_render.JPG" width=651 border=1>    </P>
+            <P dir=ltr>    &nbsp;</P>
+            <P dir=ltr>The ent was turned blue like we wanted and 
+      is fading but of course the fading part is hard to see in a non-moving picture.</P>
+            <P dir=ltr>         
+                     &nbsp;</P>
+            <P dir=ltr>There are a lot of different settings for 
+      this command. Changing an ent to blue and making it fade&nbsp;is 
+      only&nbsp;two of the many.<BR>         
+       Here are some more examples to help you better understand this command and its uses.</P>
+            <P dir=ltr>         
+                     Examples:</P>
+      <UL dir=ltr style="MARGIN-RIGHT: 0px">
+        <UL dir=ltr>
+          <LI>
+            <DIV >e_render 2 100 15 0 255 0<BR><EM>e_render 
+          &lt;mode&gt; [amt] [fx] [r] [g] [b]</EM> <BR>The "2" would make the 
+          ent use the next number "100". This number "100"&nbsp;would make the 
+          ent a lot&nbsp;lighter and harder to see than normal. We know this 
+          because the normal is 255 and the lowest is 0 so in the middle of the 
+          two would be a "lighter" effect. The "15" will make the ent seem 
+          distorted. The "0" means the ent will have no red coloring to it at 
+          all. The "255" means that the ent will be the brightest green 
+      possible. The last "0" means the ent will have no blue coloring to it at all.</DIV>
+          <LI>
+            <DIV >e_render 0 0 0 0 0 0<BR><EM>e_render 
+          &lt;mode&gt; [amt] [fx] [r] [g] [b]</EM> <BR>        With 
+      zeros for all of the parameters, the ent would be turned back into its normal state.</DIV></LI></UL></UL>
+            <P dir=ltr>         
+                     &nbsp;</P>
+            <P dir=ltr><SPAN class=RVTS2><FONT size=2 
+      >
+      <EM 
+      >This example was done with the DeathMatch Classic mod 
+      but this example holds true for all Half-Life 
+      mods</EM>         
+                
+      </FONT></SPAN>         
+                     </P></FONT></SPAN></TD></TR></TABLE></P></SPAN>
+</BODY>
+</HTML>

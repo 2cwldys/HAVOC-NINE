@@ -1,0 +1,107 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="GENERATOR" CONTENT="Solutionsoft HelpBreeze HTML Help Edition">
+<TITLE>How to Use e_add</TITLE>
+
+<LINK REL="stylesheet" TYPE="text/css" HREF=htmlhelp.css> 
+<SCRIPT language=javascript SRC="master.js">
+</SCRIPT>
+
+</HEAD>
+
+<BODY>
+<P><SPAN class=RVTS2>
+<TABLE cellSpacing=0 cellPadding=3 width="100%" align=center border=1>
+  
+  <TR>
+    <TD>
+<P><SPAN class=RVTS2><FONT size=2><STRONG> This section will explain to 
+you how to use the e_add command in Ent Mod:</STRONG> 
+</FONT></SPAN></P>
+<P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+<P><SPAN class=RVTS2><FONT 
+      size=2>Command Use:</FONT></SPAN></P>
+<P><SPAN class=RVTS2><A class=exsection onclick="ExpandSection(c522, img522)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img522 >e_add</A><BR>
+      <TABLE class=exsectiontext id=c522 style="DISPLAY: none" 
+      onclick="ContractSection(c522, img522)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>e_add 
+            &lt;parameters&gt;</P>
+            <P>Description:<BR>Adds an 
+            entity with specified keys and values.</P>
+            <P>Format:<BR>e_add 
+            classname:key:value:key:value</P>
+            <P>Example:<BR>e_add 
+            info_tfgoal:origin:%HERE%:no_grenades_1:1:g_e:1:g_a:1:goal_state:2:mdl:models/backpack.mdl:noise:weapons/scock1.wav:health:255:wait:1<BR 
+            >Creates a grenade pack for TFC that gives one 
+            grenade. The pack respawns every one second. %HERE% is replaced with 
+            your origin. Use no 
+  quotations.</P></TD></TR></TABLE></SPAN></P>
+      <P>&nbsp;</P>
+      <P>
+<SPAN class=RVTS2 >
+<FONT size=2 
+      >The e_add command is a highly customizable and 
+      specific way to spawn entities. It should only be used if you are sure 
+      what you are doing. An example of how to use this would be adding an ammo pack in TFC. You would run the command:</FONT></SPAN></P>
+      <P>
+<SPAN class=RVTS2 ><FONT 
+      size=2>e_add 
+      info_tfgoal:origin:%HERE%:no_grenades_1:1:g_e:1:g_a:1:goal_state:2:mdl:models/backpack.mdl:noise:weapons/scock1.wav:health:255:wait:1</FONT></SPAN></P>
+      <P>
+<SPAN class=RVTS2 ><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P>
+<SPAN class=RVTS2 ><FONT 
+      size=2>This spawns an info_tfgoal with the following 
+      key/values:</FONT></SPAN></P>
+      <P>
+<SPAN class=RVTS2 >
+      <TABLE cellSpacing=0 cellPadding=3 width="75%" align=center border=0>
+        
+        <TR>
+          <TD><STRONG>Key</STRONG></TD>
+          <TD><STRONG>Value</STRONG></TD></TR>
+        <TR>
+          <TD>origin</TD>
+          <TD>%HERE%</TD></TR>
+        <TR>
+          <TD>no_grenades_1</TD>
+          <TD>1</TD></TR>
+        <TR>
+          <TD>g_e</TD>
+          <TD>1</TD></TR>
+        <TR>
+          <TD>g_a</TD>
+          <TD>1</TD></TR>
+        <TR>
+          <TD>goal_state</TD>
+          <TD>2</TD></TR>
+        <TR>
+          <TD>mdl</TD>
+          <TD>models/backpack.mdl</TD></TR>
+        <TR>
+          <TD>noise</TD>
+          <TD>weapons/scock1.wav</TD></TR>
+        <TR>
+          <TD>health</TD>
+          <TD>255</TD></TR>
+        <TR>
+          <TD>wait</TD>
+          <TD>1</TD></TR></TABLE></SPAN></P>
+      <P><FONT size=2>%HERE% gets replaced with our current origin. The effect 
+      of this command will be a grenade pack at our location with the backpack 
+      model that plays the scock1.wav sound and respawns every 
+second.</FONT></P>
+      <P><FONT size=2></FONT>&nbsp;</P>
+      <P><FONT size=2><EM>Note: Use no quotations around the parameters of this 
+      command. You can use quotations in one of the keys or values if you want 
+      the quotation to be part of that key or 
+  value.</EM></FONT></P></TD></TR></TABLE></SPAN></P>
+</BODY>
+</HTML>
