@@ -63,6 +63,7 @@
 #include "race.h"
 #endif
 
+#include <initializer_list>
 #include <math.h>
 #include <string.h>
 
@@ -528,6 +529,7 @@ private:
 	float m_flFrontDist = 75, m_flRearDist = 75, m_flTrack = 88;
 	float m_flLength = 200, m_flWidth = 100, m_flHeight = 64;
 	float m_flRadius = 20, m_flMaxStep = 12;
+	float m_flScale = 1; // "carscale" (the engine keeps "scale" for itself): the car this many times the size its keys give (its model is made that size)
 	float m_flGrip = 1, m_flSlide = 1, m_flHandbrake = 1, m_flGravity = H9CAR_GRAVITY;
 	string_t m_iszEngine = 0;
 	int m_iSlot = 0; // "slot": its place on a race's grid (1 = pole); 0 is a car of no race
@@ -590,7 +592,7 @@ bool CH9Car::KeyValue(KeyValueData* pkvd)
 		{"coast", &m_flCoast}, {"maxturn", &m_flMaxTurn}, {"turnrate", &m_flTurnRate}, {"frontdist", &m_flFrontDist},
 		{"reardist", &m_flRearDist}, {"track", &m_flTrack}, {"length", &m_flLength}, {"width", &m_flWidth},
 		{"height", &m_flHeight}, {"radius", &m_flRadius}, {"maxstep", &m_flMaxStep}, {"grip", &m_flGrip},
-		{"slide", &m_flSlide}, {"handbrake", &m_flHandbrake}, {"gravity", &m_flGravity},
+		{"slide", &m_flSlide}, {"handbrake", &m_flHandbrake}, {"gravity", &m_flGravity}, {"carscale", &m_flScale},
 	};
 	for (const Key& key : keys)
 	{
@@ -662,6 +664,11 @@ void CH9Car::Spawn()
 	for (float& z : m_flWheelGround)
 		z = pev->origin.z;
 	m_flFrontGround = m_flRearGround = pev->origin.z;
+	// "carscale": a small car in a full-size world (a track is that much longer and wider to it). Its body and wheels
+	// shrink; its handling does not (CH9Car::Steer keeps the full-size wheelbase), nor the step it climbs.
+	m_flScale = H9Clamp(m_flScale > 0 ? m_flScale : 1, 0.1f, 4);
+	for (float* size : {&m_flFrontDist, &m_flRearDist, &m_flTrack, &m_flLength, &m_flWidth, &m_flHeight, &m_flRadius})
+		*size *= m_flScale;
 	m_flMaxTurn = H9Clamp(m_flMaxTurn, 1, 60);
 	m_flMaxStep = H9Clamp(m_flMaxStep, 0, 32);
 	m_flGravity = H9Clamp(m_flGravity, 50, 4000);
@@ -860,7 +867,7 @@ void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 	tune.coast = m_flCoast;
 	tune.maxTurn = m_flMaxTurn;
 	tune.turnRate = m_flTurnRate;
-	tune.wheelbase = m_flFrontDist + m_flRearDist;
+	tune.wheelbase = (m_flFrontDist + m_flRearDist) / m_flScale; // the full-size car's: a small one turns no quicker
 	tune.grip = m_flGrip;
 	tune.slide = m_flSlide;
 	tune.handbrake = m_flHandbrake;
@@ -1016,7 +1023,7 @@ void CH9Car::LookUnder(int wheel, const TraceResult& tr, const Vector& above, co
 	const Vector foot = tr.vecEndPos + Vector(0, 0, 1);
 	if (UTIL_PointContents(foot) == CONTENTS_WATER)
 	{
-		const float tall = m_flRadius > 1 ? m_flRadius * 2 : 2;
+		const float tall = (m_flRadius > 1 ? m_flRadius * 2 : 2) / m_flScale; // a ford is as deep to a small car as to the full-size one
 		m_iWheelSurface[wheel] = H9SURF_WATER;
 		m_flWheelDepth[wheel] = H9Clamp((UTIL_WaterLevel(foot, foot.z, foot.z + tall) - tr.vecEndPos.z) / tall, 0, 1);
 	}
@@ -1119,8 +1126,8 @@ void CH9Car::PlaceCamera(float dt)
 	if (!pCamera)
 		return;
 	UTIL_MakeVectors(Vector(0, m_flYaw, 0));
-	const Vector look = pev->origin + Vector(0, 0, H9CAR_CAM_LOOK);
-	Vector goal = pev->origin - gpGlobals->v_forward * H9CAR_CAM_BACK + Vector(0, 0, H9CAR_CAM_UP);
+	const Vector look = pev->origin + Vector(0, 0, H9CAR_CAM_LOOK * m_flScale);
+	Vector goal = pev->origin - gpGlobals->v_forward * (H9CAR_CAM_BACK * m_flScale) + Vector(0, 0, H9CAR_CAM_UP * m_flScale);
 	TraceResult tr; // never behind a wall
 	UTIL_TraceLine(look, goal, ignore_monsters, edict(), &tr);
 	goal = look + (goal - look) * (tr.flFraction > 0.1f ? tr.flFraction - 0.05f : 0.05f);
