@@ -21,3 +21,4 @@ race and rally modes (reTS game and client code, the rally cars, the rally inter
 rally mode's driving, cameras and car menu - behaviour studied from hl rally by the hl rally team (read for method and numbers only; no code, text, models, sounds or pictures taken)
 h9_car's driving model - method studied from diffusion's func_car by aynekko (no code taken)
 EntMod4 - now valve employee Drunken_F00l
+shovemod source - Styles
