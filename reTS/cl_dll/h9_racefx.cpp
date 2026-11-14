@@ -735,6 +735,9 @@ void H9RaceFx_NoteEntity(struct cl_entity_s* ent, const char* modelname)
 		return;
 	if (ent->index <= 0)
 		return;
+	// not the driver's camera: it wears the car's model, drawn fully transparent, behind and above the car (h9_car.cpp)
+	if (ent->curstate.rendermode != kRenderNormal && ent->curstate.renderamt == 0)
+		return;
 	for (int i = 0; i < s_nPend; i++)
 		if (s_pend[i].index == ent->index)
 			return; // once a frame
