@@ -25,7 +25,8 @@ struct Mode
 };
 
 Mode s_modes[] = {
-	{"rally", "cl_h9_keys_rally", "rally", H9RallyCar_ModeOn, nullptr, {}, ""},
+	// only while he drives: dead, joining or spectating, the keys are his own (TS respawns on FIRE, which the keymap takes for the brake)
+	{"rally", "cl_h9_keys_rally", "rally", H9RallyCam_LocalIsCar, nullptr, {}, ""},
 };
 const int kModes = (int)(sizeof(s_modes) / sizeof(s_modes[0]));
 
