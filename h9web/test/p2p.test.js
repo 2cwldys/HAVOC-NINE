@@ -47,7 +47,8 @@ function signed(t, sess, p, body = {}) {
   const raw = Buffer.from(JSON.stringify(body));
   const ts = String(Date.now());
   const n = crypto.randomBytes(8).toString("hex");
-  const m = crypto.createHmac("sha256", Buffer.from(sess.hostKey, "base64url")).update("POST\n" + p + "\n" + ts + "\n" + n + "\n" + crypto.createHash("sha256").update(raw).digest("hex")).digest("hex");
+  const key = Buffer.from(sess.hostKey, "base64url");
+  const m = crypto.createHmac("sha256", key).update("POST\n" + p + "\n" + ts + "\n" + n + "\n" + crypto.createHmac("sha256", key).update(Buffer.concat([Buffer.from("body\n"), raw])).digest("hex")).digest("hex");
   return request(t.base, "POST", P2P + p, { origin: null, body, headers: { "X-H9-Sig": "s=" + sess.session + ";t=" + ts + ";n=" + n + ";m=" + m } });
 }
 

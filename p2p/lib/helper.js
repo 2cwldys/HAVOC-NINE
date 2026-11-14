@@ -58,8 +58,8 @@ export function signHeaders(method, path, session, hostKey, body) {
   const raw = body === null ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body));
   const t = String(Date.now());
   const n = crypto.randomBytes(8).toString("hex");
-  const bodyHash = crypto.createHash("sha256").update(raw).digest("hex");
-  const m = crypto.createHmac("sha256", hostKey).update(method + "\n" + path + "\n" + t + "\n" + n + "\n" + bodyHash).digest("hex");
+  const bodyMac = crypto.createHmac("sha256", hostKey).update(Buffer.concat([Buffer.from("body\n"), raw])).digest("hex");
+  const m = crypto.createHmac("sha256", hostKey).update(method + "\n" + path + "\n" + t + "\n" + n + "\n" + bodyMac).digest("hex");
   return { "X-H9-Sig": "s=" + session + ";t=" + t + ";n=" + n + ";m=" + m };
 }
 

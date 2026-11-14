@@ -64,7 +64,7 @@ async function rig({ config = {}, auth = null, accounts = true } = {}) {
         const raw = Buffer.from(JSON.stringify(body));
         const t = String(Date.now() + clock);
         const n = crypto.randomBytes(8).toString("hex");
-        const m = crypto.createHmac("sha256", key).update("POST\n" + path + "\n" + t + "\n" + n + "\n" + crypto.createHash("sha256").update(raw).digest("hex")).digest("hex");
+        const m = crypto.createHmac("sha256", key).update("POST\n" + path + "\n" + t + "\n" + n + "\n" + crypto.createHmac("sha256", key).update(Buffer.concat([Buffer.from("body\n"), raw])).digest("hex")).digest("hex");
         return httpJson(base, path, { headers: { "X-H9-Sig": "s=" + o.json.session + ";t=" + t + ";n=" + n + ";m=" + m }, body });
       };
       return {

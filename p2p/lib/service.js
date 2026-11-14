@@ -270,21 +270,25 @@ export function createService({ config: userConfig = {}, auth: userAuth = null, 
     res.end(text);
   }
 
-  // The host's requests are signed: X-H9-Sig: s=<session>;t=<ms>;n=<nonce>;m=<hex HMAC-SHA256(hostKey, method LF path LF t LF n LF sha256(body))>.
+  // The host's requests are signed: X-H9-Sig: s=<session>;t=<ms>;n=<nonce>;m=<hex HMAC-SHA256(hostKey, method LF path LF t LF n LF bodyMac)>,
+  // bodyMac being hex HMAC-SHA256(hostKey, "body" LF body): the body is covered by the same key, with no plain hash of it.
   // The key itself never travels again after the open. A request outside +-60 s of the clock, or whose nonce was seen, is refused.
   function verifyHost(req, path, raw) {
     const h = String(req.headers["x-h9-sig"] || "");
-    const f = {};
+    // only the four keys of the signature are read, into a Map: a key of the header is never a property name
+    const parts = new Map();
     for (const part of h.split(";")) {
       const i = part.indexOf("=");
-      if (i > 0) f[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+      const k = i > 0 ? part.slice(0, i).trim() : "";
+      if (k === "s" || k === "t" || k === "n" || k === "m") parts.set(k, part.slice(i + 1).trim());
     }
+    const f = { s: parts.get("s"), t: parts.get("t"), n: parts.get("n"), m: parts.get("m") };
     const s = sessions.get(f.s || "");
     if (!s || !f.t || !f.n || !f.m || f.n.length > 64) return null;
     const t = Number(f.t);
     if (!Number.isFinite(t) || Math.abs(now() - t) > 60000) return null;
-    const bodyHash = crypto.createHash("sha256").update(raw).digest("hex");
-    const want = crypto.createHmac("sha256", s.hostKey).update(req.method + "\n" + path + "\n" + f.t + "\n" + f.n + "\n" + bodyHash).digest("hex");
+    const bodyMac = crypto.createHmac("sha256", s.hostKey).update(Buffer.concat([Buffer.from("body\n"), raw])).digest("hex");
+    const want = crypto.createHmac("sha256", s.hostKey).update(req.method + "\n" + path + "\n" + f.t + "\n" + f.n + "\n" + bodyMac).digest("hex");
     const a = Buffer.from(want);
     const b = Buffer.from(f.m);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;

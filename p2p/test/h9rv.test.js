@@ -144,7 +144,7 @@ test("a relay run from a config and a hosts file: a token opens a session and li
       const raw = Buffer.from(JSON.stringify(body));
       const t = String(Date.now());
       const n = crypto.randomBytes(8).toString("hex");
-      const m = crypto.createHmac("sha256", key).update("POST\n" + p + "\n" + t + "\n" + n + "\n" + crypto.createHash("sha256").update(raw).digest("hex")).digest("hex");
+      const m = crypto.createHmac("sha256", key).update("POST\n" + p + "\n" + t + "\n" + n + "\n" + crypto.createHmac("sha256", key).update(Buffer.concat([Buffer.from("body\n"), raw])).digest("hex")).digest("hex");
       return { "X-H9-Sig": "s=" + o.json.session + ";t=" + t + ";n=" + n + ";m=" + m };
     };
     const listing = { public: true, name: "Mike's game", map: "h9_tsrp_hive", players: 1, max: 16, password: false };
