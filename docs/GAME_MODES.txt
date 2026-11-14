@@ -292,10 +292,9 @@ CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
   Each side has a flag standing on its own flag pad. Take the enemy's, carry it to your own pad,
   and it scores.
   The flags    models\tsm_flag.mdl (made with SMAK, export-map\h9_drainage\flag.mjs): a banner on a
-               pole, standing on the pad or worn up the carrier's back, and it CHANGES COLOUR WITH
-               POSSESSION. At its pad it wears its own side's colour (MSR blue, Insurgent red); the
-               enemy that carries it turns it to the carrier's colour; where it lies, dropped, it
-               is grey. Walk over the enemy's flag to take it. The carrier keeps every weapon, is
+               pole, standing on the pad or worn up the carrier's back, and it KEEPS ITS OWN
+               SIDE'S COLOUR, at its pad and on a carrier's back (MSR blue, Insurgent red); where it lies,
+               dropped, it is grey. Walk over the enemy's flag to take it. The carrier keeps every weapon, is
                marked to BOTH sides, and lets it go with "dropflag" in the console (bind it) or
                .drop in chat; it drops where he falls. A dropped flag is taken back at once by its
                own side walking over it (tsm_score_return for him), and flies home on its own after
