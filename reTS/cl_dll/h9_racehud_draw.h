@@ -8,6 +8,11 @@
 // Sizes are in units of `ps` pixels (PixelSize: 2 at 1280x720 and 1024x768, 3 at 1920x1080, 1 at 640x480): the HUD is laid out on a
 // screen at least 300 units high and 500 wide, whatever the picture's shape.
 //
+// The layout is a small one: while racing, a piece in each corner (the lap and the place, the clocks, the map, the speed), each
+// drawn on the game's picture with a dark edge and no panel behind it, and what comes and goes (the lights, a note, wrong way) small
+// along the top's middle. The middle of the screen is the road's. Only the results, when the race is over, are a panel. The sizes to
+// tune are together below (HUD_EDGE and the rest).
+//
 // No engine here.
 #pragma once
 
@@ -61,7 +66,6 @@ enum
 	MAX_DOTS = 32,
 	MAX_ROWS = 32,
 	NAME_LEN = 32,
-	BOARD_ROWS = 8,
 	TABLE_ROWS = 12,
 };
 
@@ -303,7 +307,7 @@ inline void MapPoint(const MapFit& f, float x, float y, int& px, int& py)
 }
 
 // The size of one unit of the layout, in pixels: by the screen's height, and less on a narrow screen so that it is never under 500
-// units wide (the notes in the middle stand between the race panel and the board).
+// units wide (the notes at the top's middle stand between the two top corners' pieces).
 inline int PixelSize(int screenWidth, int screenHeight)
 {
 	const int byHeight = (screenHeight + 180) / 360, byWidth = screenWidth / 500;
@@ -311,16 +315,26 @@ inline int PixelSize(int screenWidth, int screenHeight)
 	return ps < 1 ? 1 : ps;
 }
 
-// The map is drawn when the whole line has come; its panel stands in the bottom left corner, MAP_SIZE units square, MAP_EDGE from
-// the screen's sides.
-const int MAP_SIZE = 112, MAP_EDGE = 8;
+// ---- the layout's sizes, to tune -------------------------------------------------------------------------------------------------------
+// In units (a unit is PixelSize pixels: 2 at 1280x720) but for TOP_CLEAR. While racing the HUD is four small pieces in the screen's
+// corners and nothing over the road; these say how small.
+const int HUD_EDGE = 6;          // from the screen's sides to each corner's piece
+const int MAP_SIZE = 50;         // the map's square, bottom left
+const int MAP_EDGE = HUD_EDGE;
+const int GAUGE_R = 27;          // the speed gauge's outer radius, bottom right
+const int GAUGE_BAND = 4;        // and how thick its ring is
+const int GAUGE_OFF_ALPHA = 150; // a segment of it that is not lit
+const int LAMP_SIZE = 8;         // a start lamp, top centre
+const int RESULTS_W = 230;       // the results' table
+const int TOP_CLEAR = 28;        // pixels at the top right left to the game's own (TS's round timer at ScreenWidth - 72, 12; the fps counter)
+const int EDGE_ALPHA = 235;      // the dark edge under everything that stands on the game's picture
 
 inline bool MapShown(const Model& m)
 {
 	return m.linePoints >= 3 && m.linePoints >= m.lineTotal;
 }
 
-// The x of the map panel's right side, in pixels.
+// The x of the map's right side, in pixels.
 inline int MapRight(int screenWidth, int screenHeight)
 {
 	return (MAP_EDGE + MAP_SIZE) * PixelSize(screenWidth, screenHeight);
@@ -433,6 +447,8 @@ inline int SegW(const char* s, int w, int t)
 
 // ---- the drawing --------------------------------------------------------------------------------------------------------------------
 
+// ---- the drawing --------------------------------------------------------------------------------------------------------------------
+
 struct Painter
 {
 	Canvas& cv;
@@ -440,10 +456,14 @@ struct Painter
 	float now; // the client's time
 	float sv;  // the server's
 	int ps, W, H;
+	int o;      // the dark edge's width, in pixels
+	int drop;   // and how much wider it is below and to the right, as a shadow
+	bool under; // drawing the dark edge: every rectangle is drawn dark and `o` larger on each side (Edged)
 	int rects;
 
 	Painter(Canvas& c, const Model& model, float clientTime)
-		: cv(c), m(model), now(clientTime), sv(clientTime + model.clock), ps(PixelSize(c.Width(), c.Height())), W(c.Width()), H(c.Height()), rects(0)
+		: cv(c), m(model), now(clientTime), sv(clientTime + model.clock), ps(PixelSize(c.Width(), c.Height())), W(c.Width()), H(c.Height()),
+		  o((PixelSize(c.Width(), c.Height()) + 1) / 2), drop(PixelSize(c.Width(), c.Height()) / 2), under(false), rects(0)
 	{
 	}
 
@@ -451,8 +471,24 @@ struct Painter
 	{
 		if (w <= 0 || h <= 0 || a <= 0)
 			return;
-		cv.Fill(x, y, w, h, c.r, c.g, c.b, a > 255 ? 255 : a);
+		if (a > 255)
+			a = 255;
+		if (under)
+			cv.Fill(x - o, y - o, w + 2 * o + drop, h + 2 * o + drop, DARK.r, DARK.g, DARK.b, a * EDGE_ALPHA / 255);
+		else
+			cv.Fill(x, y, w, h, c.r, c.g, c.b, a);
 		rects++;
+	}
+
+	// What `draw` draws, over its own dark edge: once dark and a little larger, then as it is. For everything that stands on the game's
+	// picture with no panel behind it, so that it reads over snow and over night alike.
+	template <class F>
+	void Edged(F draw)
+	{
+		under = true;
+		draw();
+		under = false;
+		draw();
 	}
 
 	// A word in the dot font, its top left at (x, y), `scale` pixels a dot. Stops before a letter that would cross maxX (0: no limit).
@@ -488,23 +524,13 @@ struct Painter
 	void TextCentre(int cx, int y, const char* s, int scale, const Col& c, int a = 255) { Text(cx - TextW(s, scale) / 2, y, s, scale, c, a); }
 	void TextRight(int right, int y, const char* s, int scale, const Col& c, int a = 255) { Text(right - TextW(s, scale), y, s, scale, c, a); }
 
-	// A word with a dark edge under it, for words that stand on the game's picture with no panel behind.
-	void TextShadow(int cx, int y, const char* s, int scale, const Col& c, int a = 255)
-	{
-		const int x = cx - TextW(s, scale) / 2;
-		const int off = scale > 2 ? scale / 2 : 1;
-		Text(x + off, y + off, s, scale, DARK, a * 200 / 255);
-		Text(x, y, s, scale, c, a);
-	}
-
-	// One figure of the seven-segment display in the box (x, y, w, h), strokes t thick. SEG_JOINED (the small figures): the strokes
-	// meet at the corners, which reads better small, and a 1 stands in the middle of its box. SEG_CUT (the large ones): the strokes stop
-	// short of the corners. SEG_GHOST: as SEG_CUT, and the strokes that are off show faintly (on a panel).
+	// One figure of the seven-segment display in the box (x, y, w, h), strokes t thick. Only the lit strokes are drawn (a stroke that
+	// is off, drawn faintly, is a dark blot on the game's picture). SEG_JOINED: the strokes meet at the corners, which reads better
+	// small, and a 1 stands in the middle of its box. SEG_CUT: the strokes stop short of the corners.
 	enum
 	{
 		SEG_JOINED = 0,
 		SEG_CUT,
-		SEG_GHOST,
 	};
 	void SegDigit(int x, int y, int w, int h, int t, int mask, const Col& c, int a, int style)
 	{
@@ -526,12 +552,8 @@ struct Painter
 			{x + t - j, midY, w - 2 * t + 2 * j, t},          // g: middle
 		};
 		for (int i = 0; i < 7; i++)
-		{
 			if (mask & (1 << i))
 				Fill(seg[i].x, seg[i].y, seg[i].w, seg[i].h, c, a);
-			else if (style == SEG_GHOST)
-				Fill(seg[i].x, seg[i].y, seg[i].w, seg[i].h, c, a * 13 / 255);
-		}
 	}
 
 	// A string of figures, ':', '.', '-', '+', '/' and spaces on the seven-segment display. Returns the x after it.
@@ -573,7 +595,7 @@ struct Painter
 	void SegRight(int right, int y, const char* s, int w, int h, int t, const Col& c, int a = 255) { Seg(right - SegW(s, w, t), y, s, w, h, t, c, a); }
 	void SegCentre(int cx, int y, const char* s, int w, int h, int t, const Col& c, int a = 255, int style = SEG_JOINED) { Seg(cx - SegW(s, w, t) / 2, y, s, w, h, t, c, a, style); }
 
-	// A panel: the dark box of the H9 windows with the rail along its top.
+	// A panel: the dark box of the H9 windows with the rail along its top. Only the results have one.
 	void Panel(int x, int y, int w, int h, int a = 255, int dark = 176)
 	{
 		Fill(x, y, w, h, DARK, dark * a / 255);
@@ -596,7 +618,7 @@ struct Painter
 	{
 		const int dx = x1 - x0, dy = y1 - y0;
 		const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-		const int o = t / 2;
+		const int half = t / 2;
 		if (adx >= ady)
 		{
 			// along x: one rectangle for each row the line stands on
@@ -611,12 +633,12 @@ struct Painter
 				const int y = adx > 0 ? y0 + (dy * (x - x0) + (dy >= 0 ? adx / 2 : -adx / 2)) / adx : y0;
 				if (y != row)
 				{
-					Fill(start - o, row - o, x - start + t - 1, t, c, a);
+					Fill(start - half, row - half, x - start + t - 1, t, c, a);
 					start = x;
 					row = y;
 				}
 			}
-			Fill(start - o, row - o, x1 - start + t, t, c, a);
+			Fill(start - half, row - half, x1 - start + t, t, c, a);
 		}
 		else
 		{
@@ -631,19 +653,64 @@ struct Painter
 				const int x = x0 + (dx * (y - y0) + (dx >= 0 ? ady / 2 : -ady / 2)) / ady;
 				if (x != colm)
 				{
-					Fill(colm - o, start - o, t, y - start + t - 1, c, a);
+					Fill(colm - half, start - half, t, y - start + t - 1, c, a);
 					start = y;
 					colm = x;
 				}
 			}
-			Fill(colm - o, start - o, t, y1 - start + t, c, a);
+			Fill(colm - half, start - half, t, y1 - start + t, c, a);
 		}
 	}
 
-	// ---- the parts
+	bool DotsFresh() const { return m.haveDots && now - m.dotsAt <= DOTS_LIFE && now >= m.dotsAt - 0.5f; }
 
-	// Top left: the place, the lap, the clocks.
-	void RacePanel()
+	// ---- the parts: four small pieces in the corners while racing, each on the game's picture with a dark edge and no panel, and
+	// what comes and goes along the top's middle. Nothing stands over the road.
+
+	// Top left: the lap, the place, and under them how far behind the first this racer is (or that he has finished, or is out).
+	void Place()
+	{
+		if (m.state != RACE_RACING && m.state != RACE_FINISHED)
+			return;
+		const bool finished = (m.flags & RACE_SF_FINISHED) != 0, retired = (m.flags & RACE_SF_RETIRED) != 0;
+		const int u = ps;
+		const int x = HUD_EDGE * u, y = HUD_EDGE * u;
+		char lap[8], laps[8], place[8], racers[8], third[24];
+		snprintf(lap, sizeof(lap), "%d", ClampI(m.lap, 0, 99));
+		snprintf(laps, sizeof(laps), "/%d", ClampI(m.laps, 0, 99));
+		if (m.place > 0)
+			snprintf(place, sizeof(place), "%d", ClampI(m.place, 0, 99));
+		else
+			snprintf(place, sizeof(place), "-");
+		snprintf(racers, sizeof(racers), "/%d", ClampI(m.racers, 0, 99));
+		Col thirdCol = DET;
+		third[0] = 0;
+		if (finished || retired)
+		{
+			snprintf(third, sizeof(third), "%s", finished ? "FINISHED" : "OUT OF TIME");
+			thirdCol = finished ? OKC : BAD;
+		}
+		else if (m.place > 1 && DotsFresh())
+		{
+			for (int i = 0; i < m.dotCount; i++)
+				if (m.dots[i].index == m.local && m.dots[i].gap >= 0)
+					snprintf(third, sizeof(third), "+%dM", ClampI((int)(m.dots[i].gap * (float)RACE_HUD_GAP / METRE_UNITS + 0.5f), 0, 9999));
+		}
+		const Col placeCol = m.place == 1 ? WARN : TXT;
+		Edged([&] {
+			// a small word, a large number, and what it is out of small again, all standing on one line
+			const int vx = x + 22 * u;
+			Text(x, y + 7 * u, "LAP", u, DET);
+			Text(Text(vx, y, lap, 2 * u, TXT), y + 7 * u, laps, u, DET);
+			Text(x, y + 25 * u, "POS", u, DET);
+			Text(Text(vx, y + 18 * u, place, 2 * u, placeCol), y + 25 * u, racers, u, DET);
+			if (third[0])
+				Text(x, y + 36 * u, third, u, thirdCol);
+		});
+	}
+
+	// Top right: the clocks, a line each, their right sides in line.
+	void Clocks()
 	{
 		if (m.state != RACE_RACING && m.state != RACE_FINISHED)
 			return;
@@ -678,129 +745,110 @@ struct Painter
 			add("ENDS", RunningCs(m.t0, sv), false, WARN);
 
 		const int u = ps;
-		const int x = 8 * u, y = 8 * u, w = 136 * u;
-		const int h = (58 + n * 12 + (finished || retired ? 12 : 0)) * u;
-		Panel(x, y, w, h);
-
-		// the place
-		Text(x + 6 * u, y + 6 * u, "POS", u, DET);
-		char text[32];
-		snprintf(text, sizeof(text), "%d", ClampI(m.place, 0, 99));
-		const Col placeCol = m.place == 1 ? WARN : TXT;
-		int px = Seg(x + 6 * u, y + 17 * u, m.place > 0 ? text : "-", 17 * u, 31 * u, 4 * u, placeCol, 255, SEG_GHOST);
-		snprintf(text, sizeof(text), "/%d", ClampI(m.racers, 0, 99));
-		Seg(px + 4 * u, y + 34 * u, text, 8 * u, 14 * u, 2 * u, DET);
-
-		// the lap
-		const int lx = x + 80 * u;
-		Text(lx, y + 6 * u, "LAP", u, DET);
-		snprintf(text, sizeof(text), "%d/%d", ClampI(m.lap, 0, 99), ClampI(m.laps, 0, 99));
-		if (strlen(text) <= 3)
-			Seg(lx, y + 17 * u, text, 12 * u, 22 * u, 3 * u, TXT, 255, SEG_GHOST);
-		else
-			Seg(lx, y + 17 * u, text, 8 * u, 16 * u, 2 * u, TXT);
-
-		Fill(x + 6 * u, y + 53 * u, w - 12 * u, 1, RAIL, 200);
-		int ry = y + 58 * u;
-		if (finished || retired)
-		{
-			Text(x + 6 * u, ry, finished ? "FINISHED" : "OUT OF TIME", u, finished ? OKC : BAD);
-			ry += 12 * u;
-		}
+		const int right = W - HUD_EDGE * u;
+		const int top = TOP_CLEAR + 2 * u > HUD_EDGE * u ? TOP_CLEAR + 2 * u : HUD_EDGE * u;
+		// in the dot font, not the seven-segment figures: strokes this thin are only their own dark edge over snow
+		int widest = 0;
 		for (int i = 0; i < n; i++)
 		{
-			Text(x + 6 * u, ry + u, lines[i].label, u, DET);
-			SegRight(x + w - 6 * u, ry, lines[i].value, 6 * u, 9 * u, u, lines[i].col);
-			ry += 12 * u;
+			const int w = TextW(lines[i].value, u);
+			widest = w > widest ? w : widest;
 		}
+		Edged([&] {
+			for (int i = 0; i < n; i++)
+			{
+				const int ry = top + i * 10 * u;
+				TextRight(right - widest - 5 * u, ry, lines[i].label, u, DET);
+				TextRight(right, ry, lines[i].value, u, lines[i].col);
+			}
+		});
 	}
 
-	// Bottom right: the speed, and the gauge round it.
+	// Bottom right: the speed, under a small gauge.
 	void Speed()
 	{
 		const int u = ps;
-		const int w = 124 * u, h = 78 * u;
-		const int x = W - 8 * u - w, y = H - 8 * u - h;
-		Panel(x, y, w, h);
-		const int cx = x + w / 2, cy = y + 64 * u;
-		const float rOut = 56.0f * u, rIn = 47.0f * u;
+		const int r = GAUGE_R * u;
+		const int cx = W - HUD_EDGE * u - r;
+		const int labelY = H - HUD_EDGE * u - 7 * u;
+		const int cy = labelY - 2 * u; // the gauge's foot
+		const float rOut = (float)r, rIn = (float)(r - GAUGE_BAND * u);
 		const float top = m.topSpeed > 100 ? m.topSpeed : TOP_SPEED;
 		const float frac = ClampF(fabsf(m.gauge) / top, 0, 1);
 		const Col lit = SlipColour(m.slip);
-		const int segments = 24;
-		const int r = (int)rOut;
-		for (int dy = -r; dy <= 0; dy++)
-		{
-			int runStart = 0, runKind = 0;
-			for (int dx = -r; dx <= r + 1; dx++)
-			{
-				const int kind = dx <= r ? ArcCell((float)dx, (float)dy, rIn, rOut, frac, segments) : 0;
-				if (kind == runKind)
-					continue;
-				if (runKind == 2)
-					Fill(cx + runStart, cy + dy, dx - runStart, 1, lit, 255);
-				else if (runKind == 1)
-					Fill(cx + runStart, cy + dy, dx - runStart, 1, RAIL, 70);
-				runStart = dx;
-				runKind = kind;
-			}
-		}
+		const int segments = 16;
 		char text[16];
 		snprintf(text, sizeof(text), "%d", ClampI(SpeedShown(m.speed), 0, 999));
-		SegCentre(cx, cy - 30 * u, text, 16 * u, 29 * u, 4 * u, TXT, 255, SEG_GHOST);
 		const bool back = m.speed < -20;
-		TextCentre(cx, cy + 4 * u, back ? "REVERSE" : "KM/H", u, back ? WARN : DET);
-		// the slip, also as a mark at each end of the gauge's foot
-		if (m.slip > 0.15f)
-		{
-			Fill(x + 6 * u, cy + 4 * u, 14 * u, 3 * u, lit, 255);
-			Fill(x + w - 20 * u, cy + 4 * u, 14 * u, 3 * u, lit, 255);
-		}
+		Edged([&] {
+			for (int dy = -r; dy <= 0; dy++)
+			{
+				int runStart = 0, runKind = 0;
+				for (int dx = -r; dx <= r + 1; dx++)
+				{
+					const int kind = dx <= r ? ArcCell((float)dx, (float)dy, rIn, rOut, frac, segments) : 0;
+					if (kind == runKind)
+						continue;
+					if (runKind == 2)
+						Fill(cx + runStart, cy + dy, dx - runStart, 1, lit, 255);
+					else if (runKind == 1)
+						Fill(cx + runStart, cy + dy, dx - runStart, 1, RAIL, under ? 255 : GAUGE_OFF_ALPHA);
+					runStart = dx;
+					runKind = kind;
+				}
+			}
+			SegCentre(cx, cy - 14 * u, text, 8 * u, 14 * u, 2 * u, TXT);
+			TextCentre(cx, labelY, back ? "REVERSE" : "KM/H", u, back ? WARN : DET);
+			// the slip, also as a mark at each end of the gauge's foot
+			if (m.slip > 0.15f)
+			{
+				Fill(cx - r, cy + 3 * u, 3 * u, 2 * u, lit, 255);
+				Fill(cx + r - 3 * u, cy + 3 * u, 3 * u, 2 * u, lit, 255);
+			}
+		});
 	}
 
-	// Bottom left: the lap's line from above, the checkpoints, the racers.
+	// Bottom left: the lap's line from above, the checkpoints, the racers. The line alone, with its dark edge.
 	void Minimap()
 	{
 		if (!MapShown(m))
 			return;
 		const int u = ps;
-		const int w = MAP_SIZE * u, h = MAP_SIZE * u;
-		const int x = MAP_EDGE * u, y = H - MAP_EDGE * u - h;
-		Panel(x, y, w, h);
-		const int pad = 9 * u;
-		const MapFit f = FitMap(m.line, m.linePoints, x + pad, y + pad, w - 2 * pad, h - 2 * pad);
+		const int size = MAP_SIZE * u;
+		const int x = MAP_EDGE * u, y = H - MAP_EDGE * u - size;
+		const int pad = 3 * u; // room for a dot that stands on the line's outermost point
+		const MapFit f = FitMap(m.line, m.linePoints, x + pad, y + pad, size - 2 * pad, size - 2 * pad);
 		if (!f.valid)
 			return;
 		const int t = u < 2 ? 2 : u;
-		int px0, py0;
-		MapPoint(f, m.line[m.linePoints - 1].x, m.line[m.linePoints - 1].y, px0, py0);
-		for (int i = 0; i < m.linePoints; i++)
-		{
-			int px, py;
-			MapPoint(f, m.line[i].x, m.line[i].y, px, py);
-			Line(px0, py0, px, py, t, DET, 235);
-			px0 = px;
-			py0 = py;
-		}
-		// the checkpoints: a tick each; the start and finish line a white bar with a dark middle
+		Edged([&] {
+			int px0, py0;
+			MapPoint(f, m.line[m.linePoints - 1].x, m.line[m.linePoints - 1].y, px0, py0);
+			for (int i = 0; i < m.linePoints; i++)
+			{
+				int px, py;
+				MapPoint(f, m.line[i].x, m.line[i].y, px, py);
+				Line(px0, py0, px, py, t, TXT, 255);
+				px0 = px;
+				py0 = py;
+			}
+		});
+		// the checkpoints: a tick each; the start and finish line a white square with a dark middle
 		for (int i = m.cpPoints - 1; i >= 0; i--)
 		{
 			int px, py;
 			MapPoint(f, m.cps[i].x, m.cps[i].y, px, py);
 			if (i == 0)
 			{
-				const int s = 3 * u;
+				const int s = 2 * u;
+				Fill(px - s - o, py - s - o, 2 * (s + o) + 1, 2 * (s + o) + 1, DARK, 255);
 				Fill(px - s, py - s, 2 * s + 1, 2 * s + 1, TXT, 255);
 				Fill(px - s + u, py - s + u, 2 * (s - u) + 1, 2 * (s - u) + 1, DARK, 255);
-				Fill(px - u / 2, py - u / 2, u, u, TXT, 255);
 			}
 			else
-			{
-				const int s = u + u / 2;
-				Fill(px - s, py - s, 2 * s + 1, 2 * s + 1, LIT, 255);
-			}
+				Fill(px - u, py - u, 2 * u + 1, 2 * u + 1, LIT, 255);
 		}
-		if (!m.haveDots || now - m.dotsAt > DOTS_LIFE || now < m.dotsAt - 0.5f)
+		if (!DotsFresh())
 			return;
 		// the others, then the first, then the player
 		for (int pass = 0; pass < 3; pass++)
@@ -814,60 +862,10 @@ struct Painter
 					continue;
 				int px, py;
 				MapPoint(f, d.x, d.y, px, py);
-				const int r = own ? 2 * u + u / 2 : 2 * u;
-				Disc(px, py, r + (u < 2 ? 1 : u / 2 + 1), DARK, 255);
+				const int r = own ? 2 * u : u + u / 2;
+				Disc(px, py, r + o, DARK, 255);
 				Disc(px, py, r, own ? OKC : (first ? WARN : TXT), d.finished || d.retired ? 130 : 255);
 			}
-		}
-	}
-
-	// Right: the racers in order, with how far behind the first each is.
-	void Board()
-	{
-		if (m.state != RACE_RACING && m.state != RACE_FINISHED)
-			return;
-		if (!m.haveDots || m.dotCount < 2 || now - m.dotsAt > DOTS_LIFE || now < m.dotsAt - 0.5f)
-			return;
-		const int u = ps;
-		const int w = 124 * u, rowH = 11 * u;
-		const int x = W - 8 * u - w;
-		int y = 44 * u;
-		// in the order of the places; one with no place yet comes last
-		int order[MAX_DOTS];
-		int n = 0;
-		for (int place = 1; place <= MAX_DOTS + 1 && n < m.dotCount; place++)
-			for (int i = 0; i < m.dotCount && n < MAX_DOTS; i++)
-				if ((place <= MAX_DOTS && m.dots[i].place == place) || (place > MAX_DOTS && (m.dots[i].place < 1 || m.dots[i].place > MAX_DOTS)))
-					order[n++] = i;
-		int shown = n < BOARD_ROWS ? n : BOARD_ROWS;
-		// the player is always in it: in the last row when he is further down
-		int own = -1;
-		for (int i = 0; i < n; i++)
-			if (m.dots[order[i]].index == m.local)
-				own = i;
-		for (int row = 0; row < shown; row++)
-		{
-			const int at = (row == shown - 1 && own >= shown) ? own : row;
-			const Dot& d = m.dots[order[at]];
-			const bool mine = d.index == m.local;
-			Fill(x, y, w, rowH - u, DARK, mine ? 210 : 150);
-			if (mine)
-				Fill(x, y, 2 * u, rowH - u, LIT, 255);
-			char text[24];
-			snprintf(text, sizeof(text), "%d", d.place);
-			TextRight(x + 16 * u, y + 2 * u - u / 2, d.place > 0 ? text : "-", u, d.place == 1 ? WARN : TXT);
-			if (d.finished)
-				snprintf(text, sizeof(text), "FIN");
-			else if (d.retired)
-				snprintf(text, sizeof(text), "OUT");
-			else if (d.gap < 0 || d.place <= 1)
-				text[0] = 0;
-			else
-				snprintf(text, sizeof(text), "+%dM", ClampI((int)(d.gap * (float)RACE_HUD_GAP / METRE_UNITS + 0.5f), 0, 9999));
-			const int right = x + w - 4 * u;
-			TextRight(right, y + 2 * u - u / 2, text, u, d.finished ? OKC : (d.retired ? BAD : DET));
-			Text(x + 21 * u, y + 2 * u - u / 2, d.name, u, mine ? TXT : DET, 255, right - TextW(text, u) - 3 * u);
-			y += rowH;
 		}
 	}
 
@@ -877,7 +875,7 @@ struct Painter
 		if (!m.haveState)
 			return;
 		const int u = ps;
-		const int cx = W / 2;
+		const int cx = W / 2, y = HUD_EDGE * u;
 		if (m.state == RACE_WAITING)
 		{
 			if (m.t0 <= 0)
@@ -887,55 +885,42 @@ struct Painter
 				return;
 			char text[40];
 			snprintf(text, sizeof(text), "RACE STARTS IN %d", left);
-			const int tw = TextW(text, 2 * u);
-			Panel(cx - tw / 2 - 8 * u, 8 * u, tw + 16 * u, 26 * u, 220);
-			TextCentre(cx, 14 * u, text, 2 * u, WARN);
+			Edged([&] { TextCentre(cx, y, text, u, WARN); });
 			return;
 		}
 		const Lamps l = LampState(m.state, m.t0 - sv, m.countdown, sv - m.t0);
 		if (!l.show)
 			return;
-		const int lamp = 18 * u, gap = 5 * u;
-		const int w = 5 * lamp + 4 * gap + 14 * u, h = lamp + 12 * u;
-		const int x = cx - w / 2, y = 8 * u;
-		Panel(x, y, w, h);
-		for (int i = 0; i < 5; i++)
-		{
-			const int lx = x + 7 * u + i * (lamp + gap) + lamp / 2, ly = y + 6 * u + lamp / 2 + u / 2;
-			const bool on = l.green || i < l.reds;
-			const Col& c = l.green ? LAMP_GREEN : (on ? LAMP_RED : LAMP_OFF);
-			Disc(lx, ly, lamp / 2, c, 255);
-			if (on) // a light spot, up and to the left
-				Disc(lx - lamp / 6, ly - lamp / 6, lamp / 7 > 0 ? lamp / 7 : 1, TXT, 110);
-		}
-		if (l.green)
-			TextShadow(cx, y + h + 10 * u, "GO!", 6 * u, LAMP_GREEN);
-		else
-		{
-			char text[8];
-			snprintf(text, sizeof(text), "%d", ClampI(l.number, 0, 99));
-			const int dw = 26 * u, dh = 46 * u, dt = 6 * u;
-			const int tw = SegW(text, dw, dt);
-			Seg(cx - tw / 2 + 2 * u, y + h + 10 * u + 2 * u, text, dw, dh, dt, DARK, 200, SEG_CUT);
-			Seg(cx - tw / 2, y + h + 10 * u, text, dw, dh, dt, LAMP_RED, 255, SEG_CUT);
-		}
+		const int lamp = LAMP_SIZE * u, gap = 3 * u;
+		const int x = cx - (5 * lamp + 4 * gap) / 2;
+		const int lowY = y + lamp + 3 * u; // where the number and GO stand
+		char text[8];
+		snprintf(text, sizeof(text), "%d", ClampI(l.number, 0, 99));
+		Edged([&] {
+			for (int i = 0; i < 5; i++)
+			{
+				const bool on = l.green || i < l.reds;
+				Disc(x + i * (lamp + gap) + lamp / 2, y + lamp / 2, lamp / 2, l.green ? LAMP_GREEN : (on ? LAMP_RED : LAMP_OFF), 255);
+			}
+			if (l.green)
+				TextCentre(cx, lowY, "GO!", 3 * u, LAMP_GREEN);
+			else
+				SegCentre(cx, lowY, text, 12 * u, 20 * u, 3 * u, LAMP_RED);
+		});
 	}
 
-	// Centre: wrong way, and the last note (a split, a lap, the finish, out of time).
+	// Top centre, where the lights were: wrong way, and under it the last note (a split, a lap, the finish, out of time), a line of
+	// small words and a line with the time.
 	void Notes()
 	{
 		const int u = ps;
 		const int cx = W / 2;
-		if ((m.flags & RACE_SF_WRONGWAY) && fmodf(now, 0.6f) < 0.4f)
-		{
-			const char* text = "WRONG WAY";
-			const int tw = TextW(text, 3 * u);
-			const int y = H * 17 / 100;
-			Fill(cx - tw / 2 - 8 * u, y - 5 * u, tw + 16 * u, 31 * u, BAD, 60);
-			Fill(cx - tw / 2 - 8 * u, y - 5 * u, tw + 16 * u, u, BAD, 255);
-			Fill(cx - tw / 2 - 8 * u, y + 25 * u, tw + 16 * u, u, BAD, 255);
-			TextShadow(cx, y, text, 3 * u, BAD);
-		}
+		const bool wrong = (m.flags & RACE_SF_WRONGWAY) != 0;
+		// under GO while that is up (a note in the race's first second and a half)
+		const bool lamps = m.haveState && LampState(m.state, m.t0 - sv, m.countdown, sv - m.t0).show;
+		const int top = (lamps ? HUD_EDGE + LAMP_SIZE + 3 + 21 + 3 : HUD_EDGE) * u;
+		if (wrong && fmodf(now, 0.6f) < 0.4f)
+			Edged([&] { TextCentre(cx, top, "WRONG WAY", 2 * u, BAD); });
 		if (m.noteKind == 0 || now < m.noteAt - 0.5f)
 			return;
 		const float life = m.noteKind == RACE_NOTE_FINISH ? 5.0f : (m.noteKind == RACE_NOTE_OUTOFTIME ? 4.0f : 3.0f);
@@ -943,9 +928,11 @@ struct Painter
 		if (age >= life)
 			return;
 		const int a = (int)(255 * ClampF((life - age) / NOTE_FADE, 0, 1));
-		const int y = H * 29 / 100;
-		const int w = 150 * u;
-		char text[48], value[24];
+		const int y = top + (wrong ? 17 : 11) * u; // under the lights' place, and under "wrong way" when that is up
+		const int dw = 8 * u, dh = 13 * u, dt = 2 * u;
+		char text[48], value[24], beside[24];
+		Col besideCol = TXT;
+		beside[0] = 0;
 		switch (m.noteKind)
 		{
 		case RACE_NOTE_CHECKPOINT:
@@ -953,49 +940,49 @@ struct Painter
 		{
 			const bool lap = m.noteKind == RACE_NOTE_LAP;
 			const bool diff = (m.noteFlags & RACE_NF_DIFF) != 0, best = lap && (m.noteFlags & RACE_NF_BEST) != 0;
-			const int h = (diff || best ? 58 : 40) * u;
-			Panel(cx - w / 2, y, w, h, a * 220 / 255);
 			if (lap)
 				snprintf(text, sizeof(text), best ? "LAP %d/%d - BEST LAP" : "LAP %d/%d", m.noteA, m.noteB);
 			else
 				snprintf(text, sizeof(text), "CHECKPOINT %d/%d", m.noteA, m.noteB);
-			TextCentre(cx, y + 6 * u, text, u, best ? LIT : DET, a);
 			FormatTime(value, sizeof(value), m.noteTime);
-			SegCentre(cx, y + 18 * u, value, 9 * u, 16 * u, 2 * u, TXT, a);
 			if (diff)
 			{
-				FormatDiff(value, sizeof(value), m.noteDiff);
-				TextCentre(cx, y + 40 * u, value, 2 * u, m.noteDiff <= 0 ? OKC : BAD, a);
+				FormatDiff(beside, sizeof(beside), m.noteDiff);
+				besideCol = m.noteDiff <= 0 ? OKC : BAD;
 			}
-			else if (best)
-				TextCentre(cx, y + 40 * u, "BEST LAP", 2 * u, LIT, a);
+			const int tw = SegW(value, dw, dt), bw = TextW(beside, 2 * u);
+			const int x = cx - (tw + (bw ? 10 * u + bw : 0)) / 2;
+			Edged([&] {
+				TextCentre(cx, y, text, u, best ? LIT : DET, a);
+				// the time, and beside it what it is against the best
+				Seg(x, y + 10 * u, value, dw, dh, dt, TXT, a);
+				if (bw)
+					Text(x + tw + 10 * u, y + 10 * u, beside, 2 * u, besideCol, a);
+			});
 			break;
 		}
 		case RACE_NOTE_FINISH:
 		{
-			const int h = 92 * u;
-			Panel(cx - w / 2, y, w, h, a * 220 / 255);
-			TextCentre(cx, y + 7 * u, "FINISHED", 2 * u, OKC, a);
-			Ordinal(text, sizeof(text), m.noteA);
-			TextCentre(cx, y + 27 * u, text, 5 * u, m.noteA == 1 ? WARN : TXT, a);
+			Ordinal(beside, sizeof(beside), m.noteA);
 			FormatTime(value, sizeof(value), m.noteTime);
-			SegCentre(cx, y + 69 * u, value, 9 * u, 16 * u, 2 * u, TXT, a);
+			const int tw = SegW(value, dw, dt), bw = TextW(beside, 2 * u);
+			const int x = cx - (bw + 10 * u + tw) / 2;
+			Edged([&] {
+				TextCentre(cx, y, "FINISHED", u, OKC, a);
+				Text(x, y + 10 * u, beside, 2 * u, m.noteA == 1 ? WARN : TXT, a);
+				Seg(x + bw + 10 * u, y + 10 * u, value, dw, dh, dt, TXT, a);
+			});
 			break;
 		}
 		case RACE_NOTE_OUTOFTIME:
-		{
-			const char* out = "OUT OF TIME";
-			const int tw = TextW(out, 3 * u);
-			Panel(cx - tw / 2 - 10 * u, y, tw + 20 * u, 35 * u, a * 220 / 255);
-			TextCentre(cx, y + 8 * u, out, 3 * u, BAD, a);
+			Edged([&] { TextCentre(cx, y, "OUT OF TIME", 2 * u, BAD, a); });
 			break;
-		}
 		default:
 			break;
 		}
 	}
 
-	// The middle of the screen: the results, and nothing else while they are up.
+	// The middle of the screen: the results, and nothing else while they are up (the race is over; there is no road to see).
 	void Results()
 	{
 		const int u = ps;
@@ -1004,22 +991,22 @@ struct Painter
 		for (int i = 0; i < m.rowCount; i++)
 			if (m.rows[i].index == m.local)
 				own = i;
-		const int w = 280 * u < W - 16 * u ? 280 * u : W - 16 * u;
-		const int rowH = 13 * u;
-		const int h = (44 + 4) * u + n * rowH;
+		const int w = RESULTS_W * u < W - 16 * u ? RESULTS_W * u : W - 16 * u;
+		const int rowH = 11 * u;
+		const int h = 43 * u + n * rowH;
 		const int x = (W - w) / 2;
 		int y = (H - h) / 2 - 10 * u;
 		if (y < 8 * u)
 			y = 8 * u;
 		Panel(x, y, w, h, 255, 225);
-		TextCentre(W / 2, y + 8 * u, "RACE RESULTS", 2 * u, LIT);
-		const int cPlace = x + 22 * u, cName = x + 30 * u, cBest = x + w - 8 * u, cTime = cBest - 70 * u;
-		const int hy = y + 30 * u;
+		TextCentre(W / 2, y + 7 * u, "RACE RESULTS", 2 * u, LIT);
+		const int cPlace = x + 25 * u, cName = x + 32 * u, cBest = x + w - 7 * u, cTime = cBest - 54 * u;
+		const int hy = y + 26 * u;
 		TextRight(cPlace, hy, "POS", u, DET);
 		Text(cName, hy, "DRIVER", u, DET);
 		TextRight(cTime, hy, "TIME", u, DET);
 		TextRight(cBest, hy, "BEST LAP", u, DET);
-		Fill(x + 6 * u, hy + 9 * u, w - 12 * u, 1, RAIL, 200);
+		Fill(x + 5 * u, hy + 9 * u, w - 10 * u, 1, RAIL, 200);
 		int ry = hy + 13 * u;
 		for (int row = 0; row < n; row++)
 		{
@@ -1027,27 +1014,29 @@ struct Painter
 			const bool mine = r.index == m.local;
 			if (mine)
 			{
-				Fill(x + 4 * u, ry - 2 * u, w - 8 * u, rowH - u, LIT, 46);
-				Fill(x + 4 * u, ry - 2 * u, 2 * u, rowH - u, LIT, 255);
+				Fill(x + 3 * u, ry - u, w - 6 * u, rowH, LIT, 46);
+				Fill(x + 3 * u, ry - u, 2 * u, rowH, LIT, 255);
 			}
 			char text[32];
 			snprintf(text, sizeof(text), "%d", r.place);
 			TextRight(cPlace, ry + u, text, u, r.place == 1 ? WARN : TXT);
 			const bool finished = (r.flags & RACE_RF_FINISHED) != 0;
-			const int nameEnd = cTime - 62 * u;
-			Text(cName, ry + u, r.name[0] ? r.name : "?", u, mine ? TXT : DET, 255, nameEnd);
 			const int st = u;
+			int nameEnd;
 			if (finished)
 			{
 				FormatTime(text, sizeof(text), r.total);
 				SegRight(cTime, ry, text, 6 * u, 9 * u, st, r.place == 1 ? WARN : TXT);
+				nameEnd = cTime - SegW(text, 6 * u, st) - 4 * u;
 			}
 			else
 			{
 				char lap[24];
 				snprintf(lap, sizeof(lap), "%s  LAP %d/%d", (r.flags & RACE_RF_RETIRED) ? "OUT" : "DNF", r.lap, m.rowLaps);
 				TextRight(cTime, ry + u, lap, u, BAD);
+				nameEnd = cTime - TextW(lap, u) - 4 * u;
 			}
+			Text(cName, ry + u, r.name[0] ? r.name : "?", u, mine ? TXT : DET, 255, nameEnd);
 			if (r.best > 0)
 			{
 				FormatTime(text, sizeof(text), r.best);
@@ -1069,9 +1058,9 @@ struct Painter
 		StartLights();
 		if (!IsRacing(m, now))
 			return;
-		RacePanel();
+		Place();
+		Clocks();
 		Minimap();
-		Board();
 		Speed();
 		Notes();
 	}

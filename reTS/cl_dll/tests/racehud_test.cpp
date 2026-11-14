@@ -1,6 +1,7 @@
 // Checks the race HUD's arithmetic (h9_racehud_draw.h: the clocks' text, the clock's offset, the start lights, the map's fit, the
-// gauge) and its layout (nothing off the screen, no part over another) with no game, and, given a folder, draws the HUD into PNG
-// pictures there with the very Painter the game draws with, over a canvas that is a picture in memory:
+// gauge) and its layout (nothing off the screen, no part over another, nothing in the middle of the screen while racing, little of
+// the screen taken) with no game, and, given a folder, draws the HUD into PNG pictures there with the very Painter the game draws
+// with, over a canvas that is a picture in memory (racehud-<scene>-<size>.png over a night, racehud-snow-<scene>-<size>.png over snow):
 //   cmake --build <dir> --target racehud_test --config Release
 //   racehud_test [<folder for the pictures> [<a .map with race_waypoint and race_checkpoint entities>]]
 // With no map the pictures have a made-up oval for a lap.
@@ -62,12 +63,12 @@ static bool Apart(const Bounds& a, const Bounds& b)
 	return a.x1 <= b.x0 || b.x1 <= a.x0 || a.y1 <= b.y0 || b.y1 <= a.y0;
 }
 
-// A picture in memory: what the game's screen would show, over a made-up night scene.
+// A picture in memory: what the game's screen would show, over a made-up night scene, or a snow one (white ground, a pale sky).
 struct Picture : Canvas
 {
 	int w, h;
 	std::vector<unsigned char> rgb;
-	Picture(int W, int H) : w(W), h(H), rgb((size_t)W * H * 3)
+	Picture(int W, int H, bool snow = false) : w(W), h(H), rgb((size_t)W * H * 3)
 	{
 		// a dark sky, a horizon glow, a grey road with a bright patch (a lit stretch) to judge the panels against
 		for (int y = 0; y < h; y++)
@@ -90,6 +91,22 @@ struct Picture : Canvas
 					r = 90;
 					g = 50;
 					b = 120;
+				}
+				if (snow)
+				{
+					// a pale sky, grey rock on the horizon, white ground with a darker rut down the middle
+					r = 196, g = 210, b = 228;
+					if (fy > 0.45f)
+					{
+						r = g = 232 + (int)(20 * fy);
+						b = 255;
+						if (fx > 0.42f && fx < 0.58f && fy > 0.6f)
+							r = g = b = 176;
+					}
+					else if (fy > 0.3f)
+					{
+						r = g = b = ((x / 37 + y / 23) % 2) ? 92 : 128;
+					}
 				}
 				unsigned char* p = &rgb[((size_t)y * w + x) * 3];
 				p[0] = (unsigned char)r;
@@ -702,49 +719,150 @@ static void CheckLife()
 	CHECK(!ResultsShown(m, 20 + RESULTS_LIFE + 0.01f));
 }
 
-// Every scene at every size: nothing leaves the screen, and no part stands on another.
+// Which pixels are drawn on, whatever the colour: how much of the screen the HUD takes, and whether any of it is over the road.
+struct Mask : Canvas
+{
+	int w, h;
+	std::vector<unsigned char> on;
+	Mask(int W, int H) : w(W), h(H), on((size_t)W * H) {}
+	void Fill(int x, int y, int fw, int fh, int, int, int, int a) override
+	{
+		if (a <= 0)
+			return;
+		for (int yy = y < 0 ? 0 : y; yy < y + fh && yy < h; yy++)
+			for (int xx = x < 0 ? 0 : x; xx < x + fw && xx < w; xx++)
+				on[(size_t)yy * w + xx] = 1;
+	}
+	int Width() override { return w; }
+	int Height() override { return h; }
+	// The pixels drawn on in the box [x0, x1) by [y0, y1).
+	long Count(int x0, int y0, int x1, int y1) const
+	{
+		long n = 0;
+		for (int yy = y0; yy < y1; yy++)
+			for (int xx = x0; xx < x1; xx++)
+				n += on[(size_t)yy * w + xx];
+		return n;
+	}
+};
+
+static long Area(const Bounds& b)
+{
+	return b.Empty() ? 0 : (long)(b.x1 - b.x0) * (b.y1 - b.y0);
+}
+
+// Every scene at every size: nothing leaves the screen, no part stands on another, and while the race runs the HUD is four small
+// pieces in the corners: nothing in the middle of the screen, and little of the screen taken.
 static void CheckLayout(const MapData& map)
 {
 	static const int sizes[][2] = {{1280, 720}, {1920, 1080}, {1024, 768}, {800, 600}, {640, 480}, {1600, 900}, {2560, 1440}, {1280, 1024}, {3440, 1440}, {1366, 768}, {1440, 900}};
 	const float now = 500;
 	for (const auto& size : sizes)
 	{
+		const int W = size[0], H = size[1], u = PixelSize(W, H);
 		for (const char* scene : kScenes)
 		{
 			Model m;
 			Scene(scene, m, map, now);
-			Bounds whole(size[0], size[1]);
+			Bounds whole(W, H);
 			Painter all(whole, m, now);
 			all.Paint();
 			if (whole.outside || whole.Empty())
-				printf("  %s at %dx%d: %s\n", scene, size[0], size[1], whole.Empty() ? "nothing drawn" : "drawn off the screen");
+				printf("  %s at %dx%d: %s\n", scene, W, H, whole.Empty() ? "nothing drawn" : "drawn off the screen");
 			CHECK(!whole.outside);
 			CHECK(!whole.Empty());
 			if (Same(scene, "results"))
+			{
+				// the table is a panel in the middle, and not a large one: under a fifth of the screen, clear of its sides
+				CHECK(Area(whole) * 5 < (long)W * H);
+				CHECK(whole.x0 >= 8 * u && whole.x1 <= W - 8 * u && whole.y0 >= 8 * u && whole.y1 <= H - 8 * u);
 				continue;
-			Bounds panel(size[0], size[1]), speed(size[0], size[1]), mini(size[0], size[1]), board(size[0], size[1]), lights(size[0], size[1]),
-				notes(size[0], size[1]);
-			Painter(panel, m, now).RacePanel();
+			}
+			Bounds place(W, H), clocks(W, H), speed(W, H), mini(W, H), lights(W, H), notes(W, H);
+			Painter(place, m, now).Place();
+			Painter(clocks, m, now).Clocks();
 			Painter(speed, m, now).Speed();
 			Painter(mini, m, now).Minimap();
-			Painter(board, m, now).Board();
 			Painter(lights, m, now).StartLights();
 			Painter(notes, m, now + 0.1f).Notes(); // a moment when "wrong way" is lit
-			CHECK(mini.Empty() || mini.x1 == MapRight(size[0], size[1])); // the chat begins to the right of it (H9RaceHud_ChatLeft)
-			const Bounds* parts[6] = {&panel, &speed, &mini, &board, &lights, &notes};
-			static const char* const names[6] = {"the race panel", "the speed", "the map", "the board", "the lights", "the notes"};
+			CHECK(mini.Empty() || mini.x1 <= MapRight(W, H)); // the chat begins to the right of it (H9RaceHud_ChatLeft)
+			const Bounds* parts[6] = {&place, &clocks, &speed, &mini, &lights, &notes};
+			static const char* const names[6] = {"the place", "the clocks", "the speed", "the map", "the lights", "the notes"};
 			for (int i = 0; i < 6; i++)
 				for (int k = i + 1; k < 6; k++)
 				{
 					if (!Apart(*parts[i], *parts[k]))
-						printf("  %s at %dx%d: %s is over %s\n", scene, size[0], size[1], names[i], names[k]);
+						printf("  %s at %dx%d: %s is over %s\n", scene, W, H, names[i], names[k]);
 					CHECK(Apart(*parts[i], *parts[k]));
 				}
 			// TS's round timer (roundtime.cpp: at ScreenWidth - 72, 12, some 64 by 16 pixels) stays clear
-			Bounds timer(size[0], size[1]);
-			timer.Fill(size[0] - 72, 12, 64, 16, 0, 0, 0, 0);
+			Bounds timer(W, H);
+			timer.Fill(W - 72, 12, 64, 16, 0, 0, 0, 0);
 			for (int i = 0; i < 6; i++)
 				CHECK(Apart(*parts[i], timer));
+
+			// each corner's piece is in its corner, a margin from the screen's sides (the dark edge, a pixel or two, may stand in the
+			// margin), and small: in units, so at 1280x720 twice that in pixels
+			const int edge = HUD_EDGE * u - (u + 1) / 2, rim = 2 * ((u + 1) / 2) + u / 2;
+			const struct
+			{
+				const Bounds* b;
+				bool left, top;
+				int maxW, maxH;
+			} corners[4] = {
+				{&place, true, true, 72, 43},    // 144 by 86 at 1280x720 with a two-figure lap and place; some 90 wide with one
+				{&clocks, false, true, 70, 47},  // 140 by 94 with all five clocks; 138 by 54 with the usual three
+				{&mini, true, false, MAP_SIZE, MAP_SIZE},
+				{&speed, false, false, 2 * GAUGE_R + 1, GAUGE_R + 9},
+			};
+			for (int i = 0; i < 4; i++)
+			{
+				const Bounds& b = *corners[i].b;
+				if (b.Empty())
+					continue;
+				const bool in = (corners[i].left ? b.x0 >= edge && b.x1 <= W / 5 : b.x1 <= W - edge + u / 2 && b.x0 >= W - W / 5) &&
+								(corners[i].top ? b.y0 >= edge && b.y1 <= H / 2 : b.y1 <= H - edge + u / 2 && b.y0 >= H / 2);
+				const bool small = b.x1 - b.x0 <= corners[i].maxW * u + rim && b.y1 - b.y0 <= corners[i].maxH * u + rim;
+				if (!in || !small)
+					printf("  %s at %dx%d: %s is %d by %d at %d, %d (%s)\n", scene, W, H, names[i == 2 ? 3 : (i == 3 ? 2 : i)], b.x1 - b.x0, b.y1 - b.y0, b.x0,
+						b.y0, !in ? "not in its corner" : "too large");
+				CHECK(in);
+				CHECK(small);
+			}
+			// what comes and goes stands along the top, about the middle
+			for (const Bounds* b : {&lights, &notes})
+				if (!b->Empty())
+				{
+					CHECK(b->y0 >= edge && b->y1 <= H / 5);
+					CHECK(b->x0 > W / 5 && b->x1 < W - W / 5);
+					CHECK(abs((b->x0 + b->x1) / 2 - W / 2) <= 2 * u);
+				}
+
+			// nothing is drawn in the middle of the screen (its middle 60% each way): that is the road's
+			Mask mask(W, H);
+			Painter(mask, m, now).Paint();
+			Painter(mask, m, now + 0.1f).Paint();
+			const long middle = mask.Count(W / 5, H / 5, W - W / 5, H - H / 5);
+			if (middle)
+				printf("  %s at %dx%d: %ld pixels drawn in the middle of the screen\n", scene, W, H, middle);
+			CHECK(middle == 0);
+			// and the HUD takes little of the screen: the boxes round the four corners' pieces under 4% of it at the sizes the layout
+			// is made for (16:9 with a whole unit: 1280x720, 1920x1080, 2560x1440) and the pixels really drawn on, notes and all, under
+			// 3%; under 7% and 4% at any size and with all five clocks up (a 4:3 screen has fewer pixels for the same pieces, and
+			// 1600x900 rounds its unit up to 3)
+			const long boxes = Area(place) + Area(clocks) + Area(mini) + Area(speed), screen = (long)W * H;
+			const long drawn = mask.Count(0, 0, W, H);
+			const bool made = W * 9 == H * 16 && H == 360 * u;
+			const int boxLimit = made && !Same(scene, "ending") ? 40 : 70, drawnLimit = made ? 30 : 40; // thousandths of the screen
+			if (boxes * 1000 >= screen * boxLimit || drawn * 1000 >= screen * drawnLimit)
+				printf("  %s at %dx%d: the corners' boxes are %.2f%% of the screen, the pixels drawn %.2f%%\n", scene, W, H, 100.0 * boxes / screen,
+					100.0 * drawn / screen);
+			CHECK(boxes * 1000 < screen * boxLimit);
+			CHECK(drawn * 1000 < screen * drawnLimit);
+			if (Same(scene, "racing") && W == 1280)
+				printf("racing at %dx%d: place %dx%d, clocks %dx%d, map %dx%d, speed %dx%d, notes %dx%d; boxes %.2f%% of the screen, drawn %.2f%%\n", W, H,
+					place.x1 - place.x0, place.y1 - place.y0, clocks.x1 - clocks.x0, clocks.y1 - clocks.y0, mini.x1 - mini.x0, mini.y1 - mini.y0,
+					speed.x1 - speed.x0, speed.y1 - speed.y0, notes.x1 - notes.x0, notes.y1 - notes.y0, 100.0 * boxes / screen, 100.0 * drawn / screen);
 		}
 	}
 }
@@ -781,15 +899,16 @@ int main(int argc, char** argv)
 		const float now = 500;
 		for (const auto& size : sizes)
 		{
+			for (int snow = 0; snow < 2; snow++)
 			for (const char* scene : kScenes)
 			{
 				Model m;
 				Scene(scene, m, map, now);
-				Picture pic(size[0], size[1]);
+				Picture pic(size[0], size[1], snow != 0);
 				Painter painter(pic, m, now + (Same(scene, "wrongway") ? 0.1f : 0.0f));
 				painter.Paint();
 				char name[160];
-				snprintf(name, sizeof(name), "%s/racehud-%s-%dx%d.png", argv[1], scene, size[0], size[1]);
+				snprintf(name, sizeof(name), "%s/racehud-%s%s-%dx%d.png", argv[1], snow ? "snow-" : "", scene, size[0], size[1]);
 				if (!WritePng(name, pic))
 				{
 					printf("FAILED: cannot write %s\n", name);
