@@ -1843,7 +1843,7 @@
 
  FILES. build.bat builds ARP_Core, ARP_Commands, ARP_Config, ARP_HUD,
  ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod, ARP_TalkArea,
- ARP_Zones, ARP_TS, ARP_H9Menu, ARP_Inventory, ARP_PropertyTax, ARP_PayScale and ARP_PropClip, lists them in plugins.ini with ARP_Core first, and
+ ARP_Zones, ARP_TS, ARP_H9Menu, ARP_Inventory, ARP_PropertyTax, ARP_PayScale, ARP_PropClip and ARP_H9Ctx, lists them in plugins.ini with ARP_Core first, and
  installs configs\arp\ (arp.ini, arp.cfg, the maps' folders), models\arp and
  sound\arp. Edit them in apollo-rp\ in TSM: build.bat copies them over the
  game's. "build.bat apollo" builds Apollo RP alone.
@@ -2019,7 +2019,7 @@
  ITS INVENTORY. ARP_Inventory (docs\ARP_INVENTORY.txt) arranges each player's items in cells: a number of cells, each empty or holding one kind of
  item up to a stack limit. A player whose game has the window (H9's client, _h9vgui 6) is given it by /items and /inventory (and the key he binds
  to cl_h9_inventory) in place of the text menu: tiles to click and drag, stacks to combine and split, and a right-click menu (Use, Drop one, Drop all,
- Give to, Show to, Info), all through ARP's own item paths, so a plugin that hooks Item_Use, Item_Give, Item_Drop or Item_Show keeps working. Every
+ Show to, Info; goods change hands by an exchange, E on the player), all through ARP's own item paths, so a plugin that hooks Item_Use, Item_Give, Item_Drop or Item_Show keeps working. Every
  other player keeps the text menu, and the cell rules are the server's: they apply to all. What is stored is what ARP always stored (the table
  arp_items); the arrangement lives while the player is in the game. When the inventory is full a pick-up takes what fits and leaves the rest in the pack,
  a shop refuses before it takes the money, a give is refused when the other player has no room for all of it, and an add that nothing asked about

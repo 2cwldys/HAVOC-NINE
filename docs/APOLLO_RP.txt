@@ -3,7 +3,7 @@ APOLLO RP ON HAVOC 9 -- what it is, what a player sees, what it needs
 
 Apollo RP (ARP) is a roleplay plugin set for AMX Mod X: a wallet, a bank, jobs with salaries, items, shops, jails and
 a HUD. H9 carries it whole in apollo-rp\ (apollo-rp\ORIGIN.txt says where it came from and lists every change H9 made
-to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lists them in plugins.ini, ARP_Core first.
+to it, items 1 to 50), builds eighteen of its plugins for The Specialists and lists them in plugins.ini, ARP_Core first.
 
 
 1. WHERE IT RUNS
@@ -203,7 +203,7 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
 ------------------------------------------------------------------------
 
   1. Start on h9_tsrp_hive with the live database backed up. The AMX Mod X log has no ARP error and no "stand-down" line
-     for the map; amx_plugins lists the fifteen ARP plugins running.
+     for the map; amx_plugins lists the eighteen ARP plugins running.
   1a. The same log has one line "[ARP] map SQL: 390 statements, 0 errors, jobs now 40, properties now 131, doors now 224" for the
      start (the file's 40 jobs, 130 properties and 220 doors, and the jail's property and four doors the database has already; the same line at every later start
      of the map: nothing is added twice), and arp_joblist lists 40 jobs, Unemployed first, in the order of the map's .sql file. h9_tsrp_newbyzantium the same,
@@ -353,7 +353,7 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
     kinds, SPLITS a stack and TIDIES; an action (use, drop, give, show) acts on the cell it was made from.
   * THE WINDOW. A player whose game has it (_h9vgui 6) is given the inventory window by /items, /inventory and "h9inv open" in place of the text menu,
     also when his inventory is empty (the grid, with nothing in it). Every other player keeps the text menu, and the cell rules, which are the server's,
-    apply to him as well. Its right-click menu is USE, DROP ONE, DROP ALL, GIVE TO ..., SHOW TO ... and INFO, and each one runs ARP's own path (the events
+    apply to him as well. Its right-click menu is USE, DROP ONE, DROP ALL, SHOW TO ... and INFO (and OFFER while an exchange is open; there is no GIVE TO: goods change hands by an exchange, E on the player), and each one runs ARP's own path (the events
     Item_Use, Item_Drop, Item_Give and Item_Show, the item's handler, the g_ItemUse mutex), so a plugin that hooks an item event keeps working. Dragging a
     tile out of the window drops it.
   * FULL. The use key on a pack on the floor takes what fits and leaves the rest in the pack; a shop, a bank, a doctor or a gun shop refuses before it takes

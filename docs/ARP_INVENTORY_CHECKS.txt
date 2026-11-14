@@ -14,7 +14,7 @@ A. Deploy (the lead's builds): build.bat apollo (ARP_Core, ARP_NPCs, ARP_JailMod
 
 B. Server only, nobody at a screen.
    1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found", and a line "[ARP] inventory: inventory.ini names 0 stack limits" (the shipped file is all
-      comments). amx_plugins lists fifteen ARP plugins running, ARP_Inventory among them.
+      comments). amx_plugins lists eighteen ARP plugins running, ARP_Inventory among them.
    2. A player joins with any client: after a few seconds arp_h9_inv_dump <name> says "DUMP id=N on=1 slots=32 shown=32 used=..." (on=0 for a bot: bots are never given
       an arrangement) and arp_h9_inv_check <name> says "CHECK id=N OK". Whatever he buys or finds shows in the dump as cells, "C 0:<item>:<count> ...", kinds in item order
       after he joins again.
@@ -36,8 +36,8 @@ C. With H9's client on h9_tsrp_hive (a character with a few items, bought at a s
    3. Stacks: buy 25 Soda (a shop that sells it): 20 and 5 in two cells. SPLIT (the right-click menu, or shift) 2 off the 5: 3 and 2 in two cells. arp_h9_inv_stack 5 in the
       server console: within a second the cells split into stacks of 5 and nothing is lost; 20 again and TIDY merges them.
    4. The right-click menu on a tile: USE (Soda: the eating state and the hunger bar act as from the text menu; a second Use while eating answers "You are already using
-      another item."), DROP ONE and DROP ALL (a pack lies on the floor, "Soda x3", and the hover line names it from 120 units away while arp_h9_itemhover is 1), GIVE TO ...
-      (the players near, 200 units), SHOW TO ... (the players near, 150 units), INFO (the item's description in the status row). Dragging a tile out of the window onto the
+      another item."), DROP ONE and DROP ALL (a pack lies on the floor, "Soda x3", and the hover line names it from 120 units away while arp_h9_itemhover is 1), SHOW TO ...
+      (the players near, 150 units), INFO (the item's description in the status row). Dragging a tile out of the window onto the
       world drops it all; with shift, one.
    5. SHOW TO a player: he sees a banner for six seconds, "<YOUR NAME> SHOWS YOU", the item, its description, and chat says "<YOUR NAME> shows you his Soda."; you get "You show
       <NAME> your Soda." and nothing is taken from you. Too far (over 150 units), behind a wall, a bot, yourself: the status row refuses. The same for a license or a card.

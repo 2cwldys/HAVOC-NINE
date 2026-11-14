@@ -28,7 +28,7 @@ room in the entity table, 2026-11-11), H9-arpteams.patch (item 43, 2026-11-11), 
 (item 20 is a default in arp.cfg and ARP_Core.sma, in no patch).
 In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
 ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
-ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch), ARP_Inventory (items 31, 32), ARP_PropertyTax (item 42, H9's own, in no patch), ARP_PayScale (item 49, H9's own, in no patch) and ARP_PropClip (item 48, H9's own, in no patch). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
+ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch), ARP_Inventory (items 31, 32), ARP_PropertyTax (item 42, H9's own, in no patch), ARP_PayScale (item 49, H9's own, in no patch), ARP_PropClip (item 48, H9's own, in no patch) and ARP_H9Ctx (item 50, H9's own, in no patch). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
 folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
 
 1. Roleplay maps only (ARP_Core, plugin_precache). On a map whose name is not a roleplay one -- rp_
@@ -129,7 +129,7 @@ folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
 
 Building and running it
 -----------------------
-build.bat builds the fourteen with the game's amxxpc, deploys them, lists them in plugins.ini with
+build.bat builds the eighteen with the game's amxxpc, deploys them, lists them in plugins.ini with
 ARP_Core first, and copies configs\arp\, models\arp and sound\arp into the live install; export.bat
 carries them, and this folder, on. ARP uses the AMX Mod X modules engine, fakemeta, hamsandwich,
 fun, tsx, tsfun and sqlite, all in H9's build (TSM\AMXMODX). On a roleplay map without a folder of
@@ -392,7 +392,7 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
 38. Cuffs, Tape and Rope as items (ARP_JailMod.sma, ARP_Items.sma, ARP_TalkArea.sma, include\ApolloRP_H9Cfg.inc, ApolloRP_Chat.inc). Stock ARP registers none of them: Cuffs sat behind //#define CUFF_ITEM, Tape and
    Rope behind #if 0, and the shops' sell lines for them showed as BAD ITEM ID. With arp_h9_restraints 1 (read from configs\arp\arp.cfg by file, because the core registers items in its precache, before the
    server executes that file) they are registered. Police cuff with /cuff and need no item; anyone else needs one Cuffs (the item or /cuff), which the cuffing uses up and which is given back to whoever frees him
-   unless the cuffs were put on by police (g_CuffItem); a cuffed non-police player cannot cuff. Tape is used up when it gags (chat and team chat by ARP_Items, voice by the native ARP_H9Gag of ARP_TalkArea, which
+   when the cuffs were put on with an item (g_CuffItem) and he is not police (police use none); a cuffed non-police player cannot cuff. Tape is used up when it gags (chat and team chat by ARP_Items, voice by the native ARP_H9Gag of ARP_TalkArea, which
    its voice talk area honours with arp_voice 1); /removetape. Rope ties the player looked at to the user (client_PreThink pulls him horizontally toward the holder beyond arp_h9_rope_length, a step up where the
    holder stands higher, and the rope snaps at four times that); /untie or the rope used again frees him; death, leaving and a holder who died or left end it. Every use is logged ("Restraint: ...").
 

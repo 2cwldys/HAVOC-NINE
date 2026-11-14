@@ -13,7 +13,7 @@ A. Deploy (the lead's builds): build.bat apollo (ARP_PropertyTax is the last of 
    /paytax go through it).
 
 B. Server only, nobody at a screen (the server's console or rcon).
-   1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found"; amx_plugins lists fifteen ARP plugins running, ARP_PropertyTax among them. arp_h9_tax_dump says "TAX on=1 minutes=15.0 ...",
+   1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found"; amx_plugins lists eighteen ARP plugins running, ARP_PropertyTax among them. arp_h9_tax_dump says "TAX on=1 minutes=15.0 ...",
       "DB made=1 loaded=1 prices=<n> failed=0 ...", "TABLES ...", and, with arp_h9_tax_manual 1, "HAND manual=1 evict=1 limit_tolls=288 limit_debt=0 loaded=1 rows=<n> owing=<n> owed=<n> automatic=<n>
       on_its_way=0 to_write=0" and "HANDDB made=1 due_table=arp_h9_taxdue note_table=arp_h9_taxnote". (made=0 until a second after the map starts.)
    2. The tax with the new settings off: arp_h9_tax_manual 0 (the plugin's own default; the settings are read at every toll, so the server's console is enough): the dump has no HAND lines (unless
