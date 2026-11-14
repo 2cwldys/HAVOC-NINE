@@ -177,7 +177,7 @@ test("a relay run from a config and a hosts file: a token opens a session and li
     const lb = { public: true, name: "x" };
     const raw2 = Buffer.from(JSON.stringify(lb));
     const t2 = String(Date.now());
-    const m2 = crypto.createHmac("sha256", key2).update("POST\n/v1/host/listing\n" + t2 + "\nn2\n" + crypto.createHash("sha256").update(raw2).digest("hex")).digest("hex");
+    const m2 = crypto.createHmac("sha256", key2).update("POST\n/v1/host/listing\n" + t2 + "\nn2\n" + crypto.createHmac("sha256", key2).update(Buffer.concat([Buffer.from("body\n"), raw2])).digest("hex")).digest("hex");
     const denied = await httpJson(r.base, "/v1/host/listing", { headers: { "X-H9-Sig": "s=" + oa.json.session + ";t=" + t2 + ";n=n2;m=" + m2 }, body: lb });
     assert.equal(denied.status, 403, "hosts.json public false: this token may not list");
     assert.deepEqual(denied.json, { error: "listing disabled" });
