@@ -40,5 +40,5 @@ reconstruction against them.
 
 reTS is built on the Half-Life SDK and is distributed under its license ([LICENSE](LICENSE)): free of
 charge only. The GPLv3 of the gamemode plugins does not apply to reTS, nor does this license reach the plugins
-([../LICENSING.md](../LICENSING.md) says which folder is under which license). Half-Life Updated's own changes are in [CHANGELOG.md](CHANGELOG.md) and
+([../LICENSE.md](../LICENSE.md) says which folder is under which license). Half-Life Updated's own changes are in [CHANGELOG.md](CHANGELOG.md) and
 [FULL_UPDATED_CHANGELOG.md](FULL_UPDATED_CHANGELOG.md), and its contributors in [CREDITS.md](CREDITS.md).
