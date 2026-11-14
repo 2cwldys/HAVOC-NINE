@@ -283,6 +283,11 @@ void H9RallyMove()
 		in.steering = (pmove->cmd.buttons & (IN_LEFT | IN_RIGHT)) != 0; // the client sets these for the side keys too
 	}
 
+	// a held car (the countdown, after the finish) stands on its handbrake, and a slope does not roll it off the grid
+	const bool held = CarHeld();
+	if (held)
+		in.handbrake = true;
+
 	CheckWater();
 	const float grav = H9R_GRAVITY * (pmove->gravity != 0 ? pmove->gravity : 1.0f); // not sv_gravity: the car falls as in HL Rally
 
@@ -335,6 +340,8 @@ void H9RallyMove()
 		const Vector gt = MA(gv, -Dot3(gv, n), n); // gravity along the plane
 		g.slopeF = Dot3(gt, f);
 		g.slopeS = Dot3(gt, l);
+		if (held)
+			g.slopeF = g.slopeS = 0;
 
 		float vf = Dot3(pmove->velocity, f), vs = Dot3(pmove->velocity, l);
 		H9RallyGroundStep(vf, vs, in, g, car, dt);
