@@ -386,6 +386,29 @@ static void TestShowroom()
 	CHECK(Near(sh[2][0], -16) && Near(sh[2][1], 8) && Near(sh[3][0], 36) && Near(sh[3][1], 8));
 	ShadowCorners(p, 90, sh);
 	CHECK(Near(sh[0][0], -2) && Near(sh[0][1], 46)); // forward is now +y, right +x: FL = org + f*26 - r*12
+
+	// the black room: back wall 110 ahead from -100 (right) to +50 (left) across and 80 up and down; the window 5 ahead is 10 by 8; the floor 40..110 ahead
+	float room[5][4][3];
+	const float o0[3] = {0, 0, 0}, ang0[3] = {0, 0, 0};
+	RoomQuads(o0, ang0, room); // looking along x: right is -y, up is +z
+	CHECK(Near(room[0][0][0], 110) && Near(room[0][0][1], -100) && Near(room[0][0][2], 80)); // far top right
+	CHECK(Near(room[0][1][1], 50) && Near(room[0][2][2], -80) && Near(room[0][3][1], -100)); // far left is +50 (half), far bottom is -80
+	CHECK(Near(room[1][1][0], 5) && Near(room[1][1][1], -5) && Near(room[1][1][2], 4));      // the right side starts at the window's top right
+	CHECK(Near(room[4][1][0], 5) && Near(room[4][1][1], 5) && Near(room[4][1][2], -4));      // the bottom side: near bottom left
+	for (int q = 0; q < 5; q++)
+		for (int v = 0; v < 4; v++)
+			CHECK(room[q][v][0] >= 5 - 0.01f && room[q][v][0] <= 110 + 0.01f);               // nothing behind the window or past the wall
+	float fl[4][3];
+	FloorQuad(o0, ang0, fl);
+	CHECK(Near(fl[0][0], 40) && Near(fl[0][1], 30) && Near(fl[0][2], -32) && Near(fl[1][1], -50)); // front left is +y when looking along x
+	CHECK(Near(fl[2][0], 110) && Near(fl[2][2], -16) && Near(fl[3][1], 30));
+	// the car's origin (65 ahead, 9 right, 23 down) stands on the floor's footprint and just above it
+	float car[3];
+	ShowPlace(o0, ang0, car);
+	const float t = (car[0] - 40) / 70, floorZ = -32 + 16 * t;
+	CHECK(car[1] < fl[0][1] && car[1] > fl[1][1] && car[2] > floorZ && car[2] - floorZ < 6);
+	// the camera is set for every ordinary frame (the spectator's too) and only while a menu is up, not in intermission nor in the mirror's pass
+	CHECK(CameraApplies(true, 0, 0) && !CameraApplies(false, 0, 0) && !CameraApplies(true, 1, 0) && !CameraApplies(true, 0, 1));
 }
 
 static void TestMapInfo()

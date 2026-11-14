@@ -505,6 +505,53 @@ inline void ShadowCorners(const float org[3], float yaw, float out[4][3])
 	}
 }
 
+// ---- the black room and the floor's pool of light (rally_vguifx.cpp:333-488) --------------------------------------------------------------------
+// While a menu is up the world is hidden by a black box round the view: a back wall 110 ahead and four sides running from a small window 5 ahead out to it.
+static const float kRoomNearX = 5, kRoomNearY = 4, kRoomNearZ = 5;   // iScreenX, iScreenY, iScreenZ: the window by the eye
+static const float kRoomFarX = 100, kRoomFarY = 80, kRoomFarZ = 110; // the back wall; its left is half the width (the car stands right of the middle)
+// out[0] the back wall, 1 right, 2 left, 3 top, 4 bottom; each four corners in the order HL Rally draws them.
+inline void RoomQuads(const float org[3], const float ang[3], float out[5][4][3])
+{
+	float f[3], r[3], u[3];
+	Vectors(ang, f, r, u);
+	float nc[4][3], fc[4][3];
+	const float nx[4] = {1, -1, -1, 1}, ny[4] = {1, 1, -1, -1};
+	const float fx[4] = {kRoomFarX, -kRoomFarX / 2, -kRoomFarX / 2, kRoomFarX};
+	for (int c = 0; c < 4; c++)
+		for (int i = 0; i < 3; i++)
+		{
+			nc[c][i] = org[i] + r[i] * (nx[c] * kRoomNearX) + u[i] * (ny[c] * kRoomNearY) + f[i] * kRoomNearZ;
+			fc[c][i] = org[i] + r[i] * fx[c] + u[i] * (ny[c] * kRoomFarY) + f[i] * kRoomFarZ;
+		}
+	// {far (1) or near (0), corner}
+	const int side[5][4][2] = {
+	    {{1, 0}, {1, 1}, {1, 2}, {1, 3}},  // back wall
+	    {{1, 0}, {0, 0}, {0, 3}, {1, 3}},  // right: far0 near0 near3 far3
+	    {{1, 1}, {0, 1}, {0, 2}, {1, 2}},  // left: far1 near1 near2 far2
+	    {{1, 0}, {0, 0}, {0, 1}, {1, 1}},  // top: far0 near0 near1 far1
+	    {{1, 2}, {0, 2}, {0, 3}, {1, 3}}}; // bottom: far2 near2 near3 far3
+	for (int q = 0; q < 5; q++)
+		for (int v = 0; v < 4; v++)
+		{
+			const float* src = side[q][v][0] ? fc[side[q][v][1]] : nc[side[q][v][1]];
+			for (int i = 0; i < 3; i++)
+				out[q][v][i] = src[i];
+		}
+}
+// The floor: a quad 80 wide from 40 to 110 ahead, 32 below the eye at its near edge and 16 at its far (it rises); front left, front right, back right, back left.
+inline void FloorQuad(const float org[3], const float ang[3], float out[4][3])
+{
+	float f[3], r[3], u[3];
+	Vectors(ang, f, r, u);
+	const float fw[4] = {40, 40, 110, 110}, rt[4] = {-30, 50, 50, -30}, up[4] = {-32, -32, -16, -16};
+	for (int c = 0; c < 4; c++)
+		for (int i = 0; i < 3; i++)
+			out[c][i] = org[i] + f[i] * fw[c] + r[i] * rt[c] + u[i] * up[c];
+}
+// The menu's camera is set for every ordinary view frame, whoever the player is (a player who has just joined is a spectator, and the spectator
+// refdef is not the normal one), never for the intermission's nor the second pass (the rear-view mirror), so that it is set once a frame.
+inline bool CameraApplies(bool menuUp, int intermission, int nextView) { return menuUp && intermission == 0 && nextView == 0; }
+
 // ---- the map's text for the main menu ---------------------------------------------------------------------------------------------------------
 // "maps/<map>.bsp" -> "maps/<map>_mapinfo.txt" (HL Rally cuts the last four characters of the level name); false when the name is too short.
 inline bool MapInfoPath(const char* level, char* out, int cap)

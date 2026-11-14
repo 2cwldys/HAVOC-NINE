@@ -24,6 +24,7 @@ using namespace carmenu;
 
 const char* const CAR_MODEL = "models/h9/rc_rally_xs.mdl"; // the one car model there is: every class shows it, by livery
 const char* const SHADOW_SPRITE = "sprites/h9/rally/r_shadow.spr"; // the race effects' own shadow
+const char* const FLOOR_SPRITE = "sprites/h9/rally/showroom_f.spr"; // the pool of light on the showroom's floor (our own picture)
 const int SHOW_MARK = 0x434d4e; // baseline.iuser1 of the showroom car's tempent
 const int SHOW_LIGHT = 7483;    // its light's key
 
@@ -126,7 +127,7 @@ struct Sprite
 {
 	int state = -1; // -1 not asked, 0 none, 1 ready
 	struct model_s* model = nullptr;
-} s_shadow;
+} s_shadow, s_floor;
 
 bool CarModelReady()
 {
@@ -147,23 +148,25 @@ bool CarModelReady()
 	return s_show.state == 1;
 }
 
-struct model_s* ShadowModel()
+struct model_s* SpriteModel(Sprite& sp, const char* path)
 {
-	if (s_shadow.state < 0)
+	if (sp.state < 0)
 	{
-		s_shadow.state = 0;
-		if (HaveFile(SHADOW_SPRITE))
+		sp.state = 0;
+		if (HaveFile(path))
 		{
-			HSPRITE h = SPR_Load(SHADOW_SPRITE);
+			HSPRITE h = SPR_Load(path);
 			if (h)
 			{
-				s_shadow.model = (struct model_s*)gEngfuncs.GetSpritePointer(h);
-				s_shadow.state = s_shadow.model != nullptr ? 1 : 0;
+				sp.model = (struct model_s*)gEngfuncs.GetSpritePointer(h);
+				sp.state = sp.model != nullptr ? 1 : 0;
 			}
 		}
 	}
-	return s_shadow.state == 1 ? s_shadow.model : nullptr;
+	return sp.state == 1 ? sp.model : nullptr;
 }
+struct model_s* ShadowModel() { return SpriteModel(s_shadow, SHADOW_SPRITE); }
+struct model_s* FloorModel() { return SpriteModel(s_floor, FLOOR_SPRITE); }
 
 bool ShowAlive()
 {
@@ -217,6 +220,7 @@ void H9CarMenu_VidInit()
 	s_spotFound = false;
 	s_show = Show(); // the model's handle is asked for again on the new map
 	s_shadow = Sprite();
+	s_floor = Sprite();
 	H9CarMenu_Touch();
 }
 
@@ -270,7 +274,7 @@ void H9CarMenu_ShowCar(int cls)
 		s_show.active = false;
 		return;
 	}
-	te->flags |= FTENT_CLIENTCUSTOM;
+	te->flags |= FTENT_CLIENTCUSTOM | FTENT_PERSIST; // PERSIST: HUD_TempEntUpdate drops a tempent the engine cannot draw this frame (not in the view's PVS); the callback's die time ends this one
 	te->flags &= ~(FTENT_COLLIDEWORLD | FTENT_GRAVITY); // it stands where the callback puts it
 	te->callback = ShowCallback;
 	te->entity.baseline.iuser1 = SHOW_MARK;
@@ -300,7 +304,7 @@ void H9CarMenu_DragEnd() { s_show.spin.down = false; }
 
 bool H9CarMenu_ApplyCamera(struct ref_params_s* pp)
 {
-	if (pp == nullptr || !H9CarMenu_MenuUp())
+	if (pp == nullptr || !CameraApplies(H9CarMenu_MenuUp(), pp->intermission, pp->nextView))
 		return false;
 	LoadSpot();
 	if (!s_spotFound)
@@ -321,28 +325,75 @@ bool H9CarMenu_ApplyCamera(struct ref_params_s* pp)
 	return true;
 }
 
-void H9CarMenu_Draw()
+// The black room (HL Rally draws it while the main or the car menu is up, the car or none), with a sprite's texture in black as HL Rally's
+// vgui_back.spr; we have no such picture, so the floor's (or the shadow's) carries it.
+static const float kUV[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}}; // HL Rally's order for the four corners
+
+static void DrawRoom(struct model_s* tex)
 {
-	if (!ShowAlive() || s_screen == 0)
-		return;
-	struct model_s* spr = ShadowModel();
-	if (spr == nullptr)
-		return;
-	float c[4][3];
-	ShadowCorners(s_show.pos, s_show.spin.yaw, c);
-	static const float uv[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}}; // HL Rally's order for the four corners
+	float q[5][4][3];
+	RoomQuads(s_camOrg, s_camAng, q);
+	gEngfuncs.pTriAPI->SpriteTexture(tex, 0);
+	gEngfuncs.pTriAPI->RenderMode(kRenderNormal);
 	gEngfuncs.pTriAPI->CullFace(TRI_NONE);
-	gEngfuncs.pTriAPI->RenderMode(kRenderTransTexture);
-	gEngfuncs.pTriAPI->SpriteTexture(spr, 0);
+	gEngfuncs.pTriAPI->Begin(TRI_QUADS);
+	for (int k = 0; k < 5; k++)
+		for (int i = 0; i < 4; i++)
+		{
+			gEngfuncs.pTriAPI->Brightness(1);
+			gEngfuncs.pTriAPI->TexCoord2f(kUV[i][0], kUV[i][1]);
+			gEngfuncs.pTriAPI->Color4f(0, 0, 0, 1);
+			gEngfuncs.pTriAPI->Vertex3fv(q[k][i]);
+		}
+	gEngfuncs.pTriAPI->End();
+}
+
+static void DrawFloor(struct model_s* tex)
+{
+	float c[4][3];
+	FloorQuad(s_camOrg, s_camAng, c);
+	gEngfuncs.pTriAPI->SpriteTexture(tex, 0);
+	gEngfuncs.pTriAPI->RenderMode(kRenderNormal);
+	gEngfuncs.pTriAPI->CullFace(TRI_NONE);
 	gEngfuncs.pTriAPI->Begin(TRI_QUADS);
 	for (int i = 0; i < 4; i++)
 	{
 		gEngfuncs.pTriAPI->Brightness(1);
-		gEngfuncs.pTriAPI->TexCoord2f(uv[i][0], uv[i][1]);
+		gEngfuncs.pTriAPI->TexCoord2f(kUV[i][0], kUV[i][1]);
 		gEngfuncs.pTriAPI->Color4f(1, 1, 1, 1);
 		gEngfuncs.pTriAPI->Vertex3fv(c[i]);
 	}
 	gEngfuncs.pTriAPI->End();
+}
+
+void H9CarMenu_Draw()
+{
+	if (s_screen == 0)
+		return;
+	struct model_s* floorTex = FloorModel();
+	struct model_s* shadowTex = ShadowModel();
+	struct model_s* roomTex = floorTex != nullptr ? floorTex : shadowTex;
+	if (roomTex != nullptr)
+		DrawRoom(roomTex);
+	if (floorTex != nullptr && s_screen >= 2) // HL Rally's showroom mode: the car menu and the customise screen
+		DrawFloor(floorTex);
+	if (ShowAlive() && shadowTex != nullptr)
+	{
+		float c[4][3];
+		ShadowCorners(s_show.pos, s_show.spin.yaw, c);
+		gEngfuncs.pTriAPI->CullFace(TRI_NONE);
+		gEngfuncs.pTriAPI->RenderMode(kRenderTransTexture);
+		gEngfuncs.pTriAPI->SpriteTexture(shadowTex, 0);
+		gEngfuncs.pTriAPI->Begin(TRI_QUADS);
+		for (int i = 0; i < 4; i++)
+		{
+			gEngfuncs.pTriAPI->Brightness(1);
+			gEngfuncs.pTriAPI->TexCoord2f(kUV[i][0], kUV[i][1]);
+			gEngfuncs.pTriAPI->Color4f(1, 1, 1, 1);
+			gEngfuncs.pTriAPI->Vertex3fv(c[i]);
+		}
+		gEngfuncs.pTriAPI->End();
+	}
 	gEngfuncs.pTriAPI->RenderMode(kRenderNormal);
 	gEngfuncs.pTriAPI->CullFace(TRI_FRONT);
 }

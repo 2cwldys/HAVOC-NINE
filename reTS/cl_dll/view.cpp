@@ -2103,6 +2103,12 @@ void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams)
 	else if (0 != pparams->spectator || 0 != g_iUser1) // g_iUser true if in spectator mode
 	{
 		V_CalcSpectatorRefdef(pparams);
+		// H9 rally menus: a player who has just joined is a spectator, and the normal refdef (where the menu's camera is set) is not run
+		if (H9CarMenu_ApplyCamera(pparams))
+		{
+			VectorCopy(pparams->viewangles, v_angles);
+			VectorCopy(pparams->vieworg, v_origin);
+		}
 	}
 	else if (0 == pparams->paused)
 	{
