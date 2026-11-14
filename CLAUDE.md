@@ -175,6 +175,14 @@ called from a map generator with `generateForMap()` (same guide, section 7).
      THIRD_PARTY_LICENSES/, and LICENSE.md gets its row (what it is, where it lives, which license). A removed component loses
      its row. A part of the repository that is another project's own repository is a git submodule, as SMAK is.
   5. If the license does not fit, say so in plain words to the owner and do not add the file.
+- Every cvar added for any reason, on the engine side (a patch's `Cvar_Get` or `CVAR_DEFINE`), the module side (reTS) or the
+  plugin side (an AMX Mod X `register_cvar`), is listed in `CVARS.md` in the same piece of work, in parity with
+  `docs\COMMANDS.txt` and the shipped config that sets it: its row in COMMANDS.txt, its line and its comment in the config
+  (`ts_matchmode.cfg`, `ts_assault.cfg`, `arp.cfg` and the others), and its row in CVARS.md all carry the same default and the same
+  meaning. `CVARS.md` is written by `python tools\gen_cvar_index.py` from the sources, the config comments and the COMMANDS.txt
+  rows, so write the cvar's COMMANDS.txt row and config comment first and then run the tool; a cvar left undocumented shows as
+  "(no description yet)", and `--check` exits 1 when CVARS.md is out of date. A removed or renamed cvar leaves all three. A cvar the
+  tool cannot see (a registration in a form it does not read) is taught to the tool, never added to CVARS.md by hand.
 - A third-party file (a binary, an include, a data file) ships with its license beside it,
   in every folder that holds a copy: `easy_http_LICENSE.txt` next to AmxxEasyHttp's module,
   CA bundle and include (compts, H9XASH, the Steam install, the git copy), and
