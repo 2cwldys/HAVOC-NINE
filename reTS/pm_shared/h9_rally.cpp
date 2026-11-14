@@ -286,7 +286,7 @@ void H9RallyMove()
 	// a held car (the countdown, after the finish) stands on its handbrake, and a slope does not roll it off the grid
 	const bool held = CarHeld();
 	if (held)
-		in.handbrake = true;
+		in.hand = true;
 
 	CheckWater();
 	const float grav = H9R_GRAVITY * (pmove->gravity != 0 ? pmove->gravity : 1.0f); // not sv_gravity: the car falls as in HL Rally
