@@ -38,6 +38,7 @@
 #include "h9_rallycar.h"     // H9 rally mode: H9RallyCam_Init, H9RallyCam_VidInit
 #include "h9_racehud.h"     // H9 race HUD: H9RaceHud_Init, the race mode's HUD
 #include "h9_racefx.h"      // H9 race effects: H9RaceFx_Init, H9RaceFx_VidInit
+#include "h9_carmenu.h"     // H9 rally car menu: H9CarMenu_Init, H9CarMenu_VidInit
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
 
@@ -448,6 +449,7 @@ void CHud::Init()
 	H9RallyCam_Init(); // H9: rally mode's cameras, cl_h9_rallycam* and the command h9_rallycam (h9_rallycar.cpp)
 	H9RaceFx_Init(); // H9: the race's visual effects, cl_h9_racefx* and cl_h9_raceweather (h9_racefx.cpp)
 	H9RaceHud_Init(); // H9: the race mode's HUD, the H9R* messages, cl_h9_racehud and the userinfo key _h9race (h9_racehud.cpp)
+	H9CarMenu_Init(); // H9: rally mode's car menu and shop, the H9RMoney, H9RParts and H9RCar messages (h9_carmenu.cpp)
 	H9ArpInv_Init(); // H9: Apollo RP's inventory and exchange windows, H9Inv and H9Trade, cl_h9_arpinv, cl_h9_inventory (h9_arpinv.cpp)
 
 	MsgFunc_ResetHUD(0, 0, NULL);
@@ -616,6 +618,7 @@ void CHud::VidInit()
 	H9Keys_VidInit();         // H9: the per-gamemode key layouts read again (h9_keymap.cpp)
 	H9RallyCam_VidInit();     // H9: rally mode: the car's model looked up again, no car remembered across a map
 	H9RaceFx_VidInit();       // H9: no mark, puff or flake carries across a map; sprite handles reloaded
+	H9CarMenu_VidInit();      // H9: the car, money and parts of the last map are forgotten; the showroom's model is asked for again
 	GetClientVoiceMgr()->VidInit();
 }
 

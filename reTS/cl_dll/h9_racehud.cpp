@@ -20,6 +20,7 @@
 #include "h9_rallyhud.h"      // its sprites and the countdown's numerals
 #include "h9_rallycar.h" // H9RallyCar_LocalSpeed
 #include "h9_rallysnd.h" // H9RallySnd_RaceState, H9RallySnd_RaceNote
+#include "h9_carmenu.h" // H9CarMenu_MenuUp
 
 #include <string.h>
 #include <stdio.h>
@@ -324,6 +325,8 @@ public:
 	{
 		if (!Enabled())
 			return true;
+		if (H9CarMenu_MenuUp())
+			return true; // HL Rally draws no HUD under its menus
 		if (H9RallyCam_LocalIsCar())
 		{
 			DrawRally(flTime);
