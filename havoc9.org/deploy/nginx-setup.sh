@@ -214,8 +214,29 @@ $ssl_main
     client_body_timeout 30s;
     keepalive_timeout 30s;
 
+    # the parts an admin can close (h9web's site flags: the admin panel's SITE tab, POST /api/admin/site). nginx asks h9web before it serves
+    # one, and a closed part answers 503 with /closed.html. While h9web is down the gate answers 500, so these parts answer 500 too.
+    location = /_gate/downloads {
+        internal;
+        proxy_pass http://$H9WEB/api/site/gate/downloads;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host \$host;
+    }
+    location = /_gate/webclient {
+        internal;
+        proxy_pass http://$H9WEB/api/site/gate/webclient;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host \$host;
+    }
+    location = /closed.html { internal; }
+
     # the two published downloads, matched before the archive rule below
-    location ~ "^/downloads/H9XASH(-linux)?\.zip\$" { }
+    location ~ "^/downloads/H9XASH(-linux)?\.zip\$" {
+        auth_request /_gate/downloads;
+        error_page 403 =503 /closed.html;
+    }
     # the downloads' file index (vps/linux/README-VPS.txt step 13 lists what goes in it): a plain
     # listing, and the packages, their reports and the checksums in it. ^~ keeps the rules below
     # away from it, so the ones nested here stand in for them: a dot file, a subfolder or any
@@ -223,6 +244,8 @@ $ssl_main
     location ^~ /downloads/files/ {
         autoindex on;
         autoindex_exact_size off;
+        auth_request /_gate/downloads;
+        error_page 403 =503 /closed.html;
         location ~ /\. { return 404; }
         location ~* "^/downloads/files/[^/]+\.(?:zip|exe|txt)\$" { }
         location ~ "^/downloads/files/." { return 404; }
@@ -255,11 +278,15 @@ $ssl_main
 
     # the page, the loader and the lists change with every build
     location /webclient/ {
+        auth_request /_gate/webclient;
+        error_page 403 =503 /closed.html;
         include snippets/$DOMAIN-headers.conf;
         add_header Cache-Control "no-cache" always;
     }
 
     location /webclient/engine/ {
+        auth_request /_gate/webclient;
+        error_page 403 =503 /closed.html;
         types { application/wasm wasm; text/javascript js; }
         gzip_static on;
         include snippets/$DOMAIN-headers.conf;
@@ -268,6 +295,8 @@ $ssl_main
 
     # each address carries the file's hash (?v=), so a copy may be kept long
     location /webclient/game/ {
+        auth_request /_gate/webclient;
+        error_page 403 =503 /closed.html;
         alias $GAME_ROOT/;
         types { application/wasm wasm; }
         default_type application/octet-stream;
