@@ -1,0 +1,22 @@
+// H9 key layout for rally mode, W A S D: HL Rally's layout with the letters for driving. See rally.txt for how a keymap file works.
+// The file used is the cvar cl_h9_keys_rally: set it to rally_wasd.
+
+"w" "+forward"                // throttle
+"s" "+back"                   // brake and reverse
+"a" "+moveleft"               // steer left (+moveleft steers a car as +left does)
+"d" "+moveright"              // steer right
+"UPARROW" "+forward"
+"DOWNARROW" "+back"
+"LEFTARROW" "+left"
+"RIGHTARROW" "+right"
+"SPACE" "+jump"               // handbrake
+"MOUSE1" "+back"
+"e" "h9_gearup"               // gear up (only the manual box, cl_h9_rally_manual 1)
+"q" "h9_geardown"             // gear down
+"MWHEELUP" "h9_gearup"
+"MWHEELDOWN" "h9_geardown"
+"c" "h9_rallycam"             // change view
+"v" "h9_rallycam_zoom"        // change the chase camera's distance
+"h" "+attack2"                // horn
+"l" "impulse 100"             // headlights
+"r" "+reload"                 // put the car back at the last checkpoint

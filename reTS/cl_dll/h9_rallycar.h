@@ -38,6 +38,7 @@ void H9RallyCar_AddEntity(int type, struct cl_entity_s* ent);
 bool H9RallyCar_Pose(struct cl_entity_s* ent, const struct entity_state_s* st, H9RallyCarDraw& out);
 
 // The local player is a car now (physinfo "rally", alive, not a spectator).
+bool H9RallyCar_ModeOn();       // rally mode is on for the local player (the physinfo key "rally"): what a key layout (h9_keymap.cpp) asks
 bool H9RallyCam_LocalIsCar();
 // ...and is seen from outside (chase, bonnet or side view: the engine then draws the local player's model, and the TS code sees a third-person view).
 bool H9RallyCam_ChaseActive();

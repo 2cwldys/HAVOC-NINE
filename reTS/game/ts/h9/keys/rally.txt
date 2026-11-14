@@ -1,0 +1,26 @@
+// H9 key layout for rally mode: HL Rally's own default keys (its config.cfg), as commands of this game.
+// While a rally race is on, a key listed here does what this file says instead of the player's own bind; a key that is not
+// listed is the player's, and the player's binds are never changed. Outside rally this file does nothing.
+//
+// One line to a key, as a bind line: "KEY" "command". `//` starts a comment. A command that starts with + is held with the key.
+// Key names: a to z, 0 to 9, SPACE, TAB, ENTER, BACKSPACE, SHIFT, CTRL, ALT, UPARROW, DOWNARROW, LEFTARROW, RIGHTARROW,
+// F1 to F12, INS, DEL, HOME, END, PGUP, PGDN, MOUSE1 to MOUSE5, MWHEELUP, MWHEELDOWN. ESCAPE and the console keys are never taken.
+// The file used is the cvar cl_h9_keys_rally ("rally" is this file, "rally_wasd" the other; "" leaves every key to the player).
+
+"UPARROW" "+forward"          // throttle
+"DOWNARROW" "+back"           // brake and reverse
+"LEFTARROW" "+left"           // steer left
+"RIGHTARROW" "+right"         // steer right
+"SPACE" "+jump"               // handbrake
+"MOUSE1" "+back"              // HL Rally's mouse button: brake and reverse
+"a" "h9_gearup"               // gear up (only the manual box, cl_h9_rally_manual 1)
+"z" "h9_geardown"             // gear down
+"SHIFT" "h9_geardown"
+"MWHEELUP" "h9_gearup"
+"MWHEELDOWN" "h9_geardown"
+"c" "h9_rallycam"             // change view (HL Rally's changeview)
+"v" "h9_rallycam_zoom"        // change the chase camera's distance (HL Rally's changedistance)
+"h" "+attack2"                // horn (HL Rally's +horn: the car's horn is the secondary fire button)
+"l" "impulse 100"             // headlights
+"k" "+reload"                 // put the car back at the last checkpoint (HL Rally's k, kill)
+// "i" "+camdistance"         // HL Rally's mouse zoom of the chase camera: not wired for rally mode here, left out
