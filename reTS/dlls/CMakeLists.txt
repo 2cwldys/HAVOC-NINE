@@ -84,6 +84,7 @@ target_sources(hl PRIVATE
 	h9_car.cpp
 	race.cpp
 	h9_rally_srv.cpp
+	h9_rally_car.cpp
 	race.h
 	race_book.cpp
 	race_book.h

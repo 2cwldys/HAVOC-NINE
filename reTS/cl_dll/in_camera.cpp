@@ -17,6 +17,7 @@
 #include "camera.h"
 #include "in_defs.h"
 #include "Exports.h"
+#include "h9_rallycar.h" // H9RallyCam_ChaseActive
 
 
 float CL_KeyState(kbutton_t* key);
@@ -642,7 +643,8 @@ int DLLEXPORT CL_IsThirdPerson()
 
 	// client.dll (0x1004fec0): the camera state alone. Death turns it on through the thirdperson
 	// toggle (TSHealth, ts_status.cpp), the death camera being the third-person camera (view.cpp).
-	return static_cast<int>(cam_thirdperson);
+	// H9 rally mode: the chase camera is a view from outside, so the engine draws the local player (as the car, StudioDrawCar)
+	return static_cast<int>(cam_thirdperson || H9RallyCam_ChaseActive());
 }
 
 void DLLEXPORT CL_CameraOffset(float* ofs)

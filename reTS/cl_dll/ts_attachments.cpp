@@ -25,6 +25,7 @@ extern "C" int CL_IsThirdPerson(); // in_camera.cpp
 
 #include <string.h>
 #include <math.h>
+#include "h9_rallycar.h" // H9RallyCar_IsCarEntity (rally mode: a car has no person's blob shadow)
 
 extern Vector v_origin, v_angles; // view origin/angles (cl_dll/view.cpp): the passes take their view vectors from v_angles
 
@@ -494,6 +495,8 @@ void TS_Shadows_Draw()
 			continue;
 		if ((p->curstate.effects & EF_NODRAW) != 0)
 			continue;
+		if (H9RallyCar_IsCarEntity(p))
+			continue; // H9 rally mode: a car has the race effects' shadow (h9_racefx.cpp), not a person's blob
 		const bool isLocal = (local != nullptr && local->index == i);
 		if (isLocal && !drawLocal)
 			continue;

@@ -801,6 +801,20 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 
 		// Allow mice and other controllers to add their inputs
 		IN_Move(frametime, cmd);
+
+		// H9 rally mode: the mouse may steer (it turns the view's yaw, which is the heading) but not tilt: a car has no pitch to look up
+		// or down with, and the camera sets its own (h9_rallycar.cpp)
+		if (rallyClass > 0 && g_iAlive)
+		{
+			Vector va;
+			gEngfuncs.GetViewAngles((float*)va);
+			if (va[PITCH] != 0.0f || va[ROLL] != 0.0f)
+			{
+				va[PITCH] = 0.0f;
+				va[ROLL] = 0.0f;
+				gEngfuncs.SetViewAngles((float*)va);
+			}
+		}
 	}
 
 	cmd->impulse = in_impulse;

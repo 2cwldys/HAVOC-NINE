@@ -34,6 +34,7 @@
 #include "h9_buywindow.h"   // H9 buy window: H9BuyWindow_Init, the loadout rework's window
 #include "h9_arpinv.h"      // H9 ARP inventory: H9ArpInv_Init, Apollo RP's inventory and exchange windows
 #include "h9_arphud.h"      // H9 ARP HUD: H9ArpHud_Init, Apollo RP's HUD as panels
+#include "h9_rallycar.h"     // H9 rally mode: H9RallyCam_Init, H9RallyCam_VidInit
 #include "h9_racehud.h"     // H9 race HUD: H9RaceHud_Init, the race mode's HUD
 #include "h9_racefx.h"      // H9 race effects: H9RaceFx_Init, H9RaceFx_VidInit
 #include "vgui_int.h"
@@ -442,6 +443,7 @@ void CHud::Init()
 	H9ArpHud_Init(); // H9: Apollo RP's HUD as panels, the H9ArpHud message and cl_h9_arphud* (h9_arphud.cpp)
 	H9ChatBubble_Init(); // H9: chat over the head of the player aimed at, the H9Say message and cl_h9_chatbubble_* (h9_chatbubble.cpp)
 	H9BuyWindow_Init(); // H9: the loadout rework's buy window, the H9Buy message, cl_h9_buyauto and cl_h9_buywindow (h9_buywindow.cpp)
+	H9RallyCam_Init(); // H9: rally mode's cameras, cl_h9_rallycam* and the command h9_rallycam (h9_rallycar.cpp)
 	H9RaceFx_Init(); // H9: the race's visual effects, cl_h9_racefx* and cl_h9_raceweather (h9_racefx.cpp)
 	H9RaceHud_Init(); // H9: the race mode's HUD, the H9R* messages, cl_h9_racehud and the userinfo key _h9race (h9_racehud.cpp)
 	H9ArpInv_Init(); // H9: Apollo RP's inventory and exchange windows, H9Inv and H9Trade, cl_h9_arpinv, cl_h9_inventory (h9_arpinv.cpp)
@@ -609,6 +611,7 @@ void CHud::VidInit()
 	TSParticles_Reset();     // drop stale per-map sprite handles (impact particle pool)
 	TSBullets_Reset();       // no round carries across a map (client.dll clears them on the FX root's first frame, 0x10056de3)
 	TS_Attachments_VidInit(); // drop stale per-map laser/flashlight sprite handles
+	H9RallyCam_VidInit();     // H9: rally mode: the car's model looked up again, no car remembered across a map
 	H9RaceFx_VidInit();       // H9: no mark, puff or flake carries across a map; sprite handles reloaded
 	GetClientVoiceMgr()->VidInit();
 }
