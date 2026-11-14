@@ -1256,7 +1256,7 @@ void CRaceRules::HudSendStatus(int index, CBasePlayer* pPlayer)
 		flags |= RACE_SF_RETIRED;
 	CBaseEntity* pCar = pPlayer->m_pTank;
 	float speed = pCar ? pCar->pev->fuser2 : 0; // h9_car: the speed along the nose, the slip, the top speed
-	const float slip = pCar ? pCar->pev->fuser1 : 0;
+	const float slip = pCar ? pCar->pev->fuser4 : 0;
 	const float top = pCar ? pCar->pev->fuser3 : 0;
 	speed = speed < -32000 ? -32000 : (speed > 32000 ? 32000 : speed);
 	const float limit = running && m_flMaxTime > 0 ? m_book.StartTime() + m_flMaxTime + racer->bonus : 0;

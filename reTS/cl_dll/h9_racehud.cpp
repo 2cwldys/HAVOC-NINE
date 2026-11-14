@@ -38,7 +38,7 @@ bool Enabled()
 
 void TakeClock(float serverNow)
 {
-	s_m.clock = ClockOffset(s_m.haveClock, s_m.clock, serverNow, gHUD.m_flTime);
+	s_m.clock = ClockOffset(s_m.haveClock, s_m.clock, serverNow, gEngfuncs.GetClientTime());
 	s_m.haveClock = true;
 }
 
@@ -59,7 +59,7 @@ void NameOf(int index, char* out, size_t room)
 // float the green light, float the lap's start, float the limit's end, long best lap, long total
 int MsgStat(const char* pszName, int iSize, void* pbuf)
 {
-	if (iSize != RACE_MSG_STAT_SIZE || !Enabled())
+	if (iSize != RACE_MSG_STAT_SIZE)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
 	s_m.state = ClampI(READ_BYTE(), RACE_WAITING, RACE_FINISHED);
@@ -78,17 +78,17 @@ int MsgStat(const char* pszName, int iSize, void* pbuf)
 	s_m.bestCs = READ_LONG();
 	s_m.totalCs = READ_LONG();
 	TakeClock(serverNow);
-	if (!IsRacing(s_m, gHUD.m_flTime))
+	if (!IsRacing(s_m, gEngfuncs.GetClientTime()))
 		s_m.gauge = s_m.speed; // he has just got in: the gauge does not sweep up from nothing
 	s_m.haveStat = true;
-	s_m.statAt = gHUD.m_flTime;
+	s_m.statAt = gEngfuncs.GetClientTime();
 	return 1;
 }
 
 // byte state, byte results, byte laps, byte racers, float now, float t0, short the countdown's length in tenths
 int MsgState(const char* pszName, int iSize, void* pbuf)
 {
-	if (iSize != RACE_MSG_STATE_SIZE || !Enabled())
+	if (iSize != RACE_MSG_STATE_SIZE)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
 	s_m.state = ClampI(READ_BYTE(), RACE_WAITING, RACE_FINISHED);
@@ -110,7 +110,7 @@ int MsgState(const char* pszName, int iSize, void* pbuf)
 // byte kind, byte a, byte b, byte flags, long time, long diff
 int MsgNote(const char* pszName, int iSize, void* pbuf)
 {
-	if (iSize != RACE_MSG_NOTE_SIZE || !Enabled())
+	if (iSize != RACE_MSG_NOTE_SIZE)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
 	s_m.noteKind = READ_BYTE();
@@ -119,7 +119,7 @@ int MsgNote(const char* pszName, int iSize, void* pbuf)
 	s_m.noteFlags = READ_BYTE();
 	s_m.noteTime = READ_LONG();
 	s_m.noteDiff = READ_LONG();
-	s_m.noteAt = gHUD.m_flTime;
+	s_m.noteAt = gEngfuncs.GetClientTime();
 	return 1;
 }
 
@@ -175,7 +175,7 @@ int MsgLine(const char* pszName, int iSize, void* pbuf)
 // byte flags, byte count, then count times: byte index, byte place and flags, short x, short y, short gap
 int MsgPos(const char* pszName, int iSize, void* pbuf)
 {
-	if (iSize < 2 || iSize > H9RACE_MAX_MSG || !Enabled())
+	if (iSize < 2 || iSize > H9RACE_MAX_MSG)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
 	const int flags = READ_BYTE();
@@ -199,7 +199,7 @@ int MsgPos(const char* pszName, int iSize, void* pbuf)
 		NameOf(d.index, d.name, sizeof(d.name));
 	}
 	s_m.haveDots = true;
-	s_m.dotsAt = gHUD.m_flTime;
+	s_m.dotsAt = gEngfuncs.GetClientTime();
 	return 1;
 }
 
@@ -207,7 +207,7 @@ int MsgPos(const char* pszName, int iSize, void* pbuf)
 // long best lap
 int MsgRes(const char* pszName, int iSize, void* pbuf)
 {
-	if (iSize < 4 || iSize > H9RACE_MAX_MSG || !Enabled())
+	if (iSize < 4 || iSize > H9RACE_MAX_MSG)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
 	const int first = READ_BYTE();
@@ -235,7 +235,7 @@ int MsgRes(const char* pszName, int iSize, void* pbuf)
 		r.best = READ_LONG();
 		NameOf(r.index, r.name, sizeof(r.name));
 	}
-	s_m.rowsAt = gHUD.m_flTime;
+	s_m.rowsAt = gEngfuncs.GetClientTime();
 	return 1;
 }
 

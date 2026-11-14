@@ -24,7 +24,7 @@
 *  and falls with the slope it left, and loses a little speed by how hard it lands. All of this is in the plain
 *  functions H9CarStep and H9CarFallStep, which dlls/tests/car_test.cpp also compiles and runs with no game.
 *
-*  For other code (a race's sounds, smoke, a speedometer): pev->fuser1 is how much the tyres slide, 0 to 1, and
+*  For other code (a race's sounds, smoke, a speedometer): pev->fuser4 is how much the tyres slide (not fuser1: the sound code lowers the pitch of an entity by its fuser1), 0 to 1, and
 *  pev->fuser2 the speed along the nose, negative backwards; pev->fuser3 is its top speed ("maxspeed").
 *
 *  It takes the player's controls through CBasePlayer::m_pTank, the hook func_tank uses: while it is set the
@@ -1321,7 +1321,7 @@ void CH9Car::Step(const char* by)
 		StudioFrameAdvance(dt);
 		if (pev->frame < 0) // StudioFrameAdvance wraps a loop only forwards
 			pev->frame += 256 * (1 + (int)(-pev->frame / 256));
-		pev->fuser1 = m_car.slip; // for other code: how much the tyres slide, and the speed along the nose
+		pev->fuser4 = m_car.slip; // for other code: how much the tyres slide, and the speed along the nose
 		pev->fuser2 = m_car.forward;
 		pev->fuser3 = m_flMaxSpeed; // and its top speed, for a gauge's end (the race HUD)
 	}
