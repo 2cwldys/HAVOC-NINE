@@ -677,6 +677,10 @@ void IN_MouseMove(float frametime, usercmd_t* cmd)
 			// HL Rally: no mouse steering in the air, and no more than 550 (scaled) in a frame; cl_h9_rally_mouse scales the lot
 			if (!H9RallySteer_OnGround())
 				mouse_x = 0.0f;
+			// the steering's gain was tuned in HL Rally for its own shipped sensitivity (15): the player's own (3 here, for aiming)
+			// would make the mouse five times weaker than theirs, so the steering is brought to theirs whatever he aims with
+			if (sensitivity != NULL && sensitivity->value > 0.01f)
+				mouse_x *= 15.0f / sensitivity->value;
 			mouse_x *= H9RallySteer_MouseScale();
 			if (mouse_x > 550.0f)
 				mouse_x = 550.0f;

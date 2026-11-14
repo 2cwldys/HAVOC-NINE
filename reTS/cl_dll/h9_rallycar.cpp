@@ -322,7 +322,7 @@ void Cmd_Zoom()
 		if (fabsf(steps[i] - now) < fabsf(steps[at] - now))
 			at = i;
 	const float next = steps[(at + 1) % 4];
-	gEngfuncs.Cvar_SetValue("cl_h9_rallycam_back", next);
+	gEngfuncs.Cvar_SetValue("cl_h9_rallycam_dist", next);
 	gEngfuncs.Con_Printf("h9_rallycam_zoom: %.0f units behind the car\n", next);
 }
 
@@ -347,7 +347,7 @@ bool FreshNote()
 void H9RallyCam_Init()
 {
 	s_cvCam = CVAR_CREATE("cl_h9_rallycam", "0", FCVAR_ARCHIVE); // 0 chase, 1 the driver's seat
-	s_cvBack = CVAR_CREATE("cl_h9_rallycam_back", "40", FCVAR_ARCHIVE); // HL Rally's cam_wishdist
+	s_cvBack = CVAR_CREATE("cl_h9_rallycam_dist", "40", FCVAR_ARCHIVE); // HL Rally's cam_wishdist
 	s_cvUp = CVAR_CREATE("cl_h9_rallycam_up", "26", FCVAR_ARCHIVE);
 	s_cvPitch = CVAR_CREATE("cl_h9_rallycam_pitch", "15", FCVAR_ARCHIVE); // degrees down, on top of the velocity's slope
 	s_cvFov = CVAR_CREATE("cl_h9_rallycam_fov", "90", FCVAR_ARCHIVE);     // in a car; 0 leaves the player's own
