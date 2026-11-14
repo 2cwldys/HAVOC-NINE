@@ -55,6 +55,8 @@ bool PM_CheckStuck();
 void PM_CheckVelocity();
 bool PM_AddToTouched(pmtrace_t tr, Vector impactvelocity);
 
+float g_h9RallyCrashAmount = 0; // velocity along the wall's normal at the last body check, 0 when no wall
+
 namespace
 {
 inline float Dot3(const Vector& a, const Vector& b)
@@ -179,6 +181,7 @@ float Categorize(const Vector& up)
 // outline reached into it.
 void Crash(const Axes& ax, Dbg& d)
 {
+	g_h9RallyCrashAmount = 0; // HL Rally's CL_CrashAmount (rally.c:693): the client's wall-hit sound reads it
 	const Vector v = pmove->velocity;
 	const Vector dest = MA(pmove->origin, pmove->frametime, v);
 	const Vector left = Neg(ax.right);
@@ -207,6 +210,8 @@ void Crash(const Axes& ax, Dbg& d)
 	if (!have)
 		return;
 	const Vector n = best.plane.normal;
+	if (n[2] < 0.3f) // rally.c:711: not for ground
+		g_h9RallyCrashAmount = Dot3(v, n);
 	if (H9RallyCrashIgnores(pmove->onground != -1, n[2]))
 		return;
 
