@@ -1336,6 +1336,11 @@ void CH9Car::Step(const char* by)
 			pev->frame += 256 * (1 + (int)(-pev->frame / 256));
 		pev->fuser4 = m_car.slip; // for other code: how much the tyres slide, and the speed along the nose
 		pev->fuser2 = m_car.forward;
+		// for every client (the race's marks, dust and sounds; these two bytes reach them, the fusers do not): how much
+		// it slides, and what it stands on (H9SURF_, the rear wheels'), 8 in the air, 16 braking, 32 the handbrake
+		pev->blending[0] = (byte)(H9Clamp(m_car.slip, 0, 1) * 255);
+		pev->blending[1] = (byte)((m_iWheelSurface[m_car.forward < 0 ? 0 : 2] & 7) | (m_bGrounded ? 0 : 8) |
+			((m_iPush != 0 && m_iPush * m_car.forward < -H9CAR_CRAWL) ? 16 : 0) | (m_car.hand > 0.5f ? 32 : 0));
 		pev->fuser3 = m_flMaxSpeed; // and its top speed, for a gauge's end (the race HUD)
 	}
 
