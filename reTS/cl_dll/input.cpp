@@ -23,7 +23,8 @@
 #include "ts_hud.h"
 #include "ts_weapon_info.h"
 #include "h9_tts.h" // H9 text to speech: H9Tts_Shutdown
-#include "h9_rally.h" // H9 rally mode: the steering keys turn the view (pm_shared)
+#include "h9_rally.h" // H9 rally mode (pm_shared)
+#include "h9_rallycar.h" // H9RallySteer_*: the heading of a car, kept apart from the view
 #include <math.h>
 #include <stdlib.h>
 
@@ -661,6 +662,11 @@ CL_AdjustAngles
 Moves the local angle positions
 ================
 */
+// H9 rally mode: while the local player is a car the yaw keys (+left, +right) are not applied to the view here; their state is read and kept
+// for the car's steering (CL_CreateMove), which turns the heading by its own rule.
+static bool s_adjustRally = false;
+static float s_arrowLeft = 0.0f, s_arrowRight = 0.0f;
+
 void CL_AdjustAngles(float frametime, float* viewangles)
 {
 	float speed;
@@ -675,7 +681,13 @@ void CL_AdjustAngles(float frametime, float* viewangles)
 		speed = frametime;
 	}
 
-	if ((in_strafe.state & 1) == 0)
+	s_arrowLeft = s_arrowRight = 0.0f;
+	if (s_adjustRally)
+	{
+		s_arrowRight = CL_KeyState(&in_right);
+		s_arrowLeft = CL_KeyState(&in_left);
+	}
+	else if ((in_strafe.state & 1) == 0)
 	{
 		viewangles[YAW] -= speed * cl_yawspeed->value * CL_KeyState(&in_right);
 		viewangles[YAW] += speed * cl_yawspeed->value * CL_KeyState(&in_left);
@@ -727,6 +739,7 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 	static Vector oldangles;
 	int rallyClass = 0;          // H9 rally mode: the physinfo "rally" value, 0 off
 	bool rallySteerKeys = false; // and whether a side key is down
+	bool rallyOn = false;        // the local player is a living car: its heading is kept by H9RallySteer_*
 
 	if (0 != active)
 	{
@@ -734,7 +747,21 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 		//viewangles[ 0 ] = viewangles[ 1 ] = viewangles[ 2 ] = 0.0;
 		gEngfuncs.GetViewAngles((float*)viewangles);
 
+		// H9 rally mode (pm_shared/h9_rally.h): the player is a car. Its heading is kept apart from the view: the keys and the mouse are only
+		// an input (what the player asked to turn this frame), the heading follows it by HL Rally's rule (h9_rallysteer_calc.h) and is
+		// written back as the view yaw at the end, so the command carries the HEADING to the server and the prediction.
+		{
+			const char* rallyKey = gEngfuncs.PhysInfo_ValueForKey("rally");
+			rallyClass = rallyKey ? atoi(rallyKey) : 0;
+			rallyOn = rallyClass > 0 && g_iAlive;
+			if (rallyOn)
+				viewangles[YAW] = H9RallySteer_Begin(viewangles[YAW]); // the view's yaw is the heading again; the mouse then adds to it
+			else
+				H9RallySteer_Idle();
+		}
+		s_adjustRally = rallyOn;
 		CL_AdjustAngles(frametime, viewangles);
+		s_adjustRally = false;
 
 		memset(cmd, 0, sizeof(*cmd));
 
@@ -742,18 +769,9 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 		const float keyRight = CL_KeyState(&in_moveright);
 		const float keyLeft = CL_KeyState(&in_moveleft);
 
-		// H9 rally mode (pm_shared/h9_rally.h): the player is a car and its heading is the view yaw, so the side keys
-		// steer by turning the view, 400 degrees a second at any speed as in HL Rally (its cl_yawspeed, capped at 400);
-		// the server then reads the heading from the command, and the client predicts the same.
-		{
-			const char* rallyKey = gEngfuncs.PhysInfo_ValueForKey("rally");
-			rallyClass = rallyKey ? atoi(rallyKey) : 0;
-			if (rallyClass > 0 && g_iAlive)
-			{
-				rallySteerKeys = keyLeft > 0 || keyRight > 0;
-				viewangles[YAW] = anglemod(viewangles[YAW] + H9RallySteer(keyLeft - keyRight, frametime));
-			}
-		}
+		// (a car: the side keys, A and D and the arrows alike, are steering keys the command's buttons say so about)
+		if (rallyOn)
+			rallySteerKeys = keyLeft > 0 || keyRight > 0 || s_arrowLeft > 0 || s_arrowRight > 0;
 
 		gEngfuncs.SetViewAngles((float*)viewangles);
 
@@ -802,18 +820,24 @@ void DLLEXPORT CL_CreateMove(float frametime, struct usercmd_s* cmd, int active)
 		// Allow mice and other controllers to add their inputs
 		IN_Move(frametime, cmd);
 
-		// H9 rally mode: the mouse may steer (it turns the view's yaw, which is the heading) but not tilt: a car has no pitch to look up
-		// or down with, and the camera sets its own (h9_rallycar.cpp)
-		if (rallyClass > 0 && g_iAlive)
+		// H9 rally mode: the mouse has turned the view's yaw (an input, filtered and scaled in IN_MouseMove) but cannot tilt it: a car has no pitch
+		// to look up or down with, and the camera sets its own (h9_rallycar.cpp). The heading comes from the keys' and the mouse's input and the
+		// car's velocity (H9RallySteer_End) and is what the view's yaw is from here on.
+		if (rallyOn)
 		{
 			Vector va;
 			gEngfuncs.GetViewAngles((float*)va);
-			if (va[PITCH] != 0.0f || va[ROLL] != 0.0f)
-			{
-				va[PITCH] = 0.0f;
-				va[ROLL] = 0.0f;
-				gEngfuncs.SetViewAngles((float*)va);
-			}
+			H9RallyKeys keys;
+			keys.frametime = frametime;
+			keys.left = keyLeft + s_arrowLeft;
+			keys.right = keyRight + s_arrowRight;
+			keys.throttle = (in_forward.state & 1) != 0;
+			keys.brake = (in_back.state & 1) != 0;
+			keys.handbrake = (in_jump.state & 1) != 0;
+			va[YAW] = H9RallySteer_End(va[YAW], keys);
+			va[PITCH] = 0.0f;
+			va[ROLL] = 0.0f;
+			gEngfuncs.SetViewAngles((float*)va);
 		}
 	}
 

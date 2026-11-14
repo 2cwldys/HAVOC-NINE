@@ -303,6 +303,7 @@ target_sources(client PRIVATE
 	h9_racefx.h
 	h9_rallycar.h
 	h9_rallycam_calc.h
+	h9_rallysteer_calc.h
 	h9_racefx_calc.h
 	h9_racehud.h
 	h9_racehud_draw.h
@@ -431,3 +432,10 @@ add_executable(racefx_test EXCLUDE_FROM_ALL
 add_executable(rallycam_test EXCLUDE_FROM_ALL
 	tests/rallycam_test.cpp
 	h9_rallycam_calc.h)
+
+# Rally mode's steering, arithmetic alone: the heading's rate at 30 to 200 frames a second against HL Rally's per-frame filter at 99, the
+# speed gate, reverse, a slide's damping, the handbrake's and the power's kick, the wheel and the gearbox.
+#   cmake --build <dir> --target rallysteer_test --config Release, then run rallysteer_test
+add_executable(rallysteer_test EXCLUDE_FROM_ALL
+	tests/rallysteer_test.cpp
+	h9_rallysteer_calc.h)

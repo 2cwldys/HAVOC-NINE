@@ -163,112 +163,110 @@ int main()
 		CHECK(Near(late.pitch, 10, 1e-4f));
 	}
 
-	// ---- the chase camera ----
+	// ---- the chase camera (HL Rally's: it looks along the velocity, 40 behind, 15 down) ----
+	// one step of the whole camera with no wall: the aim, then the finish
+	struct Cam
 	{
-		ChaseParams cp; // 70 back, 26 up, 18 ahead
 		ChaseState st;
+		ChaseParams cp;
+		Pose Step(const V3& car, float heading, const V3& vel, float dt, float fraction = 1.0f)
+		{
+			const ChaseAim a = ChaseAimOf(st, heading, vel, dt, cp);
+			return ChaseFinish(st, car, vel, a, fraction, dt, cp);
+		}
+	};
+	{
+		Cam c;
 		const V3 car(100, 200, 40);
-		// steady: the heading is east; the camera is 70 west of the car, 26 above its origin, looking down a little at the point 18 ahead
-		Pose p = ChaseStep(st, car, 0.0f, V3(300, 0, 0), 0.0f, cp);
-		CHECK(NearV(p.org, V3(30, 200, 66), 1e-3f));
-		CHECK(Near(p.yaw, 0.0f, 1e-3f));
-		CHECK(p.pitch > 0.0f && p.pitch < 30.0f);                  // looks down
-		CHECK(Near(p.pitch, Deg(atanf((66.0f - 48.0f) / 88.0f)), 1e-2f)); // at the point (118, 200, 48)
-		CHECK(Near(p.roll, 0.0f, 1e-6f));
-		// the car in the picture's middle: the line of sight passes the point 18 ahead
+		// standing still, heading east: 40 west of the car, 26 up, looking 15 down along the nose; nothing is added at no speed
+		Pose p = c.Step(car, 0.0f, V3(), 0.0f);
 		const Axes v = ViewVectors(p.pitch, p.yaw, p.roll);
-		const V3 toLook = V3(118, 200, 48) - p.org;
-		CHECK(NearV(v.f * toLook.Length(), toLook, 1e-2f));
-
-		// the heading turns 90 degrees left at once: the camera's heading is behind it, and gets there
-		ChaseState s2;
-		ChaseStep(s2, car, 0.0f, V3(300, 0, 0), 0.0f, cp);
-		const float dt = 1.0f / 60.0f;
-		Pose q = ChaseStep(s2, car, 90.0f, V3(300, 0, 0), dt, cp);
-		CHECK(s2.yaw > 0.0f && s2.yaw < 45.0f); // part of the way after one frame
-		for (int i = 0; i < 60; i++)
-			q = ChaseStep(s2, car, 90.0f, V3(0, 300, 0), dt, cp);
-		CHECK(Near(s2.yaw, 90.0f, 0.5f));
-		CHECK(NearV(q.org, V3(100, 130, 66), 0.5f)); // 70 south of the car now
+		CHECK(Near(p.yaw, 0.0f, 1e-3f) && Near(p.pitch, 15.0f, 1e-3f) && Near(p.roll, 0.0f, 1e-6f));
+		CHECK(NearV(p.org, V3(100, 200, 66) - v.f * 40.0f, 1e-3f));
+		// the camera looks along the direction it sits on: the point 26 over the car's origin is on the line of sight 40 ahead of it
+		CHECK(NearV(p.org + v.f * 40.0f, V3(100, 200, 66), 1e-3f));
+		// going 240 u/s east: the distance rests 12 further (6 * min(240 / 120, 2))
+		for (int i = 0; i < 400; i++)
+			p = c.Step(car, 0.0f, V3(240, 0, 0), 1.0f / 99.0f);
+		CHECK(Near(c.st.dist, 52.0f, 0.05f));
+		CHECK(Near(p.yaw, 0.0f, 0.05f) && Near(p.pitch, 15.0f, 0.05f));
+		// faster adds no more
+		for (int i = 0; i < 400; i++)
+			c.Step(car, 0.0f, V3(900, 0, 0), 1.0f / 99.0f);
+		CHECK(Near(c.st.dist, 52.0f, 0.05f));
+		// a velocity climbing 20 degrees: the camera's pitch is 15 - 20 = -5 (it looks a little up, along the slope)
+		const V3 up20(300 * cosf(Rad(20)), 0, 300 * sinf(Rad(20)));
+		Cam d;
+		for (int i = 0; i < 600; i++)
+			d.Step(car, 0.0f, up20, 1.0f / 99.0f);
+		CHECK(Near(d.st.pitch, -5.0f, 0.1f));
 	}
-	// the lag grows in a slide: the same turn, the car going sideways, is slower
+	// it follows the VELOCITY: in a slide the nose turns in front of the camera, and in reverse the camera swings round
 	{
-		ChaseParams cp;
-		ChaseState road, slide;
+		Cam c;
 		const V3 car(0, 0, 0);
-		ChaseStep(road, car, 0.0f, V3(500, 0, 0), 0.0f, cp);
-		ChaseStep(slide, car, 0.0f, V3(500, 0, 0), 0.0f, cp);
-		for (int i = 0; i < 4; i++)
-		{
-			ChaseStep(road, car, 60.0f, V3(500, 0, 0), 1.0f / 60.0f, cp);    // nose turned, going where it points: no slip? (it still goes east)
-			ChaseStep(slide, car, 60.0f, V3(0, 500, 0) * 1.0f, 1.0f / 60.0f, cp); // going north, nose at 60
-		}
-		CHECK(SlipAngle(60.0f, V3(0, 500, 0), 60.0f) > 25.0f && SlipAngle(60.0f, V3(0, 500, 0), 60.0f) < 35.0f);
-		CHECK(SlipAngle(60.0f, V3(500 * cosf(Rad(60)), 500 * sinf(Rad(60)), 0), 60.0f) < 0.01f);
-		// the slide's camera is further behind the car's heading than the one with a straight track would be
-		ChaseState straight;
-		ChaseStep(straight, car, 0.0f, V3(500, 0, 0), 0.0f, cp);
-		for (int i = 0; i < 4; i++)
-			ChaseStep(straight, car, 60.0f, V3(500 * cosf(Rad(60)), 500 * sinf(Rad(60)), 0), 1.0f / 60.0f, cp);
-		CHECK(slide.yaw < straight.yaw - 0.5f);
-		// backwards is not a slide: the slip is measured from the tail
-		CHECK(SlipAngle(0.0f, V3(-300, 0, 0), 60.0f) < 0.01f);
-		// no speed, no slide
-		CHECK(Near(SlipAngle(10.0f, V3(5, 0, 0), 60.0f), 0.0f, 1e-6f));
+		// the nose at 30 degrees, the car going north: the camera sits behind the travel
+		for (int i = 0; i < 300; i++)
+			c.Step(car, 30.0f, V3(0, 300, 0), 1.0f / 99.0f);
+		CHECK(Near(c.st.yaw, 90.0f, 0.1f));
+		// reverse: the nose east, the car going west: the camera's yaw goes to 180
+		Cam r;
+		for (int i = 0; i < 300; i++)
+			r.Step(car, 0.0f, V3(-300, 0, 0), 1.0f / 99.0f);
+		CHECK(Near(Wrap180(r.st.yaw - 180.0f), 0.0f, 0.1f));
+		// under 5 u/s it goes back to the nose
+		Cam s;
+		for (int i = 0; i < 300; i++)
+			s.Step(car, 120.0f, V3(4, 0, 0), 1.0f / 99.0f);
+		CHECK(Near(s.st.yaw, 120.0f, 0.1f));
 	}
-	// the camera is the same at 30 and at 200 frames a second
+	// the easing: a quarter of the way to the new yaw per reference frame, the same at any frame rate
 	{
-		ChaseParams cp;
-		float endYaw30 = 0, endYaw200 = 0;
-		V3 endOrg30, endOrg200; // the camera's place relative to the car
-		for (int pass = 0; pass < 2; pass++)
+		Cam c;
+		const V3 car(0, 0, 0);
+		c.Step(car, 0.0f, V3(300, 0, 0), 0.0f);
+		c.Step(car, 0.0f, V3(0, 300, 0), 1.0f / 99.0f); // the velocity turns 90 degrees at once: 22.5 of it in one reference frame
+		CHECK(Near(c.st.yaw, 22.5f, 0.01f));
+		CHECK(Near(RefTau(0.75f), 0.0351f, 0.0005f));
+		// 0.1 s at 30, 60, 100 and 200 fps ends in the same place
+		float y2[4];
+		const int f2[4] = {30, 60, 100, 200};
+		for (int k = 0; k < 4; k++)
 		{
-			const int fps = pass == 0 ? 30 : 200;
-			ChaseState s;
-			const float dt = 1.0f / (float)fps;
-			float heading = 0;
-			V3 car(0, 0, 0);
-			Pose last;
-			ChaseStep(s, car, 0.0f, V3(400, 0, 0), 0.0f, cp);
-			// a second of steering left at 200 degrees a second, then half a second straight, the car at 400 u/s all the way
-			for (int i = 0; i < fps * 3 / 2; i++)
-			{
-				const float t = (float)(i + 1) * dt;
-				heading = t < 1.0f ? 200.0f * t : 200.0f;
-				car = V3(car.x + cosf(Rad(heading)) * 400.0f * dt, car.y + sinf(Rad(heading)) * 400.0f * dt, 0);
-				last = ChaseStep(s, car, heading, V3(cosf(Rad(heading)) * 400.0f, sinf(Rad(heading)) * 400.0f, 0), dt, cp);
-			}
-			if (pass == 0)
-			{
-				endYaw30 = last.yaw;
-				endOrg30 = last.org - car;
-			}
-			else
-			{
-				endYaw200 = last.yaw;
-				endOrg200 = last.org - car;
-			}
+			Cam e;
+			e.Step(car, 0.0f, V3(300, 0, 0), 0.0f);
+			for (int i = 0; i < f2[k] / 10; i++)
+				e.Step(car, 0.0f, V3(0, 300, 0), 1.0f / (float)f2[k]);
+			y2[k] = e.st.yaw;
 		}
-		CHECK(Near(endYaw30, endYaw200, 1.5f));
-		CHECK(NearV(endOrg30, endOrg200, 3.0f));
+		for (int k = 1; k < 4; k++)
+			CHECK(Near(y2[k], y2[0], 0.05f));
+		// the pitch goal's (new + 8 old) / 9
+		Cam f;
+		f.Step(car, 0.0f, V3(), 0.0f); // pitch 15
+		const V3 climb(300 * cosf(Rad(30)), 0, 300 * sinf(Rad(30))); // goal -15
+		f.Step(car, 0.0f, climb, 1.0f / 99.0f);
+		CHECK(Near(f.st.pitchGoal, 15.0f + (-15.0f - 15.0f) / 9.0f, 0.01f));
 	}
-	// no jitter: at 200 fps, a car moving steadily gives a camera that moves steadily (no step in the camera's own velocity)
+	// no jitter: at 200 fps, a car moving steadily gives a camera that moves steadily
 	{
-		ChaseParams cp;
-		ChaseState s;
+		Cam c;
 		const float dt = 1.0f / 200.0f;
 		V3 car(0, 0, 0);
-		ChaseStep(s, car, 0.0f, V3(500, 0, 0), 0.0f, cp);
+		for (int i = 0; i < 400; i++) // settle
+		{
+			car.x += 500.0f * dt;
+			c.Step(car, 0.0f, V3(500, 0, 0), dt);
+		}
 		V3 prev;
 		float maxJump = 0;
 		for (int i = 0; i < 400; i++)
 		{
 			car.x += 500.0f * dt;
-			const Pose p = ChaseStep(s, car, 0.0f, V3(500, 0, 0), dt, cp);
+			const Pose p = c.Step(car, 0.0f, V3(500, 0, 0), dt);
 			if (i > 0)
 			{
-				const float step = (p.org - prev).Length();
-				const float jump = fabsf(step - 500.0f * dt);
+				const float jump = fabsf((p.org - prev).Length() - 500.0f * dt);
 				if (jump > maxJump)
 					maxJump = jump;
 			}
@@ -276,42 +274,153 @@ int main()
 		}
 		CHECK(maxJump < 1e-3f);
 	}
+	// the pull-in: a wall at 30 takes the camera in to wall - 8 (never under 20), coming in 1/6 a frame and going out 1/30
+	{
+		Cam c;
+		const V3 car(0, 0, 0);
+		c.Step(car, 0.0f, V3(), 0.0f);
+		CHECK(Near(c.st.dist, 40.0f, 1e-4f));
+		for (int i = 0; i < 200; i++)
+			c.Step(car, 0.0f, V3(), 1.0f / 99.0f, 0.75f); // wall at 30: wanted 22
+		CHECK(Near(c.st.dist, 22.0f, 0.05f));
+		for (int i = 0; i < 200; i++)
+			c.Step(car, 0.0f, V3(), 1.0f / 99.0f, 0.4f); // wall at 16: 20 is the least
+		CHECK(Near(c.st.dist, 20.0f, 0.05f));
+		// in: most of the way in 0.1 s; out: about a third of the way in 0.1 s
+		Cam in, out;
+		in.Step(car, 0.0f, V3(), 0.0f);
+		out.Step(car, 0.0f, V3(), 0.0f);
+		for (int i = 0; i < 200; i++)
+			out.Step(car, 0.0f, V3(), 1.0f / 99.0f, 0.5f);
+		for (int i = 0; i < 10; i++)
+			in.Step(car, 0.0f, V3(), 1.0f / 100.0f, 0.5f); // 0.1 s, in
+		CHECK(in.st.dist < 40.0f - 12.0f * 0.8f);
+		const float from = out.st.dist;
+		for (int i = 0; i < 10; i++)
+			out.Step(car, 0.0f, V3(), 1.0f / 100.0f, 1.0f); // 0.1 s, out
+		CHECK(out.st.dist > from + 0.2f * (40.0f - from) && out.st.dist < from + 0.5f * (40.0f - from));
+		// frame-rate independent
+		Cam a, b;
+		a.Step(car, 0.0f, V3(), 0.0f);
+		b.Step(car, 0.0f, V3(), 0.0f);
+		for (int i = 0; i < 30; i++)
+			a.Step(car, 0.0f, V3(), 1.0f / 30.0f, 0.5f);
+		for (int i = 0; i < 200; i++)
+			b.Step(car, 0.0f, V3(), 1.0f / 200.0f, 0.5f);
+		CHECK(Near(a.st.dist, b.st.dist, 0.05f));
+		// the trace's ends: from the origin 8 up to the camera, and 16 over it
+		V3 st, lo, hi;
+		ChaseAim aim;
+		aim.yaw = 0.0f;
+		aim.pitch = 15.0f;
+		ChaseTrace(V3(10, 20, 30), aim, 40.0f, st, lo, hi);
+		CHECK(NearV(st, V3(10, 20, 38), 1e-4f));
+		CHECK(Near((lo - V3(10, 20, 30)).Length(), 40.0f, 1e-3f) && lo.x < 10.0f && lo.z > 30.0f);
+		CHECK(Near((hi - lo).Length(), 16.0f, 1e-3f));
+		// inside the world: the distance stays
+		Cam w;
+		w.Step(car, 0.0f, V3(), 0.0f);
+		for (int i = 0; i < 50; i++)
+			w.Step(car, 0.0f, V3(), 1.0f / 99.0f, 0.5f);
+		const float held = w.st.dist;
+		for (int i = 0; i < 50; i++)
+			w.Step(car, 0.0f, V3(), 1.0f / 99.0f, -1.0f);
+		CHECK(Near(w.st.dist, held, 1e-4f));
+	}
+	// the camera is the same at 30 and at 200 frames a second
+	{
+		float endYaw[2] = {0, 0};
+		V3 endOrg[2];
+		for (int pass = 0; pass < 2; pass++)
+		{
+			const int fps = pass == 0 ? 30 : 200;
+			Cam c;
+			const float dt = 1.0f / (float)fps;
+			float heading = 0;
+			V3 car(0, 0, 0);
+			Pose last;
+			c.Step(car, 0.0f, V3(400, 0, 0), 0.0f);
+			// a second of steering left at 100 degrees a second, then half a second straight, the car at 400 u/s all the way
+			for (int i = 0; i < fps * 3 / 2; i++)
+			{
+				const float t = (float)(i + 1) * dt;
+				heading = t < 1.0f ? 100.0f * t : 100.0f;
+				car = V3(car.x + cosf(Rad(heading)) * 400.0f * dt, car.y + sinf(Rad(heading)) * 400.0f * dt, 0);
+				last = c.Step(car, heading, V3(cosf(Rad(heading)) * 400.0f, sinf(Rad(heading)) * 400.0f, 0), dt);
+			}
+			endYaw[pass] = last.yaw;
+			endOrg[pass] = last.org - car;
+		}
+		CHECK(Near(endYaw[0], endYaw[1], 1.5f));
+		CHECK(NearV(endOrg[0], endOrg[1], 3.0f));
+	}
 	// the height follows the car's with a lag (a kerb is not a jolt) and gets there
 	{
-		ChaseParams cp;
-		ChaseState s;
-		ChaseStep(s, V3(0, 0, 0), 0.0f, V3(), 0.0f, cp);
-		Pose p = ChaseStep(s, V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f, cp);
-		CHECK(p.org.z > 26.0f && p.org.z < 26.0f + 4.0f * 0.3f);
+		Cam c;
+		c.Step(V3(0, 0, 0), 0.0f, V3(), 0.0f);
+		Pose p = c.Step(V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f);
+		V3 base = p.org + ViewVectors(p.pitch, p.yaw, 0).f * c.st.dist;
+		CHECK(base.z > 26.0f && base.z < 26.0f + 4.0f * 0.3f);
 		for (int i = 0; i < 120; i++)
-			p = ChaseStep(s, V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f, cp);
-		CHECK(Near(p.org.z, 30.0f, 0.05f));
+			p = c.Step(V3(0, 0, 4), 0.0f, V3(), 1.0f / 60.0f);
+		base = p.org + ViewVectors(p.pitch, p.yaw, 0).f * c.st.dist;
+		CHECK(Near(base.z, 30.0f, 0.05f));
 	}
 	// a first frame (or one after a pause) puts the camera straight behind, no sweep
 	{
-		ChaseParams cp;
-		ChaseState s;
-		const Pose p = ChaseStep(s, V3(0, 0, 0), 135.0f, V3(), 5.0f, cp);
-		CHECK(Near(s.yaw, 135.0f, 1e-4f));
+		Cam c;
+		const Pose p = c.Step(V3(0, 0, 0), 135.0f, V3(), 5.0f);
+		CHECK(Near(c.st.yaw, 135.0f, 1e-4f));
 		CHECK(p.org.x > 0.0f && p.org.y < 0.0f); // behind a car facing north-west is south-east
 	}
 
-	// ---- the pull-in ----
+	// ---- the driver's seat: HL Rally's bonnet, 6 ahead and 15 up ----
 	{
-		const V3 anchor(0, 0, 30), cam(-70, 0, 56);
-		CHECK(NearV(PullIn(anchor, cam, 1.0f, 4, 8), cam, 1e-6f)); // nothing hit
-		const float len = (cam - anchor).Length();
-		const V3 in = PullIn(anchor, cam, 0.5f, 4, 8);
-		CHECK(Near((in - anchor).Length(), len * 0.5f - 4.0f, 1e-3f)); // short of the wall by the margin
-		// a wall hard against the car: never closer than the wall allows, nor behind the anchor
-		const V3 tight = PullIn(anchor, cam, 0.02f, 4, 8);
-		CHECK((tight - anchor).Length() <= len * 0.02f + 1e-4f);
-		CHECK((tight - anchor).Length() >= 0.0f);
-		// a wall a little way off: the minimum distance holds
-		const V3 near = PullIn(anchor, cam, 0.12f, 4, 8);
-		CHECK(Near((near - anchor).Length(), 8.0f, 1e-3f) || (near - anchor).Length() > 8.0f - 1e-3f);
-		// the direction is kept
-		CHECK(Near((in - anchor).Unit().Dot((cam - anchor).Unit()), 1.0f, 1e-5f));
+		FirstParams fp;
+		CHECK(Near(fp.ahead, 6.0f, 1e-6f) && Near(fp.up, 15.0f, 1e-6f));
+		FirstState fs;
+		Tilt t;
+		t.init = true;
+		const Pose p = FirstStep(fs, V3(0, 0, 0), 90.0f, t, 0.0f, fp);
+		CHECK(NearV(p.org, V3(0, 6, 15), 1e-3f));
+		fs.yaw = 0; // a turn is not lagged
+		const Pose q = FirstStep(fs, V3(0, 0, 0), 120.0f, t, 1.0f / 99.0f, fp);
+		CHECK(Near(q.yaw, 120.0f, 1e-3f));
+	}
+
+	// ---- the body's motion: roll in a slide (at most 7.5), dive under the brake, squat on the throttle below 300 ----
+	{
+		CHECK(Near(SlideRoll(0.0f), 0.0f, 1e-6f));
+		CHECK(Near(SlideRoll(0.1f), 2.5f, 1e-4f));
+		CHECK(Near(SlideRoll(1.0f), 7.5f, 1e-4f) && Near(SlideRoll(-1.0f), -7.5f, 1e-4f));
+		CHECK(fabsf(SlideRoll(0.7f)) < 7.5f && SlideRoll(0.7f) > SlideRoll(0.3f));
+		// the share to the right of the nose: heading east, going south-east is to the right
+		CHECK(RightShare(0.0f, V3(300, -300, 0)) > 0.7f && RightShare(0.0f, V3(300, 300, 0)) < -0.7f);
+		CHECK(Near(RightShare(0.0f, V3(300, 0, 0)), 0.0f, 1e-6f) && Near(RightShare(0.0f, V3()), 0.0f, 1e-6f));
+		// and the body leans out of it: going to the right of the nose rolls the left side up (positive)
+		float pit = 0, rol = 0;
+		BodyMotion(400.0f, RightShare(0.0f, V3(300, -300, 0)), false, false, pit, rol);
+		CHECK(rol > 5.0f && Near(pit, 0.0f, 1e-6f));
+		pit = rol = 0;
+		BodyMotion(600.0f, 0.0f, true, false, pit, rol); // braking at 600: 4 degrees nose down
+		CHECK(Near(pit, -4.0f, 1e-4f));
+		pit = rol = 0;
+		BodyMotion(100.0f, 0.0f, false, true, pit, rol); // throttle at 100: 3.7 - 0.5 up
+		CHECK(Near(pit, 3.2f, 1e-4f));
+		pit = rol = 0;
+		BodyMotion(400.0f, 0.0f, false, true, pit, rol); // no squat from 300 up
+		CHECK(Near(pit, 0.0f, 1e-6f));
+		pit = rol = 0;
+		BodyMotion(15.0f, 0.5f, true, true, pit, rol); // nothing at 20 or less
+		CHECK(Near(pit, 0.0f, 1e-6f) && Near(rol, 0.0f, 1e-6f));
+		// the tilt's smoothing is (new + 9 old) / 10 a reference frame: one frame at 99 fps moves a tenth of the way
+		Tilt t;
+		TiltStep(t, 0, 0, 0.0f, RefTau(0.9f));
+		TiltStep(t, 10, 0, 1.0f / 99.0f, RefTau(0.9f));
+		CHECK(Near(t.pitch, 1.0f, 1e-3f));
+		// the wheel the driver has: full lock from 8.5 up, to the left when the wheel is to the left (negative)
+		CHECK(Near(WheelShown(0, 32), 0.0f, 1e-6f) && Near(WheelShown(-10, 32), 32.0f, 1e-4f) && Near(WheelShown(10, 32), -32.0f, 1e-4f));
+		CHECK(Near(WheelShown(-4.25f, 32), 16.0f, 1e-4f));
 	}
 
 	// ---- the steering and the tyres ----

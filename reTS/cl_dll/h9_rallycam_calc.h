@@ -167,6 +167,42 @@ inline float AirPitch(float vz, float speedXY)
 	return Clamp(Deg(atan2f(vz, speedXY + 60.0f)), -30.0f, 30.0f);
 }
 
+// ---- the body's motion (HL Rally's StudioModelRenderer, the local car) ----------------------------------------------------------
+
+
+// The share of the velocity that goes to the RIGHT of the nose (-1..1), from the full speed as HL Rally does.
+inline float RightShare(float yaw, const V3& vel)
+{
+	const float sp = vel.Length();
+	if (sp < 1e-3f)
+		return 0.0f;
+	return (vel.x * sinf(Rad(yaw)) - vel.y * cosf(Rad(yaw))) / sp;
+}
+
+// The roll a slide gives, degrees (positive: left side up, so the body leans OUT of a slide to the right): the share times 25 while it is
+// under 0.2, then times 2.5 and 5 more. At most 7.5.
+inline float SlideRoll(float rightShare)
+{
+	float m = rightShare;
+	if (fabsf(m) < 0.2f)
+		return m * 25.0f;
+	m *= 2.5f;
+	return m > 0.0f ? m + 5.0f : m - 5.0f;
+}
+
+// What a car adds to the tilt it stands on, for speed above 20 u/s: the slide's roll; a nose that dips by speed / 150 degrees while the back key
+// or the handbrake is down, and one that rises by 3.7 - speed / 200 while the throttle is down below 300 u/s. Entity pitch is positive nose UP.
+inline void BodyMotion(float speed, float rightShare, bool braking, bool throttle, float& pitchUp, float& rollLeftUp)
+{
+	if (!(speed > 20.0f))
+		return;
+	rollLeftUp += SlideRoll(rightShare);
+	if (braking)
+		pitchUp -= speed / 150.0f;
+	if (speed < 300.0f && throttle)
+		pitchUp += 3.7f - speed / 200.0f;
+}
+
 // ---- the wheels and the steering -------------------------------------------------------------------------------------------------
 
 // The steering the front wheels show, in degrees, from the car's yaw rate (degrees a second): the keys turn a car 400 degrees a
@@ -176,6 +212,10 @@ inline float SteerShown(float yawRate, float lockDeg, float fullRate)
 {
 	return Clamp(yawRate / fullRate, -1.0f, 1.0f) * lockDeg;
 }
+
+// The front wheels' angle from the DRIVER'S wheel (HL Rally's steer_wheel_angle, +-10, positive to the right: StudioModelRenderer turns it into
+// 127 + 15 * wheel on a byte, which is at full lock from 8.5 up). Degrees of lock, positive to the LEFT as the controller is.
+inline float WheelShown(float wheelRight, float lockDeg) { return -Clamp(wheelRight / 8.5f, -1.0f, 1.0f) * lockDeg; }
 
 // The model's steering controllers are bytes over -45..45 degrees.
 inline int SteerByte(float deg, float rangeDeg)
@@ -203,101 +243,136 @@ struct Pose
 	Pose() : pitch(0), yaw(0), roll(0) {}
 };
 
+// ---- HL Rally's chase camera ----
+//
+// Its rule (in_camera.cpp CAM_Think and view.cpp, as read for its behaviour): the camera looks ALONG a direction, not at a point. That
+// direction's yaw is the one the car is GOING (its velocity's) while it goes faster than 5 u/s, else the nose's; its pitch is 15 degrees down
+// plus the slope the velocity is on. The camera sits `dist` behind the car's origin (26 above it) along that direction, so in a slide the car
+// turns in front of the camera, and in reverse the camera swings round. Every easing there is a per-FRAME one at ~99 frames a second; each
+// is written here as a power of the reference frame (kRefFps), which at 99 fps is that very rule and at any other rate the same motion:
+//   yaw       moves 1/4 of the way to the velocity's yaw per frame                        (0.75^m kept)
+//   pitch     goal = (new + 8 old) / 9 per frame, and moves 1/4 of the way to the goal   (0.8889^m, 0.75^m)
+//   distance  the wanted one is `back` (40; a command cycles 40 70 100 35) cut by a trace to wall*0.. - 8, never under 20; the camera comes
+//             in 1/6 of the way a frame (wall) and goes out 1/30 (open), and each frame adds min(speed / 120, 2) which the easing then takes
+//             off again: the distance rests at wanted + 6 * that, 12 more at 240 u/s.
+//   (HL Rally's 1 degree snap, which makes the angle sit within a degree of its goal, is left out: it would be a different motion at each rate.)
+
+const float kRefFps = 99.0f;
+inline float RefAlpha(float dt, float keep) { return dt > 0.0f ? 1.0f - powf(keep, kRefFps * dt) : 0.0f; } // the share covered by dt when each reference frame keeps `keep`
+inline float RefTau(float keep) { return -1.0f / (kRefFps * logf(keep)); }                                     // the time constant of that
+
 struct ChaseParams
 {
-	float back;    // behind the car
-	float up;      // above its origin
-	float ahead;   // the point looked at, in front of the car
-	float lookUp;  // and above the ground there
-	float tauBase; // the heading's lag on the road
-	float tauSlide;// and what a full slide adds
-	float slideAt; // the slip angle (degrees) that counts as a full slide
-	float tauZ;    // the height's lag
-	float minSpeed;// under this the car is not sliding, whatever its nose says
-	ChaseParams() : back(70), up(26), ahead(18), lookUp(8), tauBase(0.04f), tauSlide(0.22f), slideAt(50), tauZ(0.10f), minSpeed(60) {}
+	float back;      // the wanted distance behind the car (HL Rally's cam_wishdist)
+	float up;        // the view's base above the car's origin
+	float wishPitch; // degrees down on top of the velocity's slope
+	float minDist;   // the trace never brings the camera nearer than this (their c_mindistance)
+	float margin;    // short of a wall by this
+	float stillSpeed;// under this the camera follows the nose, not the velocity
+	float tauZ;      // the height's lag (not HL Rally's: our origin steps up a kerb in one frame)
+	ChaseParams() : back(40), up(26), wishPitch(15), minDist(20), margin(8), stillSpeed(5), tauZ(0.10f) {}
 };
 
 struct ChaseState
 {
 	bool init;
-	float yaw; // the camera's heading, lagging the car's
-	float z;   // the car's height as the camera sees it
-	ChaseState() : init(false), yaw(0), z(0) {}
+	float yaw, pitch;  // the camera's angles (pitch positive looks down)
+	float pitchGoal;   // the pitch's own smoothed goal
+	float dist;        // the distance now
+	float z;           // the car's height as the camera sees it
+	ChaseState() : init(false), yaw(0), pitch(0), pitchGoal(0), dist(0), z(0) {}
 };
 
-// The angle between the nose and the way the car is going, in degrees (0 with no speed to speak of).
-inline float SlipAngle(float headingYaw, const V3& vel, float minSpeed)
+struct ChaseAim
 {
-	const float sp = sqrtf(vel.x * vel.x + vel.y * vel.y);
-	if (sp < minSpeed)
-		return 0.0f;
-	const float way = Deg(atan2f(vel.y, vel.x));
-	float d = fabsf(AngleDelta(headingYaw, way));
-	if (d > 90.0f) // backwards: the slip is measured from the tail
-		d = 180.0f - d;
-	return d;
+	float yaw, pitch; // the direction wanted this frame (the pitch smoothed), what the pull-in trace goes along
+};
+
+// First half of a step: the direction wanted. The state's goal pitch moves. (Call ChaseFinish after it, once per frame.)
+inline ChaseAim ChaseAimOf(ChaseState& s, float heading, const V3& vel, float dt, const ChaseParams& p)
+{
+	const float speedH = sqrtf(vel.x * vel.x + vel.y * vel.y);
+	float yaw = heading, rawPitch = p.wishPitch;
+	if (speedH > p.stillSpeed)
+	{
+		yaw = Deg(atan2f(vel.y, vel.x));
+		rawPitch = p.wishPitch - Deg(atan2f(vel.z, speedH)); // a velocity going up looks less far down
+	}
+	if (!s.init || !(dt > 0.0f) || dt > 0.5f)
+	{
+		s.init = false; // ChaseFinish takes it from here
+		s.yaw = yaw;
+		s.pitchGoal = rawPitch;
+		s.pitch = rawPitch;
+	}
+	else
+		s.pitchGoal += (rawPitch - s.pitchGoal) * RefAlpha(dt, 8.0f / 9.0f);
+	ChaseAim a;
+	a.yaw = yaw;
+	a.pitch = s.pitchGoal;
+	return a;
 }
 
-// One step of the chase camera. `car` is the car's origin (on the ground), heading its yaw, vel its velocity. The camera looks at a
-// point ahead of the car from behind and above it, its heading lagging the car's (more in a slide). The world is not asked here: the
-// caller traces from `Anchor()` to the result and pulls it in with PullIn().
-inline Pose ChaseStep(ChaseState& s, const V3& car, float heading, const V3& vel, float dt, const ChaseParams& p)
+// Where the pull-in trace goes: from the origin a little up to behind the camera's direction, once at the camera's height and once 16 above
+// it (the car's own roof and an arch stay out of it). `wanted` is the distance asked for. The caller takes the smaller fraction of the two.
+inline void ChaseTrace(const V3& car, const ChaseAim& a, float wanted, V3& start, V3& endLow, V3& endHigh)
 {
+	const Axes v = ViewVectors(a.pitch, a.yaw, 0.0f);
+	start = V3(car.x, car.y, car.z + 8.0f);
+	endLow = car - v.f * wanted;
+	endHigh = endLow + v.n * 16.0f;
+}
+
+// Second half. `fraction` the trace's (1 nothing hit; below 0 the trace began inside the world: the distance is left as it is).
+inline Pose ChaseFinish(ChaseState& s, const V3& car, const V3& vel, const ChaseAim& a, float fraction, float dt, const ChaseParams& p)
+{
+	float wantDist = p.back;
+	if (fraction < 1.0f && fraction >= 0.0f)
+	{
+		wantDist = p.back * fraction - p.margin;
+		if (wantDist < p.minDist)
+			wantDist = p.minDist;
+	}
+	else if (fraction < 0.0f)
+		wantDist = s.dist > 0.0f ? s.dist : p.back;
+	const float add = Clamp(sqrtf(vel.x * vel.x + vel.y * vel.y) / 120.0f, 0.0f, 2.0f);
 	if (!s.init || !(dt > 0.0f) || dt > 0.5f)
 	{
 		s.init = true;
-		s.yaw = heading;
+		s.yaw = a.yaw;
+		s.pitch = a.pitch;
 		s.z = car.z;
+		s.dist = wantDist + 6.0f * add;
 	}
 	else
 	{
-		const float slide = Clamp(SlipAngle(heading, vel, p.minSpeed) / (p.slideAt > 1.0f ? p.slideAt : 1.0f), 0.0f, 1.0f);
-		const float tau = p.tauBase + p.tauSlide * slide;
-		s.yaw = Wrap180(s.yaw + AngleDelta(s.yaw, heading) * Alpha(dt, tau));
+		s.yaw = Wrap180(s.yaw + AngleDelta(s.yaw, a.yaw) * RefAlpha(dt, 0.75f));
+		s.pitch += (s.pitchGoal - s.pitch) * RefAlpha(dt, 0.75f);
 		s.z += (car.z - s.z) * Alpha(dt, p.tauZ);
+		if (fraction >= 0.0f)
+		{
+			// the distance: pulled in 1/6 a frame, let out 1/30, and `add` put on every frame
+			const float keep = wantDist < s.dist ? 5.0f / 6.0f : 29.0f / 30.0f;
+			const float rest = wantDist + add / (1.0f - keep);
+			s.dist = rest + (s.dist - rest) * powf(keep, kRefFps * dt);
+		}
 	}
-	const V3 behind(cosf(Rad(s.yaw)), sinf(Rad(s.yaw)), 0);
-	const V3 nose(cosf(Rad(heading)), sinf(Rad(heading)), 0);
+	const Axes v = ViewVectors(s.pitch, s.yaw, 0.0f);
 	Pose out;
-	out.org = V3(car.x, car.y, s.z + p.up) - behind * p.back;
-	const V3 look = V3(car.x, car.y, car.z + p.lookUp) + nose * p.ahead;
-	const V3 d = look - out.org;
-	const float h = sqrtf(d.x * d.x + d.y * d.y);
-	out.yaw = Deg(atan2f(d.y, d.x));
-	out.pitch = Deg(atan2f(-d.z, h)); // looking down is positive
+	out.org = V3(car.x, car.y, s.z + p.up) - v.f * s.dist;
+	out.pitch = s.pitch;
+	out.yaw = s.yaw;
 	out.roll = 0;
 	return out;
 }
 
-// Where the trace for the chase camera starts: above the car's middle, so a low roof or an arch does not put the camera in the car.
-inline V3 ChaseAnchor(const V3& car, float lookUp) { return V3(car.x, car.y, car.z + lookUp + 4.0f); }
-
-// The camera pulled in from a trace that hit at `fraction` of the way from the anchor to the camera: short of the wall by `margin`,
-// and never closer to the anchor than `minDist` unless the wall is.
-inline V3 PullIn(const V3& anchor, const V3& cam, float fraction, float margin, float minDist)
-{
-	if (fraction >= 1.0f)
-		return cam;
-	const V3 d = cam - anchor;
-	const float len = d.Length();
-	if (len < 1e-3f)
-		return cam;
-	float dist = len * (fraction < 0.0f ? 0.0f : fraction) - margin;
-	const float floorDist = minDist < len * fraction ? minDist : len * fraction;
-	if (dist < floorDist)
-		dist = floorDist;
-	if (dist < 0.0f)
-		dist = 0.0f;
-	return anchor + d * (dist / len);
-}
-
-struct FirstParams
+struct FirstParams // HL Rally's bonnet view: origin + 6 along the car's nose + 15 along its up, the car's own angles (yaw not lagged)
 {
 	float ahead; // from the car's middle, along the nose
 	float up;    // above its floor
 	float tauYaw;
 	float gain;  // of the car's tilt that the view takes
-	FirstParams() : ahead(3), up(12), tauYaw(0.03f), gain(1.0f) {}
+	FirstParams() : ahead(6), up(15), tauYaw(0.0f), gain(1.0f) {}
 };
 
 struct FirstState

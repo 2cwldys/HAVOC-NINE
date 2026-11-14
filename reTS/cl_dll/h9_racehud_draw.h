@@ -49,6 +49,8 @@ const Col LAMP_RED = {240, 56, 48};
 const Col LAMP_GREEN = {84, 232, 112};
 
 const float SPEED_UNITS = 6.3f;    // units a second to one of the readout's: 1200 reads 190
+const float RALLY_SPEED_UNITS = 3.0f; // the same in rally mode, HL Rally's: its HUD shows |velocity| / 3 (rallyhud.cpp), so 680 reads 227
+const float RALLY_SPEED_FLOOR = 9.0f; // and shows 0 under 9
 const float METRE_UNITS = 22.7f;   // units to a metre at that scale (6.3 * 3.6)
 const float TOP_SPEED = 1200.0f;   // the gauge's end when the server names none
 const float STAT_LIFE = 0.7f;      // seconds the panels stay with no status (it comes five times a second): short, so the TS HUD is back at once on foot
@@ -107,6 +109,7 @@ struct Model
 	float statAt = 0; // the client's time it came
 	int flags = 0, lap = 0, place = 0;
 	float speed = 0, slip = 0, topSpeed = TOP_SPEED;
+	float speedUnits = SPEED_UNITS, speedFloor = 0; // the readout's divisor, and the reading under which it shows 0 (rally mode changes both)
 	float gauge = 0; // the speed the gauge shows: it follows `speed` smoothly
 	float raceStart = 0, lapStart = 0, limitEnd = 0;
 	int bestCs = 0, totalCs = 0;
@@ -183,9 +186,10 @@ inline void Ordinal(char* out, size_t room, int place)
 }
 
 // The number the speed readout shows.
-inline int SpeedShown(float units)
+inline int SpeedShown(float units, float divisor = SPEED_UNITS, float zeroUnder = 0.0f)
 {
-	return (int)(fabsf(units) / SPEED_UNITS + 0.5f);
+	const float shown = fabsf(units) / divisor;
+	return shown < zeroUnder ? 0 : (int)(shown + 0.5f);
 }
 
 // What to add to the client's time to have the server's, from a message that carries the server's `now`. The engine gives the client
@@ -778,7 +782,7 @@ struct Painter
 		const Col lit = SlipColour(m.slip);
 		const int segments = 16;
 		char text[16];
-		snprintf(text, sizeof(text), "%d", ClampI(SpeedShown(m.speed), 0, 999));
+		snprintf(text, sizeof(text), "%d", ClampI(SpeedShown(m.speed, m.speedUnits, m.speedFloor), 0, 999));
 		const bool back = m.speed < -20;
 		Edged([&] {
 			for (int dy = -r; dy <= 0; dy++)

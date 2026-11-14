@@ -551,6 +551,12 @@ static void CheckText()
 	CHECK(SpeedShown(1200) == 190);
 	CHECK(SpeedShown(-1200) == 190);
 	CHECK(SpeedShown(0) == 0);
+	// rally mode: HL Rally's |velocity| / 3, 0 under 9: the road's top speed 680 reads 227, 26 u/s (8.7) reads 0, 27 reads 9
+	CHECK(SpeedShown(680, RALLY_SPEED_UNITS, RALLY_SPEED_FLOOR) == 227);
+	CHECK(SpeedShown(-680, RALLY_SPEED_UNITS, RALLY_SPEED_FLOOR) == 227);
+	CHECK(SpeedShown(26, RALLY_SPEED_UNITS, RALLY_SPEED_FLOOR) == 0);
+	CHECK(SpeedShown(27, RALLY_SPEED_UNITS, RALLY_SPEED_FLOOR) == 9);
+	CHECK(SpeedShown(1200) == 190); // the h9_car's reading is unchanged
 	CHECK(TextW("", 2) == 0);
 	CHECK(TextW("A", 2) == 10);
 	CHECK(TextW("AB", 3) == 33);
