@@ -190,9 +190,17 @@ void CarSize(float& len, float& width)
 	}
 }
 
+// The hull the probes trace: HL Rally's EV_SetTraceHull(0) (StudioModelRenderer.cpp:1193), the hull its car moves in. On a rally map that is
+// the physics' own (physinfo "rhull": usehull 0, BSP hull 1 with the clip brushes; pm_shared/h9_rally.cpp); elsewhere the point hull.
+int ProbeHull()
+{
+	const char* v = gEngfuncs.PhysInfo_ValueForKey("rhull");
+	return (v != nullptr && atoi(v) != 0) ? 0 : 2;
+}
+
 // One trace of HL Rally's terrain probes (TerrainTrace, StudioModelRenderer.cpp:1086-1140): from `from` to `to` through the world and its solid
-// things (a car or a player is passed through: it is a physent with a studio model and is not the ground). True when the ground is hit; the end
-// point is where it stopped, `to` when nothing was in the way. A wall (a plane more than 70 degrees from level) counts as no ground.
+// things (a car or a player is passed through: it is a physent with a studio model and is not the ground; DEVIATION, HL Rally's trace stops on
+// them). True when anything is hit; the end point is where it stopped, `to` when nothing was in the way.
 bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpos, rallycam::V3& normal)
 {
 	using namespace rallycam;
@@ -203,7 +211,7 @@ bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpo
 	normal = V3(0, 0, 1);
 	for (int tries = 0; tries < 4; tries++)
 	{
-		pmtrace_t* tr = gEngfuncs.PM_TraceLine((float*)&s, (float*)&e, PM_TRACELINE_PHYSENTSONLY, 2, -1);
+		pmtrace_t* tr = gEngfuncs.PM_TraceLine((float*)&s, (float*)&e, PM_TRACELINE_PHYSENTSONLY, ProbeHull(), -1);
 		if (tr == nullptr || tr->fraction >= 1.0f)
 			return false;
 		if (tr->ent > 0)
@@ -217,10 +225,7 @@ bool Probe(const rallycam::V3& from, const rallycam::V3& to, rallycam::V3& endpo
 				continue;
 			}
 		}
-		if (tr->startsolid && tr->fraction <= 0.0f)
-			return false;
-		if (tr->plane.normal[2] < 0.35f)
-			return false; // a wall, not ground
+		// HL Rally keeps whatever the trace hit, a start inside a clip brush or a wall included (TerrainTrace: only ent -1 is air)
 		endpos = V3(tr->endpos[0], tr->endpos[1], tr->endpos[2]);
 		normal = V3(tr->plane.normal[0], tr->plane.normal[1], tr->plane.normal[2]);
 		return true;
@@ -305,12 +310,16 @@ Slot& Update(int index, const rallycam::V3& org, float yaw, float time, const ra
 		s.braketime = 0;
 	}
 
-	// the ground: HL Rally's probes. The local car's five are at +-8 across and +-12 along the car's own (last frame's) axes, each from 2 over to
+	// the ground: HL Rally's probes. The local car's five are at +-8 across and +-12 along the axes of the physics' tilt, each from 2 over to
 	// 2 under along its roof; "in the air" is all five missing. Another car's one probe is straight down, and its tilt is that plane's normal.
 	V3 up(0, 0, 1), fwd(cosf(Rad(yaw)), sinf(Rad(yaw)), 0), right(sinf(Rad(yaw)), -cosf(Rad(yaw)), 0);
-	if (local && s.tilt.init)
+	float sp, sy, sr;
+	if (local && H9RallyStoredTilt(&sp, &sy, &sr))
 	{
-		const Axes ax = EntityMatrixColumns(s.tilt.pitch, yaw, s.tilt.roll);
+		// HL Rally aims the probes along AngleVectors(pmove->vuser1) (StudioModelRenderer.cpp:1224 and :1552): the physics' tilt of the last
+		// predicted command, never the drawn tilt. Aiming them along the drawn (filtered) tilt fed it back into itself: once tilted, the probes
+		// missed a flat floor and their misses lay on the same tilted plane, so the view stayed rolled (-55 degrees on flat ground, 2026-11-14 log).
+		const Axes ax = ViewVectors(sp, sy, sr);
 		up = ax.n;
 		fwd = ax.f;
 		right = ax.l * -1.0f;
