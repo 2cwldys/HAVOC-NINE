@@ -12,9 +12,11 @@
 #include "util.h"
 #include "cbase.h"
 #include "ts_weapons.h"
+#include "ts_mechrocket.h" // TSMechRocketResolveAssets
 
 void PrecacheAllTSWeapons()
 {
+	TSMechRocketResolveAssets(); // before the loop: the Mech rocket launcher's row takes the models that are on disk
 	for (int i = 0; i < TSW_COUNT; i++)
 	{
 		const s_weapon_info *wi = get_weapon_info((tsweapon_t)i);

@@ -111,6 +111,9 @@ public:
 	                                             // fire-step / pump(rack)-step per trigger-frame (see .cpp)
 	void VKickback(float magnitude, int firetype); // @VKickback @0x70414 — recoil view-punch (punchangle)
 	void ScaleSpread(float &spread, float increment, bool silenced); // @ScaleSpread @0x702a8 — dynamic accuracy (4th arg = the SILENCED flag, round-6 RE; sil tightens x0.875/x0.775)
+	void MechRocketFire(const s_weapon_info *wi); // the Mech rocket launcher (TSW_MECHROCKET): a pull launches a salvo, this is its first rocket
+	void MechRocketShot(const s_weapon_info *wi, bool bFollow); // one rocket of the salvo (bFollow: not the pull's first)
+	void MechRocketSalvoStep();                  // WeaponIdle's part of a salvo: the next rocket, once the stagger has run out
 	void KnifeFire();                            // @KnifeFire__6CTSGun @0x74044 — knife slash AND throw (item+0x24)
 	void CCombatAttack();                    // @CCombatAttack — kung-fu contextual punch/kick (reads IN_ATTACK/IN_ATTACK2)
 	void CCombatBlock();                     // @CCombatBlock — RELOAD melee block (all melee): "hooah" + stamina

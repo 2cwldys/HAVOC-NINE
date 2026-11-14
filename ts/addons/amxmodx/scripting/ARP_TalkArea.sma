@@ -3,6 +3,8 @@
 #include <ApolloRP>
 #include <ApolloRP_Chat>
 #include <fakemeta>
+#define ARPVGUI_PAGED
+#include <ApolloRP_VGui>
 
 #define BASE_DISTANCE 300.0
 
@@ -99,6 +101,8 @@ new TravTrie:g_SayTeamTrie
 
 public plugin_init()
 {	
+	arpvgui_init("arptalk")
+	
 	register_clcmd("say","CmdSay")
 	register_clcmd("say_team","CmdSay")
 	
@@ -146,12 +150,25 @@ public ARP_Init()
 
 public plugin_natives()
 {
+	register_native("ARP_H9Gag","_ARP_H9Gag")
 	g_SayTrie = TravTrieCreate()
 	g_SayTeamTrie = TravTrieCreate()
 	
 	register_library("arp_chat")
 	register_native("ARP_AddChat","_ARP_AddChat")
 	register_native("ARP_AddTeamChat","_ARP_AddTeamChat")
+}
+
+new g_Gagged[MAX_PLAYERS + 1]
+
+// H9: ARP_H9Gag(id,gag): a gagged player's voice is heard by nobody
+public _ARP_H9Gag(Plugin,Params)
+{
+	new id = get_param(1)
+	if(id >= 1 && id <= MAX_PLAYERS)
+		g_Gagged[id] = get_param(2) ? 1 : 0
+
+	return SUCCEEDED
 }
 
 public _ARP_AddChat(Plugin,Params)
@@ -215,7 +232,7 @@ public ForwardPlayerThink(id)
 		
 		pev(Player,pev_origin,tOrigin)
 		
-		set_client_listen(id,Player,(get_distance_f(tOrigin,pOrigin) < BASE_DISTANCE * get_pcvar_float(p_Range) && is_user_alive(id)) ? 1 : 0)
+		set_client_listen(id,Player,(!g_Gagged[Player] && get_distance_f(tOrigin,pOrigin) < BASE_DISTANCE * get_pcvar_float(p_Range) && is_user_alive(id)) ? 1 : 0)
 	}
 }
 
@@ -230,6 +247,8 @@ public ARP_Error(const Reason[])
 
 public plugin_precache()
 {
+	arpvgui_precache()
+	
 	precache_sound(g_RingSound)
 	precache_sound(g_SmsSound)
 	precache_sound(g_ScanSound)
@@ -263,6 +282,7 @@ public EventDeathMsg()
 
 public client_disconnect(id)
 {
+	g_Gagged[id] = 0
 	BreakLine(id," has disconnected. The phone has been hung up.")
 	
 	arrayset(g_Bugged[id],0,sizeof g_Bugged[])
@@ -343,7 +363,7 @@ public StatusHandle(id,Key)
 				menu_additem(Menu,Name,Command)
 			}
 			
-			menu_display(id,Menu)
+			arpvgui_menu_display(id,Menu,"arptalk.book","ARP Phonebook","CallHandle")
 		}
 	}
 }
@@ -404,7 +424,7 @@ public CallHandle(id,Menu,Item)
 	if(g_Phone[Selection][RING] < 2)
 		set_task(2.0,"Ring",Selection + PHONE_RING_OFFSET,"a",_,_,6)
 	
-	show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu)
+	arpvgui_show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu,"arptalk.answer")
 	
 	return PLUGIN_CONTINUE
 }
@@ -454,7 +474,7 @@ public _Phone(id,ItemId)
 	formatex(Menu[Pos],255 - Pos,"^n0. Exit")
 	
 	g_ItemId[id] = ItemId
-	show_menu(id,Keys,Menu,-1,g_StatusMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_StatusMenu,"arptalk.status")
 }
 
 public _Subscription(id,ItemId)

@@ -1,0 +1,170 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -296,6 +296,17 @@
+ #define H9_ITEMICON_MAX 128	// the most icons arp_h9_itemicon_max can allow
+ #define H9_ITEMICON_SPARE 100	// the edicts left free for the engine and the other plugins: no icon is made when fewer are left
+ 
++// H9: the glow of a pack that has just been dropped (arp_h9_itemglow, H9_ItemGlowStart, H9_ItemGlowBeat, H9_ItemGlowPulse): a point light in a purple that shows the pack in a dark corner, sent
++// as a pulse that fades out by itself in a second and a quarter and sent again every beat while the pack has time left to glow. It is a message and no entity: nothing in the entity table and
++// nothing to take down. The game's time a pack glows until is kept in its fuser1; a pack that has none (one a map places) never glows. The beat is a task that runs only while a pack glows.
++new p_H9ItemGlow
++new p_H9ItemGlowTime
++new p_H9ItemGlowRadius
++new p_H9ItemGlowColor
++#define H9_ITEMGLOW_BEAT 1.5	// the seconds between one pulse of the light and the next
++#define H9_ITEMGLOW_MAX 32	// the most packs that are sent a pulse in one beat
++#define H9_ITEMGLOW_TASK 94780	// the beat's task
++
+ // H9: the forwards ARP_Inventory implements when it is loaded (include\ApolloRP_Items.inc); with none loaded each answers 0 and the core is stock ARP
+ new g_H9FwdCount
+ new g_H9FwdRoom
+@@ -1036,6 +1047,13 @@
+ 	p_H9ItemIcon = register_cvar("arp_h9_itemicon","1")
+ 	p_H9ItemIconMax = register_cvar("arp_h9_itemicon_max","64")
+ 	p_H9ItemIconScale = register_cvar("arp_h9_itemicon_scale","0.6")
++	// H9: 1 makes a pack that has just been dropped glow, a purple point light over it that pulses every second and a half, so that it shows in a dark corner and is easy to find and pick up
++	// (H9_ItemGlowStart); 0 is stock ARP, which gives the pack no light. arp_h9_itemglow_time is the seconds it glows for after the drop (0 to 600; 0 gives none), arp_h9_itemglow_radius how far
++	// the light reaches (units, 40 to 600) and arp_h9_itemglow_color its colour (red green blue, 0 to 255 each)
++	p_H9ItemGlow = register_cvar("arp_h9_itemglow","1")
++	p_H9ItemGlowTime = register_cvar("arp_h9_itemglow_time","12")
++	p_H9ItemGlowRadius = register_cvar("arp_h9_itemglow_radius","200")
++	p_H9ItemGlowColor = register_cvar("arp_h9_itemglow_color","180 60 255")
+ 	// H9: what Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that fades, to the games that draw H9 panels:
+ 	// 0 chat as stock ARP, 1 the popup in place of the chat line, 2 both
+ 	p_Toast = register_cvar("arp_h9_toast","1")
+@@ -2747,6 +2765,7 @@
+ 	entity_set_origin(id,Origin)
+ 
+ 	H9_ItemIconMake(Ent,Name)
++	H9_ItemGlowStart(Ent)
+ 
+ 	return Ent
+ }
+@@ -3478,6 +3497,107 @@
+ 		H9_ItemIconRemove(Oldest,0)
+ 		Oldest = H9_ItemIconOldest(Count)
+ 	}
++}
++
++// H9: the settings of the glow: the colour in Rgb (arp_h9_itemglow_color; the purple when it does not read as three numbers or is all 0), the reach of the light in units (40 to 600) and the
++// seconds a pack glows for (0 to 600)
++H9_ItemGlowRead(Rgb[3],&Radius,&Seconds)
++{
++	static Shade[32],Red[8],Green[8],Blue[8]
++	get_pcvar_string(p_H9ItemGlowColor,Shade,31)
++
++	new Parsed = parse(Shade,Red,7,Green,7,Blue,7)
++
++	Rgb[0] = clamp(str_to_num(Red),0,255)
++	Rgb[1] = clamp(str_to_num(Green),0,255)
++	Rgb[2] = clamp(str_to_num(Blue),0,255)
++
++	// fewer than three numbers (the strings are static, so the ones a colour lacks hold what an earlier call left) or a colour of no light at all is the purple
++	if(Parsed < 3 || (!Rgb[0] && !Rgb[1] && !Rgb[2]))
++	{
++		Rgb[0] = 180
++		Rgb[1] = 60
++		Rgb[2] = 255
++	}
++
++	Radius = clamp(get_pcvar_num(p_H9ItemGlowRadius),40,600)
++	Seconds = clamp(get_pcvar_num(p_H9ItemGlowTime),0,600)
++}
++
++// H9: one pulse of the glow over a pack: a point light a little over it, in the open air, that fades out by itself in 1.2 seconds (its radius falls to nothing as its life ends). Left is the
++// seconds the pack has yet to glow: over the last three the light shrinks, so that the glow dies away and does not stop. The message goes to whoever can see the point (MSG_PVS) and to nobody else.
++H9_ItemGlowPulse(Pack,Float:Left,Radius,const Rgb[3])
++{
++	new Float:Pos[3],Origin[3]
++	entity_get_vector(Pack,EV_VEC_origin,Pos)
++
++	Origin[0] = floatround(Pos[0])
++	Origin[1] = floatround(Pos[1])
++	Origin[2] = floatround(Pos[2]) + 12
++
++	if(Left < 3.0)
++		Radius = floatround(float(Radius) * Left / 3.0)
++
++	new Tens = clamp(Radius / 10,2,60)
++
++	message_begin(MSG_PVS,SVC_TEMPENTITY,Origin)
++	write_byte(TE_DLIGHT)
++	write_coord(Origin[0])
++	write_coord(Origin[1])
++	write_coord(Origin[2])
++	write_byte(Tens)	// the radius, in tens of units
++	write_byte(Rgb[0])
++	write_byte(Rgb[1])
++	write_byte(Rgb[2])
++	write_byte(12)	// the life, in tenths of a second
++	write_byte(Tens * 10 / 12)	// the decay, in tens of units a second: the radius is gone when the life is
++	message_end()
++}
++
++// H9: a pack that has just been made glows for arp_h9_itemglow_time seconds, beginning with a pulse now; the game's time it glows until is kept in its fuser1. The beat that sends the pulses after
++// this one starts here if it is not running
++H9_ItemGlowStart(Pack)
++{
++	if(!get_pcvar_num(p_H9ItemGlow))
++		return
++
++	new Rgb[3],Radius,Seconds
++	H9_ItemGlowRead(Rgb,Radius,Seconds)
++
++	if(Seconds < 1)
++		return
++
++	entity_set_float(Pack,EV_FL_fuser1,get_gametime() + float(Seconds))
++	H9_ItemGlowPulse(Pack,float(Seconds),Radius,Rgb)
++
++	if(!task_exists(H9_ITEMGLOW_TASK))
++		set_task(H9_ITEMGLOW_BEAT,"H9_ItemGlowBeat",H9_ITEMGLOW_TASK,"",0,"b")
++}
++
++// H9: every beat each pack that has glow time left is sent a pulse (at most H9_ITEMGLOW_MAX of them), and when none has any left the beat stops, until the next drop starts it again. With
++// arp_h9_itemglow 0 no pulse is sent and the beat stops at its next turn.
++public H9_ItemGlowBeat()
++{
++	new Float:Now = get_gametime(),Float:Until,Lit,Ent
++
++	if(get_pcvar_num(p_H9ItemGlow))
++	{
++		new Rgb[3],Radius,Seconds
++		H9_ItemGlowRead(Rgb,Radius,Seconds)
++
++		while((Ent = find_ent_by_class(Ent,g_ItemClassname)))
++		{
++			Until = entity_get_float(Ent,EV_FL_fuser1)
++			if(Until <= Now)
++				continue
++
++			if(++Lit <= H9_ITEMGLOW_MAX)
++				H9_ItemGlowPulse(Ent,Until - Now,Radius,Rgb)
++		}
++	}
++
++	if(!Lit)
++		remove_task(H9_ITEMGLOW_TASK)
+ }
+ 
+ // H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second; arp_h9_itemhover 0 leaves
+diff --git a/base/addons/amxmodx/configs/arp/arp.cfg b/base/addons/amxmodx/configs/arp/arp.cfg
+--- a/base/addons/amxmodx/configs/arp/arp.cfg
++++ b/base/addons/amxmodx/configs/arp/arp.cfg
+@@ -101,6 +101,15 @@
+ arp_h9_itemicon "1"
+ arp_h9_itemicon_max "64"
+ arp_h9_itemicon_scale "0.6"
++
++// 1: a pack that has just been dropped glows purple for a few seconds: a point light over it that pulses every second and a half, so that it shows in a dark corner and is easy to find and
++// pick up (a message to the players who can see the pack, no entity). 0: no light, as stock ARP. arp_h9_itemglow_time is how many seconds a pack glows after the drop (0 to 600; 0 gives none),
++// arp_h9_itemglow_radius how far the light reaches (40 to 600 units) and arp_h9_itemglow_color its colour as three numbers, red green blue, each 0 to 255 ("180 60 255" is the purple).
++// A change takes effect at once; a pack that is glowing finishes the time it was given.
++arp_h9_itemglow "1"
++arp_h9_itemglow_time "12"
++arp_h9_itemglow_radius "200"
++arp_h9_itemglow_color "180 60 255"
+ 
+ // The inventory (ARP_Inventory, docs\ARP_INVENTORY.txt): a player's items are arranged in cells, and a game that draws H9 panels has them in a window.
+ 

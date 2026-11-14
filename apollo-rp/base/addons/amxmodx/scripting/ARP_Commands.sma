@@ -1,7 +1,10 @@
 #include <amxmodx>
+// H9: before amxmisc.inc, so that show_activity (a stock that calls client_print) shows the credit sign too
+#include <ApolloRP_Credits>
 #include <amxmisc>
 #include <ApolloRP>
 #include <ApolloRP_Chat>
+#include <ApolloRP_VGui>
 
 new g_EmployMenu[] = "ARP_EmployMenu"
 new g_FineMenu[] = "ARP_FineMenu"
@@ -11,8 +14,14 @@ new g_Employer[MAX_PLAYERS + 1]
 new g_JobID[MAX_PLAYERS + 1]
 new g_Amount[MAX_PLAYERS + 1]
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {	
+	arpvgui_init("arpcmd")
 	//register_clcmd("say","CmdSay")
 	//ARP_RegisterEvent("Player_Say","CmdSay")
 	ARP_AddChat(_,"CmdSay")
@@ -56,6 +65,16 @@ public ARP_Init()
 
 public ARP_Error(const Reason[])
 	pause("d")
+
+// H9: whether job JobId is named Name exactly. ARP_FindJobId lists the shortest names first, so the job called Name leads its own
+// search: "Cadet" is the job Cadet, although the name of M-Cadet holds it too
+H9_JobNamed(JobId,const Name[])
+{
+	new JobName[33]
+	ARP_GetJobName(JobId,JobName,32)
+	
+	return equali(JobName,Name)
+}
 
 public CmdFire(id,level,cid)
 {
@@ -981,7 +1000,7 @@ public CmdSay(id,Mode,Args[])
 		new Tmp[256]
 		format(Tmp,255,"ARP Fine Menu^n^nAmount: $%d^n^n1. Pay^n2. Refuse",Amount)
 		
-		show_menu(Index,(1<<0|1<<1),Tmp,-1,g_FineMenu)
+		arpvgui_show_menu(Index,(1<<0|1<<1),Tmp,-1,g_FineMenu,"arpcmd.fine")
 		
 		client_print(id,print_chat,"[ARP] You have sent a fine order.")
 		
@@ -1288,7 +1307,7 @@ public CmdSetJob(id,level,cid)
 	if(!JobID)
 	{
 		new Num = ARP_FindJobId(Arg,Results,2)
-		if(Num > 1)
+		if(Num > 1 && !H9_JobNamed(Results[0],Arg))
 		{
 			client_print(id,print_console,"Found more than one result for your input (%s).",Arg)
 			return PLUGIN_HANDLED
@@ -1340,7 +1359,7 @@ public CmdEmploy(id,level,cid)
 	
 	new Results[2],Result
 	
-	if((Result = ARP_FindJobId(Arg,Results,2)) > 1)
+	if((Result = ARP_FindJobId(Arg,Results,2)) > 1 && !H9_JobNamed(Results[0],Arg))
 	{
 		client_print(id,print_console,"There is more than one job matching your input.")
 		return PLUGIN_HANDLED
@@ -1388,7 +1407,7 @@ public CmdEmploy(id,level,cid)
 	g_JobID[Target] = JobID
 	g_Employer[Target] = id
 	
-	show_menu(Target,MENU_KEY_1|MENU_KEY_2,Menu,-1,g_EmployMenu)
+	arpvgui_show_menu(Target,MENU_KEY_1|MENU_KEY_2,Menu,-1,g_EmployMenu,"arpcmd.employ")
 	
 	return PLUGIN_HANDLED
 }

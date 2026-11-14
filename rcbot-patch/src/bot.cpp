@@ -66,6 +66,8 @@
 #include "bot_visibles.h"
 //#include "megahal.h"
 #include "actionutility.h"
+#include "bot_objective.h"
+#include "bot_briefcase.h"
 
 #include "usercmd.h"
 
@@ -88,6 +90,9 @@ extern CBotGlobals gBotGlobals; // defined in DLL.CPP
 
 // all waypoints
 extern WAYPOINTS waypoints;
+
+// how many there are
+extern int num_waypoints;
 
 // Roaming citizens (CHANGE 8): the settings tsrp_roambots.sma gives them, read once a second.
 // ROAMING CITIZENS, over CBot::IsRoamer, says what each one does.
@@ -175,6 +180,935 @@ namespace
 		}
 
 		return g_Powerups.bAllowed;
+	}
+
+	// Mech weapons (CHANGE 13): the settings of a Mech bot's play with its M60 and its rocket launcher, read once a second. MECH
+	// WEAPONS, over CBot::MechPlay, says what a bot does with them. The tsm_ ones belong to ts_matchmode and the server, the h9_ ones to
+	// the game library (they say what a rocket and a pull of the trigger do). A cvar that does not exist reads as its default, so
+	// without the plugin the bots play as the defaults say.
+	//   tsm_bot_mech_rocket   0: a Mech bot plays its two weapons as any other bot does (default 1)
+	//   tsm_bot_mech_dwell    seconds a Mech bot keeps the weapon it chose before it chooses the other (default 3)
+	//   tsm_bot_mech_near     the nearest target it pulls the launcher at, in units (default 400)
+	//   h9_mechrocket         0: the game library has no launcher (default 1)
+	//   h9_mechrocket_speed, _radius, _rate, _reload, _clip, _salvo, _stagger, _selfdamage
+	//   tsm_enabled, tsm_friendlyfire, mp_friendlyfire   whether a blast may hurt a teammate
+	constexpr float MECH_LEAD_CAP = 1.5f;       // the longest lead on a moving target, in seconds of its walk
+	constexpr float MECH_FOOT_RISE = 6.0f;      // the aim point above the floor under a standing target
+	constexpr float MECH_FLOOR_SLACK = 48.0f;   // a line that ends this near the aim point has met the floor under it, not a wall
+	constexpr float MECH_WALL_NEAR = 96.0f;     // a rocket that would burst nearer than this to the bot is not fired
+	constexpr float MECH_WATCH_FROM = 0.03f;    // the rocket of a pull is looked for from this long after the pull
+	constexpr float MECH_WATCH_UNTIL = 0.6f;    // and the pull is counted as launching nothing after this
+	constexpr float MECH_GROUP_EVERY = 0.5f;    // the enemies near the target are counted this often
+	constexpr float MECH_LOOK_EVERY = 0.1f;     // the situation is worked out this often
+	constexpr float MECH_AIM_OFFSET = 0.35f;    // the share of the usual aim error that a rocket gets (its blast covers the rest)
+	constexpr int MECH_ROCKET_SCAN = 256;       // rockets looked at when the one of a pull is looked for (a salvo is four of them)
+	constexpr int MECH_LOG_FIRST = 40;          // lines logged without the debug level, a map
+
+	struct MechSettings
+	{
+		bool bOn = true;
+		bool bLauncher = true;
+		mech::Tuning tune;
+		float fSpeed = 900.0f;
+		float fRadius = 200.0f;
+		float fRate = 1.5f;
+		float fReload = 2.5f;
+		int iClip = 1;
+		int iSalvo = 1;
+		float fStagger = 0.12f;
+		bool bSelfDamage = false;
+		bool bFriendlyFire = false;
+		float fNextRead = 0.0f;
+	};
+
+	MechSettings g_Mech;
+
+	float MechCvar(const char* szName, const float fDefault)
+	{
+		const cvar_t* pCvar = CVAR_GET_POINTER(szName);
+
+		return pCvar != nullptr ? pCvar->value : fDefault;
+	}
+
+	const MechSettings& MechNow()
+	{
+		// the clock starts again at each map, so a read due far ahead of it is due now
+		if (g_Mech.fNextRead <= gpGlobals->time || g_Mech.fNextRead > gpGlobals->time + 2.0f)
+		{
+			const mech::Tuning stock;
+
+			g_Mech.fNextRead = gpGlobals->time + 1.0f;
+
+			g_Mech.bOn = MechCvar("tsm_bot_mech_rocket", 1.0f) > 0.0f;
+			g_Mech.bLauncher = MechCvar("h9_mechrocket", 1.0f) != 0.0f;
+
+			const float fDwell = MechCvar("tsm_bot_mech_dwell", 0.0f);
+			const float fNear = MechCvar("tsm_bot_mech_near", 0.0f);
+
+			g_Mech.tune.dwell = fDwell > 0.0f ? std::min(std::max(fDwell, 0.5f), 30.0f) : stock.dwell;
+			g_Mech.tune.minFire = fNear > 0.0f ? std::min(std::max(fNear, 128.0f), 1500.0f) : stock.minFire;
+
+			g_Mech.fSpeed = std::min(std::max(MechCvar("h9_mechrocket_speed", 900.0f), 100.0f), 4000.0f);
+			g_Mech.fRadius = std::min(std::max(MechCvar("h9_mechrocket_radius", 200.0f), 32.0f), 1000.0f);
+			g_Mech.fRate = std::min(std::max(MechCvar("h9_mechrocket_rate", 1.5f), 0.1f), 30.0f);
+			g_Mech.fReload = std::min(std::max(MechCvar("h9_mechrocket_reload", 2.5f), 0.5f), 30.0f);
+			g_Mech.iClip = static_cast<int>(std::min(std::max(MechCvar("h9_mechrocket_clip", 1.0f), 1.0f), 30.0f));
+			g_Mech.iSalvo = static_cast<int>(std::min(std::max(MechCvar("h9_mechrocket_salvo", 1.0f), 1.0f), 8.0f));
+			g_Mech.fStagger = std::min(std::max(MechCvar("h9_mechrocket_stagger", 0.12f), 0.03f), 1.0f);
+			g_Mech.bSelfDamage = MechCvar("h9_mechrocket_selfdamage", 0.0f) != 0.0f;
+
+			// a dry launcher that stays in hand is loaded again a salvo, an idle wait and a reload after the pull: the bot waits for it
+			// that long, and counts it as loaded a little after
+			g_Mech.tune.reloadAssume = mech::salvoTime(g_Mech.iSalvo, g_Mech.fStagger) + mech::reloadSeconds(g_Mech.fReload) + 1.5f;
+			g_Mech.tune.reloadWait = g_Mech.tune.reloadAssume + 1.0f;
+
+			// the plugin undoes a teammate's damage while its match mode is on and tsm_friendlyfire is 0; the game's own switch
+			// stands where no match mode runs
+			g_Mech.bFriendlyFire = MechCvar("tsm_enabled", 0.0f) > 0.0f ? MechCvar("tsm_friendlyfire", 0.0f) > 0.0f :
+				MechCvar("mp_friendlyfire", 0.0f) > 0.0f;
+		}
+
+		return g_Mech;
+	}
+
+	// Objective play (CHANGE 11): whether the bots play the objectives of the map's mode, what they know of them, and the
+	// post objplan::plan (bot_objective.h) gives each of them, all worked out together once a second. BOT OBJECTIVES, over
+	// CBot::ObjPlay, says what a bot does with its post.
+	static_assert(MAX_PLAYERS <= objplan::MAX_BOTS, "the planner has a place for every player slot");
+
+	constexpr int OBJ_MAX_ROWS = 48;                  // objectives read from the map at once
+	constexpr int OBJ_RING_WPTS = 12;                 // waypoints inside a ring that a bot may stand on
+	constexpr int OBJ_MAX_BLOCKED = 4;                // objectives one bot has given up at a time
+	constexpr int OBJ_FREE_PCT = 25;                  // percent of a side's bots left to fight and roam as before
+	constexpr int OBJ_PER_OBJ = 4;                    // most bots on one point or zone
+	constexpr int OBJ_MAX_NEW = 4;                    // bots of a side that take a new post in one plan
+	constexpr int OBJ_MAX_NEW_AT_START = 99;          // and in the first plan of a round, when every bot needs one
+	constexpr int OBJ_STARTS_PER_READ = 16;           // bots that start a post in one second: the paths of a wave are spread
+	constexpr float OBJ_REFRESH_EVERY = 1.0f;         // the settings, the objectives and the plan are worked out this often
+	constexpr float OBJ_WPT_HEIGHT = 36.0f;           // a waypoint, and a standing player's origin, lies this far above the floor
+	constexpr float OBJ_WPT_Z_RANGE = 72.0f;          // a ring's waypoints lie within this of its floor and that height
+	constexpr float OBJ_RING_WPT_SHARE = 0.6f;        // a ring's waypoints lie within this share of its radius, as far as a bot counts as at it
+	constexpr float OBJ_GUARD_RADIUS = 192.0f;        // how near its flag a guard stands
+	constexpr float OBJ_NEAR_WPT_RANGE = 400.0f;      // the nearest waypoint to a mark with none inside, at most this far
+	constexpr float OBJ_HERE_SHARE = 0.6f;            // a bot is at a ring when this share of its radius from the middle
+	constexpr float OBJ_STRAIGHT_FLAT = 160.0f;       // within this across the floor a bot walks straight to its mark
+	constexpr float OBJ_STRAIGHT_HEIGHT = 64.0f;      // and within this of its height
+	constexpr float OBJ_AT_GOAL = 96.0f;              // a bot is at its goal waypoint within this
+	constexpr float OBJ_ESCORT_STAY = 250.0f;         // an escort stands this near its carrier
+	constexpr float OBJ_ESCORT_FOLLOW = 400.0f;       // and follows when he is farther
+	constexpr float OBJ_HUNT_CLOSE = 64.0f;           // a hunter stops this near the carrier it hunts
+	constexpr float OBJ_RETRACK_MOVE = 300.0f;        // a carrier that moved this far since a path was asked for needs a new one
+	constexpr float OBJ_ASK_AGAIN = 2.0f;             // seconds before a bot asks for another path
+	constexpr int OBJ_ASKS_PER_MARK = 3;              // paths a bot asks for toward one mark before it just walks
+	constexpr float OBJ_PROGRESS_DISTANCE = 64.0f;    // walking straight, this far from where it last got to is progress
+	constexpr float OBJ_PROGRESS_TIME = 5.0f;         // seconds without progress before it gives its post up
+	constexpr float OBJ_BLOCK_FOR = 25.0f;            // a post given up is not taken again for this long
+	constexpr float OBJ_HURT_GRACE = 1.5f;            // a carrier hurt this lately fights back
+	constexpr float OBJ_SHUFFLE_LEAST = 8.0f;         // a bot holding a ring walks to another of its waypoints this often
+	constexpr float OBJ_SHUFFLE_MOST = 14.0f;
+
+	struct ObjWorld
+	{
+		bool bOn = false;                  // the switch is on, a mode runs and its round is live
+		bool bStock = false;               // the mode is TS's own capture game, read from the game's own entities (CHANGE 12)
+		objplan::Mode mode = objplan::MODE_NONE;
+		float fNextRead = 0.0f;
+		float fPadRadius = 72.0f;          // tsm_cf_pad_radius
+		unsigned int uRound = 0;           // counts the rounds that went live, to change which bots are left free
+		bool bWasOn = false;
+		int iStarts = 0;                   // bots that started a post since the last read
+		int nRows = 0;
+		objplan::Obj row[OBJ_MAX_ROWS];
+		int iEdict[OBJ_MAX_ROWS];          // the edict index a row was read from
+		int nWpt[OBJ_MAX_ROWS];            // waypoints inside a row's ring or around its flag
+		int iWpt[OBJ_MAX_ROWS][OBJ_RING_WPTS];
+		int iNearWpt[OBJ_MAX_ROWS];        // the waypoint nearest the row's mark, -1 for none
+		objplan::Assign assign[MAX_PLAYERS + 1];   // by edict index
+	};
+
+	ObjWorld g_Obj;
+
+	// What a bot is doing with its post, by edict index.
+	struct ObjBot
+	{
+		bool bRunning = false;             // it has a BOT_TASK_TS_OBJECTIVE queued
+		int iObj = 0;                      // its post: objective id, role and, for a carrier, the zone it goes for
+		int iRole = 0;
+		int iTarget = 0;
+		int iGoalWpt = -1;                 // the waypoint it walks to, -1 for none
+		int nAsks = 0;                     // paths asked for toward this mark
+		float fNextAsk = 0.0f;
+		float fNextShuffle = 0.0f;
+		Vector vPathFor = Vector(0, 0, 0); // where a carrier it tracks was when a path was asked for
+		bool bHere = false;                // at its mark
+		bool bWalking = false;             // walking straight to it
+		Vector vProgressFrom = Vector(0, 0, 0);
+		float fProgressTime = 0.0f;
+		float fHealth = 0.0f;              // its health last think
+		float fHurtTime = 0.0f;            // when it last lost some
+		float fNextAdopt = 0.0f;
+		float fNextCheck = 0.0f;
+		int iNextBlock = 0;
+		int iBlockedObj[OBJ_MAX_BLOCKED] = { 0, 0, 0, 0 };
+		float fBlockedUntil[OBJ_MAX_BLOCKED] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	};
+
+	ObjBot g_ObjBot[MAX_PLAYERS + 1];
+
+	// A bot starts again: nothing of the post it had, or the posts it gave up, carries over.
+	void ObjForgetBot(const int iIndex)
+	{
+		if (iIndex < 1 || iIndex > MAX_PLAYERS)
+			return;
+
+		g_ObjBot[iIndex] = ObjBot();
+	}
+
+	// Gives an objective up for a while, and has the posts planned again.
+	void ObjBlock(ObjBot& st, const int iObj, const float fUntil)
+	{
+		for (int k = 0; k < OBJ_MAX_BLOCKED; k++)
+		{
+			if (st.iBlockedObj[k] == iObj)
+			{
+				st.fBlockedUntil[k] = fUntil;
+				g_Obj.fNextRead = 0.0f;
+				return;
+			}
+		}
+
+		st.iBlockedObj[st.iNextBlock] = iObj;
+		st.fBlockedUntil[st.iNextBlock] = fUntil;
+		st.iNextBlock = (st.iNextBlock + 1) % OBJ_MAX_BLOCKED;
+		g_Obj.fNextRead = 0.0f;
+	}
+
+	bool ObjIsBlocked(const ObjBot& st, const int iObj, const float fNow)
+	{
+		for (int k = 0; k < OBJ_MAX_BLOCKED; k++)
+		{
+			if (st.iBlockedObj[k] == iObj && st.fBlockedUntil[k] > fNow)
+				return true;
+		}
+
+		return false;
+	}
+
+	// A waypoint a bot may be sent to: no ladder, lift, jump, crouch, teleport, stunt or other special one (a roamer's goal, RoamGoal,
+	// and the stunt and pushable ones, which do something when a bot touches them).
+	bool ObjWaypointUsable(const int iWpt)
+	{
+		const int iNotGoal = W_FL_DELETED | W_FL_LADDER | W_FL_LIFT | W_FL_JUMP | W_FL_CROUCH | W_FL_TELEPORT |
+			W_FL_UNREACHABLE | W_FL_AIMING | W_FL_WAIT_FOR_LIFT | W_FL_FLY | W_FL_HUMAN_TOWER | W_FL_OPENS_LATER |
+			W_FL_STUNT | W_FL_PUSHABLE;
+
+		return (waypoints[iWpt].flags & iNotGoal) == 0;
+	}
+
+	// The waypoint nearest a place: one in line of sight if there is one, else any, and none farther than OBJ_NEAR_WPT_RANGE.
+	int ObjNearestWaypoint(const Vector& vPlace)
+	{
+		int iWpt = WaypointLocations.NearestWaypoint(vPlace, OBJ_NEAR_WPT_RANGE, -1, true, false, true);
+
+		if (iWpt == -1)
+			iWpt = WaypointLocations.NearestWaypoint(vPlace, OBJ_NEAR_WPT_RANGE, -1, false, false, true);
+
+		return iWpt;
+	}
+
+	// The waypoints a bot may stand on in the ring around a row's mark: up to OBJ_RING_WPTS of those within fHold across the
+	// floor and OBJ_WPT_Z_RANGE of the height of a standing player, the nearest the middle first.
+	void ObjFillRingWaypoints(const int iRow, const float fHold)
+	{
+		const objplan::Obj& o = g_Obj.row[iRow];
+		float fBest[OBJ_RING_WPTS] = {};
+		int nBest = 0;
+
+		for (int i = 0; i < num_waypoints; i++)
+		{
+			if (!ObjWaypointUsable(i))
+				continue;
+
+			const Vector& vWpt = waypoints[i].origin;
+			const float fFlat = objplan::flatDist(vWpt.x, vWpt.y, o.x, o.y);
+
+			if (fFlat > fHold || std::fabs(vWpt.z - (o.z + OBJ_WPT_HEIGHT)) > OBJ_WPT_Z_RANGE)
+				continue;
+
+			// kept in order of nearness
+			int iAt = nBest;
+
+			while (iAt > 0 && fBest[iAt - 1] > fFlat)
+				iAt--;
+
+			if (iAt >= OBJ_RING_WPTS)
+				continue;
+
+			const int iLast = std::min(nBest, OBJ_RING_WPTS - 1);
+
+			for (int k = iLast; k > iAt; k--)
+			{
+				fBest[k] = fBest[k - 1];
+				g_Obj.iWpt[iRow][k] = g_Obj.iWpt[iRow][k - 1];
+			}
+
+			fBest[iAt] = fFlat;
+			g_Obj.iWpt[iRow][iAt] = i;
+			nBest = std::min(nBest + 1, OBJ_RING_WPTS);
+		}
+
+		g_Obj.nWpt[iRow] = nBest;
+	}
+
+	// The entities of one classname, and the row each becomes. A ring is a point of Assault or a zone of the Uplink.
+	void ObjAddRing(edict_t* pEnt, const objplan::Mode mode)
+	{
+		if (g_Obj.nRows >= OBJ_MAX_ROWS)
+			return;
+
+		const entvars_t& v = pEnt->v;
+		const int iNumber = v.iuser1;
+
+		// iuser2 3: not in play
+		if (iNumber < 1 || iNumber > 255 || v.iuser2 == 3)
+			return;
+
+		const int iRow = g_Obj.nRows++;
+		objplan::Obj& o = g_Obj.row[iRow];
+
+		o = objplan::Obj();
+		o.kind = (mode == objplan::MODE_ASSAULT) ? objplan::K_POINT : objplan::K_ZONE;
+		o.number = iNumber;
+		o.id = static_cast<int>(o.kind) * 256 + iNumber;
+		o.owner = v.team;
+		o.x = v.origin.x;
+		o.y = v.origin.y;
+		o.z = v.origin.z - 2.0f;     // the plugins lay a ring just off the floor
+		o.radius = v.fuser1;
+		o.reach = v.fuser3 > 0.0f ? v.fuser3 : 128.0f;
+		o.state = v.iuser2;
+		o.taker = v.iuser3;
+		o.progress = v.fuser2;
+		o.nIn[1] = static_cast<int>(v.vuser1.x + 0.5f);
+		o.nIn[2] = static_cast<int>(v.vuser1.y + 0.5f);
+
+		g_Obj.iEdict[iRow] = ENTINDEX(pEnt);
+		ObjFillRingWaypoints(iRow, o.radius * OBJ_RING_WPT_SHARE);
+		g_Obj.iNearWpt[iRow] = -1;
+
+		// none inside: the nearest to its middle, for the bots to walk the last of the way straight
+		if (g_Obj.nWpt[iRow] == 0)
+		{
+			g_Obj.iNearWpt[iRow] = ObjNearestWaypoint(Vector(o.x, o.y, o.z + OBJ_WPT_HEIGHT));
+
+			if (g_Obj.iNearWpt[iRow] != -1 && ObjWaypointUsable(g_Obj.iNearWpt[iRow]))
+			{
+				g_Obj.iWpt[iRow][0] = g_Obj.iNearWpt[iRow];
+				g_Obj.nWpt[iRow] = 1;
+			}
+		}
+		else
+			g_Obj.iNearWpt[iRow] = g_Obj.iWpt[iRow][0];
+
+		o.pathable = g_Obj.nWpt[iRow] > 0;
+	}
+
+	// The uplink: where it is, who carries it, and the post it flies home to when dropped.
+	void ObjAddUplink(edict_t* pEnt)
+	{
+		if (g_Obj.nRows >= OBJ_MAX_ROWS)
+			return;
+
+		const entvars_t& v = pEnt->v;
+		const int iRow = g_Obj.nRows++;
+		objplan::Obj& o = g_Obj.row[iRow];
+
+		o = objplan::Obj();
+		o.kind = objplan::K_UPLINK;
+		o.number = 1;
+		o.id = static_cast<int>(o.kind) * 256 + 1;
+		o.x = v.origin.x;
+		o.y = v.origin.y;
+		o.z = v.origin.z;
+		o.left = v.fuser2;
+
+		// the carrier is whoever it follows (aiment): that is the plugin's own truth, and iuser2 only echoes it
+		if (v.aiment != nullptr && !FNullEnt(v.aiment) && (v.aiment->v.flags & FL_CLIENT))
+		{
+			o.state = objplan::ST_CARRIED;
+			o.carrierSlot = ENTINDEX(v.aiment);
+			o.carrierSide = v.aiment->v.team;
+		}
+		else
+			o.state = (v.iuser2 == 3) ? objplan::ST_DROPPED : objplan::ST_HOME;
+
+		g_Obj.iEdict[iRow] = ENTINDEX(pEnt);
+		g_Obj.nWpt[iRow] = 0;
+		g_Obj.iNearWpt[iRow] = ObjNearestWaypoint(Vector(o.x, o.y, o.z + OBJ_WPT_HEIGHT));
+		o.pathable = g_Obj.iNearWpt[iRow] != -1;
+	}
+
+	// A flag: whose it is, where it is, who carries it, its pad. The waypoints around it are where a guard stands.
+	void ObjAddFlag(edict_t* pEnt)
+	{
+		if (g_Obj.nRows >= OBJ_MAX_ROWS)
+			return;
+
+		const entvars_t& v = pEnt->v;
+		const int iSide = v.team;
+
+		if (iSide != 1 && iSide != 2)
+			return;
+
+		const int iRow = g_Obj.nRows++;
+		objplan::Obj& o = g_Obj.row[iRow];
+
+		o = objplan::Obj();
+		o.kind = objplan::K_FLAG;
+		o.number = iSide;
+		o.id = static_cast<int>(o.kind) * 256 + iSide;
+		o.owner = iSide;
+		o.x = v.origin.x;
+		o.y = v.origin.y;
+		o.z = v.origin.z;
+		o.radius = OBJ_GUARD_RADIUS;
+		o.reach = OBJ_WPT_Z_RANGE;
+		o.left = v.fuser2;
+		o.padX = v.vuser1.x;
+		o.padY = v.vuser1.y;
+		o.padZ = v.vuser1.z;
+		o.scoreReady = v.iuser2 == 1;
+
+		if (v.aiment != nullptr && !FNullEnt(v.aiment) && (v.aiment->v.flags & FL_CLIENT))
+		{
+			o.state = objplan::ST_CARRIED;
+			o.carrierSlot = ENTINDEX(v.aiment);
+			o.carrierSide = v.aiment->v.team;
+		}
+		else
+			o.state = (v.iuser1 == 2) ? objplan::ST_DROPPED : objplan::ST_HOME;
+
+		g_Obj.iEdict[iRow] = ENTINDEX(pEnt);
+		ObjFillRingWaypoints(iRow, OBJ_GUARD_RADIUS * OBJ_RING_WPT_SHARE);
+		g_Obj.iNearWpt[iRow] = ObjNearestWaypoint(Vector(o.x, o.y, o.z + OBJ_WPT_HEIGHT));
+		o.pathable = g_Obj.iNearWpt[iRow] != -1;
+	}
+
+	// The row of an objective id, -1 when the map has no such objective now.
+	int ObjRowOf(const int iObj)
+	{
+		for (int i = 0; i < g_Obj.nRows; i++)
+		{
+			if (g_Obj.row[i].id == iObj)
+				return i;
+		}
+
+		return -1;
+	}
+
+	// The entity an item's row was read from, if it is still that entity: the edict a row came from may be freed, and its slot
+	// taken by something else, when the round ends.
+	edict_t* ObjItemEdict(const ObjWorld& world, const int iRow)
+	{
+		edict_t* pEnt = INDEXENT(world.iEdict[iRow]);
+
+		if (pEnt == nullptr || pEnt->free)
+			return nullptr;
+
+		const char* szWant = world.row[iRow].kind == objplan::K_UPLINK ? "tsm_uplink" : (world.bStock ? "ts_flag" : "tsm_flag");
+
+		return std::strcmp(STRING(pEnt->v.classname), szWant) == 0 ? pEnt : nullptr;
+	}
+
+	// A player by edict index, when he is on the server and alive.
+	edict_t* ObjPlayerEdict(const int iSlot)
+	{
+		if (iSlot < 1 || iSlot > gpGlobals->maxClients)
+			return nullptr;
+
+		edict_t* pEnt = INDEXENT(iSlot);
+
+		if (pEnt == nullptr || pEnt->free || !(pEnt->v.flags & FL_CLIENT) || !EntityIsAlive(pEnt))
+			return nullptr;
+
+		return pEnt;
+	}
+
+	// Asks for a path to a waypoint, as a task in front of the post's own: when the bot gets there, or is done with a fight, the
+	// post's task is the front one again and sees where the bot is.
+	void ObjAskPath(CBot& bot, ObjBot& st, const int iWpt, const float fNow)
+	{
+		const CBotTask* pPost = bot.m_Tasks.CurrentTask();
+
+		if (iWpt < 0 || pPost == nullptr)
+			return;
+
+		const int iSchedule = pPost->GetScheduleId();
+
+		st.nAsks++;
+		st.fNextAsk = fNow + OBJ_ASK_AGAIN;
+		st.bWalking = false;
+
+		bot.AddPriorityTask(CBotTask(BOT_TASK_FIND_PATH, iSchedule, nullptr, iWpt, -1));
+	}
+
+	// A player's side: what the plugin stamps in pev->team, or in TS's own capture game, where nothing does, the team number the
+	// ScoreInfo message gave him (CHANGE 12). 0 when he has none.
+	int ObjSideOf(edict_t* pEnt)
+	{
+		if (pEnt == nullptr)
+			return 0;
+
+		if (g_Obj.bStock)
+			return brief::g_Brief.sideOf(ENTINDEX(pEnt));
+
+		return pEnt->v.team;
+	}
+
+	// Every bot's post, from the objectives just read and what the bots are doing.
+	void ObjPlanAll()
+	{
+		static objplan::Bot bots[objplan::MAX_BOTS];
+		static objplan::Blocked blocked[objplan::MAX_BOTS * OBJ_MAX_BLOCKED];
+		static objplan::Assign out[objplan::MAX_BOTS];
+		const float fNow = gpGlobals->time;
+		int nBots = 0;
+		int nBlocked = 0;
+
+		for (int i = 0; i < MAX_PLAYERS && nBots < objplan::MAX_BOTS; i++)
+		{
+			CBot& bot = gBotGlobals.m_Bots[i];
+
+			if (!bot.IsUsed() || bot.m_iRespawnState != RESPAWN_IDLE || bot.pev == nullptr || !bot.IsAlive())
+				continue;
+
+			const int iSide = ObjSideOf(bot.m_pEdict);
+
+			if (iSide != 1 && iSide != 2)
+				continue;
+
+			const int iSlot = i + 1;
+			const ObjBot& st = g_ObjBot[iSlot];
+			objplan::Bot& b = bots[nBots++];
+
+			b = objplan::Bot();
+			b.slot = iSlot;
+			b.side = iSide;
+			b.x = bot.pev->origin.x;
+			b.y = bot.pev->origin.y;
+			b.z = bot.pev->origin.z;
+			b.planOk = !bot.IsRoamer() && bot.getSquad() == nullptr && !(bot.pev->flags & FL_FROZEN);
+			b.busy = bot.m_pEnemy != nullptr || bot.m_Tasks.HasTask(BOT_TASK_NORMAL_ATTACK);
+			b.canTake = !g_Obj.bStock || brief::canTakeFlag(bot.pev->maxspeed);
+
+			if (st.bRunning)
+			{
+				b.curObj = st.iObj;
+				b.curRole = static_cast<objplan::Role>(st.iRole);
+				b.curTarget = st.iTarget;
+			}
+
+			for (int r = 0; r < g_Obj.nRows; r++)
+			{
+				const objplan::Obj& o = g_Obj.row[r];
+
+				if (objplan::isCarriable(o) && o.state == objplan::ST_CARRIED && o.carrierSlot == iSlot)
+					b.carryingObj = o.id;
+			}
+
+			for (int k = 0; k < OBJ_MAX_BLOCKED; k++)
+			{
+				if (st.iBlockedObj[k] != 0 && st.fBlockedUntil[k] > fNow)
+				{
+					blocked[nBlocked].slot = iSlot;
+					blocked[nBlocked].obj = st.iBlockedObj[k];
+					nBlocked++;
+				}
+			}
+		}
+
+		objplan::Params p;
+
+		p.freePct = OBJ_FREE_PCT;
+		p.perObj = OBJ_PER_OBJ;
+		p.maxNew = g_Obj.bWasOn ? OBJ_MAX_NEW : OBJ_MAX_NEW_AT_START;
+		p.seed = g_Obj.uRound;
+		p.blocked = blocked;
+		p.nBlocked = nBlocked;
+
+		objplan::plan(g_Obj.mode, g_Obj.row, g_Obj.nRows, bots, nBots, p, out);
+
+		for (int i = 0; i < nBots; i++)
+			g_Obj.assign[bots[i].slot] = out[i];
+
+		// TS's own capture game: when half of a side carries too much to take a flag, the log says so, once a map
+		if (g_Obj.bStock)
+		{
+			int nSide[3] = { 0, 0, 0 };
+			int nHeavy[3] = { 0, 0, 0 };
+
+			for (int i = 0; i < nBots; i++)
+			{
+				nSide[bots[i].side]++;
+
+				if (!bots[i].canTake)
+					nHeavy[bots[i].side]++;
+			}
+
+			for (int iSide = 1; iSide <= 2; iSide++)
+			{
+				if (!brief::g_Brief.heavyLogged[iSide] && nSide[iSide] >= 2 && nHeavy[iSide] * 2 >= nSide[iSide])
+				{
+					brief::g_Brief.heavyLogged[iSide] = true;
+					UTIL_LogPrintf("[RCBOT BRIEF] side %d: %d of %d bots carry too much to take a flag (TS asks for 20 free inventory slots) and are not sent for one\n",
+						iSide, nHeavy[iSide], nSide[iSide]);
+				}
+			}
+		}
+	}
+
+	// Objective play is off: said in the log once, when it was on.
+	void ObjSwitchedOff()
+	{
+		if (g_Obj.bWasOn)
+			UTIL_LogPrintf("[RCBOT OBJ] objective play is off\n");
+
+		g_Obj.bWasOn = false;
+	}
+
+	// TS's own capture game, the briefcase (CHANGE 12): a flag of the stock game as a row of the plan, the rows of H9's flags. The
+	// bases are the two ts_briefcase entities (bot_briefcase.h); a flag lying loose is a ts_flag, its team told by its glow; one
+	// carried is where the TSFlag messages say, and no entity.
+	void ObjAddBriefFlag(const int iTeam, edict_t* pLoose, const float fNow)
+	{
+		const brief::Tracker& t = brief::g_Brief;
+		const brief::FlagRec& rec = t.flag[iTeam];
+		brief::FlagSeen seen;
+
+		seen.present = pLoose != nullptr;
+		seen.atBase = seen.present && brief::atBase(pLoose->v.origin.x, pLoose->v.origin.y, t.baseX[iTeam], t.baseY[iTeam],
+			t.baseHalfX[iTeam], t.baseHalfY[iTeam]);
+		seen.carrierOk = rec.state == objplan::ST_CARRIED && ObjPlayerEdict(rec.carrier) != nullptr;
+
+		const brief::FlagNow now = brief::flagNow(rec, seen, fNow, iTeam, t);
+
+		if (!now.valid || g_Obj.nRows >= OBJ_MAX_ROWS)
+			return;
+
+		const int iRow = g_Obj.nRows++;
+		objplan::Obj& o = g_Obj.row[iRow];
+
+		o = objplan::Obj();
+		o.kind = objplan::K_FLAG;
+		o.number = iTeam;
+		o.id = static_cast<int>(o.kind) * 256 + iTeam;
+		o.owner = iTeam;
+		o.radius = OBJ_GUARD_RADIUS;
+		o.reach = OBJ_WPT_Z_RANGE;
+		o.state = now.state;
+		o.left = now.left;
+
+		// its pad is its base, the middle of the brush: the other side's carrier of it scores there by touching the brush
+		o.padX = t.baseX[iTeam];
+		o.padY = t.baseY[iTeam];
+		o.padZ = t.baseZ[iTeam];
+		o.padReach = brief::padReach(t.baseHalfX[iTeam], t.baseHalfY[iTeam]);
+
+		// the carrier of the other side's flag scores while his own flag lies at its base
+		const brief::FlagRec& mine = t.flag[3 - iTeam];
+
+		o.scoreReady = now.state == objplan::ST_CARRIED && (!mine.seen || mine.state == objplan::ST_HOME);
+
+		edict_t* pCarrier = now.state == objplan::ST_CARRIED ? ObjPlayerEdict(now.carrier) : nullptr;
+
+		if (pCarrier != nullptr)
+		{
+			o.x = pCarrier->v.origin.x;
+			o.y = pCarrier->v.origin.y;
+			o.z = pCarrier->v.origin.z;
+			o.carrierSlot = now.carrier;
+			o.carrierSide = 3 - iTeam;
+		}
+		else if (now.onEntity)
+		{
+			o.x = pLoose->v.origin.x;
+			o.y = pLoose->v.origin.y;
+			o.z = pLoose->v.origin.z;
+		}
+		else
+		{
+			o.x = t.baseX[iTeam];
+			o.y = t.baseY[iTeam];
+			o.z = t.baseZ[iTeam];
+		}
+
+		g_Obj.iEdict[iRow] = now.onEntity ? ENTINDEX(pLoose) : 0;
+		ObjFillRingWaypoints(iRow, OBJ_GUARD_RADIUS * OBJ_RING_WPT_SHARE);
+		g_Obj.iNearWpt[iRow] = ObjNearestWaypoint(Vector(o.x, o.y, o.z + OBJ_WPT_HEIGHT));
+
+		// a flag between a capture, or a return, and its base seeding it again has nothing to walk onto
+		o.pathable = now.state == objplan::ST_CARRIED || (now.onEntity && g_Obj.iNearWpt[iRow] != -1);
+	}
+
+	// Finds the two bases of the map once, and says what is not played. The map's own key ownerteam names each base's team.
+	void ObjFindBases(const float fNow)
+	{
+		brief::Tracker& t = brief::g_Brief;
+
+		t.nextScan = fNow + 10.0f;
+
+		edict_t* pBase[3] = { nullptr, nullptr, nullptr };
+		int iOwner[3] = { -1, -1, -1 };
+		int nBases = 0;
+		edict_t* pEnt = nullptr;
+
+		while ((pEnt = UTIL_FindEntityByClassname(pEnt, "ts_briefcase")) != nullptr)
+		{
+			if (nBases < 3)
+			{
+				pBase[nBases] = pEnt;
+				iOwner[nBases] = t.ownerOf(ENTINDEX(pEnt));
+			}
+
+			nBases++;
+		}
+
+		if (nBases == 0)
+			return;
+
+		if (!brief::layoutSupported(iOwner, nBases))
+		{
+			if (!t.layoutLogged)
+			{
+				t.layoutLogged = true;
+				UTIL_LogPrintf("[RCBOT BRIEF] %d briefcase(s), owners %d %d %d: only one base for each of two teams is played\n",
+					nBases, iOwner[0], iOwner[1], iOwner[2]);
+			}
+
+			return;
+		}
+
+		for (int k = 0; k < 2; k++)
+		{
+			const int iTeam = iOwner[k];
+			const entvars_t& v = pBase[k]->v;
+			const Vector vMiddle = (v.absmin + v.absmax) * 0.5f;
+			TraceResult tr;
+
+			// the floor under the middle of the brush, which is where the base's flag falls to
+			UTIL_TraceLine(vMiddle, vMiddle - Vector(0.0f, 0.0f, 2048.0f), ignore_monsters, nullptr, &tr);
+
+			t.baseX[iTeam] = vMiddle.x;
+			t.baseY[iTeam] = vMiddle.y;
+			t.baseZ[iTeam] = tr.fStartSolid ? v.absmin.z : tr.vecEndPos.z;
+			t.baseHalfX[iTeam] = 0.5f * (v.absmax.x - v.absmin.x);
+			t.baseHalfY[iTeam] = 0.5f * (v.absmax.y - v.absmin.y);
+		}
+
+		t.layoutOk = true;
+		UTIL_LogPrintf("[RCBOT BRIEF] capture game: base of team 1 at %.0f %.0f %.0f, of team 2 at %.0f %.0f %.0f\n",
+			t.baseX[1], t.baseY[1], t.baseZ[1], t.baseX[2], t.baseY[2], t.baseZ[2]);
+	}
+
+	// TS's own capture game, a map of two bases (the ctb_ and ctf_ maps), read from what the game exposes of it. Returns whether
+	// it is played here, with the rows and the posts worked out; false leaves the plugins' objectives to ObjRefresh.
+	//   tsm_enabled              above 0: ts_matchmode's match mode runs the map, and its plugins' entities are read instead. A
+	//                            cvar that does not exist is 0
+	//   tsm_bot_stockobjectives  0: the bots fight as before. Default 1, registered by ts_matchmode; a server without the
+	//                            plugin plays it
+	//   tsrp_roambots_active     1: citizens walk, whatever else is on the map
+	bool BriefRefresh()
+	{
+		const cvar_t* pEnabled = CVAR_GET_POINTER("tsm_enabled");
+
+		if (pEnabled != nullptr && pEnabled->value > 0.0f)
+			return false;
+
+		const cvar_t* pSwitch = CVAR_GET_POINTER("tsm_bot_stockobjectives");
+
+		if (pSwitch != nullptr && pSwitch->value <= 0.0f)
+			return false;
+
+		if (CVAR_GET_FLOAT("tsrp_roambots_active") > 0.0f)
+			return false;
+
+		brief::Tracker& t = brief::g_Brief;
+		const float fNow = gpGlobals->time;
+
+		// the clock starts again at each map, so a scan due far ahead of it is due now
+		if (!t.layoutOk && (fNow >= t.nextScan || t.nextScan > fNow + 11.0f))
+			ObjFindBases(fNow);
+
+		if (!t.layoutOk)
+			return false;
+
+		g_Obj.mode = objplan::MODE_CTF;
+		g_Obj.bStock = true;
+
+		// the flags that lie loose, by team: a ts_flag glows in its team's colour
+		edict_t* pLoose[3] = { nullptr, nullptr, nullptr };
+		edict_t* pEnt = nullptr;
+
+		while ((pEnt = UTIL_FindEntityByClassname(pEnt, "ts_flag")) != nullptr)
+		{
+			if (pEnt->v.flags & FL_KILLME)
+				continue;
+
+			const int iTeam = brief::teamOfColor(pEnt->v.rendercolor.x, pEnt->v.rendercolor.y, pEnt->v.rendercolor.z);
+
+			if (iTeam != 0 && pLoose[iTeam] == nullptr)
+				pLoose[iTeam] = pEnt;
+		}
+
+		for (int iTeam = 1; iTeam <= 2; iTeam++)
+			ObjAddBriefFlag(iTeam, pLoose[iTeam], fNow);
+
+		g_Obj.bOn = true;
+
+		// the bots left free are chosen again for each map
+		if (!g_Obj.bWasOn)
+		{
+			g_Obj.uRound++;
+			UTIL_LogPrintf("[RCBOT OBJ] objective play is on: TS's capture game, %d flag(s) read\n", g_Obj.nRows);
+		}
+
+		ObjPlanAll();
+		g_Obj.bWasOn = true;
+
+		return true;
+	}
+
+	// Reads the settings and the objectives and plans the posts. The tsm_ settings belong to ts_matchmode and its mode plugins:
+	//   tsm_enabled          0: no match mode, no objectives
+	//   tsm_bot_objectives   1: the bots play the objectives of the mode. A cvar that does not exist, as with a plugin that
+	//                        does not publish them, is 0
+	//   tsm_pres_mode        the mode the map is claimed for: "assault", "uplink" or "ctf"
+	//   tsm_cf_pad_radius    how near its pad a flag carrier must be to score
+	void ObjRefresh()
+	{
+		g_Obj.bOn = false;
+		g_Obj.bStock = false;
+		g_Obj.mode = objplan::MODE_NONE;
+		g_Obj.nRows = 0;
+		g_Obj.iStarts = 0;
+
+		for (objplan::Assign& a : g_Obj.assign)
+			a = objplan::Assign();
+
+		if (!gBotGlobals.IsMod(MOD_TS))
+			return;
+
+		// TS's own capture game has no plugin to read
+		if (BriefRefresh())
+			return;
+
+		g_Obj.bStock = false;
+		g_Obj.mode = objplan::MODE_NONE;
+		g_Obj.nRows = 0;
+
+		const cvar_t* pEnabled = CVAR_GET_POINTER("tsm_enabled");
+		const cvar_t* pSwitch = CVAR_GET_POINTER("tsm_bot_objectives");
+
+		if (pEnabled == nullptr || pEnabled->value <= 0.0f || pSwitch == nullptr || pSwitch->value <= 0.0f)
+		{
+			ObjSwitchedOff();
+			return;
+		}
+
+		// citizens walk and pause, whatever else is on the map
+		if (CVAR_GET_FLOAT("tsrp_roambots_active") > 0.0f)
+		{
+			ObjSwitchedOff();
+			return;
+		}
+
+		const char* szMode = CVAR_GET_STRING("tsm_pres_mode");
+
+		if (szMode == nullptr)
+			szMode = "";
+
+		if (std::strcmp(szMode, "assault") == 0)
+			g_Obj.mode = objplan::MODE_ASSAULT;
+		else if (std::strcmp(szMode, "uplink") == 0)
+			g_Obj.mode = objplan::MODE_UPLINK;
+		else if (std::strcmp(szMode, "ctf") == 0)
+			g_Obj.mode = objplan::MODE_CTF;
+
+		const float fPad = CVAR_GET_FLOAT("tsm_cf_pad_radius");
+
+		g_Obj.fPadRadius = fPad > 0.0f ? fPad : 72.0f;
+
+		edict_t* pEnt = nullptr;
+
+		if (g_Obj.mode == objplan::MODE_ASSAULT || g_Obj.mode == objplan::MODE_UPLINK)
+		{
+			while ((pEnt = UTIL_FindEntityByClassname(pEnt, "tsm_cap")) != nullptr)
+				ObjAddRing(pEnt, g_Obj.mode);
+		}
+
+		if (g_Obj.mode == objplan::MODE_UPLINK)
+		{
+			pEnt = nullptr;
+
+			while ((pEnt = UTIL_FindEntityByClassname(pEnt, "tsm_uplink")) != nullptr)
+				ObjAddUplink(pEnt);
+		}
+
+		if (g_Obj.mode == objplan::MODE_CTF)
+		{
+			pEnt = nullptr;
+
+			while ((pEnt = UTIL_FindEntityByClassname(pEnt, "tsm_flag")) != nullptr)
+				ObjAddFlag(pEnt);
+		}
+
+		// no ring in play and no thing to carry: the round is not live
+		g_Obj.bOn = g_Obj.nRows > 0;
+
+		if (!g_Obj.bOn)
+		{
+			ObjSwitchedOff();
+			return;
+		}
+
+		// the bots left free are chosen again for each round
+		if (!g_Obj.bWasOn)
+		{
+			g_Obj.uRound++;
+			UTIL_LogPrintf("[RCBOT OBJ] objective play is on: mode %d, %d objective(s)\n", static_cast<int>(g_Obj.mode), g_Obj.nRows);
+		}
+
+		ObjPlanAll();
+		g_Obj.bWasOn = true;
+	}
+
+	// The objectives and posts as of the last second. The clock starts again at each map, so a read due far ahead of it is due now.
+	const ObjWorld& ObjNow()
+	{
+		if (g_Obj.fNextRead <= gpGlobals->time || g_Obj.fNextRead > gpGlobals->time + 2.0f)
+		{
+			g_Obj.fNextRead = gpGlobals->time + OBJ_REFRESH_EVERY;
+			ObjRefresh();
+		}
+
+		return g_Obj;
+	}
+
+	// Whether two players are on different sides of TS's own capture game: 1 yes, 0 no, -1 when the game is not played here or
+	// a side is not known, and the stock rule decides (CHANGE 12). A bot has no team number but the one the scoreboard gave it,
+	// and stock rcbot takes everyone for an enemy where the plugin stamps no pev->team.
+	int BriefEnemies(edict_t* pA, edict_t* pB)
+	{
+		if (!ObjNow().bStock)
+			return -1;
+
+		const int iA = brief::g_Brief.sideOf(ENTINDEX(pA));
+		const int iB = brief::g_Brief.sideOf(ENTINDEX(pB));
+
+		if (iA == 0 || iB == 0)
+			return -1;
+
+		return iA != iB ? 1 : 0;
 	}
 }
 
@@ -1766,6 +2700,13 @@ void CBot::SpawnInit(const bool bInit)
 	m_fRoamHurtTime = 0.0f;
 	m_fRoamNextFists = 0.0f;
 
+	// The Mech's weapons are announced again with the next life's ResetHUD (CHANGE 13).
+	m_Mech.reset();
+
+	// Nothing of the objective post it had in its last life (CHANGE 11).
+	if (!bInit && m_pEdict != nullptr)
+		ObjForgetBot(ENTINDEX(m_pEdict));
+
 	////////////////////////////
 	// NATURAL SELECTION RELATED
 
@@ -3203,6 +4144,10 @@ void CBot::Think()
 	//	BugMessage(NULL,"GOTCHA!!!! (update visibles)");
 	//}
 
+	// A Mech picks between its M60 and its rocket launcher (CHANGE 13)
+	if (m_Mech.isMech())
+		MechThink();
+
 	// if no new buttons pressed before this statement
 	// reset buttons
 	if (m_iLastButtons == pev->button)
@@ -3721,6 +4666,10 @@ void CBot::Think()
 
 	// Remove this condition, will be updated in tasks
 	RemoveCondition(BOT_CONDITION_CANT_SHOOT);
+
+	// Its objective post, before the enemy of the last think is forgotten (CHANGE 11)
+	ObjUpkeep();
+
 	///////////////////////
 	// Reset enemy
 	//
@@ -3798,8 +4747,10 @@ void CBot::Think()
 //   tsrp_roambots_defend_time      how long, in seconds, it goes on without being hurt again
 //                                  before it lets him be (ROAM_DEFEND_TIME without the cvar)
 //   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
-//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
-//                                  number: only on the players of that team (pev->team)
+//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot (with the
+//                                  teams in use, on every bot of another team too); a team number:
+//                                  only on the players of that team (pev->team), and with the teams
+//                                  in use on its bots
 // They are read once a second. A cvar that does not exist reads 0, so a server without the
 // plugin has no roamers and nothing here changes how its bots play.
 //
@@ -3830,7 +4781,8 @@ void CBot::Think()
 //
 // INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
 // every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
-// them with what it carries.
+// them with what it carries. With the teams in use (CHANGE 14) that is every player and every bot
+// that is not on the roamer's own team, and the ones of its own team are never enemies.
 //
 // THE PLUGIN'S HOLD. While two citizens stop to talk, the plugin holds them with FL_FROZEN and
 // turns them to face each other: a roamer with FL_FROZEN stands, presses nothing and leaves its
@@ -4075,8 +5027,8 @@ edict_t* CBot::RoamAttacker() const
 }
 
 // Whom a roamer fights: its attacker, and, while the citizens are insurgents, every player who is
-// not a bot -- or only the players of tsrp_roambots_insurgent_team. Never anything else, not even
-// a door in its way.
+// not a bot -- or only the players of tsrp_roambots_insurgent_team -- and, with the teams in use,
+// every bot of another team as well (CHANGE 14). Never anything else, not even a door in its way.
 bool CBot::RoamIsEnemy(edict_t* pEntity) const
 {
 	if (pEntity == nullptr || pEntity == m_pEdict || !(pEntity->v.flags & FL_CLIENT))
@@ -4090,8 +5042,27 @@ bool CBot::RoamIsEnemy(edict_t* pEntity) const
 
 	const RoamSettings& roam = RoamNow();
 
-	if (!roam.bHostile || (pEntity->v.flags & FL_FAKECLIENT))
+	if (!roam.bHostile)
 		return false;
+
+	// The teams are in use when the server gives the roamer a team in pev->team: tsrp_roambots puts every citizen on team 2 while an
+	// insurgency lasts (3 otherwise), and Apollo RP's ARP_TS puts a player on the team of his job, 2 for an insurgent's. With none in use both read 0.
+	// Then only a player is an enemy, as in CHANGE 8. With the teams in use the insurgent fights everyone who is on another team,
+	// players and bots alike (the guards of the Middle Sea Republic are bots), and never one of its own team, whoever the roamer is
+	// set on: a client no team is set on yet (a player ARP has not placed) is nobody's enemy until it is. Its attacker stays an
+	// enemy: it is answered above, whatever team he is on.
+	//
+	// This is the insurgents' rule, and every roamer is a citizen so far. A roamer of another kind (a guard, on the Middle Sea
+	// Republic's team, which fights the insurgents) takes its own rule here, ahead of this one, told by its team.
+	if (pev->team > 0)
+	{
+		if (pEntity->v.team <= 0 || pEntity->v.team == pev->team)
+			return false;
+	}
+	else if (pEntity->v.flags & FL_FAKECLIENT)
+	{
+		return false;
+	}
 
 	return roam.iHostileTeam <= 0 || pEntity->v.team == roam.iHostileTeam;
 }
@@ -4114,9 +5085,970 @@ bool CBot::RoamHoldsMelee() const
 	return iId == 36 || iId == 25 || iId == 34 || iId == 35;
 }
 
+// MECH WEAPONS (CHANGE 13)
+//
+// A Mech carries two weapons, the M60 (weapon 32) and the rocket launcher (weapon 41, H9's own: reTS ts_mechrocket.cpp). Stock rcbot
+// chooses no weapon in a TS fight: it presses attack with whatever the game put in hand. A bot that holds both alternates now. What it
+// knows of its arsenal comes from the game's own messages (WStatus, WeaponInfo and ResetHUD, bot_client.cpp; bot_mech.h, mech::State),
+// so it does not depend on any plugin, and mech::decide is the rule that picks the weapon:
+//   - Looking (MechThink, ten times a second): the target, how far its aim point is, whether a rocket flies the line to it, how many
+//     enemies a blast on it would take. The answer is a weapon, asked for with the game's own select command ("weapon_32",
+//     "weapon_41") at most once every cmdGap seconds, and once every dwell (3 s and up to half as much again, a different one each
+//     time) unless the situation forces it.
+//   - The M60 is the default. The launcher comes out for a target that is far enough, in clear sight of a rocket, and has held so
+//     for half a second, or for one of a group (a group is let in nearer); it fires its salvo; the M60 takes over again while a
+//     target is in sight. The M60 is also for a near target, for a target a rocket is no use against (a door), and whenever the
+//     launcher is empty, spent or refused. A switch is never made while a salvo is leaving. The game reloads a dry launcher only
+//     while it is in hand and a switch throws the reload away, so an emptied launcher is reloaded in the quiet (no target for
+//     two seconds) and put away loaded; it is waited on in hand only when the target is too far for the M60 to matter.
+//   - Shooting (MechFire): with the launcher in hand the stock press is not used. The launcher is pulled once, when it is out,
+//     loaded, ready and aimed: the line ahead of the bot meets the target's feet, no wall is in front of the bot, no teammate is in
+//     the line, and none is near the blast when friendly fire is on. Then it is left alone for h9_mechrocket_rate and the salvo
+//     (h9_mechrocket_salvo rockets, h9_mechrocket_stagger apart). The trigger is never held. A pull whose rocket never appears is
+//     counted, and two in a row leave the launcher alone for a while.
+//   - Aiming (GetAimVector, MechRocketAim): at the target's feet when he stands on the floor, led by the rocket's flight time.
+//   - Not a Mech (the bot lacks one of the two), a roaming citizen, tsm_bot_mech_rocket 0, h9_mechrocket 0: nothing here runs.
+// The debug aid is the server console command "rcbot debug mech 1" (0 puts it off): every look that changes the answer, every switch
+// and every pull go to the server log with the reason. Without it the first MECH_LOG_FIRST lines of a map are logged anyway.
+
+bool CBot::MechPlay() const
+{
+	return gBotGlobals.IsMod(MOD_TS) && m_Mech.isMech() && !IsRoamer() && MechNow().bOn && MechNow().bLauncher;
+}
+
+// A player or a sentry turret is a target for a rocket, a door or a window is not.
+bool CBot::MechFit(const edict_t* pEnemy) const
+{
+	if (pEnemy == nullptr || FNullEnt(pEnemy))
+		return false;
+
+	if (pEnemy->v.flags & FL_CLIENT)
+		return true;
+
+	return std::strcmp(STRING(pEnemy->v.classname), "turret") == 0;
+}
+
+bool CBot::MechAimsRocket(const edict_t* pEnemy) const
+{
+	return m_Mech.wielded == mech::WPN_LAUNCHER && MechFit(pEnemy) && MechPlay();
+}
+
+// Where to aim a rocket at a target whose middle is vCenter: where he will be when it gets there, at his feet if he stands on the
+// floor and the line to them is open.
+Vector CBot::MechRocketAim(const edict_t* pEnemy, const Vector& vCenter) const
+{
+	const MechSettings& cfg = MechNow();
+	const Vector vGun = GetGunPosition();
+	const float fLead = mech::leadTime((vCenter - vGun).Length(), cfg.fSpeed, MECH_LEAD_CAP);
+
+	TraceResult tr;
+
+	// his walk along the floor for as long as the rocket flies; a wall on the way stops the lead there
+	Vector vWalk = pEnemy->v.velocity;
+	vWalk.z = 0.0f;
+
+	Vector vAim = vCenter + vWalk * fLead;
+
+	if (vWalk.Length() > 1.0f)
+	{
+		UTIL_TraceLine(vCenter, vAim, ignore_monsters, m_pEdict, &tr);
+
+		if (tr.flFraction < 1.0f)
+			vAim = vCenter + (vAim - vCenter) * std::max(0.0f, tr.flFraction - 0.05f);
+	}
+
+	if (pEnemy->v.flags & FL_ONGROUND)
+	{
+		const Vector vFeet(vAim.x, vAim.y, vAim.z - pEnemy->v.size.z * 0.5f + MECH_FOOT_RISE);
+
+		UTIL_TraceLine(vGun, vFeet, ignore_monsters, m_pEdict, &tr);
+
+		if (tr.flFraction >= 0.97f)
+			vAim = vFeet;
+	}
+
+	return vAim;
+}
+
+// Whether a rocket flies from the gun to the aim point: nothing but the target (or another enemy) in the way, and no wall near the bot.
+bool CBot::MechPathClear(const Vector& vAim, const edict_t* pTarget)
+{
+	const Vector vGun = GetGunPosition();
+	TraceResult tr;
+
+	UTIL_TraceLine(vGun, vAim, dont_ignore_monsters, dont_ignore_glass, m_pEdict, &tr);
+
+	if (tr.flFraction >= 1.0f)
+		return true;
+
+	edict_t* pHit = tr.pHit;
+
+	if (pHit != nullptr && !FNullEnt(pHit))
+	{
+		if (pHit == pTarget)
+			return true;
+
+		// another enemy in the line takes the rocket as well; a teammate, a door or a window does not
+		return MechFit(pHit) && IsEnemy(pHit);
+	}
+
+	// the world: the floor under the aim point is no wall
+	return (tr.vecEndPos - vAim).Length() <= MECH_FLOOR_SLACK && (tr.vecEndPos - vGun).Length() >= MECH_WALL_NEAR;
+}
+
+// Whether a rocket fired now, along the bot's view, bursts where it should: near the aim point, not in a wall in front of the bot, with
+// no teammate in the line and none near the blast when friendly fire is on.
+bool CBot::MechAimedAt(const Vector& vAim, const edict_t* pTarget)
+{
+	const MechSettings& cfg = MechNow();
+	const Vector vGun = GetGunPosition();
+	const float fDist = (vAim - vGun).Length();
+
+	UTIL_MakeVectors(pev->v_angle);
+
+	const Vector vEnd = vGun + gpGlobals->v_forward * (fDist + 128.0f);
+	TraceResult tr;
+
+	UTIL_TraceLine(vGun, vEnd, dont_ignore_monsters, dont_ignore_glass, m_pEdict, &tr);
+
+	const Vector vImpact = tr.vecEndPos;
+	edict_t* pHit = tr.pHit;
+	const bool bSomeone = pHit != nullptr && !FNullEnt(pHit);
+
+	// on the target: it is in the line, or the line ends close to the aim point
+	if (!(bSomeone && pHit == pTarget) && (vImpact - vAim).Length() > mech::aimTolerance(cfg.fRadius))
+		return false;
+
+	// a teammate (or the other side's sentry's own side) in the line
+	if (bSomeone && pHit != pTarget && MechFit(pHit) && !IsEnemy(pHit))
+		return false;
+
+	// and the blast must not reach the bot when the game lets it hurt him, nor a wall right in front of him
+	if ((vImpact - vGun).Length() < (cfg.bSelfDamage ? cfg.fRadius * 1.4f : MECH_WALL_NEAR))
+		return false;
+
+	return !(cfg.bFriendlyFire && MechAlliesNear(vImpact, cfg.fRadius));
+}
+
+// Whether a teammate is alive within a blast of this point.
+bool CBot::MechAlliesNear(const Vector& vPoint, const float fRadius)
+{
+	const int iLast = std::min(static_cast<int>(gpGlobals->maxClients), static_cast<int>(MAX_PLAYERS));
+
+	for (int i = 1; i <= iLast; i++)
+	{
+		edict_t* pPlayer = INDEXENT(i);
+
+		if (pPlayer == nullptr || pPlayer->free || pPlayer == m_pEdict || !(pPlayer->v.flags & FL_CLIENT))
+			continue;
+
+		if (!EntityIsAlive(pPlayer) || IsEnemy(pPlayer))
+			continue;
+
+		if ((EntityOrigin(pPlayer) - vPoint).Length() < fRadius * 1.1f)
+			return true;
+	}
+
+	return false;
+}
+
+// How many enemies a blast on the target would take: the target and the enemies within a blast of him.
+int CBot::MechGroupAt(const edict_t* pTarget, const float fRadius)
+{
+	const int iLast = std::min(static_cast<int>(gpGlobals->maxClients), static_cast<int>(MAX_PLAYERS));
+	const Vector vTarget = EntityOrigin(pTarget);
+	int iCount = 1;
+
+	for (int i = 1; i <= iLast; i++)
+	{
+		edict_t* pPlayer = INDEXENT(i);
+
+		if (pPlayer == nullptr || pPlayer->free || pPlayer == m_pEdict || pPlayer == pTarget || !(pPlayer->v.flags & FL_CLIENT))
+			continue;
+
+		if (!EntityIsAlive(pPlayer) || !IsEnemy(pPlayer))
+			continue;
+
+		if ((EntityOrigin(pPlayer) - vTarget).Length() < fRadius)
+			iCount++;
+	}
+
+	return iCount;
+}
+
+// Whether a rocket of this bot's is in flight: the game names the entity h9_mechrocket and makes the shooter its owner.
+bool CBot::MechRocketInFlight() const
+{
+	edict_t* pRocket = nullptr;
+
+	for (int i = 0; i < MECH_ROCKET_SCAN; i++)
+	{
+		pRocket = UTIL_FindEntityByClassname(pRocket, "h9_mechrocket");
+
+		if (pRocket == nullptr)
+			break;
+
+		if (pRocket->v.owner == m_pEdict)
+			return true;
+	}
+
+	return false;
+}
+
+void CBot::MechLog(const char* fmt, ...) const
+{
+	// The first lines of a map are logged unasked, so that a run can be checked without a console; the debug level (rcbot debug mech 1)
+	// logs them all. The clock starts again at each map.
+	static int s_iLogged = 0;
+	static float s_fLastLog = 0.0f;
+
+	if (gpGlobals->time < s_fLastLog)
+		s_iLogged = 0;
+
+	s_fLastLog = gpGlobals->time;
+
+	if (!gBotGlobals.IsDebugLevelOn(BOT_DEBUG_MECH_LEVEL))
+	{
+		if (s_iLogged >= MECH_LOG_FIRST)
+			return;
+
+		s_iLogged++;
+	}
+
+	char szText[256];
+	va_list argptr;
+
+	va_start(argptr, fmt);
+	vsnprintf(szText, sizeof(szText), fmt, argptr);
+	va_end(argptr);
+
+	UTIL_LogPrintf("[RCBOT MECH] %s: %s\n", pev != nullptr ? STRING(pev->netname) : "?", szText);
+}
+
+// Asks the game for a weapon with its own select command and waits for its WeaponInfo to say it is in hand. The dwell before the next
+// choice is drawn here; after a switch the situation forced it is longer, so that a target at the edge of the range does not send the
+// bot back and forth.
+void CBot::MechSelect(const int iType, const bool bForced)
+{
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+
+	FakeClientCommand(m_pEdict, "weapon_%d", iType);
+
+	m_Mech.pending = iType;
+	m_Mech.pendingAt = fNow;
+	m_Mech.lastSwitch = fNow;
+	m_Mech.dwell = cfg.tune.dwell * (1.0f + RANDOM_FLOAT(0.0f, cfg.tune.dwellJitter)) * (bForced ? cfg.tune.forcedDwell : 1.0f);
+}
+
+// A Mech bot's look at its fight, ten times a second, while it is alive: which weapon should be in its hand.
+void CBot::MechThink()
+{
+	if (!MechPlay())
+	{
+		// tsm_bot_mech_rocket was turned off with the launcher out: the M60 is what a stock bot has in hand, so the bot goes back to it
+		if (m_Mech.wielded == mech::WPN_LAUNCHER && m_Mech.own60 && m_Mech.pending == 0 && gBotGlobals.IsMod(MOD_TS) && !IsRoamer() &&
+			!MechNow().bOn && gpGlobals->time - m_Mech.lastSwitch >= MechNow().tune.cmdGap)
+			MechSelect(mech::WPN_M60, true);
+
+		return;
+	}
+
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+
+	m_Mech.fixClocks(fNow);
+
+	// the first sign, for whoever checks that the game's messages reach the bot
+	if (!m_Mech.announced)
+	{
+		m_Mech.announced = true;
+		MechLog("carries the M60 and the launcher: Mech play is on (in hand %d, launcher %d/%d)", m_Mech.wielded, m_Mech.clipRl,
+			m_Mech.reserveRl);
+	}
+
+	// A select command that the game never answered with a WeaponInfo was refused: the weapon is not the bot's, or cannot be wielded
+	// now. The launcher is left alone for a while; an M60 that cannot be selected is none the bot has.
+	if (m_Mech.pending != 0 && fNow - m_Mech.pendingAt > cfg.tune.switchWait)
+	{
+		MechLog("weapon_%d got no answer in %.1f s: refused", m_Mech.pending, cfg.tune.switchWait);
+
+		if (m_Mech.pending == mech::WPN_LAUNCHER)
+			m_Mech.refusedUntil = fNow + cfg.tune.refusal;
+		else
+			m_Mech.own60 = false;
+
+		m_Mech.pending = 0;
+		return;
+	}
+
+	// The rocket of the last pull: found, or never launched. Two pulls in a row that launch nothing mean the launcher is not ready or
+	// not wanted, whatever the clip says.
+	if (m_Mech.watching && fNow - m_Mech.lastPull >= MECH_WATCH_FROM)
+	{
+		if (MechRocketInFlight())
+		{
+			m_Mech.watching = false;
+			m_Mech.dud = 0;
+		}
+		else if (fNow - m_Mech.lastPull > MECH_WATCH_UNTIL)
+		{
+			m_Mech.watching = false;
+			m_Mech.dud++;
+			m_Mech.clipRl = 0;
+			MechLog("the pull launched no rocket (%d in a row)", m_Mech.dud);
+
+			if (m_Mech.dud >= 2)
+			{
+				m_Mech.dud = 0;
+				m_Mech.refusedUntil = fNow + cfg.tune.refusal;
+				MechLog("the launcher is left alone for %.0f s", cfg.tune.refusal);
+			}
+		}
+	}
+
+	// The game reloads an empty launcher in hand, and a resupply fills a spent one, without a word to the bot.
+	m_Mech.ageClip(fNow, cfg.tune.reloadAssume, cfg.tune.spentRecheck);
+
+	const float fOut = std::max(m_Mech.lastPull, m_Mech.wieldedAt);
+
+	if (fNow < m_Mech.nextLook)
+		return;
+
+	m_Mech.nextLook = fNow + MECH_LOOK_EVERY;
+
+	mech::Look look;
+
+	look.own60 = m_Mech.own60;
+	look.ownRl = m_Mech.ownRl;
+	look.wielded = m_Mech.wielded;
+	look.clipRl = m_Mech.clipRl;
+	look.reserveRl = m_Mech.reserveRl;
+	look.refused = m_Mech.refusedUntil > fNow;
+	look.pending = m_Mech.pending != 0;
+	look.sinceSwitch = fNow - m_Mech.lastSwitch;
+	look.dwell = m_Mech.dwell;
+	look.sincePull = fNow - m_Mech.lastPull;
+	look.sinceOut = fNow - fOut;
+	look.afterPull = m_Mech.lastPull >= m_Mech.wieldedAt;
+	look.salvoTime = mech::salvoTime(cfg.iSalvo, cfg.fStagger);
+
+	edict_t* pEnemy = m_pEnemy;
+
+	if (pEnemy != nullptr && !FNullEnt(pEnemy) && !pEnemy->free && HasCondition(BOT_CONDITION_SEE_ENEMY) && EntityIsAlive(pEnemy))
+	{
+		m_Mech.seenTarget = fNow;
+
+		look.target = true;
+		look.fit = MechFit(pEnemy);
+
+		const Vector vAim = MechRocketAim(pEnemy, EntityOrigin(pEnemy));
+
+		look.dist = (vAim - GetGunPosition()).Length();
+
+		if (look.fit)
+		{
+			look.clear = MechPathClear(vAim, pEnemy);
+
+			// a group is counted for a target that is far enough for the count to matter
+			if (look.dist >= cfg.tune.floorFire && fNow - m_Mech.groupAt >= MECH_GROUP_EVERY)
+			{
+				m_Mech.group = MechGroupAt(pEnemy, cfg.fRadius);
+				m_Mech.groupAt = fNow;
+			}
+
+			look.group = m_Mech.group;
+		}
+
+		look.need = mech::fireRange(cfg.tune, cfg.fRadius, cfg.bSelfDamage, look.group >= 2);
+	}
+
+	// how long the target has been one for the launcher to come out for
+	if (mech::farEnough(cfg.tune, look))
+	{
+		if (m_Mech.farSince == mech::LONG_AGO)
+			m_Mech.farSince = fNow;
+
+		look.farFor = fNow - m_Mech.farSince;
+	}
+	else
+	{
+		m_Mech.farSince = mech::LONG_AGO;
+	}
+
+	look.sinceTarget = fNow - m_Mech.seenTarget;
+
+	const mech::Decision dec = mech::decide(cfg.tune, look);
+
+	if (dec.pick != mech::KEEP)
+	{
+		MechLog("%s -> %s: %s (target %s, %.0f units, line %s, group %d, launcher %d/%d)",
+			m_Mech.wielded == mech::WPN_LAUNCHER ? "launcher" : (m_Mech.wielded == mech::WPN_M60 ? "m60" : "other"),
+			dec.pick == mech::TO_LAUNCHER ? "launcher" : "m60", mech::whyName(dec.why), look.target ? (look.fit ? "yes" : "unfit") : "none",
+			look.dist, look.clear ? "clear" : "blocked", look.group, m_Mech.clipRl, m_Mech.reserveRl);
+	}
+	else if ((dec.why != m_Mech.lastWhy || dec.pick != m_Mech.lastPick) && gBotGlobals.IsDebugLevelOn(BOT_DEBUG_MECH_LEVEL))
+	{
+		MechLog("keeps the %s: %s (target %s, %.0f units, line %s, group %d, launcher %d/%d)",
+			m_Mech.wielded == mech::WPN_LAUNCHER ? "launcher" : (m_Mech.wielded == mech::WPN_M60 ? "m60" : "other"),
+			mech::whyName(dec.why), look.target ? (look.fit ? "yes" : "unfit") : "none", look.dist, look.clear ? "clear" : "blocked",
+			look.group, m_Mech.clipRl, m_Mech.reserveRl);
+	}
+
+	m_Mech.lastWhy = static_cast<int>(dec.why);
+	m_Mech.lastPick = static_cast<int>(dec.pick);
+
+	if (dec.pick != mech::KEEP && fNow - m_Mech.lastSwitch >= cfg.tune.cmdGap)
+		MechSelect(dec.pick == mech::TO_LAUNCHER ? mech::WPN_LAUNCHER : mech::WPN_M60, dec.forced);
+}
+
+// The trigger of a Mech with the launcher in hand. True: it is the Mech code's this frame (pressed or deliberately left alone), and the
+// stock press is skipped. False: the M60 or anything else is in hand, or the bot is no Mech, and the stock press stands.
+bool CBot::MechFire()
+{
+	if (m_Mech.wielded != mech::WPN_LAUNCHER || !MechPlay())
+		return false;
+
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+	edict_t* pEnemy = m_pEnemy;
+
+	// not while a switch is on its way, nor at a target a rocket is no use against
+	if (m_Mech.pending != 0 || pEnemy == nullptr || FNullEnt(pEnemy) || pEnemy->free || !MechFit(pEnemy))
+		return true;
+
+	// the launcher's own delay, its draw, a refusal, an empty clip
+	if (!m_Mech.mayPull(fNow, cfg.tune.deploy))
+		return true;
+
+	const Vector vAim = MechRocketAim(pEnemy, EntityOrigin(pEnemy));
+	const float fDist = (vAim - GetGunPosition()).Length();
+
+	if (fDist < mech::fireRange(cfg.tune, cfg.fRadius, cfg.bSelfDamage, m_Mech.group >= 2) || fDist > cfg.tune.maxFire)
+		return true;
+
+	if (!MechAimedAt(vAim, pEnemy))
+		return true;
+
+	// one press: the salvo leaves by itself, and the button is not held (it is not pressed at all while the bot reloads)
+	if (pev->button & IN_RELOAD)
+		return true;
+
+	pev->button |= IN_ATTACK;
+
+	const int iClipWas = m_Mech.clipRl;
+
+	m_Mech.onPull(fNow, cfg.iSalvo, cfg.iClip, mech::pullCooldown(cfg.fRate, cfg.iSalvo, cfg.fStagger));
+
+	MechLog("pulls the launcher at %.0f units (clip %d, spare %d, salvo %d, next pull in %.1f s)", fDist, iClipWas, m_Mech.reserveRl,
+		cfg.iSalvo, m_Mech.nextPull - fNow);
+
+	return true;
+}
+
+// BOT OBJECTIVES (CHANGE 11)
+//
+// On a map that ts_assault, ts_uplink or ts_ctf runs, while tsm_bot_objectives is 1 and the round is live, a bot plays the
+// mode's objectives. What the plugins publish on their entities says what there is to play (include\tsm_botobj.inc,
+// docs\BOT_OBJECTIVES.txt):
+//   tsm_cap       an Assault point or an Uplink zone: its holder, its reach, its number, its state, the side taking it, its
+//                 progress, and how many of each side stand in it
+//   tsm_uplink    the Uplink: where it lies or who carries it, and the seconds before it flies home
+//   tsm_flag      a flag: whose it is, where it lies or who carries it, whether its carrier would score now, and its pad
+// Once a second ObjNow reads them and objplan::plan (bot_objective.h) gives each bot a post at one of them:
+//   TAKE, RETAKE, HOLD, GUARD   stand in a point or zone, or near a flag, and fight what comes
+//   FETCH, RETURN               walk onto the uplink or a flag where it lies; the plugin hands it over
+//   CARRY                       carry what it has taken to a zone, or to its side's pad, and fight only when it is hurt
+//   ESCORT, HUNT                stay with, or go after, a carrier, a person's as well as a bot's
+//   CLEAR                       go to the zone a carrier is heading for and kill whoever stands in it
+// A quarter of each side is left to fight and roam as before, and so is any bot with no post. A bot that has one is given
+// the task BOT_TASK_TS_OBJECTIVE: ObjLookForNewTasks queues it and ObjRunTask works it every think. The task keeps no phase of
+// its own: each think it takes the post the plan has for the bot and works out from where the bot is whether to ask for a path
+// (a FIND_PATH to a waypoint of the objective), walk straight to the mark or stand there. A fight pre-empts it and it resumes.
+// A bot that gets nowhere gives its post up for OBJ_BLOCK_FOR seconds. The bots of a squad (the Officer's follow order), the
+// citizens of a roleplay map and a bot held by the plugin play none of it. A plugin that publishes nothing, or a server without
+// tsm_bot_objectives, leaves every bot as it was.
+
+// STOCK CAPTURE GAME (CHANGE 12)
+//
+// TS plays a capture game of its own on a ctb_ or ctf_ map: a ts_briefcase base for each of two teams, and a flag (the briefcase)
+// to take from the other team's base and carry to one's own. The match mode stays out of those maps (tsm_enabled 0), so no plugin
+// publishes anything, and the game DLL keeps a flag's state in its own private members. What reaches a bot is read here and given to
+// the same planner as H9's flags (BriefRefresh makes the K_FLAG rows; bot_briefcase.h keeps the state and the rules):
+//   ts_briefcase  a base, a brush: its box and, from the map's key ownerteam, its team (CBotGlobals::KeyValue)
+//   ts_flag       a flag lying loose, its team told by its glow. A flag that is carried is no entity
+//   TSFlag        the user message: a flag was seeded at its base, taken or dropped, and who carries it
+//   ScoreInfo     each player's team number. Nothing stamps pev->team in this game, and stock rcbot takes everyone for an enemy
+//                 where it is 0, so a side is this number (ObjSideOf), and IsEnemy asks BriefEnemies
+// It is played on a map with one base for each of two teams, while tsm_enabled is 0 and tsm_bot_stockobjectives is not 0. The posts
+// are the flags' of CHANGE 11: FETCH the other team's flag at its base or dropped, CARRY it onto the middle of one's own base (the
+// brush scores by touch, and only while one's own flag lies at its base), ESCORT the carrier, GUARD the own flag at its base,
+// RETURN it when dropped, HUNT the carrier of it. A bot is sent to take a flag only with the 20 free inventory slots TS asks for
+// (canTakeFlag, read from the speed the game gave it). The restraint, the task and the walk are CHANGE 11's.
+
+// The side a bot plays for: pev->team where the plugin stamps it, TS's team number on its own capture game
+int CBot::ObjSide() const
+{
+	return ObjSideOf(m_pEdict);
+}
+
+bool CBot::ObjPlay() const
+{
+	return gBotGlobals.IsMod(MOD_TS) && m_pEdict != nullptr && pev != nullptr && !IsRoamer() && m_stSquad == nullptr &&
+		!(pev->flags & FL_FROZEN) && ObjNow().bOn;
+}
+
+// A bot with nothing to do asks for a post. True when it has been given a task for one, or told to wait a moment for one.
+bool CBot::ObjLookForNewTasks(const int iSchedule)
+{
+	if (!ObjPlay())
+		return false;
+
+	const int iIndex = ENTINDEX(m_pEdict);
+
+	if (iIndex < 1 || iIndex > MAX_PLAYERS)
+		return false;
+
+	ObjBot& st = g_ObjBot[iIndex];
+	const float fNow = gpGlobals->time;
+
+	// a post that was queued and is gone without finishing: its path failed, or something flushed it
+	if (st.bRunning)
+	{
+		st.bRunning = false;
+		ObjBlock(st, st.iObj, fNow + OBJ_BLOCK_FOR);
+	}
+
+	const objplan::Assign& a = ObjNow().assign[iIndex];
+
+	if (a.role == objplan::R_NONE)
+	{
+		// held back by the limit on changes: wait a moment, so that the stock walk does not take it somewhere else first
+		if (a.later)
+		{
+			AddTask(CBotTask(BOT_TASK_WAIT, iSchedule, nullptr, 0, 0.5f));
+			return true;
+		}
+
+		return false;
+	}
+
+	const int iRow = ObjRowOf(a.obj);
+
+	if (iRow < 0 || ObjIsBlocked(st, a.obj, fNow) || !objplan::roleValid(&g_Obj.row[iRow], a.role, ObjSide(), iIndex))
+		return false;
+
+	// a wave of bots arriving together would ask for their paths at once
+	if (g_Obj.iStarts >= OBJ_STARTS_PER_READ)
+	{
+		AddTask(CBotTask(BOT_TASK_WAIT, iSchedule, nullptr, 0, 0.4f));
+		return true;
+	}
+
+	g_Obj.iStarts++;
+
+	st.bRunning = true;
+	st.iObj = a.obj;
+	st.iRole = static_cast<int>(a.role);
+	st.iTarget = a.target;
+	st.iGoalWpt = -1;
+	st.nAsks = 0;
+	st.fNextAsk = 0.0f;
+	st.bHere = false;
+	st.bWalking = false;
+	st.fNextShuffle = fNow + RANDOM_FLOAT(OBJ_SHUFFLE_LEAST, OBJ_SHUFFLE_MOST);
+
+	AddTask(CBotTask(BOT_TASK_TS_OBJECTIVE, iSchedule));
+
+	// the first posts of a map, for the log
+	static int s_iLogged = 0;
+
+	if (s_iLogged < 60)
+	{
+		s_iLogged++;
+		UTIL_LogPrintf("[RCBOT OBJ] %s (side %d) takes post %d at objective %d\n", m_szBotName, ObjSide(), st.iRole, a.obj);
+	}
+
+	return true;
+}
+
+// Once a think, before the tasks: how it is hurt, whether its post is still queued, and the choice of a new one. A bot that
+// is walking one of the stock roam paths and has a post in the plan leaves the path for it.
+void CBot::ObjUpkeep()
+{
+	if (!gBotGlobals.IsMod(MOD_TS) || m_pEdict == nullptr || pev == nullptr)
+		return;
+
+	const int iIndex = ENTINDEX(m_pEdict);
+
+	if (iIndex < 1 || iIndex > MAX_PLAYERS)
+		return;
+
+	ObjBot& st = g_ObjBot[iIndex];
+	const float fNow = gpGlobals->time;
+
+	if (pev->health < st.fHealth - 0.5f)
+		st.fHurtTime = fNow;
+
+	st.fHealth = pev->health;
+
+	if (st.fNextCheck > fNow)
+		return;
+
+	// four times a second, and not every bot in the same think
+	st.fNextCheck = fNow + 0.25f + 0.01f * static_cast<float>(iIndex % 8);
+
+	const bool bHasTask = m_Tasks.HasTask(BOT_TASK_TS_OBJECTIVE);
+
+	// its post vanished from the queue without being finished
+	if (st.bRunning && !bHasTask)
+	{
+		st.bRunning = false;
+		ObjBlock(st, st.iObj, fNow + OBJ_BLOCK_FOR);
+	}
+
+	if (bHasTask)
+	{
+		// the switch went off, the round ended, or a squad took the bot: its post ends
+		if (!ObjPlay())
+		{
+			CBotTask Post;
+
+			m_Tasks.GetTask(BOT_TASK_TS_OBJECTIVE, &Post);
+			m_Tasks.FinishSchedule(Post.GetScheduleId());
+
+			st.bRunning = false;
+			m_stBotPaths.Destroy();
+			m_iWaypointGoalIndex = -1;
+			m_bMoveToIsValid = false;
+		}
+
+		return;
+	}
+
+	if (fNow < st.fNextAdopt || !ObjPlay())
+		return;
+
+	st.fNextAdopt = fNow + 1.0f;
+
+	// a post in the plan, and the bot out on a stock walk: nothing else queued that matters
+	const objplan::Assign& a = ObjNow().assign[iIndex];
+	const CBotTask* pFront = m_Tasks.CurrentTask();
+
+	if (a.role == objplan::R_NONE || m_pEnemy != nullptr || pFront == nullptr || pFront->Task() != BOT_TASK_FIND_PATH ||
+		ObjIsBlocked(st, a.obj, fNow))
+		return;
+
+	const int iRow = ObjRowOf(a.obj);
+
+	if (iRow < 0 || !objplan::roleValid(&g_Obj.row[iRow], a.role, ObjSide(), iIndex))
+		return;
+
+	static const eBotTask s_Keep[] = { BOT_TASK_NORMAL_ATTACK, BOT_TASK_PICKUP_ITEM, BOT_TASK_USE, BOT_TASK_WAIT_FOR_LIFT,
+		BOT_TASK_PUSH_PUSHABLE, BOT_TASK_THROW_GRENADE, BOT_TASK_FOLLOW_LEADER, BOT_TASK_FOLLOW_ENEMY, BOT_TASK_FIND_ENEMY_PATH,
+		BOT_TASK_SEARCH_FOR_ENEMY, BOT_TASK_HUMAN_TOWER, BOT_TASK_USE_TELEPORT, BOT_TASK_USE_TELEPORTER, BOT_TASK_FIND_COVER_POS,
+		BOT_TASK_HIDE, BOT_TASK_RELOAD, BOT_TASK_RANGE_ATTACK, BOT_TASK_USE_DOOR_BUTTON };
+
+	for (const eBotTask iKeep : s_Keep)
+	{
+		if (m_Tasks.HasTask(iKeep))
+			return;
+	}
+
+	if (m_Tasks.HasSchedule(BOT_SCHED_USE_LIFT) || m_Tasks.HasSchedule(BOT_SCHED_RUN_FOR_COVER))
+		return;
+
+	RoamForgetWay();
+}
+
+// The task of a bot with a post, every think. See BOT OBJECTIVES, above.
+void CBot::ObjRunTask(bool& bDone)
+{
+	const int iIndex = ENTINDEX(m_pEdict);
+
+	if (iIndex < 1 || iIndex > MAX_PLAYERS)
+	{
+		bDone = true;
+		return;
+	}
+
+	ObjBot& st = g_ObjBot[iIndex];
+	const float fNow = gpGlobals->time;
+
+	if (!ObjPlay())
+	{
+		st.bRunning = false;
+		bDone = true;
+		return;
+	}
+
+	const ObjWorld& world = ObjNow();
+	const objplan::Assign& a = world.assign[iIndex];
+	const int iRow = ObjRowOf(a.obj);
+
+	// the plan has no post for it now, or the post makes no sense any more: the task is done, and the next think asks again
+	if (a.role == objplan::R_NONE || iRow < 0 || ObjIsBlocked(st, a.obj, fNow) ||
+		!objplan::roleValid(&world.row[iRow], a.role, ObjSide(), iIndex))
+	{
+		st.bRunning = false;
+		bDone = true;
+		return;
+	}
+
+	// the plan's word is the bot's: a new post, or a carrier's new zone, starts the walk again
+	const int iRole = static_cast<int>(a.role);
+
+	if (a.obj != st.iObj || iRole != st.iRole || a.target != st.iTarget)
+	{
+		st.iObj = a.obj;
+		st.iRole = iRole;
+		st.iTarget = a.target;
+		st.iGoalWpt = -1;
+		st.nAsks = 0;
+		st.fNextAsk = 0.0f;
+		st.bHere = false;
+		st.bWalking = false;
+	}
+
+	const objplan::Obj& o = world.row[iRow];
+	const Vector vOrigin = pev->origin;
+
+	Vector vMark(o.x, o.y, o.z + OBJ_WPT_HEIGHT);    // where it wants to be
+	float fHere = 0.0f;                              // how near across the floor is there
+	bool bHold = false;                              // it stands there, in a ring, and walks about it now and then
+	bool bTrack = false;                             // the mark is a player, who moves
+	bool bStay = false;                              // it stays near the mark and follows when it gets far
+	int iRing = -1;                                  // the row whose waypoints it may stand on
+
+	switch (a.role)
+	{
+	case objplan::R_TAKE:
+	case objplan::R_RETAKE:
+	case objplan::R_HOLD:
+	case objplan::R_CLEAR:
+	case objplan::R_GUARD:
+		fHere = o.radius * OBJ_HERE_SHARE;
+		bHold = true;
+		iRing = iRow;
+		break;
+
+	case objplan::R_CARRY:
+		bHold = true;
+
+		if (o.kind == objplan::K_UPLINK)
+		{
+			// the zone it goes for; with none to go for it stands where it is
+			const int iZone = ObjRowOf(a.target);
+
+			if (iZone < 0)
+			{
+				vMark = vOrigin;
+				fHere = OBJ_HERE_SHARE;
+			}
+			else
+			{
+				const objplan::Obj& z = world.row[iZone];
+
+				vMark = Vector(z.x, z.y, z.z + OBJ_WPT_HEIGHT);
+				fHere = z.radius * OBJ_HERE_SHARE;
+				iRing = iZone;
+			}
+		}
+		else
+		{
+			// a flag goes to the pad of its carrier's side, which is the pad of the flag that side owns; with no pad it stands where
+			// it is
+			const objplan::Obj* pPad = objplan::padFor(world.row, world.nRows, o);
+
+			if (pPad == nullptr || (pPad->padX == 0.0f && pPad->padY == 0.0f && pPad->padZ == 0.0f))
+			{
+				vMark = vOrigin;
+				fHere = OBJ_HERE_SHARE;
+			}
+			else
+			{
+				vMark = Vector(pPad->padX, pPad->padY, pPad->padZ + OBJ_WPT_HEIGHT);
+				fHere = pPad->padReach > 0.0f ? pPad->padReach : std::max(40.0f, world.fPadRadius * OBJ_HERE_SHARE);
+			}
+		}
+
+		break;
+
+	case objplan::R_FETCH:
+	case objplan::R_RETURN:
+	{
+		// where the thing lies now, and whether somebody has taken it since the plan was made
+		const edict_t* pItem = ObjItemEdict(world, iRow);
+
+		if (pItem == nullptr || pItem->v.aiment != nullptr)
+		{
+			g_Obj.fNextRead = 0.0f;
+			st.bRunning = false;
+			bDone = true;
+			return;
+		}
+
+		vMark = pItem->v.origin;
+		break;
+	}
+
+	case objplan::R_ESCORT:
+	case objplan::R_HUNT:
+	{
+		const edict_t* pCarrier = ObjPlayerEdict(o.carrierSlot);
+
+		if (pCarrier == nullptr)
+		{
+			g_Obj.fNextRead = 0.0f;
+			st.bRunning = false;
+			bDone = true;
+			return;
+		}
+
+		vMark = pCarrier->v.origin;
+		bTrack = true;
+		bStay = a.role == objplan::R_ESCORT;
+		break;
+	}
+
+	default:
+		st.bRunning = false;
+		bDone = true;
+		return;
+	}
+
+	const float fFlat = Vector(vMark.x - vOrigin.x, vMark.y - vOrigin.y, 0.0f).Length();
+	const float fDz = vMark.z - vOrigin.z;
+
+	bool bHere = false;
+
+	if (bHold)
+		bHere = fFlat <= fHere && std::fabs(fDz) <= OBJ_WPT_Z_RANGE;
+	else if (bStay)
+		bHere = fFlat <= (st.bHere ? OBJ_ESCORT_FOLLOW : OBJ_ESCORT_STAY) && std::fabs(fDz) <= OBJ_WPT_Z_RANGE * 2.0f;
+	else if (bTrack)
+		bHere = fFlat <= OBJ_HUNT_CLOSE && std::fabs(fDz) <= OBJ_WPT_Z_RANGE;
+
+	st.bHere = bHere;
+
+	if (bHere)
+	{
+		st.bWalking = false;
+		st.nAsks = 0;
+		StopMoving();
+		m_CurrentLookTask = BOT_LOOK_TASK_LOOK_AROUND;
+
+		// a bot holding a ring walks to another waypoint of it now and then, so that a ring of bots spreads
+		if (bHold && iRing >= 0 && world.nWpt[iRing] > 1 && fNow >= st.fNextShuffle)
+		{
+			st.fNextShuffle = fNow + RANDOM_FLOAT(OBJ_SHUFFLE_LEAST, OBJ_SHUFFLE_MOST);
+
+			const int iNth = RANDOM_LONG(0, world.nWpt[iRing] - 1);
+			const int iPick = world.iWpt[iRing][iNth];
+
+			if (objplan::flatDist(WaypointOrigin(iPick).x, WaypointOrigin(iPick).y, vOrigin.x, vOrigin.y) > OBJ_AT_GOAL)
+				ObjAskPath(*this, st, iPick, fNow);
+		}
+
+		return;
+	}
+
+	m_CurrentLookTask = BOT_LOOK_TASK_NEXT_WAYPOINT;
+
+	// the waypoint it walks to first
+	int iGoal = st.iGoalWpt;
+
+	if (!bTrack && iGoal == -1)
+	{
+		if (iRing >= 0 && world.nWpt[iRing] > 0)
+			iGoal = world.iWpt[iRing][iIndex % world.nWpt[iRing]];
+		else if (a.role == objplan::R_CARRY)
+			iGoal = ObjNearestWaypoint(vMark);
+		else
+			iGoal = world.iNearWpt[iRow];
+
+		st.iGoalWpt = iGoal;
+	}
+
+	const bool bNearMark = fFlat <= OBJ_STRAIGHT_FLAT && std::fabs(fDz) <= OBJ_STRAIGHT_HEIGHT;
+	bool bAsk = false;
+
+	if (!bNearMark && fNow >= st.fNextAsk)
+	{
+		if (bTrack)
+		{
+			// a carrier moves: a new path when it has gone far from where the last one was asked for
+			bAsk = st.nAsks == 0 || Vector(vMark.x - st.vPathFor.x, vMark.y - st.vPathFor.y, 0.0f).Length() > OBJ_RETRACK_MOVE;
+
+			if (bAsk)
+			{
+				iGoal = ObjNearestWaypoint(vMark);
+				st.vPathFor = vMark;
+			}
+		}
+		else
+			bAsk = st.nAsks < OBJ_ASKS_PER_MARK;
+
+		// already at that waypoint: nothing to walk to by path
+		if (iGoal < 0 || objplan::flatDist(WaypointOrigin(iGoal).x, WaypointOrigin(iGoal).y, vOrigin.x, vOrigin.y) <= OBJ_AT_GOAL)
+			bAsk = false;
+	}
+
+	if (bAsk)
+	{
+		if (!bTrack)
+			st.iGoalWpt = iGoal;
+
+		ObjAskPath(*this, st, iGoal, fNow);
+		return;
+	}
+
+	// straight to the mark: the last of the way, or a mark no path leads to; a bot that gets nowhere gives the post up
+	SetMoveVector(vMark);
+
+	if (!st.bWalking)
+	{
+		st.bWalking = true;
+		st.vProgressFrom = vOrigin;
+		st.fProgressTime = fNow;
+	}
+	else if ((vOrigin - st.vProgressFrom).Length() >= OBJ_PROGRESS_DISTANCE)
+	{
+		st.vProgressFrom = vOrigin;
+		st.fProgressTime = fNow;
+	}
+	else if (fNow - st.fProgressTime > OBJ_PROGRESS_TIME)
+	{
+		ObjBlock(st, st.iObj, fNow + OBJ_BLOCK_FOR);
+		st.bRunning = false;
+		bDone = true;
+	}
+}
+
+// Whether a bot is running a flag or the uplink to its mark and has no mind for a fight on the way: a carrier looks for none
+// and follows none while it has far to go, and is not hurt. Hurt, or where it is going, it fights.
+bool CBot::ObjCarrierRuns() const
+{
+	if (m_pEdict == nullptr)
+		return false;
+
+	const int iIndex = ENTINDEX(m_pEdict);
+
+	if (iIndex < 1 || iIndex > MAX_PLAYERS)
+		return false;
+
+	const ObjBot& st = g_ObjBot[iIndex];
+
+	return st.bRunning && st.iRole == objplan::R_CARRY && !st.bHere && gpGlobals->time - st.fHurtTime > OBJ_HURT_GRACE;
+}
+
 bool CBot::WantToFindEnemy() const
 {
 	if (gBotGlobals.IsMod(MOD_TS)) {
+		// a bot running the uplink or a flag to its mark looks for no fight on the way (CHANGE 11)
+		if (ObjCarrierRuns())
+			return false;
+
 		// a roaming citizen looks for a fight only when it has one: its attacker, or the players it
 		// is set against as an insurgent (CHANGE 8)
 		return (!IsRoamer() || RoamWantsFight()) && !gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DONT_SHOOT);
@@ -4624,6 +6556,10 @@ void CBot::LookForNewTasks()
 
 			break;
 		}
+
+		// the objectives of a map the plugins run (CHANGE 11)
+		if (ObjLookForNewTasks(iNewScheduleId))
+			break;
 
 		if (gBotGlobals.m_bTeamPlay || gBotGlobals.isMapType(NON_TS_TEAMPLAY))
 		{
@@ -6878,6 +8814,7 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 //
 {
 	Vector vEnemyOrigin;
+	bool bMechRocket = false;
 
 	if (/*gBotGlobals.IsMod(MOD_SVENCOOP) &&*/ gBotGlobals.IsMod(MOD_GEARBOX) && pBotEnemy->v.flags & FL_MONSTER)
 	{
@@ -6957,6 +8894,14 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 		break;
 	case MOD_NS:
 		break;
+	case MOD_TS:
+		// the Mech's rocket launcher: at the target's feet, led (CHANGE 13)
+		if (MechAimsRocket(pBotEnemy))
+		{
+			vEnemyOrigin = MechRocketAim(pBotEnemy, vEnemyOrigin);
+			bMechRocket = true;
+		}
+		break;
 	default:
 		break;
 	}
@@ -7017,7 +8962,8 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 		m_fGetAimVectorTime = gpGlobals->time + RANDOM_FLOAT(m_Profile.m_fAimTime - 0.2f, m_Profile.m_fAimTime + 0.2f) * fSpeed;
 	}
 
-	return vEnemyOrigin + m_vOffsetVector;
+	// a rocket's blast covers most of the error the offset stands for, and the lead already counts the target's walk
+	return vEnemyOrigin + m_vOffsetVector * (bMechRocket ? MECH_AIM_OFFSET : 1.0f);
 }
 
 float CBot::DistanceFrom(const Vector& vOrigin, const bool twoD) const
@@ -9515,6 +11461,13 @@ bool CBot::IsEnemy(edict_t* pEntity)
 			if (pev->team > 0 && pEntity->v.team > 0)
 				return pev->team != pEntity->v.team;
 
+			// TS's own capture game: the sides are TS's teams, which no plugin stamps and the stock rule below cannot tell
+			// (CHANGE 12). Where the game is not played, or a side is not known, the rule below decides.
+			const int iEnemies = BriefEnemies(m_pEdict, pEntity);
+
+			if (iEnemies >= 0)
+				return iEnemies != 0;
+
 			if (gBotGlobals.isMapType(NON_TS_TEAMPLAY) || gBotGlobals.m_bTeamPlay)
 			{
 				char* infobuffer1 = (*g_engfuncs.pfnGetInfoKeyBuffer)(m_pEdict);
@@ -11089,6 +13042,10 @@ bool CBot::WantToFollowEnemy(const edict_t* pEnemy) const
 // return true if bot wants to follow an enemy once out of sight
 // might want to add a few more things to it though
 {
+	// a bot running the uplink or a flag to its mark follows no enemy (CHANGE 11)
+	if (ObjCarrierRuns())
+		return false;
+
 	std::vector<ga_value> weights;
 
 	/*if (gBotGlobals.IsMod(MOD_TFC))
@@ -15203,7 +17160,8 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 					if (m_pCurrentWeapon)
 						iweapid = m_pCurrentWeapon->GetID();
 
-					weap_id = static_cast<float>(iweapid) / static_cast<float>(MAX_WEAPONS);
+					// the stunt decision was learned against TS 3.0's 37 weapon ids, whatever size the weapon tables are
+					weap_id = static_cast<float>(iweapid) / 37.0f;
 
 					// a citizen fighting its attacker back fights with its hands, whatever it carries (CHANGE 8)
 					if (!m_pCurrentWeapon || (IsRoamer() && !RoamNow().bHostile) || (m_pCurrentWeapon->GetID() == 34 || m_pCurrentWeapon->GetID() == 35 || m_pCurrentWeapon->GetID() == 36 || m_pCurrentWeapon->GetID() == 25))
@@ -15281,7 +17239,14 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 							m_pTSWeaponSelect->set(8+iweapid,0.5f);
 						*/
 
-						if (m_pCurrentWeapon->NeedToReload())
+						// a Mech with the launcher in hand pulls it, or leaves it, itself (CHANGE 13)
+						const bool bMechTrigger = MechFire();
+
+						if (bMechTrigger)
+						{
+							// pressed or left alone by MechFire
+						}
+						else if (m_pCurrentWeapon->NeedToReload())
 						{
 							RunForCover(vEnemyOrigin);
 							Reload(); // reload the weapon [APG]RoboCop[CL]
@@ -16479,6 +18444,9 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 			}
 
 			break;
+		case BOT_TASK_TS_OBJECTIVE:
+			ObjRunTask(bDone);
+			break;
 		default:
 			break;
 		}
@@ -16560,6 +18528,10 @@ bool CBot::PrimaryAttack() const
 	}*/
 	// Can't shoot while reloading
 	if (pev->button & IN_RELOAD)
+		return false;
+
+	// the Mech's launcher is pulled by MechFire alone: no other task presses the trigger on it (CHANGE 13)
+	if (m_Mech.wielded == mech::WPN_LAUNCHER && MechPlay())
 		return false;
 
 	if (m_pCurrentWeapon && gBotGlobals.IsNS())

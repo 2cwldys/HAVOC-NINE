@@ -1,0 +1,190 @@
+===============================================================================
+ APOLLO RP: EVERY COMMAND AND WHAT IT DOES
+===============================================================================
+
+ For a player on a roleplay map (h9_tsrp_hive, h9_tsrp_newbyzantium), a police officer, and the ARP admin who runs the server. Written from the
+ plugin sources (apollo-rp\base\addons\amxmodx\scripting) and configs\arp\arp.cfg. The server's own list of what ARP has registered is "arp_help"
+ in the game console; docs\ARP_ADMINS.txt says how to become an ARP admin; docs\APOLLO_RP.txt and docs\ARP_INVENTORY.txt are the rest.
+
+ CONTENTS
+    1. How to read this
+    2. Player commands (chat)
+    3. Chat, radio and phone
+    4. Police commands
+    5. Property commands
+    6. ARP admin commands (console)
+    7. Server console only: the database
+    8. Old commands that scripts may still use
+    9. Looking things up
+   10. Switches in configs\arp\arp.cfg
+
+ 1. HOW TO READ THIS
+ -------------------
+   * A command that starts with / is typed in chat: press y, type it, Enter. A command with no slash is typed in the console (~), or by rcon.
+   * <user> is a part of a player's name, or #<userid>: the number right after the quoted name in the server's "status" (docs\ARP_ADMINS.txt, 2).
+     A name part that fits two players is refused.
+   * Access: a job gives rights as letters. a is police, b medical, z is an ARP admin (arp_police_access, arp_medical_access, arp_admin_access).
+     The server's console and rcon are always let in to the admin commands.
+   * "looking at" means the crosshair is on that player or door, within the range given (200 units unless it says otherwise).
+   * Money is the wallet (what you carry; you lose it when you die with arp_wallet_death 1) or the bank (safe, paid your salary every minute).
+
+ 2. PLAYER COMMANDS (chat)
+ -------------------------
+   /items, /inventory     your items: the inventory window in an H9 game, a text menu in any other. docs\ARP_INVENTORY.txt.
+   /menu, arp_menu        ARP's client menu.
+   /buy                   buys the property (door) you are looking at, if it is for sale; it takes the price from your BANK.
+   /tax                   what each of your properties costs in property tax at a toll, what it owes, how long it has, and the minutes to the next toll (a line in chat or a popup, the list in your console).
+   /renew, /paytax        the property tax of the property whose door you look at (arp_h9_tax_manual 1): a menu to pay what it owes and to turn its automatic payment on or off.
+   /givemoney <amount>    gives that much of your wallet to the player you are looking at.
+   /withdraw <amount>     takes money out of your bank into your wallet: facing a banker NPC, or anywhere if you carry a Debit Card.
+   /deposit <amount>      puts wallet money into the bank, facing a banker.
+   /transfer <user> <amount>   sends bank money to another player's bank, facing a banker.
+   /unemploy              leaves your job; you are unemployed.
+   /holster, holster      puts your weapon away, or takes it out again.
+   /tazer                 fires a tazer you carry at the player you look at (the item Tazer; it needs the item).
+   /removetape            takes the tape off the mouth of the player you look at (within 100 units); see Tape below.
+   /untie                 frees the player you look at from his rope (within 100 units).
+   /cuff                  cuffs, or frees, the player you look at (200 units). Police need no item; anyone else needs one Cuffs, which the cuffing
+                          uses up and which goes back to whoever frees him unless police took them off. Cops cannot be cuffed.
+   The use key (E) on a player: offers him an exchange of goods; on a handcuffed or jailed player it searches him instead, and you can take his
+   items and money (docs\ARP_INVENTORY.txt, 6 and 9). On a server with arp_h9_ctxmenu 1, an H9 game with cl_h9_ctxmenu 1 gets a menu with a cursor instead (docs\ARP_INVENTORY.txt, 10): Trade, Search,
+   Cuff (Free when he is cuffed), Tie (Untie), Tape mouth (Remove tape), Fine (police), Give money and Show license or card, and what other plugins add. A row that does not apply now is greyed
+   and says why ("Bots cannot trade", "Cuff him first", "Police only"); click one or press its number; ESC, a right click or a click outside closes it. Cuff, Fine and Give money run /cuff, /fine and
+   /givemoney on the player the menu is about, so their rules are the commands' own. A bot, and a game that does not draw the menu, have the use key as described above.
+   Items that do something when used (in the inventory window: double-click, or right-click Use): Cuffs (as /cuff), Tape (gags the player you look
+   at, within 100 units, and is used up; he cannot talk in chat, team chat or, with arp_voice 1, by voice, until /removetape, his death or leaving),
+   Rope (ties the player you look at to you; he is pulled along when he is further than arp_h9_rope_length (150) units, the rope snaps at four
+   times that, and ends with either's death or leaving; used again on him it frees him, as does /untie), Lockpick and Electric Lockpick, Flashbang,
+   Chlorofoam, Door C2 and Steel Axe (door breakers), Bug and Bug Scanner, phones, food, drink and drugs, weapons (using a gun gives it).
+
+ 3. CHAT, RADIO AND PHONE
+ ------------------------
+   /me <action>  (also /action, /m)   says what you do: "* Name <action>" to the players near you (normal talking range, times arp_message_range).
+                          On a roleplay map an H9 game also draws it over your head in red, as well as in chat.
+   /shout <text>  (/s)    speaks twice as far as normal.
+   /whisper <text>  (/quiet, /w, /q)   speaks half as far.
+   /ooc <text>            out of character, to everybody (arp_ooc: 0 off, 1 in chat, 2 in a box on the right of the screen).
+   /cnn <text>            a news headline to everybody, once every arp_cnn seconds per server (0 turns it off).
+   /advert <text>         an advertisement to everybody, once every arp_advert seconds (0 turns it off).
+   /com <text>            police only: a message to every police officer.
+   /911 <text>            calls the police and medics (the phone menu also offers it).
+   /sms <text>            sends a text message from a phone you carry.
+   /hangup                ends a phone call you are on.
+   Using a phone item (Motorola RAZR, Sony Ericsson, Nokia 6820) opens its menu: call a player, answer, check status. A phone needs a Phone
+   Subscription or a Phone Prepaid Card to be charged against. Plain chat is heard by the players within the talking range only; with arp_voice 1 so
+   is voice. A line that starts with ( ( ... ) ) or /ooc is out of character.
+
+ 4. POLICE COMMANDS (job access letter a)
+ ----------------------------------------
+   /cuff                  as above; cops cuff other players with no item. A cuffed player drops his weapons, walks at half speed, cannot attack,
+                          use, or jump, and is marked by a red glow and, over his head, a handcuff symbol (arp_h9_cuffsprite).
+   /fine <amount>         sends a fine order to the player you look at (200 units): a menu offers him Pay or Refuse; the fine is taken from his
+                          wallet and bank. He must have at least that much in the wallet and bank together.
+   /com <text>            the police radio.
+   jail <jail name>       puts the player you look at (200 units) in the named jail of the map's jailmod.ini.
+   jailmodmenu            the jail menu: put the player you look at in a jail, free a jailed player.
+   Search: the use key (E) on a handcuffed player opens the search window (arp_h9_search).
+
+ 5. PROPERTY COMMANDS (the door you look at, 200 units)
+ -------------------------------------------------------
+   A property is a door or group of doors with an owner, a price and a lock. Only the owner can use these.
+   /sell <price>          puts the property up for sale at that price; /sell 0 (or no price) takes it off sale.
+   /lock                  locks or unlocks the property's doors.
+   /changename <name>     renames the property.
+   /changeowner <name>    changes the owner's name that is written on it.
+   /addaccess <user>      lets that player through the property's locked doors; /delaccess <user> takes it away again.
+   /profit                takes out the money the property has earned (its shop sales times arp_profit_fraction; a shop earns for a property when its npcs.ini block names it: nine of the hive's do).
+
+ 6. ARP ADMIN COMMANDS (console; job access letter z, or the server's console / rcon)
+ -------------------------------------------------------------------------------------
+   Money and bank
+     arp_createmoney <user> <n>    adds n to his wallet.        arp_removemoney <user> <n>   takes n from it.        arp_setmoney <user> <n>   sets it.
+     arp_createbank <user> <n>     adds n to his bank.          arp_removebank <user> <n>    takes n from it.        arp_setbank <user> <n>    sets it.
+   Items
+     arp_createitems <user> <item> <n>   gives n of the item; <item> is a number or a part of the name (arp_itemlist lists them). A part that
+                                         matches two items is refused ("Bug" is also "Bug Scanner"): use a longer part or the number.
+     arp_removeitems <user> <item> <n>   takes n.                arp_setitems <user> <item> <n>   sets his count.
+   Jobs and rights
+     arp_setjob <user> <job id or name>   makes him that job at once ("Cadet" gives police rights; arp_joblist lists jobs).
+     arp_employ <user> <job>              offers him the job, which he accepts or refuses in a menu.      arp_fire <user>   fires him.
+                                          arp_employ is refused ("You have no access to this command.") to anybody who has neither z, nor the job-admin right, nor the job's own letters; the host of a listen
+                                          server is not exempt from it, as he is from arp_setjob.
+     arp_setaccess <user> <letters>       sets his own rights (z = ARP admin); his job's letters are not touched.
+     arp_setjobright <job> <letters>      sets a job's rights.
+     arp_addjob <name> <salary> <letters>  adds a job (salary is paid every minute);  arp_deletejob <name>   deletes one.
+   Properties and doors (look at the door)
+     arp_addproperty <internal> <external> <owner> <authid> <price> <lock> <access> <profit>    makes a property.
+     arp_setproperty <same arguments>   changes one (! keeps a value).   arp_deleteproperty   deletes the one you look at.
+     arp_adddoor <internal>   hooks the door you look at to a property.  arp_deletedoor   unhooks it.   arp_propertyaccess <letters>   sets who may enter.
+     arp_h9_tax_value <internal> <price>   the price the property tax counts a property as having cost (ARP sets a price to 0 at a sale, so the plugin keeps the price of each sale;
+                                           this is for a property it never saw sold). 0 forgets it.   arp_h9_tax_dump   prints the tax's switches, clock, last toll and database.
+     arp_h9_tax_towns                      the towns of this map (the hive's three cities, or the whole map), each with the faction that runs it and what its treasury holds (arp_h9_tax_treasury 1).
+     arp_h9_pay_dump                       what each job pays: the percent, the way the plugin pays, the map's pay.ini, and for each job its row, its pay.ini line, what it is paid and what the core says.
+   Guns and other
+     arp_addgun <weapon id> <ammo> <extra> <save 0/1>   puts a gun on the wall where you look (1 keeps it for the map).
+     arp_config             opens the ARP admin menu: add the first ARP admin, change the database connection, run the map's SQL file.
+     arp_getinfo            prints ARP's current state.
+     arp_hudstate           prints who is sent the HUD panel and who the text HUD.
+     arp_h9_inv_dump <user>, arp_h9_inv_check <user>   prints a player's inventory cells, and whether they agree with his items.
+     arp_h9_ctx_dump <user> [<target>]   prints the context menu <user> has up, or the first page the use key on <target> would give him (nothing is sent).
+   Every admin command is written to ARP's log ("Cmd: ...").
+
+ 7. SERVER CONSOLE ONLY: THE DATABASE
+ ------------------------------------
+   arp_query <SQL>        runs one SQL statement and prints nothing (arp_query UPDATE arp_users SET access='z' WHERE authid='ID_...').
+   arp_backup <name>      copies every ARP table into a backup (arp_sql_backup_db); the name has no underscore and no backup runs while one is running.
+   arp_restore <name>     restores from a backup; it says to run arp_delete first.
+   arp_delete [name]      DROPS TABLES. With no name it drops EVERY table of the ARP database; with a name, the tables of that backup. Back the file
+                          data\sqlite3\arp.sq3 up before using it.
+
+ 8. OLD COMMANDS THAT SCRIPTS MAY STILL USE
+ ------------------------------------------
+   amx_additems / amx_delitems (server console), amx_employ, amx_setwallet, amx_setbank, amx_setjob (console): the names of the first Apollo release;
+   they do what arp_createitems, arp_removeitems, arp_employ, arp_setmoney, arp_setbank and arp_setjob do. Use the arp_ names.
+
+ 9. LOOKING THINGS UP
+ --------------------
+   arp_help               every command ARP has registered, with its help text.
+   arp_joblist            the jobs and their salaries.     arp_itemlist   the items and their numbers.      arp_plugins   the ARP plugins running.
+   docs\ARP_ITEMS.txt     every item with its number, what using it does and who sells it; the numbers are those of arp_itemlist and follow the plugin order.
+   docs\ARP_H9_ADDITIONS.txt  everything H9 added to Apollo RP: what it is, its switch (cvar) and where the detail is, and one table of every H9 cvar.
+   docs\ARP_SIEGE.txt         how the siege and town control work (designed, being built).
+   arp_queries, getclasses   debugging lists for the people who write ARP plugins.
+   h9inv <op> <args>      what the inventory window sends; not for typing (COMMANDS.txt lists the ops).
+
+ 10. SWITCHES IN CONFIGS\ARP\ARP.CFG
+ -----------------------------------
+   Core         arp_startmoney 500 (wallet of a new character), arp_save_interval 300 (seconds between saves), arp_wallet_death 1, arp_police_access a,
+                arp_medical_access b, arp_admin_access z (never empty it: ARP then lets everybody run admin commands), arp_goddoors 1, arp_godwindows 0,
+                arp_falldamage 1, arp_log 1, arp_account_wait 30, arp_mapsql_autoload 1, arp_hud4_type.
+   Talking      arp_ooc 2, arp_cnn 120, arp_advert 60, arp_capscom 1, arp_printmode 1, arp_message_range 1.0, arp_voice 1 (voice only within talking
+                range), arp_message_log 0, arp_ooc_hudtitle.
+   Jail         arp_jail_mode 1 (0 off, 1 leave the cell and be free, 2 a cop must free you), arp_jail_reconnect 1, arp_jail_death 1, arp_jail_distance.
+   Shops        arp_ammofill_cost 50 (ammunition refill at a gun shop), arp_profit_fraction 0.25 (a property's share of what it sells).
+   Pay          arp_h9_pay_percent 100 (every salary is paid at this percent, whole numbers rounded half up; 100 is stock; a salary is paid every payday, 60 seconds at arp_performance 100; the map's pay.ini,
+                configs\arp\maps\<map>\pay.ini, gives the jobs it lists another salary than their rows, with a line  "Citizen" 12 ; docs\APOLLO_RP.txt 8).
+   Needs        arp_hunger_enabled 1, arp_thirst_enabled 1, arp_h9_thirst_keep 1 (thirst is kept in the database, as hunger is, and comes back when a character joins again; 0 starts every join at 0).
+   H9 additions (each has a stock "off"; docs\APOLLO_RP.txt has the table): arp_h9_vgui 1 (ARP's menus as H9 panels), arp_h9_itemhover 1, arp_h9_itemicon 1 (a picture floats over a dropped pack: arp_h9_itemicon_max 64 at a time, arp_h9_itemicon_scale 0.6, 1.0 being 32 units across),
+                arp_h9_itemglow 1 (a dropped pack glows for arp_h9_itemglow_time 12 seconds, as far as arp_h9_itemglow_radius 200 units, in arp_h9_itemglow_color 180 60 255, a purple),
+                arp_h9_inv_window 1, arp_h9_inv_slots 32, arp_h9_inv_stack 20, arp_h9_inv_persist 1, arp_h9_credits 1, arp_h9_trade_range 250,
+                arp_h9_trade_timeout 120, arp_h9_search 1, arp_h9_search_range 150, arp_h9_search_money 1 (take money in a search),
+                arp_h9_restraints 1 (Cuffs, Tape and Rope exist; a change needs a map change), arp_h9_rope_length 150, arp_h9_cuffsprite 1 (the
+                handcuff symbol over a cuffed head; a change to 1 needs a map change), arp_h9_toast 1 (the [ARP] chat lines as popups over the crosshair that fade: 0 chat as stock,
+                1 popup instead of chat, 2 both), arp_h9_ctxmenu 1 (the use key on a player opens a menu with a cursor on an H9 client that draws it: 0 is the use key as it was;
+                the plugin's own default is 0), arp_h9_ctx_range 150 (the menu closes beyond this many units; 0 is no limit), arp_h9_ctx_cuff 1, arp_h9_ctx_fine 1 and arp_h9_ctx_give 1 (the
+                entries that no other switch is behind; 0 leaves one out), arp_h9_ctx_fine_amounts "50 100 250 500 1000" and arp_h9_ctx_give_amounts "10 50 100 500 1000" (up to 8 amounts each;
+                docs\ARP_INVENTORY.txt, 10), arp_h9_plaque 1 (what you look at is a plaque on an H9 client: a property door's name, owner
+                or FOR SALE and the price, affiliation, and OPEN or SEALED; an NPC's name and role; a player's name, job and affiliation; docs\APOLLO_RP.txt 2, docs\ARP_CONTENT.txt 9; the player's own switch is cl_h9_arphud_plaque),
+                arp_h9_zonefix 1 (ARP_Zones reads every zone of zones.ini, and a player's touch of a trigger_multiple reaches the game, so the automatic doors it opens open; 0 is the stock plugin, which does
+                neither; docs\ARP_CONTENT.txt 7).
+                arp_h9_tax 1, arp_h9_tax_minutes 15, arp_h9_tax_percent 0.10 (1.0 in the plugin), arp_h9_tax_flat 0 (the property tax: every owned property costs its owner money every arp_h9_tax_minutes minutes,
+                arp_h9_tax_flat plus arp_h9_tax_percent per cent of what it cost; 0 is stock; docs\APOLLO_RP.txt 11), arp_h9_tax_manual 1 (the tax is paid by hand with /renew, automatic
+                payment an opt-in for each property; 0 takes it from the bank at once), arp_h9_tax_evict 1, arp_h9_tax_evict_tolls 288 (72 hours at 15 minutes; 96 in the plugin), arp_h9_tax_evict_debt 0 (the server takes back
+                a property that has owed too long or too much, even while its owner is away), arp_h9_tax_treasury 1 (the profit of a property the server takes back goes to the treasury of its town, and
+                the property's profit becomes 0; needs the two above; the towns are listed by arp_h9_tax_towns).
+   Props        arp_h9_propclip 1 (the plugin's own default is 0, which is stock ARP: no file is read and no entity is made): a ts_model prop that the map left with no collision (a bookshelf, a couch) gets an
+                invisible solid box where configs\arp\maps\<map>\propclip.ini says, and players and bots, and most bullets, stop at it; tools\propclip_tool.py makes the lines; docs\APOLLO_RP.txt 12.
+   Teams        arp_teamplay 1 (arp.cfg ships 1; the plugin's own default is 0, which is stock ARP and touches no team): the three teams by job, Middle Sea Republic, Insurrection and
+                Proletarians, with friendly fire; arp_teams lists who is on which. It is read from arp.cfg and the map's own mapconfig as a map loads, so a change needs a map change:
+                typing arp_teamplay 1 at the console does nothing (docs\APOLLO_RP.txt 6, apollo-rp\ORIGIN.txt item 43).
+   A server must be restarted fully (not an amxx reload) for a new cvar to register.

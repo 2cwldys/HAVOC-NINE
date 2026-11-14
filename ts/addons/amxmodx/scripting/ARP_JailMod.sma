@@ -4,12 +4,12 @@
 #include <ApolloRP>
 #include <ApolloRP_Chat>
 #include <tsfun>
+#include <ApolloRP_VGui>
+#include <ApolloRP_H9Cfg>
 
 #define MAX_JAILS 20
 #define ITEMS_PER_MENU 6
 
-// Disabled by default because no one likes it
-//#define CUFF_ITEM
 
 #define ON_CHECK(%1) if(!get_pcvar_num(p_Mode)) return %1
 
@@ -47,12 +47,30 @@ new Float:g_MaxSpeed[MAX_PLAYERS + 1]
 
 new g_PluginEnd
 
-#if defined CUFF_ITEM
+// H9: the item Cuffs (0 when arp_h9_restraints is off): police cuff with /cuff and need none, anyone else needs one, which the cuffing uses up
 new g_Cuffs
-#endif
+new g_CuffItem[MAX_PLAYERS + 1]                 // the cuffs on him were put on with an item: whoever frees him is given them back
+
+// H9: the handcuff symbol over the head of a cuffed player (arp_h9_cuffsprite). A sprite that follows a player is drawn at his origin, so the
+// sprite file has the height in its frame (modelling\arpicons\make_cuffed_sprite.py); the scale here is the one it was made for
+new g_CuffIcon[MAX_PLAYERS + 1]
+new g_CuffIconModel[] = "sprites/h9_cuffed.spr"
+new g_CuffIconIdx
+new p_CuffSprite
+
+public plugin_precache()
+{
+	arpvgui_precache()
+	// H9: the symbol's sprite is precached unless arp.cfg says arp_h9_cuffsprite 0 (read from the file: the server executes arp.cfg after the precache, so a change to 1 needs a
+	// map change): a client needs the file only when the symbol is on
+	if(h9_cfg_num("arp_h9_cuffsprite",1) && file_exists(g_CuffIconModel))
+		g_CuffIconIdx = precache_model(g_CuffIconModel)
+}
 
 public plugin_init()
 {
+	arpvgui_init("arpjail")
+	
 	ARP_RegisterEvent("HUD_Render","EventHudRender")
 	ARP_RegisterEvent("Player_Cuffed","EventCuffed")
 	
@@ -60,17 +78,21 @@ public plugin_init()
 	register_event("DeathMsg","EventDeathMsg","a")
 	
 	p_Table = register_cvar("arp_jailmod_table","arp_jailusers")
+	register_cvar("arp_h9_restraints","1")
+	p_CuffSprite = register_cvar("arp_h9_cuffsprite","1")
 	
-	ARP_RegisterChat("/cuff","SayCuff","(COP) - cuffs the person you are looking at")
+	ARP_RegisterChat("/cuff","SayCuff","- cuffs the person you are looking at, and frees him if he is cuffed (police need no item; anyone else needs Cuffs)")
 }
 
 public ARP_Error(const Reason[])
 	pause("d")
 
-#if defined CUFF_ITEM
+// H9: Cuffs exist as an item unless arp_h9_restraints is 0 (read from arp.cfg: the server runs it after the core's precache, where items are registered)
 public ARP_RegisterItems()
-	g_Cuffs = ARP_RegisterItem("Cuffs","_Cuffs","Used for cuffing players",0)
-#endif
+{
+	if(h9_cfg_num("arp_h9_restraints",1))
+		g_Cuffs = ARP_RegisterItem("Cuffs","_Cuffs","Cuffs the person you look at; use them again to free him. Police need none: /cuff.",0)
+}
 
 public plugin_end()
 	g_PluginEnd = 1
@@ -104,16 +126,91 @@ public LoadHandle(Class:class_id,const class[],data[])
 		EventResetHUD(id)
 }
 
+// H9: whether the player is cuffed or in jail, as the HUD's "Cuffed" and "Jailed" lines decide it (ARP_Inventory asks before an exchange of goods and while one is open)
+public H9_Restrained(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return 0
+	
+	if(g_MaxSpeed[id])
+		return 1
+	
+	new Mode = get_pcvar_num(p_Mode)
+	if(!g_Class[id])
+		return 0
+	
+	return (Mode == 1 && Proximity(id)) || (Mode == 2 && IsJailed(id)) ? 1 : 0
+}
+
+// H9: whether the player is cuffed, as /cuff decides whether it cuffs or frees him (not in jail: that is H9_Restrained's); ARP_H9Ctx's menu says Free to him and Cuff to any other
+public H9_Cuffed(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return 0
+
+	// the cuff flag is in the class that loads after he joins (and never with arp_jail_mode 0 or arp_jail_reconnect 0): IsCuffed on a class that is not loaded is a runtime error,
+	// which callfunc hands on to the plugin that asked, so until the class is here the saved speed that cuffing sets stands for it
+	if(!g_Class[id])
+	{
+		if(g_MaxSpeed[id])
+			return 1
+
+		return 0
+	}
+
+	return IsCuffed(id) ? 1 : 0
+}
+
+// H9: the handcuff symbol: a sprite entity that follows the cuffed player (MOVETYPE_FOLLOW: his origin, whatever the offset), with the height in the
+// sprite's own frame. Shown once whatever the number of times the cuffs are put on (a spawn does it again), taken down with the cuffs
+H9_CuffIconShow(id)
+{
+	if(!g_CuffIconIdx || !get_pcvar_num(p_CuffSprite) || !is_user_alive(id))
+		return
+	if(g_CuffIcon[id] && is_valid_ent(g_CuffIcon[id]))
+		return
+	new Ent = create_entity("info_target")
+	if(!Ent)
+		return
+	entity_set_string(Ent,EV_SZ_classname,"h9_cuffed")
+	entity_set_model(Ent,g_CuffIconModel)
+	entity_set_int(Ent,EV_INT_movetype,MOVETYPE_FOLLOW)
+	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
+	entity_set_edict(Ent,EV_ENT_aiment,id)
+	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
+	// the client lights an alpha-test sprite whose renderamt is above 127, and the symbol is to read in a dark cell. It is drawn solid and unlit with a renderamt of 0 under a renderfx
+	// that is not none: the client sets the renderamt of every kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities), and kRenderFxNoDissipation does nothing to
+	// a sprite that is not a glow. EF_FULLBRIGHT is no way to unlit: it is bit 27, the entity state carries the effects in 8 bits, and the client would be sent 255, which has
+	// EF_NODRAW in it
+	entity_set_int(Ent,EV_INT_renderfx,kRenderFxNoDissipation)
+	entity_set_float(Ent,EV_FL_renderamt,0.0)
+	entity_set_float(Ent,EV_FL_scale,0.7)
+	g_CuffIcon[id] = Ent
+}
+
+H9_CuffIconHide(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return
+	new Ent = g_CuffIcon[id]
+	g_CuffIcon[id] = 0
+	if(Ent && is_valid_ent(Ent))
+	{
+		new Classname[12]
+		entity_get_string(Ent,EV_SZ_classname,Classname,11)
+		if(equal(Classname,"h9_cuffed"))
+			remove_entity(Ent)
+	}
+}
+
 IsCuffed(id)
 	return ARP_ClassGetInt(g_Class[id],"cuff")
 
 IsJailed(id)
 	return ARP_ClassGetInt(g_Class[id],"jail")
 	
-#if defined CUFF_ITEM
 public _Cuffs(id,ItemId)
 	SayCuff(id,0,"")
-#endif
 
 public SayCuff(id,Mode,Args[])
 {
@@ -125,8 +222,22 @@ public SayCuff(id,Mode,Args[])
 	
 	if(!ARP_IsCop(id))
 	{
-		client_print(id,print_chat,"[ARP] You are not a cop.")
-		return PLUGIN_HANDLED
+		// H9: anyone else cuffs with an item, and not while he is cuffed himself
+		if(!g_Cuffs)
+		{
+			client_print(id,print_chat,"[ARP] You are not a cop.")
+			return PLUGIN_HANDLED
+		}
+		if(g_MaxSpeed[id])
+		{
+			client_print(id,print_chat,"[ARP] You cannot do that while you are cuffed.")
+			return PLUGIN_HANDLED
+		}
+		if(!ARP_GetUserItemNum(id,g_Cuffs))
+		{
+			client_print(id,print_chat,"[ARP] You are not a cop, and you have no Cuffs.")
+			return PLUGIN_HANDLED
+		}
 	}
 	
 	new Index,Body
@@ -171,6 +282,8 @@ public EventCuffed(Name[],Data[],Len)
 		g_MaxSpeed[Index] = 0.0
 		
 		set_rendering(Index,kRenderFxNone,255,255,255,kRenderNormal,16)
+		g_CuffItem[Index] = 0
+		H9_CuffIconHide(Index)
 		
 		ARP_ClassSetInt(g_Class[Index],"cuff",0)
 		
@@ -182,9 +295,9 @@ public EventCuffed(Name[],Data[],Len)
 			get_user_name(Index,Name,32)
 			client_print(id,print_chat,"[ARP] You have uncuffed %s.",Name)
 			
-			#if defined CUFF_ITEM
-			ARP_SetUserItemNum(id,g_Cuffs,ARP_GetUserItemNum(id,g_Cuffs) + 1)
-			#endif
+			// H9: the cuffs go back to whoever frees him when they were put on with an item (police take them)
+			if(g_Cuffs && g_CuffItem[Index] && !ARP_IsCop(id))
+				ARP_SetUserItemNum(id,g_Cuffs,ARP_GetUserItemNum(id,g_Cuffs) + 1)
 			
 			new Authid[36],CufferAuthid[36]
 			get_user_authid(Index,Authid,35)
@@ -198,13 +311,17 @@ public EventCuffed(Name[],Data[],Len)
 		return PLUGIN_HANDLED
 	}
 	
-	#if defined CUFF_ITEM
-	if(!ARP_GetUserItemNum(id,g_Cuffs))
+	// H9: anyone who is not police cuffs with one Cuffs, which is used up; the re-cuffing of a player who spawns cuffed (id 0) uses none
+	new Used
+	if(id && g_Cuffs && !ARP_IsCop(id))
 	{
-		client_print(id,print_chat,"[ARP] You do not have any cuffs in your inventory.")
-		return PLUGIN_HANDLED
+		if(!ARP_GetUserItemNum(id,g_Cuffs))
+		{
+			client_print(id,print_chat,"[ARP] You do not have any cuffs in your inventory.")
+			return PLUGIN_HANDLED
+		}
+		Used = 1
 	}
-	#endif
 	
 	for(new Count = 1;Count <= 35;Count++)
 		client_cmd(Index,"weapon_%d;drop",Count)
@@ -215,6 +332,8 @@ public EventCuffed(Name[],Data[],Len)
 	
 	g_MaxSpeed[Index] = entity_get_float(Index,EV_FL_maxspeed)
 	
+	H9_CuffIconShow(Index)
+	
 	if(id)
 	{
 		new Name[33],CufferName[33]
@@ -223,9 +342,13 @@ public EventCuffed(Name[],Data[],Len)
 		get_user_name(Index,Name,32)
 		client_print(id,print_chat,"[ARP] You have cuffed %s.",Name)
 		
-		#if defined CUFF_ITEM
-		ARP_SetUserItemNum(id,g_Cuffs,ARP_GetUserItemNum(id,g_Cuffs) - 1)
-		#endif
+		if(Used)
+		{
+			ARP_SetUserItemNum(id,g_Cuffs,ARP_GetUserItemNum(id,g_Cuffs) - 1)
+			g_CuffItem[Index] = 1
+		}
+		else
+			g_CuffItem[Index] = 0
 		
 		new Authid[36],CufferAuthid[36]
 		get_user_authid(Index,Authid,35)
@@ -416,6 +539,14 @@ H9_SetCage(Num,Shut,By)
 
 public EventDeathMsg()
 {	
+	// H9: the symbol goes with the cuffs, whatever the jail mode
+	new Dead = read_data(2)
+	if(Dead >= 1 && Dead <= MAX_PLAYERS)
+	{
+		H9_CuffIconHide(Dead)
+		g_CuffItem[Dead] = 0
+	}
+	
 	ON_CHECK()
 	
 	new id = read_data(2)
@@ -468,6 +599,8 @@ public JailCommand(id)
 
 public client_disconnect(id)
 {	
+	H9_CuffIconHide(id)
+	g_CuffItem[id] = 0
 	g_MenuPage[id] = 0
 	g_Died[id] = 0
 	g_MaxSpeed[id] = 0.0
@@ -536,7 +669,7 @@ public CmdJailMod(id)
 		
 	Pos += format(Menu[Pos],sizeof Menu - Pos - 1,"%s^n^n8. Last Page^n9. Next Page^n^n0. Exit",Mode == 2 ? "^n7. Free Target Player" : "")
 	
-	show_menu(id,Keys,Menu,-1,g_Menu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_Menu,"arpjail.menu")
 	
 	return PLUGIN_HANDLED
 }

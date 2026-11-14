@@ -21,6 +21,7 @@
 #include "ts_powerup.h"       // CTSPowerUp::Fall (RespawnEntities)
 #include "teamplay_gamerules.h" // CHalfLifeTeamplay::RecountTeams (RestartRound)
 #include "ts_gun.h"             // CTSGun (RestartRound's loadout refund)
+#include "ts_mechrocket.h"      // TSMechRocketSyncCvars
 #include "game.h"          // g_flWeaponCheat (sv_cheats as the map started)
 
 
@@ -1051,6 +1052,8 @@ void CTSGameRules::Think()
 
 	CheckVotes(); // tally the players' map/ff/teamplay votes (self-throttled to ~10s)
 
+	TSMechRocketSyncCvars(); // the Mech rocket launcher's clip and fire rate follow their cvars
+
 	// --- SrvSett on-change broadcasts (the tail of the original Think; star_SrvSett.md) ---
 	// @0x675b3: realbullet and usecash are compared as floats, the cached int against the cvar's value,
 	// and the value is stored chopped toward zero (fistp with the chop mode), so a fractional value is
@@ -1375,7 +1378,8 @@ const char *CTSGameRules::GetIndexedTeamName(int teamIndex)
 // "SrvSett" (3) — BYTE setting id + SHORT value. Ids: 0 realbullet, 1 usecash (bool on the
 // wire), 2 ammocount, 3 weaponrestriction bitmask, and (reTS addition) 4 h9_customweapons. InitHUD pushes ALL FIVE to a
 // joiner (MSG_ONE); Think broadcasts ids 0-2 and 4 on cvar change (MSG_ALL); cmd_weaponrestriction
-// broadcasts id 3 on change. star_SrvSett.md (decompile-settled).
+// broadcasts id 3 on change. star_SrvSett.md (decompile-settled). Also a reTS addition, ids 5 to 9: the Mech rocket launcher's
+// clip, shot rate, reload time, salvo and stagger (ts_mechrocket.cpp), sent to a joiner by InitHUD and to everyone on a change.
 int gmsgTSServerSetting = 0;
 
 void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
@@ -1427,6 +1431,8 @@ void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
 	WRITE_BYTE(4);
 	WRITE_SHORT(H9_CustomWeaponsOn() ? 1 : 0);
 	MESSAGE_END();
+	// reTS addition (ids 5 to 9): the Mech rocket launcher's clip, shot rate, reload time, salvo and stagger
+	TSMechRocketTellClient(pPlayer);
 
 	// Sent once, as the original (@0x691fe..0x69316); nothing sends them again to a joiner.
 

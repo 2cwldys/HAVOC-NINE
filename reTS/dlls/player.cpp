@@ -934,7 +934,7 @@ void CBasePlayer::Killed(entvars_t* pevAttacker, int iGib)
 	// @0x7ed73: the killer's screen blurs on a roll (80% after a close-combat blow, else 50%; a
 	// close-combat blow that misses its roll gets the 50% one), the victim's on a 50% roll
 	// (TSMBlur {index, 1} and {index, 0}, MSG_PVS at each one's origin).
-	if ((glast_closecombat && RANDOM_LONG(0, 100) <= 79) || RANDOM_LONG(0, 100) <= 49)
+	if (!TSBotKeptOffPowerups(pevAttacker) && ((glast_closecombat && RANDOM_LONG(0, 100) <= 79) || RANDOM_LONG(0, 100) <= 49))
 	{
 		MESSAGE_BEGIN(MSG_PVS, gmsgTSMotionBlur, pevAttacker->origin);
 		WRITE_BYTE(ENTINDEX(pevAttacker->pContainingEntity));
@@ -4316,6 +4316,14 @@ void CBasePlayer::UpdateClientData()
 		MESSAGE_BEGIN(MSG_ONE, gmsgResetHUD, NULL, pev);
 		WRITE_BYTE(0);
 		MESSAGE_END();
+
+		// ResetHUD puts the client's ammo box on kung fu and empties its weapon bar; a gun that is
+		// already out announces its weapon and its bar cells again with the next UpdateClientData.
+		if (CTSGun *pTSGun = GetPlayerTSGun(this))
+		{
+			pTSGun->m_iClientWeaponType = -1;
+			pTSGun->m_bWStatusInit = false;
+		}
 
 		if (!m_fGameHUDInitialized)
 		{

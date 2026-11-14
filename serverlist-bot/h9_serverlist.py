@@ -13,6 +13,8 @@ HOW A SERVER GETS ON
     answer never gets on, and one in another game folder is refused. A server that answers
     in the GoldSrc format (REHLDS, stock hlds) is listed as a "gs" line; one that answers in
     the Source format (Xash) is listed as "ip" -- the client reads both.
+    A heartbeat without the key is held to limits (max_per_address, max_open_servers and
+    heartbeats_per_minute in serverlist.ini); the key, servers.txt and Discord are not.
 
 HOW A SERVER GETS OFF
     It stops answering. Nothing has to tell the list that a server has shut down.
@@ -67,6 +69,8 @@ LIST_CHECK_SECONDS = 60                                     # how often public_u
 LIST_CHECK_TIMEOUT = 10                                     # how long that fetch may take, in seconds
 HEARTBEAT_FAILS = 10                                        # wrong keys one address may send in HEARTBEAT_WINDOW
 HEARTBEAT_WINDOW = 600                                      # seconds; past the limit, 429 until the window ends
+HEARTBEAT_RATE_WINDOW = 60                                  # seconds; one address's keyless heartbeats are counted per window
+MAX_OPEN_ADDS = 4                                           # keyless heartbeats being queried at once; the rest are refused, not queued
 
 
 def log(message):
@@ -170,12 +174,13 @@ async def list_reachable(settings):
         return False
 
 
-def new_entry(host, port, source):
+def new_entry(host, port, source, open_=False):
     return {
         "host": host,
         "port": port,
         "address": f"{host}:{port}",
         "source": source,
+        "open": open_,                                       # listed by a heartbeat without the key
         "added": time.time(),
         "seen": 0.0,
         "kind": "ip",                                        # overwritten by the first answer
@@ -227,6 +232,10 @@ class Settings:
         self.poll_seconds = ini.getfloat("list", "poll_seconds", fallback=30.0)
         self.expire_seconds = ini.getfloat("list", "expire_seconds", fallback=300.0)
         self.probe_timeout = ini.getfloat("list", "probe_timeout", fallback=2.0)
+        # what a heartbeat without the key may do (the key, servers.txt and Discord are not held to these)
+        self.max_per_address = ini.getint("list", "max_per_address", fallback=8)
+        self.max_open_servers = ini.getint("list", "max_open_servers", fallback=100)
+        self.heartbeats_per_minute = ini.getint("http", "heartbeats_per_minute", fallback=60)
         self.guild_id = ini.get("discord", "guild_id", fallback="").strip()
         self.role_id = ini.get("discord", "role_id", fallback="").strip()
         self.heartbeat_key = secrets.get("secrets", "heartbeat_key", fallback="").strip()
@@ -236,6 +245,10 @@ class Settings:
             sys.exit(f"gamedir {self.gamedir!r} in serverlist.ini is not a game folder name")
         if self.proxy_header not in ("x-real-ip", "cf-connecting-ip", "none"):
             sys.exit(f"proxy_header {self.proxy_header!r} in serverlist.ini must be x-real-ip, cf-connecting-ip or none")
+        for name, value in (("max_per_address", self.max_per_address), ("max_open_servers", self.max_open_servers),
+                            ("heartbeats_per_minute", self.heartbeats_per_minute)):
+            if value < 1:
+                sys.exit(f"{name} {value} in serverlist.ini must be 1 or more")
         if self.guild_id and not self.guild_id.isdigit():
             sys.exit(f"guild_id {self.guild_id!r} in serverlist.ini is not a number")
         if self.public_url and not self.public_url.startswith(("http://", "https://")):
@@ -249,6 +262,7 @@ class ServerList:
         self.settings = settings
         self.entries = {}
         self.first_poll = asyncio.Event()                   # set once every seed has been asked
+        self.adding = 0                                     # keyless heartbeats whose query is out
 
     def live(self, gamedir):
         """The servers in this game folder that answered within expire_seconds."""
@@ -276,24 +290,56 @@ class ServerList:
                 silent += 1
         return len(self.live(gamedir)), answering, silent
 
-    async def add(self, target, source):
+    def refusal(self, host, port, open_):
         """
-        Query an address and list it when it answers from this game folder. Returns
+        Why a heartbeat without the key may not put a new server at host:port on the list, or None.
+        At most max_per_address of them from one address and max_open_servers in all. A server that
+        is on the list already is refreshed whatever these say, and the key, servers.txt and Discord
+        (open_ false) are not held to them.
+        """
+        if not open_ or f"{host}:{port}" in self.entries:
+            return None
+        opened = [entry for entry in self.entries.values() if entry["open"]]
+        if sum(1 for entry in opened if entry["host"] == host) >= self.settings.max_per_address:
+            return f"{host} has {self.settings.max_per_address} servers on the list; more need the heartbeat key"
+        if len(opened) >= self.settings.max_open_servers:
+            return "the list takes no more servers from heartbeats without the key"
+        return None
+
+    async def add(self, target, source, open_=False):
+        """
+        Query an address and list it when it answers from this game folder. open_ is true for a
+        heartbeat without the key, which refusal() and MAX_OPEN_ADDS hold to limits. Returns
         (entry, None), or (None, reason) when it is refused.
         """
-        info = await probe(target, self.settings.probe_timeout)
+        host, port = target
+        reason = self.refusal(host, port, open_)
+        if reason:
+            return None, reason
+        if open_:
+            if self.adding >= MAX_OPEN_ADDS:
+                return None, "the list is busy with other heartbeats; try again shortly"
+            self.adding += 1
+        try:
+            info = await probe(target, self.settings.probe_timeout)
+        finally:
+            if open_:
+                self.adding -= 1
         if info is None:
             return None, "no answer from that address"
         if info["folder"] != self.settings.gamedir:
             return None, f"it runs the {info['folder']!r} game folder, not {self.settings.gamedir!r}"
-        host, port = target
         address = f"{host}:{port}"
         if address not in self.entries:
             same = await self.same_server(host, port)
             if same:
                 address = same
                 host = self.entries[same]["host"]
-        entry = self.entries.get(address) or new_entry(host, port, source)
+        if address not in self.entries:
+            reason = self.refusal(host, port, open_)         # the list changed while the query was out
+            if reason:
+                return None, reason
+        entry = self.entries.get(address) or new_entry(host, port, source, open_)
         entry.update(info)
         entry["seen"] = time.time()
         self.entries[address] = entry
@@ -368,6 +414,7 @@ def make_app(state, settings):
     app["state"] = state
     app["settings"] = settings
     app["fails"] = {}                                       # address -> [wrong keys, when the window started]
+    app["rates"] = {}                                       # address -> [heartbeats without the key, when the window started]
     app.router.add_get("/v1/servers/{gamedir}", handle_list)
     app.router.add_get("/v1/servers/{gamedir}.json", handle_list_json)
     app.router.add_post("/v1/heartbeat", handle_heartbeat)
@@ -461,6 +508,20 @@ def heartbeat_failed(fails, address, now):
     return entry[0]
 
 
+def heartbeat_rate_exceeded(rates, address, now, limit):
+    """Counts one heartbeat without the key; true once the address has sent more than limit in the current window."""
+    if len(rates) > 10000:
+        for key in [k for k, v in rates.items() if now - v[1] > HEARTBEAT_RATE_WINDOW]:
+            del rates[key]
+    if len(rates) > 10000:
+        rates.clear()
+    entry = rates.get(address)
+    if entry is None or now - entry[1] > HEARTBEAT_RATE_WINDOW:
+        entry = rates[address] = [0, now]
+    entry[0] += 1
+    return entry[0] > limit
+
+
 def client_address(request, header="x-real-ip"):
     """
     The address a request came from. Behind nginx (havoc9.org/deploy/nginx-setup.sh) every
@@ -484,7 +545,9 @@ async def handle_heartbeat(request):
     POST /v1/heartbeat. With the key ({"key": ..., "address": "host:port"}): any address. Without
     one ({"port": 27015}, as h9_heartbeat.ps1 sends it): the server it comes from, by the address
     it comes from and the port it names, unless open_heartbeats = 0 in serverlist.ini. Either
-    way the server is listed only once it answers a query from this game folder.
+    way the server is listed only once it answers a query from this game folder. Without the key a
+    heartbeat is also held to heartbeats_per_minute for its address (429 past it), and may list
+    only max_per_address servers from its address and max_open_servers in all (422 past them).
     """
     settings = request.app["settings"]
     fails = request.app["fails"]
@@ -528,7 +591,13 @@ async def handle_heartbeat(request):
         except (TypeError, ValueError) as exc:
             return web.json_response({"ok": False, "error": str(exc)}, status=400)
         target = (sender, port)
-    entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}")
+    if not keyed and heartbeat_rate_exceeded(request.app["rates"], sender, now, settings.heartbeats_per_minute):
+        count = request.app["rates"][sender][0]
+        if count == settings.heartbeats_per_minute + 1:
+            log(f"heartbeat from {sender} refused: more than {settings.heartbeats_per_minute} in {HEARTBEAT_RATE_WINDOW} s")
+        return web.json_response({"ok": False, "error": "too many heartbeats from this address; wait"},
+                                 status=429, headers={"Retry-After": str(HEARTBEAT_RATE_WINDOW)})
+    entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}", open_=not keyed)
     if entry is None:
         return web.json_response({"ok": False, "error": reason}, status=422)
     return web.json_response({"ok": True, "address": entry["address"], "name": entry["name"]})

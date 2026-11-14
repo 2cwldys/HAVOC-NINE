@@ -682,6 +682,96 @@ describe("presence: the proof of the player id", () => {
   });
 });
 
+describe("presence: a copied h9_clientid listed beside the real player", () => {
+  let t;
+  before(async () => {
+    t = await presenceApp();
+    for (const n of ["Neo", "Trinity", "Switch"]) await signup(t.base, n);
+  });
+  after(async () => {
+    await t.close();
+  });
+
+  // The plugin lists an id once for every slot that announces it. The real game answered the
+  // challenge; a copy holds the id (a userinfo field every player can read) and not the player id
+  // behind it, so it has no proof, or one made with another player id.
+  const real = (name, slot, opts = {}) => ({ ...as(t, name, A, opts), slot });
+  const copy = (name, slot) => ({ id: clientIdFor(pidOf(t, name), A), slot, name: "Mallory", joined: t.sec() - 5, time: 5 });
+  const forged = (name, slot) => ({ ...copy(name, slot), ...makeProof(randomHex(16), A, DEV2, nonceAt(t.sec())), net: NET2 });
+  const answer = async (players, extra = {}) => {
+    t.advance(1);
+    const body = JSON.stringify({ v: 1, server: A, ts: t.sec(), map: "h9_te_neuropolis", mode: "Team Elimination", players, ...extra });
+    return (await ok(t, { body })).json;
+  };
+  const standing = (r, slot) => ({ proven: r.proven.includes(slot), account: r.accounts[slot] || null });
+
+  test("a copy with no proof beside the proven player: the real one stays verified, the copy counts for nothing", async () => {
+    const r = await answer([real("Neo", 1), copy("Neo", 2)]);
+    assert.deepEqual(r.proven, [1], "only the slot that proved the id");
+    assert.deepEqual(standing(r, 1), { proven: true, account: idOf(t, "Neo") });
+    assert.deepEqual(standing(r, 2), { proven: false, account: null });
+    const online = onlineOf(t, "Neo");
+    assert.equal(online.length, 1);
+    assert.equal(online[0].proven, 1);
+    assert.equal(online[0].slot, 1, "the session follows the slot that proved the id");
+    assert.equal(flagsOf(t, "Neo").length, 0, "the copy is not held against the real player");
+    assert.ok(!storedText(t).includes("Mallory"), "nothing of the copy is stored");
+    const c = (await get(t, "/api/presence/account/Neo")).json;
+    assert.equal(c.playing.verified, true);
+  });
+
+  test("the order of the entries does not matter, and any number of copies lose to the one proof", async () => {
+    const r = await answer([copy("Neo", 5), forged("Neo", 6), real("Neo", 4), copy("Neo", 7)]);
+    assert.deepEqual(r.proven, [4]);
+    assert.deepEqual(r.accounts, { 4: idOf(t, "Neo") });
+    assert.equal(onlineOf(t, "Neo")[0].slot, 4);
+  });
+
+  test("a copy with a proof made for another player id: refused without a word against the real player", async () => {
+    const r = await answer([forged("Trinity", 2), real("Trinity", 3, { device: DEV3 })]);
+    assert.deepEqual(r.proven, [3]);
+    assert.equal(onlineOf(t, "Trinity")[0].proven, 1);
+    assert.equal(flagsOf(t, "Trinity").length, 0, "no bad_proof flag on an account whose id somebody else announced");
+    assert.equal(rows(t, "presence_devices").filter((d) => d.account_id === idOf(t, "Trinity")).length, 1, "only the real device is bound");
+    assert.ok(!t.logs.join("\n").includes(clientIdFor(pidOf(t, "Trinity"), A)), "the id is never logged");
+  });
+
+  test("the copy alone, with a forged proof: the proof is refused and flagged, as it always was", async () => {
+    const r = await answer([forged("Switch", 2)]);
+    assert.deepEqual(r.proven, []);
+    assert.equal(onlineOf(t, "Switch").length, 0);
+    assert.equal(flagsOf(t, "Switch")[0].kind, "bad_proof");
+  });
+
+  test("when no entry proves the id, or two do, every one is dropped as before", async () => {
+    let r = await answer([real("Switch", 1, { proof: false }), copy("Switch", 2)]);
+    assert.deepEqual([r.proven, onlineOf(t, "Switch").length], [[], 0], "neither proved: the server cannot say which is real");
+    r = await answer([real("Switch", 1, { proof: false }), forged("Switch", 2)]);
+    assert.equal(onlineOf(t, "Switch").length, 0, "one without a proof and one with a wrong one");
+    r = await answer([real("Switch", 1, { device: DEV1 }), real("Switch", 2, { device: DEV1 })]);
+    assert.deepEqual([r.proven, onlineOf(t, "Switch").length], [[], 0], "one game announced twice: both proofs check out, so neither is the copy");
+  });
+
+  test("a verified player's session is kept while the copy comes and goes", async () => {
+    await answer([real("Neo", 1)]);
+    const since = onlineOf(t, "Neo")[0].since;
+    t.advance(30);
+    const during = await answer([real("Neo", 1), copy("Neo", 9)]);
+    assert.deepEqual(during.proven, [1], "the answer that carries the copy still proves the real player");
+    t.advance(30);
+    const r = await answer([real("Neo", 1)]);
+    assert.deepEqual(r.proven, [1]);
+    const rowsNow = onlineOf(t, "Neo");
+    assert.equal(rowsNow.length, 1);
+    assert.equal(rowsNow[0].since, since, "one session, never dropped and started again");
+  });
+
+  test("the name the real player is given, and none for the copy", async () => {
+    const r = await answer([{ ...real("Trinity", 3, { device: DEV3 }), name: "xX_tr1n_Xx" }, { ...copy("Trinity", 4), name: "Trinity" }], { names: true });
+    assert.deepEqual(r.names, { 3: { set: "Trinity" }, 4: { taken: true } });
+  });
+});
+
 describe("presence: devices, concurrency and the admin panel's hooks", () => {
   let t;
   let admin;

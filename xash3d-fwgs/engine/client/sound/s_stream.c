@@ -121,7 +121,9 @@ void S_StartBackgroundTrack( const char *introTrack, const char *mainTrack, int 
 
 	Q_strncpy( s_bgTrack.current, introTrack, sizeof( s_bgTrack.current ));
 	memset( &musicfade, 0, sizeof( musicfade )); // clear any soundfade
-	s_bgTrack.source = cls.key_dest;
+	// H9: a track a config starts while a startup video plays (userconfig.cfg's menu music, a few frames after the intro starts)
+	// is the menu's: the key destination then is the movie's, and the music would stay paused once the menu shows
+	s_bgTrack.source = ( cls.state == ca_cinematic ) ? key_menu : cls.key_dest;
 
 	if( position != 0 )
 	{

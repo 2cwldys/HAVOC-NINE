@@ -1,0 +1,77 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index 8062fe5..f59b003 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -4623,7 +4623,7 @@ public _ARP_AddHudItemKind(Plugin,Params)
+ 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+ 	}
+ 
+-	if(Kind < HUDK_EXTRA || Kind > HUDK_STATUS)
++	if(Kind < HUDK_EXTRA || Kind > HUDK_NEED)
+ 		Kind = HUDK_EXTRA
+ 
+ 	vdformat(g_Query,4095,5,6)
+diff --git a/base/addons/amxmodx/scripting/ARP_HungerMod.sma b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+index 45b54ea..a7d44f7 100644
+--- a/base/addons/amxmodx/scripting/ARP_HungerMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+@@ -95,16 +95,17 @@ public ARP_Salary(id)
+ 	return PLUGIN_CONTINUE
+ }
+ 
++// The second HUD: a living player's hunger as a need (a bar in an H9 player's panel at the top right, the text "Hunger: 42%" for every other
++// player) and, from 90, the status line under it. Nothing while the need is off or the account is still loading.
+ public EventHudRender(Name[],Data[],Len)
+ {
+ 	new id = Data[0]
+-	if(!is_user_alive(id) || Data[1] != HUD_PRIM || !get_pcvar_num(p_HungerEnabled) || ARP_SqlHandle() == Empty_Handle)
++	if(!is_user_alive(id) || Data[1] != HUD_SEC || !get_pcvar_num(p_HungerEnabled) || ARP_SqlHandle() == Empty_Handle || !ARP_PlayerReady(id))
+ 		return
+ 	
+-	new Hunger = ARP_GetUserHunger(id)
+-	ARP_AddHudItem(id,HUD_PRIM,0,"Hunger: %d%%",Hunger)
++	ARP_AddNeedItem(id,"Hunger",ARP_GetUserHunger(id))
+ 	
+-	if(g_Starving[id] == 2) ARP_AddHudItem(id,HUD_PRIM,0,"Starving: No Salary")
++	if(g_Starving[id] == 2) ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_STATUS,"Starving: No Salary")
+ }
+ 
+ public ARP_RegisterItems()
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+index 8c68b52..50ae6b8 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+@@ -13,9 +13,9 @@
+ native ARP_AddHudItem(id,channel,refresh,const item[],{Float,Sql,Result,_}:...)
+ 
+ // What a line is. An H9 player's HUD panel (include\h9_vgui.inc, docs\APOLLO_RP.txt section 2) switches each kind on and off
+-// with its own client cvar (cl_h9_arphud_title, _wallet, _bank, _payday, _salary, _job, _status and _extra); a line added with
+-// ARP_AddHudItem is HUDK_EXTRA. The text HUD every other player gets does not care.
+-#define HUDK_EXTRA   0   // anything a plugin adds: hunger, jail status, the zone, ...
++// with its own client cvar (cl_h9_arphud_title, _wallet, _bank, _payday, _salary, _job, _status and _extra, and _needs for HUDK_NEED); a
++// line added with ARP_AddHudItem is HUDK_EXTRA. The text HUD every other player gets does not care.
++#define HUDK_EXTRA   0   // anything a plugin adds: jail status, the zone, ...
+ #define HUDK_TITLE   1   // the title (the city) and the blank line after it
+ #define HUDK_WALLET  2
+ #define HUDK_BANK    3
+@@ -23,10 +23,20 @@ native ARP_AddHudItem(id,channel,refresh,const item[],{Float,Sql,Result,_}:...)
+ #define HUDK_SALARY  5
+ #define HUDK_JOB     6
+ #define HUDK_STATUS  7   // the dead, loading and malfunction lines
++#define HUDK_NEED    8   // a need (hunger, thirst): the text is "<label>: <0 to 100>%" and the panel draws it as a bar
+ 
+ // ARP_AddHudItem for a line of a given kind (a HUDK_ value; any other is HUDK_EXTRA)
+ native ARP_AddHudItemKind(id,channel,refresh,kind,const item[],{Float,Sql,Result,_}:...)
+ 
++// A need's line for the second HUD (HUD_SEC, at the top right in the stock arp.cfg). An H9 player's game draws the needs of a HUD as a panel
++// with the heading "Needs" and a row for each: the label, a bar and the number; every other player gets the line as text, "<label>: <value>%",
++// in the place arp_hud2_x and arp_hud2_y give. Call it from a HUD_Render handler when Data[1] is HUD_SEC, for a living player whose account is
++// loaded, and only while the need is switched on (ARP_HungerMod does, for "Hunger"). The value is how bad the need is, 0 (satisfied) to 100:
++// the bar goes from green through yellow to red at 75 and has a mark at 75 and at 90. A line under it of kind HUDK_STATUS in the same HUD (for
++// instance "Starving: No Salary") is drawn as a warning.
++stock ARP_AddNeedItem(id,const label[],value)
++	ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_NEED,"%s: %d%%",label,clamp(value,0,100))
++
+ // Refreshes the HUD specified
+ stock ARP_RefreshHud(id,channel)
+ 	ARP_AddHudItem(id,channel,1," ")

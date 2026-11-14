@@ -9,7 +9,7 @@
  *
  * WHAT IT SENDS. Three kinds of call, signed with h9_presence's key (h9p_sign), so there is no key
  * of its own to set:
- *   start   when a match begins: the map, the ladder, and each player's h9_clientid and side
+ *   start   when a match begins: the map, the ladder, and each proven player's h9_clientid and side
  *   kills   every 10 seconds while kills wait, numbered so h9web takes each batch once and in
  *           order: who is here, and each kill as [killer id, victim id, headshot, team kill]
  *   end     how the match ended, and each player's side, rounds, time, whether they left and
@@ -17,6 +17,12 @@
  * and "rating" for the join line. h9web rates only players whose game proved its havoc9.org id on
  * this server (h9_presence's challenge, or the web client's relay). Everyone else plays as ever
  * and moves nothing. A player's own rank, and anyone's, is h9_rank.amxx's .rank (and /rank).
+ *
+ * WHO IS NAMED. Only a player h9_presence has proven (h9p_account) is ever named to h9web: on the
+ * roster, as a killer or as a victim. An h9_clientid a game merely announces is readable by every
+ * player on the server and so is anyone's; a player who takes another's id for the moment of a kill
+ * has no account here, so the kill is nobody's and the player whose id it was is not credited or
+ * blamed. A player proven in the middle of a match joins its roster then (h9p_account_changed).
  *
  * ASSISTS come from ts_matchmode's count for the map, without the assists on a kill a bot had a part
  * in (tsm_assists_ranked; the scoreboard's A column, tsm_assists, counts those too): a player's
@@ -54,12 +60,13 @@
 
 #define H9C_CORE
 #include <h9_community>
+#include <h9_presence>  // h9p_account: the slot's proven account
 #include <tsm_api>
 
 #pragma dynamic 16384
 
 #define PLUGIN  "H9 Compete"
-#define VERSION "1.2"
+#define VERSION "1.3"
 #define AUTHOR  "2cwldys, after xjiro"
 
 #define MAX_BODY     12000   // h9_presence signs at most 12287 characters
@@ -104,7 +111,7 @@ new g_seq = 0;                           // the last batch h9web took
 new g_rounds = 0;
 new g_oneround = 0;                      // 1 when the mode plays its match as one round (tsm_one_round), as the last round went live
 new g_bots = 0;                          // the most bots seen on the sides at once
-new g_others[3];                         // the most humans seen on each side without an h9_clientid
+new g_others[3];                         // the most humans seen on each side without a proven h9_clientid
 new g_last_batch = 0;
 
 // Everyone the match has seen, by h9_clientid: side, rounds played, seconds in it, and whether
@@ -265,10 +272,18 @@ bool:is_human(id)
 	return id >= 1 && id <= g_maxplayers && is_user_connected(id) && !is_user_bot(id) && !is_user_hltv(id);
 }
 
-/** The player's h9_clientid, when it is one: 32 lowercase hex characters. */
+/**
+ * The player's h9_clientid, when it is one and h9_presence has proven the game holds the account's player id
+ * (h9p_account): 32 lowercase hex characters. An id a game only announces is anyone's, so no roster entry, kill or
+ * rating is ever about it.
+ */
 bool:client_id(id, out[33])
 {
 	out[0] = 0;
+	if (!g_have_presence || h9p_account(id) <= 0)
+	{
+		return false;
+	}
 	get_user_info(id, "h9_clientid", out, 32);
 	if (strlen(out) != 32)
 	{
@@ -597,6 +612,30 @@ public client_putinserver(id)
 	}
 }
 
+/**
+ * h9_presence's word on a slot's account changed: a player proven mid-match (the proof comes a second or two after
+ * joining, and again after each map change) joins the match's roster from here on; one whose proof went, a new id
+ * in game, stops its time on it. A rename or a role changes nothing here.
+ */
+public h9p_account_changed(id, account)
+{
+	if (!g_open || id < 1 || id > g_maxplayers)
+	{
+		return;
+	}
+	if (account > 0)
+	{
+		if (g_entry[id] < 0 && is_human(id))
+		{
+			roster_join(id);
+		}
+	}
+	else if (g_entry[id] >= 0)
+	{
+		roster_leave(id);
+	}
+}
+
 public client_disconnected(id, bool:drop, message[], maxlen)
 {
 	if (id < 1 || id > g_maxplayers)
@@ -805,7 +844,7 @@ send_start()
 	}
 }
 
-/** ,"players":[["<id>",side],...] for everyone here with an h9_clientid. */
+/** ,"players":[["<id>",side],...] for every proven player here. */
 app_roster()
 {
 	app_raw(",^"players^":[");

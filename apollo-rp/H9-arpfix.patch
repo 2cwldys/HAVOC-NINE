@@ -1,0 +1,763 @@
+diff --git a/base/addons/amxmodx/configs/arp/arp.cfg b/base/addons/amxmodx/configs/arp/arp.cfg
+index 31e979e..b5bd3e6 100644
+--- a/base/addons/amxmodx/configs/arp/arp.cfg
++++ b/base/addons/amxmodx/configs/arp/arp.cfg
+@@ -24,6 +24,12 @@ arp_hud4_type "2"
+ // Whether or not when you die you lose the money in your wallet
+ arp_wallet_death "1"
+ 
++// Seconds a join waits for the havoc9.org account of its player, which an H9XASH game linked to one proves a
++// second or two after it is in game (up to 20 seconds after a map starts): a player no row knows may have made
++// his character under an earlier authid, when the address of the server changed. 0: no account is waited
++// for, used or recorded, the authid alone
++arp_account_wait "30"
++
+ // What access level you must have in order to get police abilities such as
+ // com, cuffing, and jail mod
+ arp_police_access "a"
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index ec870b3..45949e6 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -19,6 +19,7 @@
+ #include <ApolloRP>
+ #include <xs>
+ #include <tsfun>
++#include <h9_presence>
+ #define ARPVGUI_PAGED
+ #include <ApolloRP_VGui>
+ #if defined ARRAYX
+@@ -71,6 +72,17 @@ new g_Type[64] = "sqlite"
+ 
+ new g_Authid[MAX_PLAYERS + 1][36]
+ 
++// H9: the key of each player's character: the authid his rows are kept under (ARP_GetUserKey)
++new g_CharKey[MAX_PLAYERS + 1][36]
++// H9: each player's havoc9.org account once h9_presence has proved it (0: none yet), and the seconds his load has
++// waited for it (-1: it does not wait)
++new g_Acct[MAX_PLAYERS + 1]
++new g_AcctWait[MAX_PLAYERS + 1]
++new g_Presence
++new p_AcctWait
++// the table that ties an authid to the account it was seen with
++new g_IdsTable[64] = "arp_ids"
++
+ new g_PluginEnd
+ 
+ // amount of jobs currently loaded
+@@ -235,6 +247,9 @@ public plugin_init()
+ {			
+ 	register_cvar("arp_version",g_Version,FCVAR_SERVER)
+ 	
++	// H9: whether h9_presence is loaded, which proves a player's havoc9.org account
++	g_Presence = LibraryExists("h9_presence",LibType_Library)
++	
+ 	arpvgui_init("arpcore")
+ 	
+ 	register_menucmd(register_menuid(g_ItemsMenu),g_Keys,"ItemsHandle")
+@@ -326,6 +341,160 @@ public CmdGetClasses(id)
+ }
+ #endif
+ 
++// H9: a player's character is kept under a key, the authid its rows are under. It is the engine's authid, except for a
++// player whose havoc9.org account h9_presence proves and who made his character under an earlier authid (the address of
++// the server changed, and the engine's authid with it): arp_ids lists the authids each account was seen with, the first
++// of them is its character's key. No row of another table is ever changed to follow an account.
++ArpKey(id,Key[],Len)
++{
++	if(g_CharKey[id][0])
++		copy(Key,Len,g_CharKey[id])
++	else
++		get_user_authid(id,Key,Len)
++}
++
++// H9: the havoc9.org account h9_presence has proved for the player: 0 for none, not yet, or no h9_presence
++ArpAccount(id)
++{
++	if(!g_Presence || get_pcvar_num(p_AcctWait) < 1 || !is_user_connected(id))
++		return 0
++	
++	return h9p_account(id)
++}
++
++// H9: whether the player's game can prove an account here: h9_presence challenges, and the game is H9XASH linked to one
++// (_h9idv 1: it answers the challenge; _h9lnk 1: its player id is an account's)
++bool:ArpCandidate(id)
++{
++	if(!g_Presence || is_user_bot(id) || get_pcvar_num(p_AcctWait) < 1 || (!get_cvar_num("h9_presence_challenge") && !get_cvar_num("h9_require_account")))
++		return false
++	
++	new Value[4]
++	get_user_info(id,"_h9idv",Value,charsmax(Value))
++	if(Value[0] != '1')
++		return false
++	
++	get_user_info(id,"_h9lnk",Value,charsmax(Value))
++	
++	return Value[0] == '1'
++}
++
++// H9: the player's character, read under his key; its items and keys are read once the row is (ArpLoadExtras)
++LoadPlayer(id)
++{
++	new Data[1],Quoted[72]
++	Data[0] = id
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
++	
++	format(g_Query,4095,"SELECT * FROM %s WHERE authid='%s'",g_UserTable,Quoted)
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientData",g_Query,Data,1)
++}
++
++ArpLoadExtras(id)
++{
++	new Data[1],Quoted[72]
++	Data[0] = id
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
++	
++	format(g_Query,4095,"SELECT * FROM %s WHERE authidname LIKE '%s|%%'",g_ItemsTable,Quoted)
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientItems",g_Query,Data,1)
++	
++	format(g_Query,4095,"SELECT * FROM %s WHERE authidkey LIKE '%s|%%'",g_KeysTable,Quoted)
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKeys",g_Query,Data,1)
++}
++
++// H9: the key the join found: the first authid recorded for the account, when the player's authid is recorded (or the
++// account is known), else his authid
++public FetchClientKey(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
++{
++	new id = Data[0]
++	if(!is_user_connected(id))
++		return PLUGIN_CONTINUE
++	
++	get_user_authid(id,g_CharKey[id],35)
++	
++	if(FailState != TQUERY_SUCCESS || Errcode)
++	{
++		format(g_Query,4095,"Could not read the account table: %s",Error)
++		UTIL_ARP_ThrowError(0,0,g_Query,0)
++	}
++	else if(SQL_NumResults(Query) > 0)
++	{
++		SQL_ReadResult(Query,0,g_CharKey[id],35)
++		g_AcctWait[id] = -1
++	}
++	
++	LoadPlayer(id)
++	
++	return PLUGIN_CONTINUE
++}
++
++// H9: a join that waits for the account of a player no row knows, a second at a time (the task is id + 2 * MAX_PLAYERS);
++// with it, his character is the account's first authid, else, when it never comes, one under his authid
++public ArpRetry(Task)
++{
++	new id = Task - MAX_PLAYERS * 2
++	if(id < 1 || id > MAX_PLAYERS || !is_user_connected(id) || g_AcctWait[id] < 0)
++		return
++	
++	new Acct = ArpAccount(id),Data[1]
++	if(!Acct && ++g_AcctWait[id] <= get_pcvar_num(p_AcctWait))
++	{
++		set_task(1.0,"ArpRetry",Task)
++		return
++	}
++	
++	g_AcctWait[id] = -1
++	
++	if(!Acct)
++	{
++		LoadPlayer(id)
++		return
++	}
++	
++	Data[0] = id
++	format(g_Query,4095,"SELECT authid FROM %s WHERE acct=%d ORDER BY id LIMIT 1",g_IdsTable,Acct)
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKey",g_Query,Data,1)
++}
++
++// H9: ties the player's authid to his account, once: the next time his authid is another, the account finds his character
++ArpRecordId(id)
++{
++	new Authid[36],Quoted[72]
++	get_user_authid(id,Authid,35)
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
++	
++	switch(g_SqlMode)
++	{
++		case MYSQL:
++			format(g_Query,4095,"INSERT IGNORE INTO %s (authid,acct) VALUES ('%s','%d')",g_IdsTable,Quoted,g_Acct[id])
++		case SQLITE:
++			format(g_Query,4095,"INSERT OR IGNORE INTO %s (authid,acct) VALUES ('%s','%d')",g_IdsTable,Quoted,g_Acct[id])
++	}
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
++}
++
++public _ARP_GetUserKey(Plugin,Params)
++{
++	if(Params != 3)
++	{
++		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
++		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
++	}
++	
++	new id = get_param(1),Key[36]
++	if(id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
++	{
++		format(g_Query,4095,"User not connected: %d",id)
++		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
++	}
++	
++	ArpKey(id,Key,35)
++	set_string(2,Key,get_param(3))
++	
++	return SUCCEEDED
++}
++
+ public ModuleFilter(const Module[])
+ {
+     if(equali(Module,"tsfun") || equali(Module,"tsx") || equali(Module,"xstats") || equali(Module,"tfcx") || equali(Module,"cstrike") || equali(Module,"csx"))
+@@ -546,7 +715,7 @@ public SaveData()
+ 		array_get_string(CurArray,0,InternalName,63)
+ 		array_get_string(CurArray,1,ExternalName,63)
+ 		array_get_string(CurArray,2,OwnerName,32)
+-		array_get_string(CurArray,3,OwnerAuthid,32)
++		array_get_string(CurArray,3,OwnerAuthid,35)
+ 		Price = array_get_int(CurArray,4)
+ 		Locked = array_get_int(CurArray,5)
+ 		Access = array_get_int(CurArray,6)
+@@ -555,6 +724,7 @@ public SaveData()
+ 		ARP_SqlEscape(InternalName,63)
+ 		ARP_SqlEscape(ExternalName,63)
+ 		ARP_SqlEscape(OwnerName,32)
++		ARP_SqlEscape(OwnerAuthid,35)
+ 		//replace_all(ExternalName,32,"'","\'")
+ 		//replace_all(OwnerName,32,"'","\'")
+ 		
+@@ -593,6 +763,7 @@ public SaveData()
+ 		#endif
+ 		
+ 		ARP_SqlEscape(InternalName,charsmax(InternalName))
++		ARP_SqlEscape(Targetname,32)
+ 		
+ 		switch(g_SqlMode)
+ 		{
+@@ -613,12 +784,12 @@ public SaveData()
+ 
+ SaveUserItems(id)
+ {
+-	new Authid[36],ItemId,ItemName[33],Size = array_size(g_UserItemArray[id]) + 1
++	new Authid[72],ItemId,ItemName[33],Size = array_size(g_UserItemArray[id]) + 1
+ 	
+ 	if(Size < 2)
+ 		return
+ 	
+-	get_user_authid(id,Authid,35)
++	SQL_QuoteString(Empty_Handle,Authid,charsmax(Authid),g_CharKey[id])
+ 	
+ 	for(new Count = 1,Success = 1;Count < Size && Success;Count++)
+ 	{
+@@ -747,6 +918,8 @@ public plugin_precache()
+ 	p_Log = register_cvar("arp_log","1")
+ 	p_GameName = register_cvar("arp_gamename","")
+ 	p_HoverMessage = register_cvar("arp_hover_message","1")
++	// H9: seconds a join may wait for a havoc9.org account (arp_ids); 0: no account is waited for, used or recorded
++	p_AcctWait = register_cvar("arp_account_wait","30")
+ 	//p_CharacterSheet = register_cvar("arp_character_sheet","1")
+ 	
+ 	p_Welcome[0] = register_cvar("arp_welcome_msg1","This server is running Apollo RP (http://ApolloRP.org).")
+@@ -1087,6 +1260,16 @@ public SqlInit()
+ 	}
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
++	// H9: which authids belong to which havoc9.org account (ArpKey); a table of its own, no row of the others is changed
++	switch(g_SqlMode)
++	{
++		case MYSQL:
++			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (id INT(11) AUTO_INCREMENT,authid VARCHAR(36),acct INT(11),PRIMARY KEY (id),UNIQUE KEY (authid))",g_IdsTable)
++		case SQLITE:
++			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT,authid VARCHAR(36),acct INT(11),UNIQUE (authid))",g_IdsTable)
++	}
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
++	
+ 	switch(g_SqlMode)
+ 	{
+ 		case MYSQL:
+@@ -1387,6 +1570,8 @@ public plugin_end()
+ 		
+ public client_disconnect(id)	
+ {
++	remove_task(id + MAX_PLAYERS * 2)
++	
+ 	if(g_GotInfo[id] >= STD_USER_QUERIES && !g_PluginEnd)
+ 	{
+ 		SaveUserData(id,1)
+@@ -1403,8 +1588,8 @@ public client_disconnect(id)
+ 
+ public SaveUserData(id,Disconnected)
+ {
+-	// H9: bots are never saved (client_putinserver)
+-	if(is_user_bot(id))
++	// H9: bots are never saved (client_putinserver), nor is a character that is not loaded: it has no key to save under
++	if(is_user_bot(id) || !g_CharKey[id][0])
+ 		return
+ 	
+ 	new Data[2]
+@@ -1426,7 +1611,10 @@ public SaveUserData(id,Disconnected)
+ 	
+ 	ARP_SqlEscape(JobName,32)
+ 	
+-	format(g_Query,4095,"UPDATE %s SET bankmoney='%d',wallet='%d',jobname='%s',hunger='%d',access='%s',jobright='%s' WHERE authid='%s'",g_UserTable,g_BankMoney[id],g_Money[id],JobName,g_Hunger[id],Access,JobRight,g_Authid[id])
++	new Quoted[72]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
++	
++	format(g_Query,4095,"UPDATE %s SET bankmoney='%d',wallet='%d',jobname='%s',hunger='%d',access='%s',jobright='%s' WHERE authid='%s'",g_UserTable,g_BankMoney[id],g_Money[id],JobName,g_Hunger[id],Access,JobRight,Quoted)
+ 	
+ 	g_Saving[id] = 1
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"SaveUserDataHandle",g_Query,Data,2)
+@@ -1482,6 +1670,8 @@ ClearSettings(id)
+ 	g_AccessCache[id] = 0
+ 	
+ 	g_Authid[id][0] = 0
++	g_CharKey[id][0] = 0
++	g_Acct[id] = 0
+ 	
+ 	g_BadJob[id] = 0
+ 	
+@@ -1559,7 +1749,7 @@ public CmdBuy(id)
+ 		
+ 		new CurArray = array_get_int(g_PropertyArray,Property),Price = array_get_int(CurArray,4),Authid[36],EntAuthid[36]
+ 		
+-		get_user_authid(id,Authid,35)
++		ArpKey(id,Authid,35)
+ 		array_get_string(CurArray,3,EntAuthid,35)
+ 		
+ 		if(equali(Authid,EntAuthid))
+@@ -1585,7 +1775,7 @@ public CmdBuy(id)
+ 				{
+ 					Player = Players[Count]
+ 					
+-					get_user_authid(Player,PlayerAuthid,35)
++					ArpKey(Player,PlayerAuthid,35)
+ 					
+ 					if(equali(PlayerAuthid,EntAuthid))
+ 					{
+@@ -1605,7 +1795,10 @@ public CmdBuy(id)
+ 				
+ 				if(!Flag)
+ 				{
+-					format(g_Query,4095,"UPDATE %s SET bankmoney = bankmoney + %d WHERE authid='%s'",g_UserTable,Price,EntAuthid)
++					new Quoted[72]
++					SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),EntAuthid)
++					
++					format(g_Query,4095,"UPDATE %s SET bankmoney = bankmoney + %d WHERE authid='%s'",g_UserTable,Price,Quoted)
+ 					UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 				}
+ 				
+@@ -1627,6 +1820,8 @@ public CmdBuy(id)
+ 				g_TotalQueries++
+ 				#endif
+ 				
++				ARP_SqlEscape(InternalName,63)
++				
+ 				format(g_Query,4095,"DELETE FROM %s WHERE authidkey LIKE '%%|%s'",g_KeysTable,InternalName)
+ 				UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 			}
+@@ -1982,7 +2177,7 @@ public client_PreThink(id)
+ 				new CurArray = array_get_int(g_PropertyArray,Property)
+ 				
+ 				static Authid[36],EntAuthid[36]
+-				get_user_authid(id,Authid,35)
++				ArpKey(id,Authid,35)
+ 				array_get_string(CurArray,3,EntAuthid,35)
+ 				
+ 				if(!array_get_int(CurArray,5) || H9_HasKey(CurArray,id) || equali(Authid,EntAuthid) || array_get_int(CurArray,6) & g_Access[id])
+@@ -2068,7 +2263,7 @@ public client_PreThink(id)
+ 		}
+ 	}	
+ 	
+-	if(g_Display[id])
++	if(g_Display[id] && !is_user_bot(id))
+ 		GetMsg(id,Index)
+ }
+ 
+@@ -2213,6 +2408,7 @@ public plugin_natives()
+ 	register_native("ARP_IsNpc","_ARP_IsNpc")
+ 	
+ 	register_native("ARP_PlayerReady","_ARP_PlayerReady")
++	register_native("ARP_GetUserKey","_ARP_GetUserKey")
+ 	
+ 	register_native("ARP_GetUserWallet","_ARP_GetUserWallet")
+ 	register_native("ARP_SetUserWallet","_ARP_SetUserWallet")
+@@ -3115,7 +3311,10 @@ public _ARP_ClassDestroy(Plugin,Params)
+ 	
+ 	TravTrieGetString(CurTrie,"/table",Table,63)
+ 	
+-	format(g_Query,4095,"DELETE FROM %s WHERE classkey LIKE '%s|%%'",Table,Name)
++	new Quoted[130]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Name)
++	
++	format(g_Query,4095,"DELETE FROM %s WHERE classkey LIKE '%s|%%'",Table,Quoted)
+ 	
+ 	new TravTrie:PluginTrie,TravTrie:ChangedTrie,TravTrie:SaveTrie
+ 	TravTrieGetHCell(CurTrie,"/plugins",PluginTrie)
+@@ -3493,7 +3692,7 @@ UTIL_ARP_AddJob(Name[],Salary,IntAccess)
+ 	copy(FmtName,63,Name)
+ 	ARP_SqlEscape(FmtName,63)
+ 	
+-	format(g_Query,4095,"INSERT INTO %s VALUES ('%s','%d','%s')",g_JobsTable,Name,Salary,Access)
++	format(g_Query,4095,"INSERT INTO %s VALUES ('%s','%d','%s')",g_JobsTable,FmtName,Salary,Access)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+ 	new CurArray = array_create()
+@@ -3548,6 +3747,7 @@ UTIL_ARP_DeleteJob(JobId)
+ 	new Name[33]
+ 	array_get_string(array_get_int(g_JobsArray,JobId),1,Name,32)
+ 	
++	ARP_SqlEscape(Name,32)
+ 	format(g_Query,4095,"DELETE FROM %s WHERE name='%s'",g_JobsTable,Name)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+@@ -3643,7 +3843,10 @@ public _ARP_DeleteProperty(Plugin,Params)
+ 	array_destroy(PropArray)
+ 	array_delete(g_PropertyArray,--g_PropertyNum)
+ 	
+-	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_PropertyTable,InternalName)
++	new Quoted[72]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),InternalName)
++	
++	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_PropertyTable,Quoted)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+ 	for(new Count;Count < g_DoorNum;Count++)
+@@ -3729,7 +3932,10 @@ UTIL_ARP_DeleteDoor(Door)
+ 	array_destroy(DoorArray)
+ 	array_delete(g_DoorArray,--g_DoorNum)
+ 	
+-	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_DoorsTable,InternalName)
++	new Quoted[130]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),InternalName)
++	
++	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_DoorsTable,Quoted)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+ 	return SUCCEEDED
+@@ -4171,7 +4377,10 @@ public _ARP_PropertyAddAccess(Plugin,Params)
+ 	
+ 	ARP_SqlEscape(InternalName,63)
+ 	
+-	format(g_Query,4095,"INSERT INTO %s VALUES('%s|%s')",g_KeysTable,Authid,InternalName)
++	new Quoted[72]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
++	
++	format(g_Query,4095,"INSERT INTO %s VALUES('%s|%s')",g_KeysTable,Quoted,InternalName)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+ 	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
+@@ -4180,7 +4389,7 @@ public _ARP_PropertyAddAccess(Plugin,Params)
+ 	for(new Count;Count < Playersnum;Count++)
+ 	{
+ 		Player = Players[Count]
+-		get_user_authid(Player,PlayerAuthid,35)
++		ArpKey(Player,PlayerAuthid,35)
+ 		
+ 		if(equali(Authid,PlayerAuthid))
+ 		{
+@@ -4220,7 +4429,10 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
+ 	
+ 	ARP_SqlEscape(InternalName,63)
+ 	
+-	format(g_Query,4095,"DELETE FROM %s WHERE authidkey='%s|%s'",g_KeysTable,Authid,InternalName)
++	new Quoted[72]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
++	
++	format(g_Query,4095,"DELETE FROM %s WHERE authidkey='%s|%s'",g_KeysTable,Quoted,InternalName)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+ 	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
+@@ -4229,7 +4441,7 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
+ 	for(new Count;Count < Playersnum;Count++)
+ 	{
+ 		Player = Players[Count]
+-		get_user_authid(Player,PlayerAuthid,35)
++		ArpKey(Player,PlayerAuthid,35)
+ 		
+ 		if(equali(Authid,PlayerAuthid))
+ 		{
+@@ -5147,17 +5359,27 @@ public client_putinserver(id)
+ 		return
+ 	}
+ 	
++	g_CharKey[id][0] = 0
++	g_Acct[id] = 0
++	g_AcctWait[id] = ArpCandidate(id) ? 0 : -1
++	
+ 	get_user_authid(id,Authid,35)
+ 	Data[0] = id
+ 	
+-	format(g_Query,4095,"SELECT * FROM %s WHERE authid='%s'",g_UserTable,Authid)
+-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientData",g_Query,Data,1)
++	// H9: with arp_account_wait 0 his character is under his authid, as it was
++	if(!get_pcvar_num(p_AcctWait))
++	{
++		copy(g_CharKey[id],35,Authid)
++		LoadPlayer(id)
++		return
++	}
+ 	
+-	format(g_Query,4095,"SELECT * FROM %s WHERE authidname LIKE '%s|%%'",g_ItemsTable,Authid)
+-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientItems",g_Query,Data,1)
++	// H9: his character's key first: the first authid recorded for his havoc9.org account, if his authid is one of its
++	new Quoted[72]
++	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
+ 	
+-	format(g_Query,4095,"SELECT * FROM %s WHERE authidkey LIKE '%s|%%'",g_KeysTable,Authid)
+-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKeys",g_Query,Data,1)
++	format(g_Query,4095,"SELECT m2.authid FROM %s m1,%s m2 WHERE m1.authid='%s' AND m2.acct=m1.acct ORDER BY m2.id LIMIT 1",g_IdsTable,g_IdsTable,Quoted)
++	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKey",g_Query,Data,1)
+ }
+ 
+ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize) 
+@@ -5181,20 +5403,31 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		
+ 	new id = Data[0]
+ 	
++	// H9: a player whose game can prove a havoc9.org account and whom no row knows waits for it: the character he made
++	// under an earlier authid may be his
++	if(SQL_NumResults(Query) < 1 && g_AcctWait[id] >= 0)
++	{
++		set_task(1.0,"ArpRetry",id + MAX_PLAYERS * 2)
++		return PLUGIN_CONTINUE
++	}
++	
+ 	g_GotInfo[id]++
+ 	
++	// H9: his items and keys are read under the key of the character found
++	ArpLoadExtras(id)
++	
+ 	if(SQL_NumResults(Query) < 1)
+ 	{
+ 		//g_FirstJoin[id] = 1
+ 
+-		new Authid[36],StartMoney = get_pcvar_num(p_StartMoney)
+-		get_user_authid(id,Authid,35)
++		new Quoted[72],StartMoney = get_pcvar_num(p_StartMoney)
++		SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
+ 		
+ 		#if defined DEBUG
+ 		g_TotalQueries++
+ 		#endif
+ 		
+-		format(g_Query,4095,"INSERT INTO %s VALUES('%s','%d','0','Unemployed','0','','')",g_UserTable,Authid,StartMoney)
++		format(g_Query,4095,"INSERT INTO %s VALUES('%s','%d','0','Unemployed','0','','')",g_UserTable,Quoted,StartMoney)
+ 		UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 		
+ 		new Results[1]
+@@ -5353,12 +5586,12 @@ public FetchClientKeys(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		return UTIL_ARP_ThrowError(0,0,g_Query,0)
+ 	}
+ 		
+-	new id = Data[0],InternalName[33],Property,AuthidKey[64],Garbage[1]
++	new id = Data[0],InternalName[33],Property,AuthidKey[96],Garbage[1]
+ 	
+ 	g_GotInfo[id]++
+ 	while(SQL_MoreResults(Query))
+ 	{
+-		SQL_ReadResult(Query,0,AuthidKey,63)
++		SQL_ReadResult(Query,0,AuthidKey,95)
+ 		strtok(AuthidKey,Garbage,0,InternalName,32,'|')
+ 		
+ 		Property = UTIL_ARP_MatchProperty(InternalName)
+@@ -5437,7 +5670,8 @@ public ShowHud()
+ 	
+ 	new Players[MAX_PLAYERS],Playersnum,Player/*,Pos*/,Retn,Fwd
+ 		
+-	get_players(Players,Playersnum)
++	// H9: no bot is sent a HUD (nothing reads a bot's datagram)
++	get_players(Players,Playersnum,"c")
+ 	
+ 	for(new Count,Count2;Count < Playersnum;Count++)
+ 	{
+@@ -5450,6 +5684,14 @@ public ShowHud()
+ 		if(!is_user_connected(Player))
+ 			continue
+ 		
++		// H9: once his havoc9.org account is proved, his authid is recorded with it
++		if(!g_Acct[Player] && g_GotInfo[Player] >= STD_USER_QUERIES)
++		{
++			g_Acct[Player] = ArpAccount(Player)
++			if(g_Acct[Player])
++				ArpRecordId(Player)
++		}
++		
+ 		if(g_Time == StartTime)
+ 		{
+ 			Fwd = CreateMultiForward("ARP_Salary",ET_STOP2,FP_CELL)
+@@ -5826,10 +6068,12 @@ UTIL_ARP_SetUserItemNum(id,ItemId,Num)
+ 	
+ 	if(!Num)
+ 	{		
+-		new Name[33],Authid[36]
++		new Name[33],Key[36],Authid[72]
+ 		UTIL_ARP_GetItemName(ItemId,Name,32)
++		ARP_SqlEscape(Name,32)
+ 		
+-		get_user_authid(id,Authid,35)
++		ArpKey(id,Key,35)
++		SQL_QuoteString(Empty_Handle,Authid,charsmax(Authid),Key)
+ 		
+ 		#if defined DEBUG
+ 		g_TotalQueries++
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_Player.inc b/base/addons/amxmodx/scripting/include/ApolloRP_Player.inc
+index 6986fea..ff7073f 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_Player.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_Player.inc
+@@ -9,6 +9,12 @@
+ // Checks whether or not the player's account is loaded
+ native ARP_PlayerReady(id)
+ 
++// H9: gets the key of a user's character: the authid his rows (wallet, bank, job, items, keys, properties) are kept under.
++// It is the engine's authid, except for a player whose havoc9.org account h9_presence has proved and who made his
++// character under an earlier authid (the address of his server changed): then it is that one. Use it, not
++// get_user_authid, for anything kept by player. Until the character is loaded it is the engine's authid.
++native ARP_GetUserKey(id,key[],len)
++
+ // Gets time to payday in ARP units (2 seconds = 1 second, or something like that)
+ native ARP_GetPayday()
+ 
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc b/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
+index c8bf2f5..e8bdb44 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
+@@ -91,7 +91,7 @@ forward ARP_BuyProperty(id,doorid,const targetname[])
+ stock ARP_GiveKey(property,id)
+ {
+ 	new Authid[36]
+-	get_user_authid(id,Authid,35)
++	ARP_GetUserKey(id,Authid,35)
+ 	
+ 	ARP_PropertyAddAccess(property,Authid)
+ }
+@@ -99,7 +99,7 @@ stock ARP_GiveKey(property,id)
+ stock ARP_TakeKey(property,id)
+ {
+ 	new Authid[36]
+-	get_user_authid(id,Authid,35)
++	ARP_GetUserKey(id,Authid,35)
+ 	
+ 	ARP_PropertyRemoveAccess(property,Authid)
+ }
+@@ -115,7 +115,7 @@ stock ARP_PropertyGetOwner(property)
+ 	for(new Count;Count < Playersnum;Count++)
+ 	{
+ 		Player = Players[Count]
+-		get_user_authid(Player,PlayerAuthid,35)
++		ARP_GetUserKey(Player,PlayerAuthid,35)
+ 		
+ 		if(equali(Authid,PlayerAuthid))
+ 			return Player
+@@ -127,7 +127,7 @@ stock ARP_PropertyGetOwner(property)
+ stock ARP_PropertySetOwner(property,id)
+ {	
+ 	new Authid[36]
+-	get_user_authid(id,Authid,35)
++	ARP_GetUserKey(id,Authid,35)
+ 	
+ 	ARP_PropertySetOwnerAuth(property,Authid)
+ 	
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_SQL.inc b/base/addons/amxmodx/scripting/include/ApolloRP_SQL.inc
+index a564868..a47d1cf 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_SQL.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_SQL.inc
+@@ -15,23 +15,13 @@ native Handle:ARP_SqlHandle()
+ // Gets the name of a table
+ native ARP_GetTable(TABLES:table,value[],len)
+ 
++// Quotes a value for a query, in place, the way the active driver does it (SQL_QuoteString); len is the most
++// characters the buffer holds, as for charsmax. The buffer has to be room for the quotes it doubles.
+ stock ARP_SqlEscape(string[],len)
+ {
+-	switch(ARP_SqlMode())
+-	{
+-		case MYSQL :
+-		{
+-			replace_all(string,len,"\\","\\\\")
+-			replace_all(string,len,"\0","\\0")
+-			replace_all(string,len,"\n","\\n")
+-			replace_all(string,len,"\r","\\r")
+-			replace_all(string,len,"\x1a","\Z")
+-			replace_all(string,len,"'","\'")
+-			replace_all(string,len,"^"","\^"")
+-		}
+-		case SQLITE :
+-			replace_all(string,len,"'","''")
+-	}
++	static Value[4096]
++	copy(Value,charsmax(Value),string)
++	SQL_QuoteString(Empty_Handle,string,len,Value)
+ }
+ 
+ /*
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc b/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc
+index 2f15891..071f7c8 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc
+@@ -4,7 +4,7 @@
+  * Apollo RP's menus are AMX Mod X menus, the classic TS text menu. A player whose game draws H9 VGUI
+  * (include\h9_vgui.inc, docs\H9_VGUI.txt) gets each of them as a framed panel in H9's purple art, with
+  * the same rows, the same number keys and the same handler behind it; every other player, and every
+- * server without the H9 client, gets the text menu exactly as before.
++ * server without the H9 client, and a player whose cl_h9_arpvgui is 0 (arpvgui_wanted), gets the text menu exactly as before.
+  *
+  * Two kinds of menu are in Apollo RP, and each has one call:
+  *
+@@ -13,7 +13,7 @@
+  *   register_menucmd() handler answers both and nothing else changes.
+  *
+  *   A menu made with menu_create() and menu_additem(), paged by AMX Mod X: arpvgui_menu_display()
+- *   takes the place of menu_display(). For a player without H9 VGUI it IS menu_display(). For an H9
++ *   takes the place of menu_display(). For a player without H9 VGUI, or who does not want panels, it IS menu_display(). For an H9
+  *   player it pages the same items itself, the way AMX Mod X does (seven to a page, 8 Back, 9 More,
+  *   0 Exit), as a text menu with a panel for its twin, and calls the same handler with the same
+  *   (id, menu, item): item is the number of the item in the whole menu, or MENU_EXIT. The menu stays
+@@ -67,10 +67,30 @@ stock arpvgui_init(const ns[])
+ #endif
+ }
+ 
+-/// In place of show_menu(): the same text menu to everyone, and to an H9 player the panel drawn from it.
++/// Whether the player wants Apollo RP's menus as panels: his game's cl_h9_arpvgui, which it keeps in the private
++/// userinfo key _h9arpvgui ("0" off, "1" on). A game without the key (an older client) wants them.
++stock bool:arpvgui_wanted(id)
++{
++	if (id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
++	{
++		return true;
++	}
++	new v[4];
++	get_user_info(id, "_h9arpvgui", v, charsmax(v));
++	return v[0] == EOS || str_to_num(v) != 0;
++}
++
++/// In place of show_menu(): the same text menu to everyone, and to an H9 player who wants panels the panel drawn from it.
+ stock arpvgui_show_menu(id, keys, const text[], time, const amx[], const panel[], const title[] = "")
+ {
+-	h9vgui_show_menu(id, keys, text, time, amx, panel, title);
++	if (arpvgui_wanted(id))
++	{
++		h9vgui_show_menu(id, keys, text, time, amx, panel, title);
++	}
++	else
++	{
++		show_menu(id, keys, text, time, amx);
++	}
+ }
+ 
+ #if defined ARPVGUI_PAGED
+@@ -78,7 +98,7 @@ stock arpvgui_show_menu(id, keys, const text[], time, const amx[], const panel[]
+ /// In place of menu_display(id, menu, page): `handler` is the name of the menu's handler (the one menu_create() was given).
+ stock arpvgui_menu_display(id, menu, const panel[], const title[], const handler[], page = 0)
+ {
+-	if (!g_av_menuname[0] || !h9vgui_supported(id))
++	if (!g_av_menuname[0] || !h9vgui_supported(id) || !arpvgui_wanted(id))
+ 	{
+ 		return menu_display(id, menu, page);
+ 	}

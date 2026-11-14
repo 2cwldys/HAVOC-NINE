@@ -6,6 +6,8 @@
 #include <engine>
 #include <tsx>
 #include <tsfun>
+#define ARPVGUI_PAGED
+#include <ApolloRP_VGui>
 
 #define NPC_TYPES 5
 #define GUNSHOP_MODES 3
@@ -37,8 +39,8 @@ enum SELLING
 	LICENSE
 }
 
-// H9: H9's TSX numbers 0 to 39 (tsconst.inc), the throwing knife 38 and H9's reTS PPSh-41 39
-#define MAX_WEAPONS 40
+// H9: H9's TSX numbers 0 to 40 (tsconst.inc), the throwing knife 38, H9's reTS PPSh-41 39 and laser rifle 40
+#define MAX_WEAPONS 41
 new g_WeaponAmmo[MAX_WEAPONS] =
 {
 	0,//"kung_fu" (H9: 0 in H9's TSX)
@@ -81,7 +83,8 @@ new g_WeaponAmmo[MAX_WEAPONS] =
 	35,//"contender" (H9: 36)
 	210,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion here)
 	0,//"tknife" (H9: 38)
-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
 }
 
 // the max possible in any given area is 44 assuming
@@ -143,8 +146,15 @@ enum MODS
 
 new MODS:g_Mod
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {
+	arpvgui_init("arpnpc")
+	
 	register_menucmd(register_menuid(g_EdekaMenu),g_Keys,"EdekaMenuHandle")
 	register_menucmd(register_menuid(g_BankMenu),g_Keys,"BankMenuHandle")
 	register_menucmd(register_menuid(g_DoctorMenu),g_Keys,"DoctorMenuHandle")
@@ -394,7 +404,7 @@ Edeka(id,Ent)
 		menu_additem(Menu,Command,ItemNum)
 	}
 	
-	menu_display(id,Menu)
+	arpvgui_menu_display(id,Menu,"arpnpc.shop","ARP Shop","EdekaMenuHandle")
 	
 	/*
 	Pos += format(Menu[Pos],Len - Pos,"ARP Shop^n^n")
@@ -467,6 +477,13 @@ public EdekaMenuHandle(id,Menu,Item)
 	
 	ARP_GetItemName(g_Selling[g_CurNpc[id]][Item][ITEMID],ItemName,32)
 	
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,g_Selling[g_CurNpc[id]][Item][ITEMID],1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
+	
 	ARP_SetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID],ARP_GetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID]) + 1)
 	ARP_SetUserWallet(id,UserCash - g_Selling[g_CurNpc[id]][Item][COST])
 	
@@ -485,7 +502,7 @@ public BankHandle(id,Ent)
 	g_CurNpcId[id] = Ent
 	
 	copy(Menu,Len,"ARP Bank^n^n1. Withdraw/Deposit^n2. Buy ATM Card ($10)^n3. Buy Debit Card ($100)^n4. Rob^n^n0. Exit")
-	show_menu(id,g_Keys,Menu,-1,g_BankMenu)	
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_BankMenu,"arpnpc.bank")	
 }
 
 public BankMenuHandle(id,Key)
@@ -514,6 +531,13 @@ public BankMenuHandle(id,Key)
 				return
 			}
 			
+			// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+			if(ARP_InvRoom(id,Results[0],1) < 1)
+			{
+				client_print(id,print_chat,"[ARP] Your inventory is full.")
+				return
+			}
+	
 			ARP_SetUserItemNum(id,Results[0],ARP_GetUserItemNum(id,Results[0]) + 1)
 			ARP_SetUserWallet(id,Cash - 10)
 			
@@ -539,6 +563,13 @@ public BankMenuHandle(id,Key)
 				return
 			}
 			
+			// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+			if(ARP_InvRoom(id,Results[0],1) < 1)
+			{
+				client_print(id,print_chat,"[ARP] Your inventory is full.")
+				return
+			}
+	
 			ARP_SetUserItemNum(id,Results[0],ARP_GetUserItemNum(id,Results[0]) + 1)
 			ARP_SetUserWallet(id,Cash - 100)
 			
@@ -714,7 +745,7 @@ Doctor(id,Ent)
 		menu_additem(Menu,Command,ItemNum)
 	}
 	
-	menu_display(id,Menu)
+	arpvgui_menu_display(id,Menu,"arpnpc.doctor","ARP Doctor","DoctorMenuHandle")
 }
 
 public DoctorMenuHandle(id,Menu,Item)	
@@ -799,6 +830,13 @@ public DoctorMenuHandle(id,Menu,Item)
 	
 	ARP_GetItemName(g_Selling[g_CurNpc[id]][Item][ITEMID],ItemName,32)
 	
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,g_Selling[g_CurNpc[id]][Item][ITEMID],1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
+	
 	ARP_SetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID],ARP_GetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID]) + 1)
 	ARP_SetUserWallet(id,Cash - g_Selling[g_CurNpc[id]][Item][COST])
 	
@@ -854,7 +892,7 @@ public AtmHandle(id,Ent)
 	g_CurNpcId[id] = Ent
 	
 	copy(Menu,Len,"ARP ATM^n^n1. Withdraw^n2. Deposit^n^n0. Exit")
-	show_menu(id,g_Keys,Menu,-1,g_AtmMenu)	
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmMenu,"arpnpc.atm")	
 }
 
 public AtmMenuHandle(id,Key)
@@ -877,7 +915,7 @@ public AtmMenuHandle(id,Key)
 	
 	format(Menu,511,"ARP ATM %s^n^n1. %s $10^n2. %s $20^n3. %s $50^n4. %s $100^n5. %s $250^n6. %s $500^n7. %s $1000^n^n0. Exit",String,String,String,String,String,String,String,String)
 	
-	show_menu(id,g_Keys,Menu,-1,g_AtmUse)
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmUse,"arpnpc.atmuse")
 }
 
 public AtmUseMenuHandle(id,Key)
@@ -949,7 +987,7 @@ Gunshop(id,Ent)
 	}
 	Pos += format(Menu[Pos],Len - Pos,"^n0. Exit")
 	
-	show_menu(id,Keys,Menu,-1,g_GunshopMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_GunshopMenu,"arpnpc.gunshop")
 }
 
 public GunshopMenuHandle(id,Key)
@@ -1089,7 +1127,7 @@ GunshopMenuHandle2(id,Key)
 		menu_additem(Menu,Command,"")
 	}
 	
-	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? menu_display(id,Menu) : client_print(id,print_chat,"[ARP] There are no items in this category.")
+	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? arpvgui_menu_display(id,Menu,"arpnpc.gunbuy","ARP Gunshop","GunshopUseMenuHandle") : client_print(id,print_chat,"[ARP] There are no items in this category.")
 }
 
 // getting a bit long
@@ -1136,6 +1174,13 @@ public GunshopUseMenuHandle(id,Menu,Item)
 	}
 	
 	ARP_GetItemName(ItemId,ItemName,32)
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,ItemId,1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
+	
 	ARP_SetUserItemNum(id,ItemId,ARP_GetUserItemNum(id,ItemId) + 1)
 	
 	client_print(id,print_chat,"[ARP] You have purchased a %s.",ItemName)

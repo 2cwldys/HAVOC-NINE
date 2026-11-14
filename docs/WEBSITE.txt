@@ -49,6 +49,9 @@
      modules\forum\        the forum, with profile pictures
      modules\discord\      Discord linking and the registered role
      modules\presence\     who is in game, communities, rated play, the LADDER
+     modules\p2p\          the P2P relay inside h9web: join a listen game with no
+                           port forwarded, and the public list of such games
+                           (h9web\README.txt, section 20); off unless enabled
      bin\                  h9web-admin.js, h9web-backup.js, local-site.js
      test\                 its tests (section 3)
 
@@ -77,6 +80,14 @@
    serverlist-bot\         THE H9 SERVER LIST the game's Internet tab reads:
                            one Python program, served at /serverlist/. It
                            travels in the host package with the parts above.
+
+   p2p\                    THE P2P RELAY: one Node.js program (run.bat, run.sh)
+                           that lets friends join a listen game with no port
+                           forwarded and keeps the public list shown on the
+                           SERVERS page as P2P GAMES. Runs inside h9web (the
+                           module above) or on its own; its service files
+                           travel in the host package (p2p\README.txt,
+                           docs\P2P_HOSTING.txt).
 
    make-vps-package.cmd    packs the site for a host (section 4)
    build-webclient.cmd     builds the web client package (section 7)
@@ -307,8 +318,12 @@
                README.txt, config.example.json, servers.example.json),
                havoc9.org\ (the site, with deploy\), serverlist-bot\
                (h9_serverlist.py, requirements.txt, README.md, serverlist.ini,
-               servers.txt, serverlist.cfg.example), and BUILD.txt (the
-               build, the time and the commit it was packed from)
+               servers.txt, serverlist.cfg.example), p2p\ (the relay's
+               service files, README.txt, relay.config.example.json,
+               hosts.example.json, run.sh, run.bat, h9-p2p.service.example;
+               not the helper, the tests, hosts.json or relay.config.json),
+               and BUILD.txt (the build, the time and the commit it was
+               packed from)
    The web client ZIP holds webclient-build\stage\ and
    tools\make_webclient_game.py, in a folder named like the ZIP. A stage file
    that never ships (an id, a secret, a game server's settings, a config.cfg)
@@ -324,8 +339,8 @@
    server's Discord bot settings, a database, a key or certificate, a
    backup) or a secret's content (a Discord bot token or webhook URL, a
    private key, a filled-in heartbeat_key, discord_token, password pepper or
-   player id key) stops the run before a ZIP is written, and the values
-   found are never printed. The game's downloads (H9XASH.zip,
+   player id key, a P2P host token or the hash of one) stops the run before a
+   ZIP is written, and the values found are never printed. The game's downloads (H9XASH.zip,
    H9XASH-linux.zip, H9XASH-Updater.exe), the downloads' file index and
    H9XASH-Updater's files\ are not in a host package: stage-h9xash and
    tools\updater\build.cmd make them (BUILDING.txt, section 7), and section 6

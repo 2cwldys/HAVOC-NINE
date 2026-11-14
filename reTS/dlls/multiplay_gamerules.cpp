@@ -912,8 +912,9 @@ void CHalfLifeMultiplay::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, 
 	else if (ktmp && ktmp->IsPlayer())
 	{
 		// @0x7a3bb: a spectacular kill (the killer stunting, a close-combat blow, or 3 points or more)
-		// may leave a slow-motion bubble where the victim fell, as the spectacularness roll decides.
-		if ((pKiller->iuser4 & 0x10c10) != 0 || glast_closecombat || pts > 2)
+		// may leave a slow-motion bubble where the victim fell, as the spectacularness roll decides. A bot ts_matchmode keeps off
+		// powerups leaves none.
+		if (((pKiller->iuser4 & 0x10c10) != 0 || glast_closecombat || pts > 2) && !TSBotKeptOffPowerups(pKiller))
 		{
 			if (DoSpectacularNess())
 				CTSSlowMotionPoint::CreateSlowMotionPoint(pVictim->pev->origin, 0.25f, 1.0f, 0.0f, false);
@@ -951,7 +952,7 @@ void CHalfLifeMultiplay::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, 
 				{
 					pts += 5;
 					TSHudMessageAll(0, 0xff, 0, 1, 30, UTIL_VarArgs("%i #TS_Frg #TS_FrgFr %s, #TS_KilledTheSpecialist", pts, pszKiller));
-					if (peKiller->m_iPowerups == 0 && peKiller->m_iHeldPowerup == 0)
+					if (peKiller->m_iPowerups == 0 && peKiller->m_iHeldPowerup == 0 && !TSBotKeptOffPowerups(peKiller))
 					{
 						peKiller->m_iPowerups = 0;
 						peKiller->m_iHeldPowerup = 8; // the slow motion powerup (@0x7a69f)
@@ -978,24 +979,28 @@ void CHalfLifeMultiplay::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, 
 				TSHudMessageAll(0, 0xff, 0, 1, 55, UTIL_VarArgs("%s #TS_Specialist", pszKiller));
 				if (peKiller->pev->health < 150.0f)
 					peKiller->pev->health = 150.0f;
-				peKiller->m_iKungFu = 1;
-				peKiller->m_bLowGravity = 1;
-				g_engfuncs.pfnSetPhysicsKeyValue(peKiller->edict(), "mj", "1");
-				extern int gmsgTSPowerUp; // ts_player.cpp
-				MESSAGE_BEGIN(MSG_ONE, gmsgTSPowerUp, NULL, peKiller->pev);
-				WRITE_SHORT(TS_PWUP_KUNGFU);
-				WRITE_BYTE(0);
-				MESSAGE_END();
-				MESSAGE_BEGIN(MSG_ONE, gmsgTSPowerUp, NULL, peKiller->pev);
-				WRITE_SHORT(TS_PWUP_LOWGRAV);
-				WRITE_BYTE(0);
-				MESSAGE_END();
-				if (peKiller->m_iPowerups == 0 && peKiller->m_iHeldPowerup == 0)
+				// the powerups of it are not for a bot ts_matchmode keeps off powerups: it keeps the 150 health
+				if (!TSBotKeptOffPowerups(peKiller))
 				{
-					peKiller->m_iPowerups = 0;
-					peKiller->m_iHeldPowerup = 8;
-					peKiller->m_flPowerupExpireTime = 0;
-					peKiller->m_iPowerupTime = 2;
+					peKiller->m_iKungFu = 1;
+					peKiller->m_bLowGravity = 1;
+					g_engfuncs.pfnSetPhysicsKeyValue(peKiller->edict(), "mj", "1");
+					extern int gmsgTSPowerUp; // ts_player.cpp
+					MESSAGE_BEGIN(MSG_ONE, gmsgTSPowerUp, NULL, peKiller->pev);
+					WRITE_SHORT(TS_PWUP_KUNGFU);
+					WRITE_BYTE(0);
+					MESSAGE_END();
+					MESSAGE_BEGIN(MSG_ONE, gmsgTSPowerUp, NULL, peKiller->pev);
+					WRITE_SHORT(TS_PWUP_LOWGRAV);
+					WRITE_BYTE(0);
+					MESSAGE_END();
+					if (peKiller->m_iPowerups == 0 && peKiller->m_iHeldPowerup == 0)
+					{
+						peKiller->m_iPowerups = 0;
+						peKiller->m_iHeldPowerup = 8;
+						peKiller->m_flPowerupExpireTime = 0;
+						peKiller->m_iPowerupTime = 2;
+					}
 				}
 				peKiller->m_iAward = (peKiller->m_iAward == 10) ? 10 : 4; // The One keeps his 10
 			}
@@ -1047,7 +1052,7 @@ void CHalfLifeMultiplay::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, 
 		// @0x7ac15: with slowmatch at 1, a scoring kill hands the killer a slow motion powerup to
 		// hold, if he has none active and holds none or a slow motion one, adding a second to its
 		// hold, up to 3.
-		if (slowmatch.value == 1.0f && peKiller && pts > 0 &&
+		if (slowmatch.value == 1.0f && peKiller && pts > 0 && !TSBotKeptOffPowerups(peKiller) &&
 			(peKiller->m_iHeldPowerup == 0 || (peKiller->m_iHeldPowerup & 1) != 0) && peKiller->m_iPowerups == 0)
 		{
 			peKiller->m_iPowerups = 0;
@@ -1222,6 +1227,8 @@ static const char* TSKillWeaponName(CBasePlayer* pVictim, entvars_t* pKiller, en
 		killer_weapon_name = "Shrapnel";
 	else if (strncmp(killer_weapon_name, "grenade", 8) == 0) // @0x10c734 = "handgrenade"+4
 		killer_weapon_name = "M61 Grenade";
+	else if (strncmp(killer_weapon_name, "h9_mechrocket", 14) == 0) // the Mech rocket launcher's rocket
+		killer_weapon_name = "Mech Rocket";
 
 	return killer_weapon_name;
 }

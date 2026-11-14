@@ -463,14 +463,25 @@ function boundsOf(brushes) {
 
 /** Seconds each basin's train waits in its tunnel between crossings, the two apart so they keep no beat. */
 const LINE_WAIT = { n: 110, s: 136 };
+/** Seconds before a train leaves its tunnel that its rumble starts; the ground shakes as it leaves. */
+const LINE_LEAD = 1.5;
 
 /**
  * Both basins' trains and what they set off. Each train and its windows are two func_trains on paths of their own,
  * the same length and run at the same speed, so they move as one: from the tunnel at one end of the bridge across
  * to the other's, and back through the rock in a jump (a path_corner's teleport), out of sight. The north train
- * runs west, the south's east. As a train leaves its tunnel the corner it waited at fires its pass: the rumble,
- * loud and heard all round the basin, and the ground shaking under everyone near (env_shake, not over the whole
- * map). The trains are func_trains: GoldSrc starts each at its first corner when the map does.
+ * runs west, the south's east. The train itself is silent (movesnd 0: the game library plays its silent
+ * common/null.wav); the sound is the rumble, an ambient_generic loud and heard all round the basin, and with it
+ * the ground shaking under everyone near (env_shake, not over the whole map).
+ *
+ * A corner fires its message when the train arrives at it, and a train's wait is counted on its own clock, which
+ * the engine's spawn frames run ahead of the game's clock that a multi_manager's delays are counted on. So the
+ * pass is not fired where the train starts to wait and then delayed by the wait: the train waits LINE_WAIT less
+ * LINE_LEAD at its tunnel's corner, then LINE_LEAD at a second corner on the same spot, which fires the pass.
+ * The rumble starts with the pass and the shake follows it by LINE_LEAD, as the train leaves, whatever the two
+ * clocks stand at. The windows' train has the same two corners (without the message), so that the two add up
+ * the same waits to the same clock readings and leave in the same frame.
+ * The trains are func_trains: GoldSrc starts each at its first corner when the map does.
  */
 function trains() {
   const out = [];
@@ -482,18 +493,20 @@ function trains() {
     const place = (p) => (turn ? turnedPoint(p) : p);
     const pass = `line_${half}_pass`;
     for (const [part, brushes, keys] of [
-      ["", body, { speed: 400, movesnd: 10, volume: 1, dmg: 200, _minlight: 0.2 }],
+      ["", body, { speed: 400, movesnd: 0, dmg: 200, _minlight: 0.2 }],
       ["_glow", glow, { speed: 400, spawnflags: 8, rendermode: 5, renderamt: 255 }],
     ]) {
       // a func_train puts the middle of its box on each corner
       const [min, max] = boundsOf(brushes);
       const mid = [0, 1, 2].map((k) => (min[k] + max[k]) / 2);
-      const [end, start] = [`line_${half}${part}_end`, `line_${half}${part}_start`];
+      const [end, start, hold] = [`line_${half}${part}_end`, `line_${half}${part}_start`, `line_${half}${part}_hold`];
+      const [west, east] = [place([mid[0] - reach, mid[1], mid[2]]), place([mid[0] + reach, mid[1], mid[2]])];
       out.push(M.brushEntity("func_train", turn ? M.turned(brushes, 180) : brushes, { target: end, ...keys }));
-      out.push(M.pointEntity("path_corner", place([mid[0] - reach, mid[1], mid[2]]), { targetname: end, target: start, wait: 0 }));
-      out.push(M.pointEntity("path_corner", place([mid[0] + reach, mid[1], mid[2]]), { targetname: start, target: end, wait, spawnflags: 2, ...(part ? {} : { message: pass }) }));
+      out.push(M.pointEntity("path_corner", west, { targetname: end, target: start, wait: 0 }));
+      out.push(M.pointEntity("path_corner", east, { targetname: start, target: hold, wait: wait - LINE_LEAD, spawnflags: 2 }));
+      out.push(M.pointEntity("path_corner", east, { targetname: hold, target: end, wait: LINE_LEAD, ...(part ? {} : { message: pass }) }));
     }
-    out.push(M.pointEntity("multi_manager", place([0, TRACK.y, 380]), { targetname: pass, [`line_${half}_rumble`]: wait - 1.5, [`line_${half}_shake`]: wait }));
+    out.push(M.pointEntity("multi_manager", place([0, TRACK.y, 380]), { targetname: pass, [`line_${half}_rumble`]: 0, [`line_${half}_shake`]: LINE_LEAD }));
     out.push(M.pointEntity("ambient_generic", place([0, TRACK.y, 440]), { targetname: `line_${half}_rumble`, message: "ambience/cg_rdmsubway.wav", health: 10, pitch: 92, spawnflags: HEARD.large + START_SILENT + ONCE }));
     out.push(M.pointEntity("env_shake", place([0, TRACK.y, 300]), { targetname: `line_${half}_shake`, amplitude: 6, frequency: 40, duration: 7, radius: 1100, spawnflags: 4 }));
   }

@@ -30,10 +30,13 @@
  * THE MODE API. Everything this plugin needs from the match comes through include\tsm_api.inc. With ts_matchmode missing the native
  * filter below lets this plugin load, and it does nothing.
  *
- * BOTS fight on a flag map but do not play the objective: they do not take the flags (tsm_cf_bots 1 lets one that walks over a flag take
- * it), and no rcbot change reads the objective yet. For one that would, a flag is the entity
- * with the classname tsm_flag (team: whose flag it is; iuser1: 0 at its pad, 1 carried, 2 dropped; owner: the carrier while it is
- * carried) and a pad's ring is tsm_flagpad (team: the side it belongs to). Keep those fields as they are.
+ * BOTS play the flags while tsm_bot_objectives is 1 (include\tsm_botobj.inc): rcbot_mm.dll sends them for the enemy flag, their own
+ * dropped flag and the carriers, and a bot takes, returns and turns in a flag like anyone. With 0 they only fight, unless tsm_cf_bots
+ * is 1: then a bot that walks over a flag still takes it and returns it. rcbot reads a flag from the entity with the classname
+ * tsm_flag: team is whose flag it is, iuser1 is 0 at its pad, 1 carried, 2 dropped, owner and aiment the carrier while it is carried,
+ * iuser2 is 1 while its carrier would score by reaching his pad now, fuser2 the seconds before a dropped flag flies home (-1
+ * otherwise) and vuser1 its pad. A pad's ring is tsm_flagpad (team: the side it belongs to). Keep those fields as they are;
+ * docs\BOT_OBJECTIVES.txt has the whole contract.
  *
  * Written to the same rules as ts_matchmode.sma, for a strict compiler and a strict log: ASCII only, explicit braces, no warnings.
  */
@@ -44,13 +47,14 @@
 #include <tsm_api>
 #include <h9_vgui>      // an H9 game shows the carrier's status and the news on panels
 #include <h9_marks>     // and the flags and the pads through the walls
+#include <tsm_botobj>   // and the flags' state for the bots
 
 #define PLUGIN  "TS Capture the Flag"
 #define VERSION "1.0"
 #define AUTHOR  "tsm"
 
 // Printed by amx_tsm_ctf, so there is never any doubt which build is loaded.
-#define CF_BUILD "1.0-ctf1"
+#define CF_BUILD "1.0-ctf2"
 
 #define CF_TICK        0.1
 #define CF_TASK_TICK   71201
@@ -130,6 +134,7 @@ new g_flag_dropper[3];
 new Float:g_flag_dropped_at[3];
 new Float:g_flag_carrier_at[3][3];
 new Float:g_flag_told_at[3];           // the carrier's "bring your flag home first" refusals, rate limited
+new g_carry_told[3];                   // per flag: the player the core was last told carries it (tsm_set_carrying), 0 for nobody
 
 new g_caps[3];                         // captures this round
 new g_ticks;
@@ -203,9 +208,10 @@ public plugin_init()
 	g_cv_radius   = register_cvar("tsm_cf_pad_radius",   "72");    // how near its pad a carrier must be to turn the flag in, units
 	g_cv_needhome = register_cvar("tsm_cf_needhome",     "1");     // 1: the carrier's own flag must be at its pad too
 	g_cv_capwave  = register_cvar("tsm_cf_capture_wave", "1");     // 1: the side that captured gets a wave at once
-	g_cv_bots     = register_cvar("tsm_cf_bots",         "0");     // 1: a bot that walks over a flag takes it (0: the flags are the people's)
+	g_cv_bots     = register_cvar("tsm_cf_bots",         "0");     // 1: a bot that walks over a flag takes it even with tsm_bot_objectives 0
 	g_cv_desc     = register_cvar("tsm_gamedesc_ctf",    "Capture the Flag");
 	g_cv_rounds   = register_cvar("h9_ctf_rounds",       "0");     // 0: the first round is the whole match; 1: rounds, best of tsm_rounds
+	tsb_register();   // tsm_bot_objectives: 1 lets rcbot send the bots for the flags
 
 	// The carrier lets go: bindable from the console, or typed in chat.
 	register_clcmd("dropflag", "cmd_drop", 0, "- let the flag go, if you carry it");
@@ -467,6 +473,33 @@ flag_paint(f)
 		set_pev(ent, pev_renderamt, 12.0);
 	}
 	set_pev(ent, pev_iuser1, g_flag_state[f]);
+	flag_publish(f);
+}
+
+/// The fields of a flag that the bots read besides its side (team), state (iuser1) and carrier (owner, aiment): iuser2 is 1 while its
+/// carrier would score by reaching his pad now (his own flag at its pad, or tsm_cf_needhome 0), fuser2 the seconds before it flies home
+/// while it lies dropped (-1 otherwise, or when tsm_cf_return is 0), vuser1 its pad. Written whenever the flag is painted and every tick.
+flag_publish(f)
+{
+	new ent = g_flag_ent[f];
+	if (ent <= 0 || !pev_valid(ent))
+	{
+		return;
+	}
+	new ready = (g_flag_state[f] == CF_CARRIED && (g_flag_state[3 - f] == CF_HOME || !get_pcvar_num(g_cv_needhome))) ? 1 : 0;
+	new Float:left = -1.0;
+	new Float:wait = get_pcvar_float(g_cv_return);
+	if (g_flag_state[f] == CF_DROPPED && wait > 0.0)
+	{
+		left = wait - (get_gametime() - g_flag_loose_since[f]);
+		if (left < 0.0)
+		{
+			left = 0.0;
+		}
+	}
+	set_pev(ent, pev_iuser2, ready);
+	set_pev(ent, pev_fuser2, left);
+	set_pev(ent, pev_vuser1, g_pad[f]);
 }
 
 /// A flag, loose, at a point: made if it is not in the world yet. home: it stands at its pad.
@@ -505,6 +538,7 @@ put_flag(f, const Float:org[3], bool:home)
 
 	g_flag_state[f] = home ? CF_HOME : CF_DROPPED;
 	g_flag_carrier[f] = 0;
+	carry_sync();
 	g_flag_loose_since[f] = get_gametime();
 	flag_paint(f);
 	carrier_status(f, 0, "");
@@ -525,6 +559,43 @@ remove_flags()
 		carrier_status(f, 0, "");
 		h9marks_remove(CF_SLOT_FLAG + f);
 	}
+	carry_sync();
+}
+
+/// Tells the core whether this player carries a flag now, either of the two (tsm_set_carrying): a test command can hand one man both.
+carry_tell(id)
+{
+	if (id < 1 || id > MAX_PLAYERS)
+	{
+		return;
+	}
+	new bool:carrying = false;
+	for (new f = 1; f <= 2; f++)
+	{
+		if (g_flag_state[f] == CF_CARRIED && g_flag_carrier[f] == id)
+		{
+			carrying = true;
+		}
+	}
+	tsm_set_carrying(id, carrying);
+}
+
+/// Brings the core's idea of who carries a flag in line with the flags' own. A cloaked Recon who takes one is uncloaked on the spot, and
+/// .cloak is refused him until he holds none. Called wherever a flag changes hands; only a change is told.
+carry_sync()
+{
+	for (new f = 1; f <= 2; f++)
+	{
+		new who = (g_flag_state[f] == CF_CARRIED) ? g_flag_carrier[f] : 0;
+		new old = g_carry_told[f];
+		if (who == old)
+		{
+			continue;
+		}
+		g_carry_told[f] = who;
+		carry_tell(old);
+		carry_tell(who);
+	}
 }
 
 /// A player takes the enemy's flag: on his back, marked for everyone.
@@ -538,6 +609,7 @@ pick_up(f, id)
 	g_flag_carrier[f] = id;
 	g_flag_state[f] = CF_CARRIED;
 	pev(id, pev_origin, g_flag_carrier_at[f]);
+	carry_sync();
 
 	// Carried on the back: the model follows the carrier and merges onto his skeleton.
 	set_pev(ent, pev_solid, CF_SOLID_NOT);
@@ -865,6 +937,10 @@ public task_tick()
 		}
 	}
 
+	// Each flag's fields for the bots after both have ticked: one's depends on the state of the other.
+	flag_publish(1);
+	flag_publish(2);
+
 	if (g_ticks % 10 == 0)
 	{
 		refresh_hud();
@@ -951,9 +1027,9 @@ loose_tick(f)
 		{
 			continue;
 		}
-		if (is_user_bot(id) && !get_pcvar_num(g_cv_bots))
+		if (is_user_bot(id) && !get_pcvar_num(g_cv_bots) && !tsb_bots_play())
 		{
-			continue;   // a bot does not play the flags unless tsm_cf_bots says so
+			continue;   // a bot plays the flags when tsm_cf_bots or tsm_bot_objectives says so
 		}
 		if (id == g_flag_dropper[f] && now - g_flag_dropped_at[f] < CF_DROP_GRACE)
 		{
@@ -1111,6 +1187,26 @@ public cmd_drop(id)
 	}
 	console_print(id, "[CTF] You are not carrying a flag.");
 	return PLUGIN_HANDLED;
+}
+
+/// A player's use key on a bot of his side asks it to let go of the flag it carries (ts_matchmode, tsm_handoff): the flag drops where the bot
+/// stands, and that bot stays off it for secs seconds, long enough for the player to take it.
+public tsm_handoff_drop(id, Float:secs)
+{
+	if (!g_active)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	for (new f = 1; f <= 2; f++)
+	{
+		if (g_flag_state[f] == CF_CARRIED && g_flag_carrier[f] == id)
+		{
+			drop_flag(f, "handed over");
+			g_flag_dropped_at[f] = get_gametime() + secs - CF_DROP_GRACE;
+			return PLUGIN_HANDLED;
+		}
+	}
+	return PLUGIN_CONTINUE;
 }
 
 /// .drop in chat: only the carrier's line is taken; anyone else's goes out as normal.
@@ -1362,7 +1458,20 @@ public cmd_cf_dump(id, level, cid)
 		g_caps[1], g_caps[2], get_pcvar_num(g_cv_caps), get_pcvar_num(g_cv_needhome), get_pcvar_float(g_cv_return), get_pcvar_float(g_cv_wave),
 		get_pcvar_float(g_cv_radius), get_pcvar_num(g_cv_rounds));
 	console_print(id, "[CTF] model %s (%s), rings %d", g_flag_model, g_flag_custom ? "skins" : "tinted briefcase", g_ring_ok ? 1 : 0);
+	console_print(id, "[CTF] bots: tsm_bot_objectives %d, tsm_cf_bots %d -- %s", tsb_bots_play() ? 1 : 0, get_pcvar_num(g_cv_bots),
+		(tsb_bots_play() || get_pcvar_num(g_cv_bots)) ? "a bot takes and returns flags" : "the flags are the people's");
 	cmd_cf_list(id, level, cid);
+	for (new f = 1; f <= 2; f++)
+	{
+		if (g_active && pev_valid(g_flag_ent[f]))
+		{
+			new Float:left, Float:padat[3];
+			pev(g_flag_ent[f], pev_fuser2, left);
+			pev(g_flag_ent[f], pev_vuser1, padat);
+			console_print(id, "[CTF] flag %d for the bots: state %d scores-now %d home-in %.1fs pad %.0f %.0f %.0f", f,
+				pev(g_flag_ent[f], pev_iuser1), pev(g_flag_ent[f], pev_iuser2), left, padat[0], padat[1], padat[2]);
+		}
+	}
 	return PLUGIN_HANDLED;
 }
 

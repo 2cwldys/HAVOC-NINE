@@ -63,6 +63,7 @@ static const char* const s_fireSound[] = {
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ "weapons/contender/fire.wav", /*37*/ "weapons/tmp/fire.wav",
 	/*38*/ nullptr, /*39*/ "h9/ppsh41/fire.wav",
 	/*40*/ "h9/laserrifle/fire.wav",
+	/*41*/ nullptr, // the Mech rocket launcher: its launch sound is the server's (CTSGun::MechRocketFire)
 };
 
 // Silenced fire sound, indexed by tsweapon_t — used when the weapon has a SILENCER attached
@@ -86,6 +87,7 @@ static const char* const s_fireSilSound[] = {
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ nullptr, /*37*/ "weapons/tmp/fire-sil.wav",
 	/*38*/ nullptr, /*39*/ nullptr,
 	/*40*/ nullptr,
+	/*41*/ nullptr,
 };
 
 // Muzzle-flash grip for tsweapon_t `w`: true = one-handed (pistols + akimbo barrels) -> the small
@@ -115,6 +117,57 @@ static void TS_EvWeaponAnim(int anim, int body)
 	gEngfuncs.pEventAPI->EV_WeaponAnimation(anim, body);
 }
 
+// A Mech fires the M60 as a minigun and has sounds of its own: sound/h9/mechminigun/start.wav for the first shot of a burst
+// (the motor spinning up) and fire.wav for every shot after it: one shot interval of sustained fire and then a tail. While the
+// trigger is held the next shot cuts the tail off on the weapon channel; once it is let go the tail plays out as the
+// spin-down. They are made to be played at normal speed, unlike the game's own fire sounds, which EV_TSFire pitches up four
+// times; tools/make-mechminigun-sound.py makes them. The shooter is a Mech when the model the client has for him is one of the
+// Mech models (the plugin draws them through the model index). The files are optional: without them the M60's sound plays.
+static const float MECH_GUN_BURST_GAP = 0.30f; // seconds without a shot that end a burst
+static float s_mechGunLast[129];                // client time of each player slot's last Mech shot (slots 1 to 128)
+
+static bool EV_ShooterIsMech(int idx)
+{
+	cl_entity_t* ent = gEngfuncs.GetEntityByIndex(idx);
+	if (!ent)
+		return false;
+	const model_t* mdl = ent->model;
+	if (!mdl)
+		mdl = gEngfuncs.hudGetModelByIndex(ent->curstate.modelindex);
+	if (!mdl || !mdl->name[0])
+		return false;
+	return strstr(mdl->name, "mech_msr") != nullptr || strstr(mdl->name, "mech_ins") != nullptr;
+}
+
+// The sound a Mech's M60 shot plays, or nullptr when the shooter is no Mech or the files are not there.
+static const char* EV_MechGunSound(int idx)
+{
+	if (!EV_ShooterIsMech(idx))
+		return nullptr;
+	static int s_files = -1; // 1 when both files are in the game folder, 0 when not: looked up once
+	if (s_files < 0)
+	{
+		int lenStart = 0, lenFire = 0;
+		byte* start = gEngfuncs.COM_LoadFile("sound/h9/mechminigun/start.wav", 5, &lenStart);
+		byte* fire = gEngfuncs.COM_LoadFile("sound/h9/mechminigun/fire.wav", 5, &lenFire);
+		s_files = (start && fire) ? 1 : 0;
+		if (start)
+			gEngfuncs.COM_FreeFile(start);
+		if (fire)
+			gEngfuncs.COM_FreeFile(fire);
+	}
+	if (!s_files)
+		return nullptr;
+	const float now = gEngfuncs.GetClientTime();
+	bool first = true;
+	if (idx >= 1 && idx < (int)(sizeof(s_mechGunLast) / sizeof(s_mechGunLast[0])))
+	{
+		first = (now - s_mechGunLast[idx] > MECH_GUN_BURST_GAP) || now < s_mechGunLast[idx];
+		s_mechGunLast[idx] = now;
+	}
+	return first ? "h9/mechminigun/start.wav" : "h9/mechminigun/fire.wav";
+}
+
 static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 {
 	// ALL weapons use the same muzzle flash sprite at the gun's barrel attachment: gun_muzzle.spr when
@@ -123,7 +176,10 @@ static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 	// a map change (model indices are reassigned per map). EV_FindModelIndex is a cheap by-name lookup.
 	// The laser rifle's flash is its own: a green energy flash, not a powder flash.
 	const bool energy = TS_IsEnergyWeapon(weaponType);
-	const int spr = gEngfuncs.pEventAPI->EV_FindModelIndex(energy ? "sprites/laserrifle_muzzle.spr"
+	// The Mech rocket launcher's flash is its own large sprite; a server without that file has the ordinary muzzle sprite.
+	const bool rocket = TS_IsRocketWeapon(weaponType);
+	const int rocketSpr = rocket ? gEngfuncs.pEventAPI->EV_FindModelIndex("sprites/h9_rocket_flash.spr") : 0;
+	const int spr = (rocketSpr > 0) ? rocketSpr : gEngfuncs.pEventAPI->EV_FindModelIndex(energy ? "sprites/laserrifle_muzzle.spr"
 		: silenced ? "sprites/gun_muzzle.spr" : "sprites/gun_muzzle2.spr");
 
 	// Local player in FIRST person -> the viewmodel's attachments. In THIRD person the viewmodel
@@ -157,11 +213,11 @@ static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 		const float* att0 = TS_PlayerGunAtt(idx, att); // the renderer-fed anchor cache, never cl_entity.attachment
 		pos[0] = att0[0]; pos[1] = att0[1]; pos[2] = att0[2];
 	}
-	const float scale = energy ? 0.75f : 0.5f;
+	const float scale = energy ? 0.75f : rocket ? 1.5f : 0.5f;
 	// A muzzle flash is a single brief pop — a very short life and NO frame-cycle (FTENT_SPRCYCLE
 	// kept it animating/visible far too long, "slow enough to walk around"). One frame, gone fast.
 	struct tempent_s* flare = gEngfuncs.pEfxAPI->R_TempSprite(pos, vec3_origin, scale, spr,
-		kRenderTransAdd, kRenderFxNoDissipation, 1.0f, energy ? 0.035f : 0.01f, 0);
+		kRenderTransAdd, kRenderFxNoDissipation, 1.0f, energy ? 0.035f : rocket ? 0.06f : 0.01f, 0);
 	if (energy && flare != nullptr)
 	{
 		// one of the sprite's four frames, turned a random way, so that no two shots flash alike
@@ -1102,6 +1158,7 @@ void EV_TSFire(event_args_t* args)
 	// The laser rifle fires plasma: a faint green light where it was fired from (everyone sees it, and it lights a
 	// dark room), no brass and no gun smoke, and the bolt of the fire core below is drawn from its muzzle.
 	const bool energy = TS_IsEnergyWeapon(weaponType);
+	const bool rocket = TS_IsRocketWeapon(weaponType); // a rocket, the server's: no brass and no bullet for this weapon
 	s_havePlasmaMuzzle = false;
 	if (energy)
 	{
@@ -1149,7 +1206,7 @@ void EV_TSFire(event_args_t* args)
 	VectorCopy(args->angles, angles);
 	VectorCopy(args->velocity, velocity);
 	AngleVectors(angles, fwd, right, up);
-	if (!energy) // plasma leaves no casing
+	if (!energy && !rocket) // plasma leaves no casing, nor does a rocket launcher
 	{
 		const int shell = gEngfuncs.pEventAPI->EV_FindModelIndex("models/shell.mdl");
 		EV_GetDefaultShellInfo(args, origin, velocity, shellVel, shellOrigin, fwd, right, up, 20, -12, 4);
@@ -1173,7 +1230,8 @@ void EV_TSFire(event_args_t* args)
 		TS_FireSmoke(args, wi, weaponType, 0,
 			(wi->iFireType == TSFT_AUTOSHOTGUN || wi->iFireType == TSFT_SNIPER) ? 3 : 0, silenced);
 
-	// The rounds, through the fire core from the gun position along the aim.
+	// The rounds, through the fire core from the gun position along the aim (the rocket launcher fires none).
+	if (!rocket)
 	{
 		Vector vecSrc;
 		EV_GetGunPosition(args, vecSrc, origin);
@@ -1187,6 +1245,9 @@ void EV_TSFire(event_args_t* args)
 	const s_weapon_info* swi = get_weapon_info((tsweapon_t)weaponType);
 	const bool silShot = silenced && swi->pszAltSound;
 	const char* snd = silShot ? swi->pszAltSound : s_fireSound[weaponType];
+	const char* mechSnd = (weaponType == TSW_M60 && !silShot) ? EV_MechGunSound(idx) : nullptr;
+	if (mechSnd)
+		snd = mechSnd;
 	if (snd)
 	{
 		// RE (scratchpad/SLOWMO_PRESENTATION_RE.md): the original pitches ALL weapon-fire sounds UP —
@@ -1195,7 +1256,8 @@ void EV_TSFire(event_args_t* args)
 		// Passed unclamped, as the original does: neither GoldSrc's S_StartDynamicSound nor Xash caps
 		// pitch, so 400 plays at 4x. A cap at 255 played normal fire at 2.55x, audibly slowed.
 		extern float g_flClientSlow; // cl_dll/ts_powerup_hud.cpp — current smoothed slow factor
-		const int pitch = 100 + (int)(300.0f * g_flClientSlow);
+		// the Mech's sounds are made for normal speed (pitch 100) and only deepen in slow motion
+		const int pitch = mechSnd ? 25 + (int)(75.0f * g_flClientSlow) : 100 + (int)(300.0f * g_flClientSlow);
 		gEngfuncs.pEventAPI->EV_PlaySound(idx, origin, CHAN_WEAPON, snd,
 			silShot ? gEngfuncs.pfnRandomFloat(0.84f, 0.92f) : VOL_NORM,
 			silShot ? ATTN_NORM * 2.0f : ATTN_NORM, 0, pitch);

@@ -26,11 +26,19 @@
  * time-up, lives, waves, who is in play -- comes through include\tsm_api.inc. With
  * ts_matchmode missing the native filter below lets this plugin load, and it does nothing.
  *
- * BOTS fight on an uplink map but do not play the objective: no rcbot change reads it yet.
- * For one that would, the uplink is the entity with the classname tsm_uplink (its aiment is
- * the carrier while it is carried), and the zone rings are classname tsm_cap, whose team
- * field is the owner (0, 1 or 2), fuser1 the radius and iuser1 the zone's number. Keep
- * those fields as they are.
+ * BOTS play the objective while tsm_bot_objectives is 1 (include\tsm_botobj.inc): rcbot_mm.dll
+ * sends them for the uplink, the zones and the carrier, and a bot takes the uplink and the zones
+ * like anyone. With 0 they only fight and do not pick the uplink up. rcbot reads these fields.
+ * The uplink is the entity with the classname tsm_uplink: aiment is the carrier while it is
+ * carried, iuser2 where it is (TSB_UP_POST, TSB_UP_CARRIED, TSB_UP_DROPPED), iuser3 the carrier's
+ * side (when it is dropped, the side whose carrier lost it), fuser2 the seconds before it flies
+ * home (-1 when it is not dropped) and vuser1 its post. The zone rings are classname tsm_cap: team
+ * is the owner (0, 1 or 2), fuser1 the radius, iuser1 the zone's number, iuser2 the state
+ * (TSB_QUIET, TSB_TAKING, TSB_CONTESTED, or TSB_OFF outside a live round), iuser3 the carrier's
+ * side while it is taking or denied, fuser2 the share of tsm_cap_time the carrier has held it,
+ * fuser3 how far above or below the ring still counts, and vuser1 how many of each side stand in
+ * it (x side 1, y side 2). Keep those fields as they are; docs\BOT_OBJECTIVES.txt has the whole
+ * contract.
  *
  * Written to the same rules as ts_matchmode.sma, for a strict compiler and a strict log:
  * ASCII only, explicit braces, no warnings.
@@ -42,13 +50,14 @@
 #include <tsm_api>
 #include <h9_vgui>      // an H9 game shows the carrier's status and the uplink's news on panels
 #include <h9_marks>     // and the zones and the uplink through the walls
+#include <tsm_botobj>   // and their state for the bots
 
 #define PLUGIN  "TS Uplink"
 #define VERSION "1.0"
 #define AUTHOR  "tsm"
 
 // Printed by amx_tsm_uplink, so there is never any doubt which build is loaded.
-#define UPL_BUILD "1.0-modes2"
+#define UPL_BUILD "1.0-modes3"
 
 #define UPL_MAXZONES   9
 #define UPL_TICK       0.1
@@ -132,6 +141,7 @@ new Float:g_waves_set;         // the wave interval last handed to ts_matchmode,
 new bool:g_home_have, bool:g_home_cfg;
 new g_up_ent;                  // the entity; 0 when it is not in the world
 new g_carrier;                 // who carries it; 0 when it lies loose
+new g_carry_told;              // the player the core was last told carries the uplink (tsm_set_carrying); 0 for nobody
 new bool:g_at_home;            // lying where it appears, so it is never "returned"
 new Float:g_loose_since;       // when it was last dropped
 new g_dropper;                 // who dropped it last, kept off it for UPL_DROP_GRACE
@@ -151,6 +161,8 @@ new Float:g_status_end;
 new g_cap_zone;                // zone being taken; 0 when none
 new g_cap_side;
 new Float:g_cap_started;
+new g_contest_zone;            // the zone the carrier stands in with a living enemy there, this tick; 0 when none
+new g_zone_cnt[UPL_MAXZONES + 1][3];   // how many players of each side stood in a zone at the last count, for the bots
 
 new g_ticks;                   // tick counter, for the once-a-second work
 
@@ -239,6 +251,7 @@ public plugin_init()
 	g_cv_wave    = register_cvar("tsm_uplink_wave",        "30");
 	g_cv_return  = register_cvar("tsm_uplink_return",      "20");
 	g_cv_desc    = register_cvar("tsm_gamedesc_uplink",    "Capture the Uplink");
+	tsb_register();   // tsm_bot_objectives: 1 lets rcbot send the bots for the uplink and the zones
 
 	// The carrier lets go: bindable from the console, or typed in chat.
 	register_clcmd("dropuplink", "cmd_drop", 0, "- let the uplink go, if you carry it");
@@ -377,6 +390,8 @@ set_zone(n, const Float:org[3], Float:rad, bool:from_cfg)
 	g_zone_org[n][2] = org[2];
 	g_zone_rad[n] = (rad > 16.0) ? rad : 16.0;
 	g_zone_owner[n] = 0;
+	g_zone_cnt[n][1] = 0;
+	g_zone_cnt[n][2] = 0;
 }
 
 /*
@@ -510,10 +525,11 @@ paint_zone(n)
 	new ring = g_zone_ring[n];
 	if (ring > 0 && pev_valid(ring))
 	{
-		// The bots read these three: the holder, the reach and the number.
+		// The bots read these three: the holder, the reach and the number, and publish_zone writes the rest.
 		set_pev(ring, pev_team, g_zone_owner[n]);
 		set_pev(ring, pev_fuser1, g_zone_rad[n]);
 		set_pev(ring, pev_iuser1, n);
+		publish_zone(n);
 
 		if (g_cap_zone == n && g_ringcap_ok)
 		{
@@ -540,6 +556,133 @@ paint_zone(n)
 		set_pev(flag, pev_frame, float(g_zone_owner[n]));
 	}
 	zone_mark(n);
+}
+
+/* ---- the bots' view: what the zones and the uplink say for rcbot ------------------------------ */
+
+/// The fields on a zone's ring that the bots read besides its holder, reach and number (include\tsm_botobj.inc): TSB_OFF outside a
+/// live round, TSB_TAKING while the carrier's hold runs (with the share of tsm_cap_time he has stood in it), TSB_CONTESTED while he
+/// stands in it with a living enemy there, else TSB_QUIET. Written whenever the ring is painted and every tick.
+publish_zone(n)
+{
+	new ring = g_zone_ring[n];
+	if (ring <= 0 || !pev_valid(ring))
+	{
+		return;
+	}
+	if (tsm_state() != TSM_ST_LIVE)
+	{
+		tsb_ring(ring, TSB_OFF, 0, 0.0, UPL_ZONE_DZ, 0, 0);
+		return;
+	}
+	if (g_cap_zone == n)
+	{
+		new Float:need = get_pcvar_float(g_cv_captime);
+		new Float:share = (need > 0.0) ? (get_gametime() - g_cap_started) / need : 1.0;
+		if (share < 0.0)
+		{
+			share = 0.0;
+		}
+		else if (share > 1.0)
+		{
+			share = 1.0;
+		}
+		tsb_ring(ring, TSB_TAKING, g_cap_side, share, UPL_ZONE_DZ, g_zone_cnt[n][1], g_zone_cnt[n][2]);
+		return;
+	}
+	if (g_contest_zone == n)
+	{
+		tsb_ring(ring, TSB_CONTESTED, g_carrier ? tsm_side_of(g_carrier) : 0, 0.0, UPL_ZONE_DZ, g_zone_cnt[n][1], g_zone_cnt[n][2]);
+		return;
+	}
+	tsb_ring(ring, TSB_QUIET, 0, 0.0, UPL_ZONE_DZ, g_zone_cnt[n][1], g_zone_cnt[n][2]);
+}
+
+/// Every zone's fields for the bots; with count, who stands in each zone is counted first (a player in the first zone that holds him,
+/// as zone_at puts him), and a round that is not live counts nobody.
+publish_zones(bool:count)
+{
+	if (count)
+	{
+		for (new n = 1; n <= UPL_MAXZONES; n++)
+		{
+			g_zone_cnt[n][1] = 0;
+			g_zone_cnt[n][2] = 0;
+		}
+		if (tsm_state() == TSM_ST_LIVE)
+		{
+			new players[MAX_PLAYERS], pnum;
+			get_players(players, pnum, "a");
+			for (new i = 0; i < pnum; i++)
+			{
+				new id = players[i];
+				if (!tsm_in_play(id))
+				{
+					continue;
+				}
+				new side = tsm_side_of(id);
+				if (side != 1 && side != 2)
+				{
+					continue;
+				}
+				new Float:p[3];
+				pev(id, pev_origin, p);
+				new z = zone_at(p);
+				if (z)
+				{
+					g_zone_cnt[z][side]++;
+				}
+			}
+		}
+	}
+	for (new n = 1; n <= UPL_MAXZONES; n++)
+	{
+		if (g_zone_have[n])
+		{
+			publish_zone(n);
+		}
+	}
+}
+
+/// The uplink's fields for the bots: where it is (TSB_UP_POST, TSB_UP_CARRIED, TSB_UP_DROPPED), the carrier's side (a dropped one: the
+/// side whose carrier lost it), the seconds before it flies home (-1 when it is not dropped or does not fly home) and its post.
+/// Written wherever it changes hands and every tick.
+publish_uplink()
+{
+	new ent = g_up_ent;
+	if (ent <= 0 || !pev_valid(ent))
+	{
+		return;
+	}
+	new where = TSB_UP_DROPPED;
+	new side = g_last_side;
+	new Float:left = -1.0;
+	if (g_carrier)
+	{
+		where = TSB_UP_CARRIED;
+		side = tsm_side_of(g_carrier);
+	}
+	else if (g_at_home)
+	{
+		where = TSB_UP_POST;
+		side = 0;
+	}
+	else
+	{
+		new Float:wait = get_pcvar_float(g_cv_return);
+		if (wait > 0.0)
+		{
+			left = wait - (get_gametime() - g_loose_since);
+			if (left < 0.0)
+			{
+				left = 0.0;
+			}
+		}
+	}
+	set_pev(ent, pev_iuser2, where);
+	set_pev(ent, pev_iuser3, side);
+	set_pev(ent, pev_fuser2, left);
+	set_pev(ent, pev_vuser1, g_home);
 }
 
 /* ---- the marks: where the zones and the uplink are, through the walls ---------------------- */
@@ -692,6 +835,7 @@ put_uplink(const Float:org[3], bool:home)
 	set_pev(ent, pev_velocity, zero);
 
 	g_carrier = 0;
+	carry_sync();
 	carrier_status(0, "", 0.0);
 	g_at_home = home;
 	if (home)
@@ -700,6 +844,7 @@ put_uplink(const Float:org[3], bool:home)
 	}
 	g_loose_since = get_gametime();
 	hide_mark();
+	publish_uplink();
 }
 
 /// Takes the uplink out of the world, carried or not.
@@ -711,11 +856,32 @@ remove_uplink()
 	}
 	g_up_ent = 0;
 	g_carrier = 0;
+	carry_sync();
 	carrier_status(0, "", 0.0);
 	g_at_home = false;
 	hide_mark();
 	clear_capture();
 	h9marks_remove(UPL_SLOT_UPLINK);
+}
+
+/// Brings the core's idea of who carries the uplink in line with g_carrier (tsm_set_carrying). A cloaked Recon who takes it is uncloaked on
+/// the spot, and .cloak is refused him until he lets it go. Called wherever the uplink changes hands; only a change is told.
+carry_sync()
+{
+	if (g_carry_told == g_carrier)
+	{
+		return;
+	}
+	new old = g_carry_told;
+	g_carry_told = g_carrier;
+	if (old)
+	{
+		tsm_set_carrying(old, false);
+	}
+	if (g_carrier)
+	{
+		tsm_set_carrying(g_carrier, true);
+	}
 }
 
 /// A player takes the uplink: on his back, marked for everyone.
@@ -728,6 +894,7 @@ pick_up(id)
 	}
 
 	g_carrier = id;
+	carry_sync();
 	g_at_home = false;
 	g_last_side = tsm_side_of(id);
 	pev(id, pev_origin, g_carrier_at);
@@ -739,6 +906,7 @@ pick_up(id)
 	set_pev(ent, pev_owner, id);
 	set_pev(ent, pev_body, 1);           // body 1: the pack worn on the back
 	engfunc(EngFunc_SetOrigin, ent, g_carrier_at);
+	publish_uplink();
 
 	emit_sound(id, CHAN_AUTO, UPL_SND_PICKUP, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 
@@ -947,6 +1115,7 @@ public task_tick()
 	}
 
 	g_ticks++;
+	g_contest_zone = 0;
 	animate_rings();
 	marks_tick();
 
@@ -958,6 +1127,7 @@ public task_tick()
 		{
 			remove_uplink();
 		}
+		publish_zones(false);
 		if (g_ticks % 10 == 0)
 		{
 			refresh_hud();
@@ -971,6 +1141,7 @@ public task_tick()
 		{
 			put_uplink(g_home, true);
 		}
+		publish_zones(g_ticks % 2 == 0);
 		return;
 	}
 
@@ -982,6 +1153,10 @@ public task_tick()
 	{
 		loose_tick();
 	}
+
+	// The bots' view, after the tick has had its say: the count of who stands where every other tick.
+	publish_zones(g_ticks % 2 == 0);
+	publish_uplink();
 
 	if (g_ticks % 10 == 0)
 	{
@@ -1043,6 +1218,7 @@ carried_tick()
 
 	if (zone_contested(z, side))
 	{
+		g_contest_zone = z;
 		if (status_player(id))
 		{
 			new text[64];
@@ -1185,6 +1361,10 @@ loose_tick()
 		if (!tsm_in_play(id))
 		{
 			continue;
+		}
+		if (is_user_bot(id) && !tsb_bots_play())
+		{
+			continue;   // with tsm_bot_objectives 0 the uplink is the people's: a bot walking over it leaves it
 		}
 		if (id == g_dropper && now - g_dropped_at < UPL_DROP_GRACE)
 		{
@@ -1477,6 +1657,8 @@ public tsm_round_start(round)
 		if (g_zone_have[n])
 		{
 			g_zone_owner[n] = 0;
+			g_zone_cnt[n][1] = 0;
+			g_zone_cnt[n][2] = 0;
 			paint_zone(n);
 		}
 	}
@@ -1552,6 +1734,19 @@ public cmd_drop(id)
 	{
 		drop_uplink("dropped");
 	}
+	return PLUGIN_HANDLED;
+}
+
+/// A player's use key on a bot of his side asks it to let go of the uplink (ts_matchmode, tsm_handoff): it drops where the bot stands, and
+/// that bot stays off it for secs seconds, long enough for the player to take it.
+public tsm_handoff_drop(id, Float:secs)
+{
+	if (!g_active || g_carrier != id)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	drop_uplink("handed over");
+	g_dropped_at = get_gametime() + secs - UPL_DROP_GRACE;
 	return PLUGIN_HANDLED;
 }
 
@@ -1838,7 +2033,27 @@ public cmd_uplink_dump(id, level, cid)
 	console_print(id, "[UPLINK] sprites: rings %d (frames %d/%d/%d) capture ring %d flag %d marker %d",
 		g_ring_ok ? 1 : 0, g_ring_frames[0], g_ring_frames[1], g_ring_frames[2],
 		g_ringcap_ok ? 1 : 0, g_flag_ok ? 1 : 0, g_mark_ok ? 1 : 0);
+	console_print(id, "[UPLINK] tsm_bot_objectives %d: %s", tsb_bots_play() ? 1 : 0,
+		tsb_bots_play() ? "rcbot sends the bots for the uplink and the zones" : "the bots only fight and leave the uplink alone");
+	if (pev_valid(g_up_ent))
+	{
+		new Float:left;
+		pev(g_up_ent, pev_fuser2, left);
+		console_print(id, "[UPLINK] the uplink for the bots: where %d (1 post, 2 carried, 3 dropped) side %d home-in %.1fs", pev(g_up_ent, pev_iuser2),
+			pev(g_up_ent, pev_iuser3), left);
+	}
 	cmd_cap_list(id, level, cid);
+	for (new n = 1; n <= UPL_MAXZONES; n++)
+	{
+		if (g_zone_have[n] && g_zone_ring[n] > 0 && pev_valid(g_zone_ring[n]))
+		{
+			new Float:inside[3], Float:progress;
+			pev(g_zone_ring[n], pev_vuser1, inside);
+			pev(g_zone_ring[n], pev_fuser2, progress);
+			console_print(id, "[UPLINK] zone %d for the bots: state %d side %d progress %.2f inside %.0f - %.0f", n,
+				pev(g_zone_ring[n], pev_iuser2), pev(g_zone_ring[n], pev_iuser3), progress, inside[0], inside[1]);
+		}
+	}
 	return PLUGIN_HANDLED;
 }
 

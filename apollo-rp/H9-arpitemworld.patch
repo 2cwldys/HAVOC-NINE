@@ -1,0 +1,272 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -20,6 +20,7 @@
+ #include <xs>
+ #include <tsfun>
+ #include <h9_presence>
++#include <ApolloRP_H9Cfg>
+ #define ARPVGUI_PAGED
+ #include <ApolloRP_VGui>
+ #if defined ARRAYX
+@@ -268,6 +269,23 @@
+ new g_ItemModel[] = "models/arp/w_backpack.mdl"
+ new Float:g_H9ItemScan[MAX_PLAYERS + 1]	// H9: when a player's look at the dropped items was last tried (GetMsg)
+ 
++// H9: the picture of a dropped item over its pack (arp_h9_itemicon, H9_ItemIconMake). A sprite entity of the class arp_item_icon floats over the pack and shows the item's frame of
++// sprites/h9_arpicons.spr, the sheet the inventory window's tiles are drawn from; sprites/h9_arpicons.txt names the frames (read at precache: an item's name in lower case, then its
++// frame). The sheet is a sprite of type SPR_FWD_PARALLEL, which faces the viewer whichever way he looks, and of format SPR_ALPHTEST, with the middle of each frame at the entity's
++// origin. The icon is drawn solid (kRenderNormal) with a renderamt of 0: the client lights an alpha-test sprite (r_sprite_lighting) when its renderamt is above 127, and the picture
++// is to read in a dark corridor as it does in the window. (EF_FULLBRIGHT is no way to that here: it is bit 27, the entity state carries the effects in 8 bits, and the client would
++// be sent 255, which has EF_NODRAW in it.) The pack keeps its icon's entity in iuser3; the icon keeps its pack in iuser1 and the number it was made in in iuser2.
++new g_ItemIconSheet[] = "sprites/h9_arpicons.spr"
++new g_ItemIconList[] = "sprites/h9_arpicons.txt"
++new g_ItemIconClassname[] = "arp_item_icon"
++new g_ItemIconIdx	// the sheet's model index: 0 when the sheet or its list is not there (or arp.cfg has arp_h9_itemicon 0), and no icon is made
++new Trie:g_ItemIconFrames	// an item's name in lower case -> its frame in the sheet
++new g_ItemIconSerial	// the number the last icon was made in
++new p_H9ItemIcon
++new p_H9ItemIconMax
++new p_H9ItemIconScale
++#define H9_ITEMICON_MAX 128	// the most icons arp_h9_itemicon_max can allow
++
+ // H9: the forwards ARP_Inventory implements when it is loaded (include\ApolloRP_Items.inc); with none loaded each answers 0 and the core is stock ARP
+ new g_H9FwdCount
+ new g_H9FwdRoom
+@@ -387,6 +405,9 @@
+ 	#endif
+ 	
+ 	set_task(1.0,"GodEnts")
++
++	// H9: the icons of the dropped items whose packs are gone are taken down (H9_ItemIconSweep)
++	set_task(5.0,"H9_ItemIconSweep",0,"",0,"b")
+ 	
+ 	if(module_exists("tsfun") || module_exists("tsx")) g_Mod = TS
+ 	else if(module_exists("tfcx")) g_Mod = TFC
+@@ -1000,6 +1021,11 @@
+ 	p_HoverMessage = register_cvar("arp_hover_message","1")
+ 	// H9: 1 names a dropped item the player looks toward (H9_AimedItem); 0 is stock ARP, which says nothing of it
+ 	p_H9ItemHover = register_cvar("arp_h9_itemhover","1")
++	// H9: 1 shows the picture of a dropped item over its pack (H9_ItemIconMake); 0 is stock ARP. arp_h9_itemicon_max is the most icons that stand at a time (the oldest makes way),
++	// arp_h9_itemicon_scale the size of one (1.0 is 32 units across)
++	p_H9ItemIcon = register_cvar("arp_h9_itemicon","1")
++	p_H9ItemIconMax = register_cvar("arp_h9_itemicon_max","64")
++	p_H9ItemIconScale = register_cvar("arp_h9_itemicon_scale","0.6")
+ 	// H9: what Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that fades, to the games that draw H9 panels:
+ 	// 0 chat as stock ARP, 1 the popup in place of the chat line, 2 both
+ 	p_Toast = register_cvar("arp_h9_toast","1")
+@@ -1121,6 +1147,8 @@
+ 		format(g_Query,sizeof g_Query - 1,"Item model missing: %s",g_ItemModel)
+ 		UTIL_ARP_ThrowError(0,0,g_Query,0)
+ 	}
++
++	H9_ItemIconPrecache()
+ 	
+ 	g_ItemsArray = array_create()
+ 	
+@@ -2625,6 +2653,8 @@
+ 	drop_to_floor(Ent)
+ 	entity_set_origin(id,Origin)
+ 
++	H9_ItemIconMake(Ent,Name)
++
+ 	return Ent
+ }
+ 
+@@ -2672,6 +2702,7 @@
+ 
+ 	client_print(id,print_chat,"[ARP] You have picked up %d %s%s.",Quantity,ItemName,Quantity == 1 ? "" : "s")
+ 
++	H9_ItemIconOf(Ent)
+ 	remove_entity(Ent)
+ }
+ 
+@@ -3102,6 +3133,177 @@
+ 	return equal(Classname,g_ItemClassname) ? true : false
+ }
+ 
++// H9: reads the list of the picture sheet and precaches the sheet, unless arp.cfg says arp_h9_itemicon 0 (read from the file: the server executes arp.cfg after the precache, so a change
++// to 1 needs a map change). A name whose frame is not one of the sheet's (its header's number of frames) is left out, and an item that is not in the list has no icon.
++H9_ItemIconPrecache()
++{
++	g_ItemIconIdx = 0
++
++	if(!h9_cfg_num("arp_h9_itemicon",1) || !file_exists(g_ItemIconSheet) || !file_exists(g_ItemIconList))
++		return
++
++	new Sheet = fopen(g_ItemIconSheet,"rb"),Frames
++	if(!Sheet)
++		return
++
++	fseek(Sheet,28,SEEK_SET)
++	fread(Sheet,Frames,BLOCK_INT)
++	fclose(Sheet)
++
++	if(Frames < 1)
++		return
++
++	new File = fopen(g_ItemIconList,"rt")
++	if(!File)
++		return
++
++	g_ItemIconFrames = TrieCreate()
++
++	new Line[96],Name[40],Bar,Frame
++	while(!feof(File))
++	{
++		Line[0] = 0
++		fgets(File,Line,95)
++		trim(Line)
++
++		Bar = contain(Line,"|")
++		if(Bar < 1 || Line[0] == '#' || Line[0] == '/')
++			continue
++
++		copy(Name,min(Bar,39),Line)
++		strtolower(Name)
++
++		Frame = str_to_num(Line[Bar + 1])
++		if(Frame >= 0 && Frame < Frames)
++			TrieSetCell(g_ItemIconFrames,Name,Frame)
++	}
++	fclose(File)
++
++	if(TrieGetSize(g_ItemIconFrames))
++		g_ItemIconIdx = precache_model(g_ItemIconSheet)
++}
++
++// H9: the oldest icon that stands, and in Count how many do
++H9_ItemIconOldest(&Count)
++{
++	new Icon,Oldest,OldestSerial = cellmax
++	Count = 0
++
++	while((Icon = find_ent_by_class(Icon,g_ItemIconClassname)))
++	{
++		Count++
++
++		if(entity_get_int(Icon,EV_INT_iuser2) < OldestSerial)
++		{
++			OldestSerial = entity_get_int(Icon,EV_INT_iuser2)
++			Oldest = Icon
++		}
++	}
++
++	return Oldest
++}
++
++// H9: takes an icon down. Pack, when it is not 0, is the pack the icon must belong to: an entity number the server has given to something else since is left alone.
++H9_ItemIconRemove(Icon,Pack)
++{
++	if(Icon < 1 || !is_valid_ent(Icon))
++		return
++
++	static Classname[16]
++	entity_get_string(Icon,EV_SZ_classname,Classname,15)
++	if(!equal(Classname,g_ItemIconClassname))
++		return
++
++	new Owner = entity_get_int(Icon,EV_INT_iuser1)
++	if(Pack && Owner != Pack)
++		return
++
++	if(Owner > 0 && is_valid_ent(Owner) && H9_IsItemPack(Owner) && entity_get_int(Owner,EV_INT_iuser3) == Icon)
++		entity_set_int(Owner,EV_INT_iuser3,0)
++
++	remove_entity(Icon)
++}
++
++// H9: the pack is going: its icon goes with it
++H9_ItemIconOf(Pack)
++{
++	new Icon = entity_get_int(Pack,EV_INT_iuser3)
++	if(Icon)
++		H9_ItemIconRemove(Icon,Pack)
++}
++
++// H9: the picture of an item over its pack: the icon's entity, or 0 when there is none (arp_h9_itemicon is 0, the sheet or its list is not there, the item has no picture in the list,
++// the server has no entity left). With arp_h9_itemicon_max icons standing, the oldest makes way, so the packs dropped last keep theirs.
++H9_ItemIconMake(Pack,const ItemName[])
++{
++	if(!g_ItemIconIdx || !get_pcvar_num(p_H9ItemIcon))
++		return 0
++
++	static Key[33]
++	copy(Key,32,ItemName)
++	strtolower(Key)
++
++	new Frame
++	if(!TrieGetCell(g_ItemIconFrames,Key,Frame))
++		return 0
++
++	new Count,Oldest = H9_ItemIconOldest(Count)
++	if(Count >= clamp(get_pcvar_num(p_H9ItemIconMax),1,H9_ITEMICON_MAX))
++		H9_ItemIconRemove(Oldest,0)
++
++	new Ent = create_entity("info_target")
++	if(!Ent)
++		return 0
++
++	new Float:Scale = get_pcvar_float(p_H9ItemIconScale)
++	if(Scale < 0.2)
++		Scale = 0.2
++	else if(Scale > 4.0)
++		Scale = 4.0
++
++	// the middle of the picture: the height of a backpack, half the picture and a little air over the pack
++	new Float:Origin[3]
++	entity_get_vector(Pack,EV_VEC_origin,Origin)
++	Origin[2] += 16.0 + 16.0 * Scale + 4.0
++
++	entity_set_string(Ent,EV_SZ_classname,g_ItemIconClassname)
++	entity_set_model(Ent,g_ItemIconSheet)
++	entity_set_origin(Ent,Origin)
++	entity_set_int(Ent,EV_INT_movetype,MOVETYPE_NONE)
++	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
++	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
++	entity_set_float(Ent,EV_FL_renderamt,0.0)
++	entity_set_float(Ent,EV_FL_scale,Scale)
++	entity_set_float(Ent,EV_FL_frame,float(Frame))
++	entity_set_int(Ent,EV_INT_iuser1,Pack)
++	entity_set_int(Ent,EV_INT_iuser2,++g_ItemIconSerial)
++	entity_set_int(Pack,EV_INT_iuser3,Ent)
++
++	return Ent
++}
++
++// H9: every few seconds an icon whose pack is gone, is another or does not name it back is taken down (the pack was removed by something that knows nothing of icons), the icons that
++// stand are no more than arp_h9_itemicon_max, and with arp_h9_itemicon 0 none stand
++public H9_ItemIconSweep()
++{
++	new Icon,Pack,bool:On = get_pcvar_num(p_H9ItemIcon) ? true : false
++
++	while((Icon = find_ent_by_class(Icon,g_ItemIconClassname)))
++	{
++		Pack = entity_get_int(Icon,EV_INT_iuser1)
++
++		if(!On || Pack < 1 || !is_valid_ent(Pack) || !H9_IsItemPack(Pack) || entity_get_int(Pack,EV_INT_iuser3) != Icon)
++			H9_ItemIconRemove(Icon,0)
++	}
++
++	new Count,Oldest = H9_ItemIconOldest(Count),Max = clamp(get_pcvar_num(p_H9ItemIconMax),1,H9_ITEMICON_MAX)
++	for(new Guard;Count > Max && Oldest && Guard < H9_ITEMICON_MAX;Guard++)
++	{
++		H9_ItemIconRemove(Oldest,0)
++		Oldest = H9_ItemIconOldest(Count)
++	}
++}
++
+ // H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second; arp_h9_itemhover 0 leaves
+ // it out). GetMsg calls it when nothing else is aimed at.
+ H9_ItemLook(id)
+@@ -3292,6 +3494,10 @@
+ 			//	client_print(id,print_chat,"Hud Added")
+ 		}
+ 	}
++	// H9: a wall, a prop or a door of no property is not what the player looks at: the dropped item toward which he looks says what it is (the crosshair on the world or on the
++	// pack itself is dealt with at the top of this function)
++	else
++		H9_ItemLook(id)
+ 
+ 	if(!g_HudPending)
+ 	{

@@ -723,6 +723,10 @@ void GAME_EXPORT Key_Event( int key, int down )
 {
 	key = Key_Rotate( key );
 
+	// H9: any key or mouse button skips a startup video (cl_video.c), but not the console key
+	if( down && key != '`' && key != '~' && SCR_SkipStartupVideo( ))
+		return;
+
 	if( OSK_KeyEvent( key, down ) )
 		return;
 

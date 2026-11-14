@@ -1,0 +1,359 @@
+APOLLO RP INVENTORY AND EXCHANGE, THE WINDOW -- what the player sees and does (the plugin's rules and the protocol: docs\ARP_INVENTORY.txt)
+==============================================================================================================
+
+What it is. On an H9 game Apollo RP's inventory is a window of cells (tiles) the player works with the mouse, two players can swap
+items and money in a window of their own, and a player can search one who is handcuffed in a third. The server half is the plugin ARP_Inventory (apollo-rp, docs\APOLLO_RP.txt: the rules of the
+cells, stacks, a full inventory, the exchange, the switches and the table of what each one turns off); the client half is reTS\cl_dll
+h9_arpinv.cpp (the engine's part), h9_arpinv_ui.h (the rules of the mouse and keys), h9_arpinv_draw.h (the drawing) and
+h9_arpinv_model.h (the three messages). A game that does not draw it, a player whose cl_h9_arpinv or cl_h9_arpvgui is 0 and a server with
+arp_h9_vgui or arp_h9_inv_window 0 keep Apollo RP's text menu exactly as it was: nothing here changes it.
+
+
+1. HOW IT PLAYS
+---------------
+
+Opening. /inventory or /items in chat, or the key bound to cl_h9_inventory (the stock client config binds i; any other game: bind i
+cl_h9_inventory). The cursor comes up with the window, as with the buy menu, and is the player's until he closes it: with the X at the
+top right of the window, with ESC, or with the key again. The window closes by itself when the player dies or spectates, at an intermission
+and at a new map. While it is up the player can still walk; the mouse is not the view.
+
+The window. Eight cells across, four rows (a server may give more cells: the grid scrolls with the wheel or the arrows beside it). Each
+tile shows the item's picture (section 4; a monogram where it has none), the number in the stack at the top right, and its name, centred under the picture on as many lines as the tile has room for (section 4). A cell
+another exchange holds says HELD and cannot be used or dropped. The title says INVENTORY, how many cells are used of how many
+(FULL when none is free), the character's name, job, wallet and bank. The wallet is named CREDITS with the credit sign (CREDITS <sign> 1,250) where the money is credits, as the HUD's
+wallet line says it, and WALLET with the dollar sign (WALLET $ 1,250) as stock Apollo RP has it: the server says which (arp_h9_credits). The row under the grid says what the server
+answered to the last click (a refusal is yellow).
+  * Left-click selects; the panel on the right shows its name, how many are in hand and its description, and the buttons USE, DROP ONE,
+    DROP ALL, SPLIT ..., SHOW TO ... Double-click uses it.
+  * Right-click a tile: the same as a menu (and INFO, and OFFER while an exchange is open).
+  * Drag a tile to another cell: it moves; onto a cell of the same item it COMBINES (up to the stack limit; the rest stays); onto another
+    item it swaps. SHIFT while dropping it on an empty cell SPLITS half of the stack off.
+  * SPLIT ...: a small box with the number to take off the stack (type it, or - and +; Enter or OK). The new tile is a stack of its own that
+    can be used, dropped or offered separately and combined again.
+  * Drag a tile out of the window onto the world: it is dropped (the whole stack, one with SHIFT) and lies there as a pack.
+  * SHOW TO ...: a list of the players near (within about 170 units, in view); choose one. The item is shown to that player (a license,
+    a card, anything): he reads a notice "<NAME> SHOWS YOU / <ITEM> / <description>" for a few seconds and nothing leaves your
+    inventory. There is no GIVE TO: goods change hands by an exchange (E on the player), below.
+  * TIDY merges the partial stacks and packs the cells to the front. ESC closes a box, then the window.
+
+The exchange. Pressing E on a player of the same server (not a bot; near, in sight, both alive, neither jailed or cuffed) offers him an
+exchange. He reads "<NAME> OFFERS YOU AN EXCHANGE" at the top of his screen and has about 12 seconds: E while looking at the one who offered
+accepts, or ACCEPT / DECLINE in the banner while his inventory window is open (a banner cannot take the cursor by itself: the
+console commands cl_h9_trade_accept and cl_h9_trade_decline do the same and can be bound). Both then see EXCHANGE OF GOODS beside their
+inventory: YOUR OFFER and THEIR OFFER, twelve cells each. Drag a tile into your offer (or choose OFFER in its menu); click an offered tile
+or drag it away to take it back. The money line is the wallet (never the bank): click it and type an amount and Enter, or +10, +100, ALL,
+0. Either side's SEAL EXCHANGE is a promise; ANY change by either side breaks BOTH seals and the button waits 3 seconds. When both are sealed
+the server checks everything again at that instant (items still owned, money, range, room in both inventories) and swaps it in one step;
+a window says EXCHANGE COMPLETE with what each side received. WITHDRAW, the X and ESC cancel it. Goods in an offer are held: they cannot be
+used or dropped until the exchange ends.
+
+The search. Pressing E on a player who is handcuffed or in jail (near, in sight, alive; neither of you in an exchange, and you not handcuffed yourself) does not
+offer him an exchange: it opens SEARCHING beside your inventory, for a game that says _h9vgui 8 (an older game is told that player cannot make an
+exchange now). He reads "[ARP] <NAME> is searching you." in the chat, once. The window shows his cells exactly as he sees them in his own window: each tile a
+picture, a count and a name; OVER CAPACITY beside the title when they hold more than his limit; NOTHING ON HIM when there is nothing. Take things with the mouse:
+drag a tile onto your inventory window (SHIFT: one of it), double-click it (all of it), or select it and press TAKE ONE or TAKE ALL under his grid; a right click
+offers TAKE ALL, TAKE ONE, TAKE ... (a box asks how many) and INFO. What fits your inventory is taken and the rest stays with him (the row under the grids says
+"You took 3 of 5 Soda. Your inventory is full."): no money is taken, and nothing but what his cells hold. His grid scrolls with the wheel or the arrows beside
+it. CLOSE, the X and ESC end the search and leave your inventory window as it is (ESC closes a box first). The search ends by itself, with the reason in the row under
+the grids, when he is freed, dies or leaves, when you move more than 150 units from him, die or are handcuffed, when your inventory window is closed, at a new
+map and when the server switches it off (arp_h9_search 0). A search and an exchange are never open together: E on a free player while you search says "Finish
+your search first.".
+
+What the client will not do. It sends at most ten commands a second, reads at most 64 messages a second, believes no count, name or index
+past its own limits and never moves an item itself: every click is a request the server may refuse.
+
+
+2. THE SWITCHES
+---------------
+
+Client:  cl_h9_arpinv 1|0        (archived) 0: this game keeps the text inventory (and tells the server so: _h9vgui 5)
+         cl_h9_arpvgui 1|0       Apollo RP's menus as panels at all; 0 keeps the text inventory as well
+         cl_h9_inventory         opens or closes the window (bind it)
+         cl_h9_trade_accept, cl_h9_trade_decline    answer an invitation without the mouse
+         cl_h9_arpinv_state      what this game has read, for finding out why a window did not come up
+         cl_h9_ctxmenu 1|0, cl_h9_ctxmenu_state, cl_h9_ctxmenu_test    the context menu of the use key on a player (section 7)
+Server:  arp_h9_vgui, arp_h9_inv_window, arp_h9_inv_slots, arp_h9_inv_stack, arp_h9_inv_persist, arp_h9_credits, arp_h9_trade_range, arp_h9_trade_timeout,
+         arp_h9_search, arp_h9_search_range, arp_h9_ctxmenu, arp_h9_ctx_range, arp_h9_ctx_cuff, arp_h9_ctx_fine, arp_h9_ctx_give, arp_h9_ctx_fine_amounts,
+         arp_h9_ctx_give_amounts
+         (docs\APOLLO_RP.txt, COMMANDS.txt). With them off the server plays stock Apollo RP.
+
+
+3. THE PROTOCOL
+---------------
+
+A client says it can draw the window with the userinfo key _h9vgui at 6 or more (5 is H9Look, the aim plaque; 4 the buy window; 7 is 6
+and the credit sign, the cent sign Apollo RP shows for money with arp_h9_credits 1; 8 is 7 and the search window, H9Search; 9 is 8 and the money of a search; 10 is 9 and the context menu of the use key on a player, H9Ctx, section 7), and says 9 when cl_h9_ctxmenu is 0 and 5
+when cl_h9_arpinv or cl_h9_arpvgui is 0. The server sends the user messages below to such a client only (H9Search to one that says 8), and the client sends the
+console command h9inv. The layouts are the plugin's and the client's contract (the byte order is the engine's: little endian).
+
+Three plugin-registered user messages (H9Inv, H9Trade, H9Search), registered with engfunc(EngFunc_RegUserMsg, name, -1) exactly as ARP_Core registers H9ArpHud
+(ARP_Core.sma:1037) and sent with engfunc(EngFunc_MessageBegin, MSG_ONE, id_of_message, Float:{0.0,0.0,0.0}, id) (reliable). A
+message is at most 188 bytes (H9VGUI_MSG_MAX). Little-endian as the engine: write_byte 0..255, write_short (the client reads it
+SIGNED: send 0..32767 only), write_long (signed 32 bit; money 0..2147483647), write_string (ASCII, NUL-terminated, no '^'
+translations, no '%'; the client prints them with %s but keep '%' out). Names <= 32 chars, descriptions <= 120, notes <= 120.
+Send to protocol-6 clients ONLY. Rate: never more than 12 messages to one player in one frame; a snapshot of many messages is
+sent staggered (one message per 0.02 s with a task, or fewer messages) so the reliable channel cannot overflow.
+
+3.1 H9Inv  (server -> client).  First byte = op.
+  op 1 OPEN   byte 1; byte flags (bit0 = over capacity, bit1 = unlimited cells, bit2 = the money is called credits (arp_h9_credits 1)); short slots (cells shown: `slots`, or the grid
+              length when unlimited); long wallet; long bank; string name (the character's name); string job (the ARP job name or "")
+              Sent in answer to "h9inv open" and by Item_Inventory. The client opens the window (cursor on) when it reads OPEN. A second OPEN
+              while open refreshes the header. The server then sends the catalog entries the cells need and then the SLOTS.
+  op 2 CATALOG byte 2; byte n; then n x { short kind; short stackmax; byte flags(0); string name }
+              The item kinds the client has to know to draw cells. Kind ids are ARP item ids (1..N, by registration order: NOT stable
+              across server restarts, which is why a name always comes with them). The client forgets the catalog at every map change,
+              so the server sends the entries for every kind in the cells in answer to "open" (the client says "open" again after a
+              map change). Pack as many entries as fit in 188 bytes.
+  op 3 SLOTS  byte 3; short first; byte count; then count x { short kind; short n }   (kind 0 = empty cell, n 0). count <= 40.
+              A full snapshot after OPEN is the cells 0..slots-1 in chunks of 40. A change while open sends only the changed cells
+              (a chunk per contiguous run is fine). The server sends CATALOG entries for a kind the client has not been sent
+              BEFORE the SLOTS that use it (track "catalog sent" per player; clear it on open).
+  op 4 MONEY  byte 4; long wallet; long bank          (when either changes while the window is open, at most 4 per second)
+  op 5 DESC   byte 5; short kind; string text         (the answer to "h9inv info <kind>": the item's description from ARP_RegisterItem,
+              or "No description." ; also the INFO action's text)
+  op 6 NOTE   byte 6; byte level (0 plain, 1 warning); string text   (one line for the window's status row: a refusal, "Your inventory
+              is full", "That is in your exchange", ... The server ALSO prints the same text to chat as [ARP] ... when the window is not
+              open; the client shows a NOTE in the window and does not echo it to chat.)
+  op 7 CLOSE  byte 7                                   (the server shuts the window: death, jail, cuffs, map change, window off)
+  op 8 RESERVE byte 8; short first; byte count; then count x { short n }   (the count of each cell that an open exchange reserves;
+              sent when it changes and with an exchange's OPEN; 0 = free)
+  Order after "h9inv open": OPEN, CATALOG..., SLOTS..., RESERVE (if an exchange is open).
+
+3.2 h9inv  (client -> server).  A console command sent with pfnServerCmd:  h9inv <op> <args>
+  open | close | tidy
+  move <from> <to>           cells 0..slots-1
+  split <cell> <n> [<to>]    to omitted or 255 = the first empty cell
+  use <cell>
+  drop <cell> <n>            n = the count shown for DROP ALL, 1 for DROP ONE and for a shift-drag out of the window, the whole
+                             cell for a plain drag out of the window
+  give <cell> <n> <player>   player = the entity index (1..32) of the target (the window does not send it any more: an exchange gives)
+  show <cell> <player>       SHOW TO ...: the same list of players; no count, nothing moves (section 0, NEW show)
+  info <kind>                kind id of the CATALOG
+  x accept | decline | cancel | seal | unseal
+  x offer <cell> <n> [<index>]   put n of the cell into the sender's offer, index 0..11 or 255 = first free (same kind already in the
+                             offer: the counts add up as one entry; one entry per cell)
+  x take <index>             take offer entry `index` back
+  x money <amount>           my money offer (0..wallet; replaces the previous amount)
+  Register with register_clcmd("h9inv", ...). EVERY argument is validated on the server (never trust the client: ranges, ownership,
+  counts, the target's distance and line of sight, alive, not jailed). At most 10 commands per second per player, the rest are dropped
+  silently. An invalid or refused command answers with a NOTE (level 1) and changes nothing.
+
+3.3 H9Trade  (server -> client).  First byte = op.
+  op 1 INVITE byte 1; byte seconds (left); string name        (a player pressed E on you; shows "<NAME> OFFERS YOU AN EXCHANGE")
+  op 2 OPEN   byte 2; string partner; long wallet; byte cells (12); byte flags (bit0 = the money is called credits)
+              (the exchange window opens for both)
+  op 3 OFFER  byte 3; byte side (0 = mine, 1 = theirs); byte index (0..11); short kind; short n; string name
+              one cell of an offer changed (kind 0 = emptied). `name` is the item's name for side 1 (the client may not know the
+              kind), "" for side 0.
+  op 4 MONEY  byte 4; byte side; long amount
+  op 5 SEAL   byte 5; byte mine (0/1); byte theirs (0/1); byte lock (tenths of a second until MY seal may be pressed; 0 = now)
+  op 6 CLOSE  byte 6; byte reason; string summary
+              reason: 0 completed (summary = the result lines the client shows, e.g. "VOSS RECEIVES: Cigarette x10, Pizza x2|KANE
+              RECEIVES: Beer x4, 150 credits" with '|' between the two lines; the money worded by inv_money), 1 you withdrew, 2 they withdrew, 3 declined, 4 the invite
+              lapsed, 5 out of range, 6 you died, 7 they died, 8 they disconnected, 9 jailed or cuffed, 10 your inventory is full,
+              11 their inventory is full, 12 the check failed (an item or the money changed), 13 map change, 14 busy, 15 timed out.
+  The inventory messages (H9Inv) keep flowing while an exchange is open; RESERVE tells which cells are held.
+
+3.4 H9Search  (server -> client, to a client that says _h9vgui 8).  First byte = op. The contract the two halves were written from is
+D:\temp\wf\arpinv\DESIGN-M5.md; the plugin's own account is docs\ARP_INVENTORY.txt.
+  op 1 OPEN   byte 1; byte flags (bit0 = his cells are over capacity); short cells (the length of his grid); string name (his, 32 at most)
+              the window opens; a second OPEN while it is open replaces the header and starts his cells again (a search of another player, or the snapshot sent again)
+  op 2 SLOTS  byte 2; short first; byte count (40 at most); count x { short kind; short n }
+              his cells, kind 0 an empty cell: H9Inv SLOTS' layout, drawn the same. The names of the kinds are the catalog the client has from H9Inv: the server
+              sends H9Inv CATALOG entries for the kinds the client lacks BEFORE the SLOTS that use them
+  op 3 CLOSE  byte 3; byte reason: 0 you closed it, 1 he is no longer handcuffed or jailed, 2 he died, 3 he left (or his character was loaded again), 4 you moved away,
+              5 you died or were handcuffed, or the server closed your own inventory window (H9Inv CLOSE follows), 6 the map is changing or the search was switched off
+  op 4 NOTE   byte 4; byte level (0 plain, 1 warning); string text (120 at most): the answer to a take, in the row under the grids
+  op 5 MONEY  byte 5; long wallet: his wallet, for a client that says _h9vgui 9. The window then has a row "HIS CREDITS/CASH n" and the buttons TAKE 10, TAKE 100 and TAKE ALL (never more than
+              the wallet last told), which send h9inv s money <n>; with no MONEY sent there is no row. Dead buttons when the wallet is 0.
+  THE WINDOWS CAN BE MOVED: the title bar of the inventory, exchange and search windows takes hold of the window, which follows the cursor (kept on the screen) and stays where it was put while the game runs.
+  THE BOXES ARE BLENDED: the window's boxes are drawn with pfnFillRGBABlend (alpha), not pfnFillRGBA, which this engine draws additively (a dark box then darkened nothing).
+  Order when a search opens: H9Inv OPEN, CATALOG and SLOTS of your own inventory if it is not open, H9Search OPEN, H9Inv CATALOG for his kinds, H9Search SLOTS. While
+  it is open your own H9Inv messages keep flowing, and an H9Inv CLOSE closes the search with the window. The client's commands (through h9inv, ten a second):
+  h9inv s take <cell> <n> (n of the cell <cell> of HIS grid) and h9inv s close. A take is never made by the client itself: the answer is H9Search SLOTS for his changed
+  cell, H9Inv SLOTS for yours and an H9Search NOTE, and a take that cannot go on is answered by an H9Search CLOSE.
+
+4. THE PICTURES
+---------------
+
+A tile shows its item's picture: a 32 x 32 frame of sprites/h9_arpicons.spr (HL sprite, SPR_ALPHTEST: palette index 255 is transparent, drawn
+with SPR_DrawHoles) named in sprites/h9_arpicons.txt, one line a picture:
+    Soda|64
+    First Aid Kit|68
+(the item's name as ARP_RegisterItem has it, exactly, a bar, the frame). The client reads both whenever the HUD's VidInit runs, a map's start or a restart of the video: the
+inventory element's VidInit does it, and CHud::VidInit calls it by name (H9ArpInv_VidInit), because the H9 elements register through AddHudElem, are not members of CHud, and
+CHud::VidInit does not walk the list of elements (Think, Draw and InitHUDData are walked). A name whose frame the sheet does not have is left out. An item that is not in the
+text file is a monogram in a colour of its name. The tile grows with the screen so that a name has room under the picture: 96 pixels on a screen 1000 pixels high or more (three lines of the game's 19 pixel font
+under the picture), 80 pixels from 700 pixels (two lines), and the 48 pixel tile of a smaller screen, or a font too tall for a line, holds the picture alone, the name
+then being in the panel of the selected item (the status row in the exchange and the search). The name is broken at spaces into the lines the tile has, each line centred
+under the picture and no wider than the tile less 3 pixels a side; a name that needs more lines, or a word wider than that, ends in "..." and is never cut off without a
+sign. All 101 names the game ships fit whole on the 96 pixel tile (86 of them on the 80 pixel tile). The other player's offer in an exchange is drawn under the name the
+server sent with it, so that its picture is found for an item this player's catalog does not hold.
+
+Why a tile shows a monogram: cl_h9_arpinv_state prints "pictures:" first (the sheet is a sprite number with its frames, or NONE and why, and how many times it was read since the game
+started: 0 means VidInit has not run), the room a tile has (for the picture, and how many lines of the name), the items the server has named that have no picture, the first tiles' frames, and for a name typed after it
+(cl_h9_arpinv_state Flashlight) the frame, or that the list spells it otherwise (names are compared exactly) or has no such name. cl_h9_arpinv_test draws a window of
+sixteen tiles for twelve seconds with no server and no item: fifteen names the sheet has and one it has not. python reTS\cl_dll\tests\check_arpicons.py checks the sheet as
+the engine reads it and every name the plugins register against the list, and says which items have no picture.
+
+The sheet has the 92 items of Apollo RP's plugins (ARP_TS, ARP_Items, ARP_HungerMod, ARP_TalkArea). The 31 weapons are rendered from their
+world models in TS's models folder (w_*.mdl) with SMAK's software renderer, the weapon laid on the diagonal; Apollo RP gives every other
+item the one backpack as its world model, so those are DRAWN, flat colours with a dark edge (modelling\arpicons\arpicons_art.py). Every
+picture gets a thin light edge so that a dark thing shows on the dark tile. To make the sheet again, after changing a drawing or adding an
+item (a drawn one goes at the end of LATER in arpicons_art.py; modelling\arpicons\README.txt says it step by step):
+    node modelling\arpicons\bake_final.mjs modelling\arpicons\weapons_final.json modelling\arpicons\baked 32      (the weapons; once)
+    python modelling\arpicons\make_arpicons.py [a tab separated list of item names to check against]
+which writes modelling\arpicons\out\h9_arpicons.spr and .txt, modelling\arpicons\preview.png (a sheet to look at) and h9_arpicons_atlas.png
+(what tools\render_arpinv.py draws the previews of the window with). With --install the two files are copied into sprites\, which the
+build ships with the game: install them with the client.dll of 2026-11-10 (18:25 or later), which draws 32 x 32 frames with
+SPR_DrawHoles; an older client centres frames as if they were 64 x 64 and draws them additively. A model of an item's own, when there is
+one, takes the place of its drawing: render it the same way and list it in weapons_final.json.
+
+H9's own weapons, the PPSh-41 and the laser rifle, are rendered from their world models (H9XASH\ts\models\h9\w_ppsh41.mdl and w_laserrifle.mdl; weapons_h9.json,
+baked_h9\) and come last in the sheet (frames 92 and 93), so no earlier frame moved. Their names are "PPSh-41" and "Laser Rifle", and the
+spellings PPSH-41, PPSh41, PPSH41, LASER RIFLE, Laser rifle and LaserRifle give the same frames. Apollo RP's ARP_TS registers both weapons as items of
+those names (apollo-rp\ORIGIN.txt, 34), so a tile shows one as soon as a player has it; on a server whose h9_customweapons is 0 using the item gives it back.
+
+The window's colours are H9's purple, or the colour the player gave the panels (cl_h9_vgui_r, _g, _b: docs\H9_VGUI.txt 4k); its warning, money and
+stock colours (red, green, yellow) are not moved.
+
+The same pictures stand above the notice of an item lying on the floor. The look-at line of a dropped item (arp_h9_itemhover) is the fourth HUD, the notice
+banner; to a game that draws the HUD as panels and says _h9vgui 7 the server adds a line of the kind HUDK_ICON, "icon:<the item's name>", and the
+panel (h9_arphud.cpp) draws that item's frame above the banner, centred, two or three times its size on a 720 or 1080 line screen (one at 480),
+below the banner when the top of the screen leaves no room, fading with it. The panel reads the sheet itself (vgui_H9Panel.cpp, H9ItemPicture
+and CH9PicturePanel: the frame's RGBA as a VGUI bitmap, kept for the life of the client). cl_h9_arphud_icon 0 hides it.
+
+The same sheet also stands in the world, over the pack itself, for everybody who sees the pack (arp_h9_itemicon on the server, docs\APOLLO_RP.txt, 2, and apollo-rp\ORIGIN.txt, 28):
+a camera-facing sprite of the item's frame, 19 units across, over the backpack. It needs no client change: the sheet is a sprite the engine draws, its type SPR_FWD_PARALLEL faces
+the viewer, and the server precaches it (a client that lacks the file has it sent). A client of an older build shows it as well.
+
+5. TESTS
+--------
+
+reTS\cl_dll\tests\test_arpinv.cpp checks the model and the clicks without the game: the messages decoded and refused (truncated, out of
+range, no terminator, negative, huge), the layout at seven screen sizes with and without an exchange (every cell is found at its own centre,
+the windows stay on the screen), select, double-click, the menu, split, drag (move, combine, split, drop, offer, take back), show,
+the exchange (seal lock, money field, quick buttons, ESC), the search (its messages decoded and refused, the layout at seven screens and three grid lengths, select,
+double-click, the buttons, the right-click menu and the TAKE box, a drag onto the inventory, ESC and the X, the wheel and the arrows, my own window beside it),
+scrolling, the header's words (CREDITS with the credit sign and WALLET with $, at three screens), the picture of a tile at the layouts the game has (the 96 and 80 pixel tiles with the game's
+19 pixel font and a smaller one, the 48 pixel tile that holds the picture alone, a font too tall for a line under the picture, the offers, the other player's offer under the
+name the server sent), the names under the pictures (every name the game ships whole on the 96 pixel tile, most of them on the 80 pixel tile and the rest ending in dots, each
+line centred), the reading of the picture list (IconList in
+h9_arpinv_icons.h: comments, CRLF, a name too long, a list too long, a frame the sheet does not have; and the shipped sprites\h9_arpicons.txt against the shipped sheet), and
+a check of the source that CHud::VidInit calls H9ArpInv_VidInit and that this reads the pictures.
+Build and run: cl /std:c++17 /EHsc /I.. test_arpinv.cpp. The checks of the pictures and of the names read H9XASH\ts\sprites\h9_arpicons.txt and .spr and H9XASH\valve\gfx.wad
+(the game's own font, its lump CREDITSFONT) and print SKIP when they are not beside the tests.
+reTS\cl_dll\tests\render_arpinv.cpp and tools\render_arpinv.py draw the windows for twenty-seven situations (15 to 23 are the search: four screens, the menu,
+the TAKE box, a drag, nothing on him, a long grid over capacity; 29 to 32 are the owner's 1920 x 1080 screen, an 800 x 600 one and an exchange, measured and cut with the game's own
+font: the engine's creditsfont, 19 pixels high, read from valve\gfx.wad) into pictures with the very drawing the game uses (python tools\render_arpinv.py <folder of
+the .json files>): the layout, not the glyphs.
+The model was also checked against the server engineer's own strict decoders and client models, which were written from the contract alone (D:\temp\wf\arpinv-server\test5;
+they are not in the repository): random valid H9Inv and H9Search traffic from an encoder written for the purpose, accepted by those decoders, replayed through
+h9_arpinv_model.h by a small C++ program, agreed after every message (25 seeds: 33,390 messages, 1.9 million comparisons, none different; a value changed on purpose is found).
+
+6. OWNER'S CHECKS (in a game, in order)
+---------------------------------------
+
+  1. On a roleplay map with the new game and server: say /inventory. The window comes up, the cursor with it, and stays up until the X, ESC
+     or the key again (try each). Walk about with it up. Die with it up: it closes.
+  2. Select a tile: its description appears. Double-click a food: it is eaten. Drag a tile to an empty cell, onto a cell of the same item
+     (combine), onto another item (swap). SHIFT-drop on an empty cell: half is split off. SPLIT ... with a number.
+  3. Drag a tile out of the window: it is dropped and a pack lies there; walk up to it and press E. Fill the cells and pick up one more
+     item: "Your inventory is full".
+  4. SHOW TO ... with a second player (and none near: "NO PLAYER NEAR"). Show a license or a card: the other player reads it. There is
+     no GIVE TO in the window, in the menu or as a button. Every tile shows a picture (the guns look like the guns).
+  5. Press E on a second player: he is offered an exchange. Accept (E at him). Put items and money in, seal, change something (both seals
+     break, the button waits), seal both: EXCHANGE COMPLETE and the goods have changed hands; look at the server log. Cancel one with
+     WITHDRAW, one with ESC, one by walking away.
+  6. cl_h9_arpinv 0 (the console, then change the map): /inventory is the text menu again. arp_h9_vgui 0 on the server: the same for everyone.
+  7. The weapons: in the server's console (or as an ARP admin) arp_createitems "<your name>" "PPSh-41" 1 and the same with "Laser Rifle": both tiles show
+     their picture. Use one: the gun is in your hands at once (no attachment menu). Then h9_customweapons 0 on the server and a map change: using the item
+     says the server does not have the weapon, and the tile is still there with the count it had.
+  8. Drag a tile out of the window and look at the pack from a few steps: its picture stands above the banner that names it (cl_h9_arphud_icon 0 takes it away), and the same picture
+     floats in the world over the pack (arp_h9_itemicon 1; look from across the room: it faces you whichever way you turn). Pick the pack up: the icon goes with it. Drop two
+     different items and pick one up: only its icon goes. Look at a pack that lies on a table or behind a prop the crosshair is on: it is named all the same.
+     In a dark corner the dropped pack also pulses purple for twelve seconds (arp_h9_itemglow 1, docs\APOLLO_RP.txt): drop one there, then arp_h9_itemglow 0 on the server and drop another: no light.
+  9. The colour: cl_h9_vgui_color 40 160 255. The window, the HUD panels, a notice, a chat bubble and a menu take the colour (the art, the text, the rails); a
+     red warning row and the need bars keep theirs, and the item pictures do not change. cl_h9_vgui_color default: the purple. Typing
+     cl_h9_vgui_r 40, _g 160 and _b 255 as three commands makes one change after a moment. docs\H9_VGUI.txt, 4k.
+ 10. Turn the mouse wheel to open the weapon select: the first HUD panel at the top left is smaller while it is open and grows back when it shuts
+     (cl_h9_arphud_shrink 0: it stays as it was). docs\ARP_HUD_CHECKS.txt, 14.
+ 11. The search (a client that says _h9vgui 8, and the server's ARP_Inventory of 2026-11-10 21:43 or later): handcuff a second player (the cuffs, or the jail), stand near
+     him and press E at him. SEARCHING opens beside your inventory with his cells, and he reads "[ARP] <your name> is searching you." in the chat. Double-click one of
+     his tiles: it is yours (the row says "You took 3 Soda."); drag another onto your window; SHIFT-drag takes one; select one and press TAKE ONE or TAKE ALL; right-click
+     one and TAKE ... a number. A player with nothing on him: the window opens and says NOTHING ON HIM. cl_h9_arpinv_state prints the search.
+ 12. Fill your inventory (arp_h9_inv_slots 4, say) and take more: "You took 3 of 5 Soda. Your inventory is full." and the rest is still in his grid. The search and your
+     inventory agree with arp_h9_inv_dump on the server.
+ 13. End it: CLOSE, the X and ESC close only the search; free him (the cuffs off), walk away (150 units), or have him leave: the window closes with the reason in the
+     row. A free player: E offers an exchange as before. arp_h9_search 0: E on a handcuffed player answers "That player cannot make an exchange now."
+ 14. The windows are solid: over a bright wall the dark panel hides the world behind it (it is blended by alpha: pfnFillRGBABlend; the engine's pfnFillRGBA adds light and
+     a dark box showed nothing). Over a dark corner the boxes look as the previews do (tools\render_arpinv.py).
+ 15. Take hold of a window by its title bar (not the X) and drag it: the inventory, the exchange window and the search window each go where the cursor goes, stay on the
+     screen, and stand where you left them when you close and open them again (until the game ends). Every tile, button and the scroll arrows work at the new place.
+ 16. Money in a search (the client that says _h9vgui 9 and ARP_Inventory of 2026-11-11): the search window has a row HIS CREDITS (or CASH) and TAKE 10, TAKE 100, TAKE ALL. Give the
+     handcuffed player money (arp_createmoney "<him>" 300) and take 10, then all: your wallet goes up, his down, the row says "You took ...", he reads "[ARP] <you> took ... from you."
+     in the chat, the log has a "took N from the wallet of" line. With nothing in his wallet the buttons are dead. arp_h9_search_money 0 on the server: no row. A client that
+     says 8 has no row either.
+ 17. The pictures, and the header (the client.dll of 2026-11-11 after the VidInit fix). Join a roleplay map and type cl_h9_arpinv_state in the console: the line "pictures:" says
+     the sheet is a sprite with 95 frames of 32 x 32 and the list names 101 items, read once or more. cl_h9_arpinv_test: a window of tiles shows pictures, the last tile (No Such
+     Item) a monogram, and its header says CREDITS with the credit sign. Open the real window (i): every tile of an item with a picture shows it (the Flashlight too), the name is
+     under it, and the header says CREDITS <sign> and BANK <sign>. Set arp_h9_credits 0 on the server and rejoin: the same window says WALLET $ and BANK $, and the HUD's line says Wallet.
+     cl_h9_arpinv_state Flashlight says frame 88. On a screen under 700 pixels high (800 x 600) the tiles hold the picture alone.
+ 18. The names under the pictures (the client.dll with the larger tiles, 2026-11-11 evening). On a 1920 x 1080 screen the tiles are 96 pixels and every item's whole name is
+     under its picture, centred, on up to three lines (Phone Prepaid Card on two); on 1280 x 720 or 1024 x 768 they are 80 pixels with two lines, and a name that needs more, or
+     a word wider than the tile, ends in "..."; on 800 x 600 the 48 pixel tiles hold the picture alone. In an exchange the other player offers an item you do not carry: the
+     tile of THEIR OFFER shows that item's picture, not two letters.
+
+
+7. THE CONTEXT MENU OF THE USE KEY ON A PLAYER  (the client half; the rules, the entries and the protocol: docs\ARP_INVENTORY.txt, 10)
+-------------------------------------------------------------------------------------------------------------------------------------
+
+WHAT THE PLAYER SEES. With arp_h9_ctxmenu 1 on the server, E on a living player does not offer an exchange: a list comes up just right of the crosshair, its middle at the height of it (the cursor
+comes up in the middle of the screen, so the first row is a short move to the right; on a screen too narrow for that the list stands left of the crosshair), headed by the other player's name, with a row
+for each thing he can do to him: Trade, Search, Cuff (Free), Tie (Untie), Tape mouth (Remove tape), Fine, Give money, Show license or card, and what other plugins add. A row has its number (1 to 9, 0 for the
+tenth), its label, and at the right either a small detail ("uses Cuffs") or, when it is greyed, the reason ("Bots cannot trade", "Cuff him first", "Police only"); a ">" marks a row that opens a page of choices
+(the amounts of a fine or of money, the licenses and cards he has), which ends in Back. The line under the rows says what the keys do ("Click or press the number. ESC closes."), or the reason a greyed row
+that was clicked gave, for four seconds. The look stops while it is up (the cursor is the player's, as with the inventory window); a click on a row, or its number key, chooses it (every number key is the menu's
+while it is up, row or none, so a mistyped digit does not change the weapon); ESC, a right click and a click outside the list close it; the wheel does nothing. The colours are cl_h9_vgui_color's and the margins and
+width follow cl_h9_vgui_scale, as for every H9 panel; the text is the game's own HUD font. It is drawn over the inventory window when both are up, and takes the mouse before it.
+It closes by itself when the server says so (the other player died or left, he is out of range, the switch went off), and the client closes a page that has been up for 90 seconds (it tells the server).
+
+THE FILES. h9_arpctx_model.h keeps the list and reads H9Ctx (every byte checked: a message is at most 192 bytes, the rows are cut to 12, the strings to 23, 33, 35 and 71 characters, a key is 0 to 10, a
+row message must continue where the last one ended, and an OPEN with a serial of 0 is refused); h9_arpctx_ui.h is the geometry, the rules of the clicks and the keys (it queues the commands, at most four at a time)
+and the drawing, over a canvas; h9_arpctx.cpp is the engine's part: the message, the canvas (FillRGBABlend and the HUD font), the cursor, the mouse, the keys and "h9ctx pick <serial> <index>" and "h9ctx close
+<serial>", at most ten a second. The hooks are CHud::Init and CHud::VidInit (hud.cpp), TeamFortressViewport::UpdateCursorState and KeyInput (the menu's keys come before every other rule), IN_MouseEvent (the
+menu's buttons come before the inventory window's) and h9_vgui.cpp (the level it says). A server is untrusted: the client does nothing the message does not say.
+
+THE SWITCHES. cl_h9_ctxmenu 1|0 (saved): 0 keeps the use key as it was, and the game says _h9vgui 9 instead of 10 (5 without the inventory window). cl_h9_ctxmenu_state prints whether a menu is up, how many OPEN,
+ROWS, CLOSE and NOTE messages were read and how many refused, the rows it holds with their keys and flags, and the size and place of the panel. cl_h9_ctxmenu_test [seconds] (20 by default, 2 to 120) draws a menu of
+8 rows by the very painter the game's menu is drawn by, with the cursor up, for the player's colour and scale; a choice only says what it was, and nothing is sent.
+
+TESTS. reTS\cl_dll\tests\test_arpctx.cpp checks the model, the clicks and the keys, the layout and the drawing without the game: the messages decoded and refused (cut short, too long, a serial of 0, rows out of
+order, more rows than announced, a key out of range, 20,000 random messages that leave the model sound), a click on a row, on a greyed row (it says why, sends nothing), outside, with the right button, the number keys
+and 0, ESC, a menu that is not up taking nothing, the layout at eight screen sizes and four scales (the panel stays in the safe area, right of the crosshair, the rows inside it and in order, twelve rows on a
+640 x 480 screen), the drawing (a greyed row in the grey, a red row in red, nothing drawn right of the panel, the hint until a status replaces it, the credit sign as the byte it is), and a check of the
+source that the hooks are where they must be (CHud::Init and VidInit call it, the cursor, the keys and the mouse take it before the inventory window, the protocol is 10 and 9, the files are in the build).
+Build and run: cl /std:c++17 /EHsc test_arpctx.cpp (in the tests folder); test_arpctx.exe <file of hex messages> also reads what the server sent, a line each, and prints the menu it ends with. tests\render_arpctx.cpp
+draws twelve situations (the first page at four screens and the scale 1.5, a greyed row clicked, a police officer in front of a cuffed player, a bot, the page of a fine, of money in credits and of a show, twelve rows
+at 640 x 480 and 1280 x 720) with the game's own font into the JSON that tools\render_arpinv.py turns into pictures: the layout, not the glyphs.
+
+OWNER'S CHECKS for the menu (in a game, in order; a client.dll with it, and the server's ARP_H9Ctx, ARP_Inventory, ARP_JailMod and ARP_Items built again)
+  1. With nobody else: cl_h9_ctxmenu_test in the console. A list of 8 rows stands right of the crosshair with the cursor on it; rows light under the mouse; a click on "Search" (greyed) says "Cuff him first" under
+     the rows; a click on "Trade" or the 1 key says "Demo: you chose Trade."; ESC, a right click or a click outside closes it. cl_h9_vgui_color 40 160 255 and cl_h9_vgui_scale 1.5 change it.
+  2. On a roleplay map with a second player and arp_h9_ctxmenu 1: press E on him. The menu comes up with his name, the look stops and the cursor is free. Trade is on, Search is greyed "Cuff him first", Cuff is greyed
+     "You have no Cuffs" (or "Police only"). Press 1 (or click Trade): the menu closes and he is offered an exchange as ever; he accepts with E at you (no menu for that press). ESC closes the menu; walking
+     away 150 units, or him leaving or dying, closes it by itself.
+  3. E on a roaming citizen (a bot): Trade says "Bots cannot trade", Search "Cuff him first"; Give money is on.
+  4. Cuffs: arp_createitems "<you>" "Cuffs" 1, then E on him: Cuff says "uses Cuffs"; choose it: the menu closes and he is cuffed (the symbol over his head). E again: Free has taken Cuff's place, Search is on,
+     Trade is greyed "He is cuffed: search him". Choose Search: the search window opens as before. Choose Free: he is free. As police (arp_setjob "<you>" "Cadet"): Cuff needs no item; on another
+     police officer it says "Police cannot be cuffed".
+  5. Rope and tape: arp_createitems "<you>" "Rope" 1 and "Tape" 1: Tie ties him (he is pulled along) and the row becomes Untie; Tape mouth gags him (a roll is used up) and the row becomes Remove tape.
+  6. Money: Give money > opens the amounts; "$50" (or the credit sign with arp_h9_credits 1) gives 50 and the wallets say so; an amount over your wallet is greyed "You have less". As police: Fine > opens its
+     amounts; choose one: he gets the Pay or Refuse menu. A civilian's Fine says "Police only".
+  7. Show: arp_createitems "<you>" "Permitted License" 1: Show license or card > lists it; choose it: he reads "<NAME> SHOWS YOU" and the license. With none: "No license or card".
+  8. The switches, with a menu up: arp_h9_ctx_cuff 0 takes the Cuff row out within half a second, arp_h9_inv_window 0 takes Trade and Show out, arp_h9_ctxmenu 0 closes the menu; after it E is the exchange
+     again. cl_h9_ctxmenu 0 in your console and E at a player: the exchange as before, and arp_h9_ctx_dump "<you>" says level=9 wanted=0.
+  9. A game that cannot draw it (the web client until it is synced, a client.dll without it): E is the exchange, and no menu is ever sent. With ARP_H9Ctx out of plugins.ini: the same for everybody.
+ 10. Forged or late: a menu that is up, and the other player is cuffed by somebody else: within half a second the rows change (Free, Search); a click on a row that is gone is refused with a note and does
+     nothing. What a wrong result looks like: a Cuff that cuffs somebody else than the player named in the heading; a row that stays on after its switch went off; E that opens the menu for a bot's press,
+     or a menu on the player who is invited and presses E to accept; a cursor left up after the menu closed (press ESC: it must go); the inventory window not answering to the mouse after the menu closed.

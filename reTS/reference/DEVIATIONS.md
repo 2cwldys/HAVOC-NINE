@@ -100,6 +100,73 @@ What it breaks, against the original and plugins built for it:
   `tsconst.inc`'s TSW_LASERRIFLE). The first custom weapon id in TSX is 42 now (it was 41).
 - The weapon models are adapted from a CC BY 4.0 Sketchfab model (`laserrifle_ATTRIBUTION.txt`).
 
+### Mech rocket launcher (weapon 41)
+
+A third weapon TS 3.0 does not have: `TSW_MECHROCKET` (41; `TSW_COUNT` is 42), a shoulder-fired rocket launcher for the
+Mech class. It is weapon 41 of the one `weapon_tsgun`, as every TS weapon is (there is no `weapon_h9_mechrocket` entity).
+Its row (`dlls/ts_weapon_info.cpp`, after the laser rifle) is the M4A1's taken whole, so its animation blocks (idle 0,
+reload 1, draw 2, shots 3 and 4, the last-round shot 4) and its draw, shot and reload sequences are the M4A1's;
+`models/h9/{v,p,w}_mechrocket.mdl` keep that layout. A server that does not find all three files on disk gives the row
+the M4A1's models (`TSMechRocketResolveAssets`, run at the head of both weapon precache lists). The row's own values: the
+name "Mech Rocket", no fire sound, no shell, a four-rocket clip (one salvo), 1.5 s from a salvo to the next pull, 3.0 s to
+reload (the length of the viewmodel's reload sequence), a salvo of four rockets 0.12 s apart (`iSalvo`, `flStagger`: two
+fields at the end of `s_weapon_info`, 0 in every other row), fire modes 6 (burst, the volley and the default, and semi, one rocket a
+pull: `TSDefaultFireMode` prefers burst; the generic burst machine, which queues rounds in `m_burstOrPhase`, is skipped for this weapon, and
+the client's ammo box shows Volley and Single), fire type 0 (in no weapon restriction category), caliber 8 (the Barrett's 50BMG: all sixteen
+calibers are taken, and caliber 13, the M60E3's belt, would make the Mech's M60 reserve the launcher's too; the client's ammo box names the
+reserve "Missile" for this weapon), weight 10 (it fits beside the M60E3's 70), price 0 and no
+buy menu row, no scope, attachment, right-click stance or gunbash, and the combat feel 6.0 view kick, no spread.
+
+A pull (`CTSGun::MechRocketFire`) launches a salvo: `iSalvo` rockets (what a partial clip holds, if that is fewer),
+`flStagger` seconds apart. Every rocket (`MechRocketShot`) spends a round, plays the ordinary fire event (the viewmodel
+animation, a large muzzle flash `sprites/h9_rocket_flash.spr` and the gun smoke; `EV_TSFire` draws no brass and fires no
+bullet for this weapon) and, on the server, launches `CMechRocket` (`dlls/ts_mechrocket.cpp`) from the eye along the aim
+with the launch sound `weapons/rocketfire1.wav` at the player's pitch. The first rocket of a pull goes along the aim, the
+others stray up to `h9_mechrocket_spread` degrees from the aim they find when they leave, and sound on `CHAN_AUTO` (the sound
+is 0.43 s long; on `CHAN_WEAPON` each would cut the one before it). The rockets after the first are `WeaponIdle`'s
+(`MechRocketSalvoStep`): the number still to leave is `m_burstOrPhase`, the slot the burst uses, which the prediction
+already carries (clientdata `vuser2.x`), so the client predicts the whole salvo; the next rocket leaves when the primary
+timer, set to the stagger, has run out. The salvo asks nothing more of the trigger, ends if the player holsters, dies, runs
+out of rounds or goes under water, and `Reload` refuses while it is up. The aim kick (`TS_AddViewRecoil`, `VKickback`) comes
+once, after the last rocket, so that the rockets leave along the aim the pull found. The rocket flies straight (MOVETYPE_FLY) at `h9_mechrocket_speed` with a
+`TE_BEAMFOLLOW` smoke trail (`sprites/h9_rocket_smoke.spr`) and goes off on the first thing it touches or after 10 s: a
+`TSExplosion` of `h9_mechrocket_damage` at the middle, full out to a quarter of `h9_mechrocket_radius` and nothing past the
+radius, the explosion sprite (`sprites/h9_rocket_boom.spr`) and TS's own explosion effect and sound. A rocket that reaches
+the sky is removed without a blast. The player who fired it is not hurt by it, or pushed, unless `h9_mechrocket_selfdamage`
+is 1. TS gives a living player no knockback from a hit (`CBaseMonster::TakeDamage`), so after the blast `MechRocketPush` raises
+the velocity of every living player in the radius that the game rules say the thrower may hurt (`FPlayerCanTakeDamage`: friendly
+fire off spares a teammate), with a clear line to the blast and on `MOVETYPE_WALK`: `h9_mechrocket_push` units a second along
+the ground away from the middle (the way the rocket flew for a player right on it) and `h9_mechrocket_lift` up, both with the
+damage's falloff, held to 1000 units a second; a player the blast kills gets TS's own death launch instead. The
+kill feed names it "Mech Rocket". A file the art needs that is not on disk is replaced by a stock one (the smoke by
+`sprites/steam1.spr`, the explosion by `sprites/zerogxplode.spr`, the rocket by `models/rpgrocket.mdl` and then
+`models/shrapnel.mdl`, the flash by the ordinary muzzle sprite, the launch sound by silence); nothing that is not on disk is
+precached. The weapon is deleted, not dropped, when its owner dies, drops it or is disarmed (`h9_mechrocket_nodrop`, 1).
+
+The cvars (`dlls/game.cpp`): `h9_mechrocket` (1, read-only in effect: a plugin tells a library with the weapon from one
+without), `h9_mechrocket_damage` (200), `_radius` (260), `_speed` (1100), `_rate` (1.5, from a salvo's last rocket to the
+next pull), `_clip` (4), `_salvo` (4), `_stagger` (0.12), `_spread` (2.5 degrees), `_reload` (3.0), `_nodrop` (1),
+`_selfdamage` (0), `_push` (400) and `_lift` (250). The clip, rate, reload, salvo and stagger are copied into the weapon table
+every rules think (`TSMechRocketSyncCvars`, through `TS_ApplyMechRocketSetting`, which clamps them) and, when one
+changes, sent to every client as `SrvSett` ids 5 to 9 (clip, rate in ms, reload in ms, salvo, stagger in ms; to a joiner
+by `InitHUD`), because the client's prediction reads its own copy of the table: its reload fills the clip to `iClip`, its
+salvo counts down `iSalvo` rockets at `flStagger`. The client keeps what it heard and puts it in the row again whenever it
+builds the table (`compile_weapons_info`, the first prediction of every map). The server's clip, timers and reserve still
+overwrite the prediction every frame.
+
+What it breaks, against the original and plugins built for it: the original client has no id 41 (see the PPSh-41) and
+drops the `SrvSett` ids above 3 (harmless); `s_weapon_info` has two more fields; `CTSGun::m_items` has one more element; a plugin or module that sizes a table by the weapon count must know 41 (H9's TSX
+keeps kung fu's own stats slot at 41 and must move it to 42).
+
+### A marked Mech lets go of no weapon (server)
+
+ts_matchmode sets `pev->fuser4` to 1 on a player of its Mech class each time it hands the kit over (match mode on); a library without the plugin never sees
+the mark, and a player without it is TS's own. `CBasePlayer::DropWeapon` (`dlls/ts_gun.cpp`), the one entry for the drop key, `drop_<n>`, a melee disarm
+and the death scatter, returns at its head for a marked player: with the server cvar `tsm_loadoutrework` on for every drop (and `PickUpWeapon` takes
+no dropped weapon for him), and with `tsm_mech_nodrop` on (1 by default, a cvar of the plugin) for the disarm (type -2) and for every weapon (types 1 to
+41), so that a melee hit does nothing to him and his death throws none of his weapons. The CTF briefcase (`drop_0`) and the flag dropped bare-handed are
+no weapons and still go. The plugin refuses the drop key and the weapon bar's drop for his M60 and launcher on its own too.
+
 ### h9_customweapons (the PPSh-41 and the laser rifle, on or off)
 
 A server cvar TS 3.0 does not have, `h9_customweapons` (`dlls/game.cpp`, FCVAR_SERVER, default 1). 1 plays the weapons H9
@@ -136,6 +203,16 @@ A server panel's notice (a banner, flash or bar in place of a hudmessage, `docs/
 one's rise, so a bar sent every tick does not come up again each time; a status shows at once (`NoticeDrawAlpha` in
 `cl_dll/h9_vgui.cpp`). The original has no such panels: a hudmessage appears at full strength.
 
+### The colour of the H9 panels (client)
+
+An H9 addition with no counterpart in TS 3.0. The H9 panels (the menus, banners and notices, the match bar, Apollo RP's HUD, the chat
+bubbles and the inventory window) are purple, and `cl_h9_vgui_r`, `cl_h9_vgui_g` and `cl_h9_vgui_b` (0 to 255, saved; `cl_h9_vgui_color`
+sets the three) give them another colour: the colour of the highlight band, 138 66 196 as shipped, which changes nothing. Every colour of
+H9's drawing that is one of its purples (a hue of 248 to 284 degrees, not a grey) takes the hue of the player's colour and a saturation scaled
+to it, at its own lightness (`cl_dll/h9_theme_math.h`, tested by `cl_dll/tests/test_theme.cpp`); the panel art is made again in the colour
+(`H9ArtBitmap`, no more than twelve times a game, since VGUI1 frees no texture). A warning's red, a need's bar, a team's colour and the
+pictures of items are not moved, and neither are TS's own menus, whose colours are the text scheme files'.
+
 ### H9 panels a quarter smaller, a side's reinforcements, and marks through the walls (client)
 
 All three are H9 additions with no counterpart in TS 3.0, and all three act only for a server that sends the H9
@@ -157,6 +234,24 @@ user messages (`docs/H9_VGUI.txt`):
   The original has nothing like it: a TS server shows objectives with the `Objective` message (a compass icon and a
   label at a fixed colour, only on teamplay game modes above 1), which a plugin can still send to a game that
   does not draw marks.
+
+### The ammo box after a HUD reset (server)
+
+TS 3.0's `CTSGun::UpdateClientData` (ts_i386.so 0x758c8) sends `WeaponInfo` when the weapon type (gun+0x97a)
+or the caliber's reserve (gun+0x9b4) differs from the last one sent, and a gun that holds kung fu sends it on
+a type change alone. The original client puts its ammo box on kung fu at `ResetHUD` and at `VidInit`
+(client.dll 0x1004cd7e, 0x1004cc55), so a life that starts on kung fu needs no message. reTS's client kept the
+last gun's text through both, so the box stayed on the last gun's name, ammo type and fire mode. The client
+now resets as the original does (`cl_dll/ts_ammo.cpp`).
+
+Two things go beyond the original's server. `CBasePlayer::UpdateClientData` clears a held gun's `WeaponInfo`
+and `WStatus` caches where it sends `ResetHUD`, so a gun that is still out (a `fullupdate`, a plugin
+`spawn()` of a living player) tells the client again what it holds; the original leaves the box on kung fu
+until the type changes. And `TSSelectWeaponType` (the `weapon_<N>` command) clears the `WeaponInfo` cache
+after a pick, so choosing the weapon already held, kung fu included, sends `WeaponInfo` again. With
+`cl_thirdpersonswitch` 1 that resend turns third person on when the weapon is kung fu.
+
+Code: `dlls/player.cpp`, `dlls/ts_gun.cpp`, `cl_dll/ts_ammo.cpp`.
 
 ### ReTS_GetInterface (server export)### ReTS_GetInterface (server export)
 

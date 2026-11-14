@@ -15,3 +15,11 @@
 *.patch -text
 *.dll.patch !text
 /xash3d-fwgs/3rdparty/**/*.patch !text
+# The Kokoro speech helper's model (92 MB) and its pre-rendered line pack (20 MB), in H9XASH/ts/h9tts: too big to be plain blobs, and
+# a new model or pack would add its whole size to the history again.
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.h9pk filter=lfs diff=lfs merge=lfs -text
+# That folder and its masters (h9tts/) travel byte for byte. client.dll and the helper compare a checksum of voices.txt and chains.txt,
+# and manifest.txt holds the SHA-256 of the helper's program files, so no checkout may change a line ending in them.
+H9XASH/ts/h9tts/** -text
+h9tts/** -text

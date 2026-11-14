@@ -114,6 +114,22 @@ void TSHud_MeleeBar(int x, int y, float bar)
 	FillRGBA(x, y, 0x80, 0x13, r, g, b, 0x1e);
 }
 
+// The credit sign Apollo RP shows for money with arp_h9_credits 1, sent as the single byte 0xA2 (Latin-1's cent sign). The
+// HUD font (the engine's creditsfont, or conchars when that is missing) holds ASCII and nothing above it, so the sign is made
+// of two glyphs the font has: a "c" with a "|" drawn through its middle. It is as wide as the "c".
+static const unsigned char TSHUD_CREDIT_SIGN = 0xA2;
+
+int TSHud_StringWidth(const char* str)
+{
+	int w = 0;
+	for (const char* p = str; *p && *p != '\n'; p++)
+	{
+		const unsigned char c = (unsigned char)*p;
+		w += gHUD.m_scrinfo.charWidths[c == TSHUD_CREDIT_SIGN ? 'c' : c];
+	}
+	return w;
+}
+
 int TSHud_DrawString(int x, int y, int maxX, const char* str, int r, int g, int b)
 {
 	// Faithful port of FUN_10021ce0: a per-glyph loop calling the engine's DrawCharacter
@@ -124,6 +140,16 @@ int TSHud_DrawString(int x, int y, int maxX, const char* str, int r, int g, int 
 	for (const char* p = str; *p && *p != '\n'; p++)
 	{
 		const unsigned char c = (unsigned char)*p;
+		if (c == TSHUD_CREDIT_SIGN)
+		{
+			const int cw = gHUD.m_scrinfo.charWidths['c'];
+			if (x + cw > maxX)
+				break;
+			gEngfuncs.pfnDrawCharacter(x, y, 'c', r, g, b);
+			gEngfuncs.pfnDrawCharacter(x + (cw - gHUD.m_scrinfo.charWidths['|']) / 2, y, '|', r, g, b);
+			x += cw;
+			continue;
+		}
 		const int next = x + gHUD.m_scrinfo.charWidths[c];
 		if (next > maxX)
 			break;

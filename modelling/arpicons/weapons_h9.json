@@ -1,0 +1,25 @@
+[
+ {
+  "name": "PPSh-41",
+  "model": "@repo/H9XASH/ts/models/h9/w_ppsh41.mdl",
+  "flip": false,
+  "aliases": [
+   "PPSH-41",
+   "PPSh41",
+   "PPSH41"
+  ],
+  "roll": 180
+ },
+ {
+  "name": "Laser Rifle",
+  "model": "@repo/H9XASH/ts/models/h9/w_laserrifle.mdl",
+  "flip": true,
+  "aliases": [
+   "LASER RIFLE",
+   "Laser rifle",
+   "LaserRifle"
+  ],
+  "roll": 180,
+  "lean": 20
+ }
+]

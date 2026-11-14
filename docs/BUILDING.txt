@@ -15,6 +15,9 @@
  One build at a time: an engine build, the web client build and a map compile
  each take every core they are given.
 
+ Before a commit: node tools/status-check.mjs runs every check in one go (hygiene of the files, secrets, cvar docs,
+ patch notes, the preset, the release, the mirror, the tests): docs/STATUS_CHECK.txt.
+
 
  0. FIRST: GIT LFS
  ---------------------------------------------------------------------------
@@ -49,11 +52,20 @@
    ts_matchmode and the other .sma files in src\ (also in
    ts\addons\amxmodx\scripting\), compiled with the game's amxxpc.exe.
    build.bat copies them into the game folder, compiles, deploys, registers
-   them in plugins.ini, then runs "xash.bat addons" and export.bat.
+   them in plugins.ini, then runs "xash.bat addons", rewrites
+   H9XASH\presets\official-preset.json (the SHA-256 of every plugin, module and
+   Metamod plugin, tools\preset-check.mjs --write; commit it with the binaries,
+   docs\H9_PRESENCE.txt 4d) and runs export.bat.
      build.bat                one plugin set (ts_matchmode, ts_probe, ...)
      build.bat <name>         one plugin
      build.bat all            every .sma
-   The includes are src\include\ (tsm_api.inc, h9_community.inc) and
+     build.bat apollo         Apollo RP's plugins (apollo-rp\) and its configs
+   A plugin whose source and every include it pulls in are what its last build was made from is NOT compiled
+   again (the log says [KEEP]): the AMX Mod X compiler writes a different file on every compile, so a recompile
+   changes the plugin's SHA-256 and the official preset has to be approved again. tools\amxx-needs-build.ps1
+   keeps the fingerprint beside each compiled\<name>.amxx, in <name>.amxx.src. To compile everything
+   regardless:  set BUILD_FORCE=1 & build.bat
+   The includes are src\include\ (tsm_api.inc, h9_community.inc, tsm_botobj.inc, ...) and
    ts\addons\amxmodx\scripting\include\ (easy_http.inc). Commands and cvars:
    docs\COMMANDS.txt.
 
@@ -105,8 +117,74 @@
 
  7. THE CLIENT PACKAGE                                   stage-h9xash.cmd
  ---------------------------------------------------------------------------
-   H9XASH as players download it: dist\H9XASH-<build>.zip, and a Linux one in
-   dist\linux unless -NoLinux. -DryRun stages without zipping.
+   H9XASH as players download it, each platform in its own ZIP from one run:
+   dist\H9XASH.zip (Windows files only) and dist\H9XASH-linux.zip (Linux files
+   only: the native build in H9XASH-linux\ or -LinuxNative <folder> laid over the
+   game's data; with no native build yet, the Wine/Proton package, with a
+   warning). A build with only xashds also writes dist\H9XASH-linux-server.zip.
+   stage-h9xash.ps1 first prepares the release: the build number goes up when a
+   plugin changed since the last package and the plugins' hashes (the official
+   presets) are written (docs\H9_RELEASE.txt, 5; -NoPrepare skips it).
+   -NoLinux writes the Windows ZIP alone; -DryRun stages without zipping and
+   lists in the report what each package leaves out. What belongs to one
+   player or one server stays out: ids, secrets, settings, saves, logs and
+   the databases (data\sqlite3, with Apollo RP's arp.sq3, and any .sq3,
+   .sqlite or .db file, journals included). The sqlite3 folder goes in
+   empty, so a new install makes its own database on its first Apollo RP
+   map and loads that map's shipped SQL file into it (docs\ARP_CONTENT.txt,
+   2): the default jobs, properties and doors, with no player in them.
+   On Linux, or anywhere with Python 3.8 or newer, the same packages are
+   built by stage-h9xash.sh, which starts stage_h9xash.py: a port of
+   stage-h9xash.ps1 with the same rules, the same report, the same stop
+   conditions and the same web files for H9XASH-Updater. It uses nothing but
+   Python's standard library and does its own Git LFS check (the one in
+   tools\check-lfs.ps1), so no PowerShell is needed:
+       ./stage-h9xash.sh                     the ZIPs in dist/
+       ./stage-h9xash.sh --dry-run           stage and scrub only
+       ./stage-h9xash.sh --linux-native DIR  the native Linux build to lay
+                                             over the game (default:
+                                             H9XASH-linux beside the script)
+       ./stage-h9xash.sh --no-linux --no-web-files --keep-stage
+       ./stage-h9xash.sh --check-lfs H9XASH  only the Git LFS check
+   The options are the PowerShell parameters in lower case with hyphens
+   (-OutDir is --out-dir); the PowerShell spellings are accepted too. The
+   Linux ZIPs are written the same way by both scripts (Unix modes, LF in
+   the .sh files, read back and checked). After a change to the rules in
+   either script:
+       python tools/stage_h9xash_test.py --work <an empty folder>
+   It builds a small fake H9XASH and fake native builds, runs both scripts
+   on them (the PowerShell one only where Windows PowerShell is installed;
+   --no-ps skips it) and compares the ZIPs member by member, the staged
+   files, the report and the stop conditions (a Discord token, a cut-short
+   .bsp, a Git LFS pointer).
+
+ 7b. THE LINUX SERVER BUILD                              build-linux.cmd
+ ---------------------------------------------------------------------------
+   H9's native Linux i386 server in WSL2, in one command: reTS's game library,
+   Metamod-R, the dedicated engine (FWGS built -d from the patched tree), AMX
+   Mod X with reTSX, and RCBot with H9's patches, laid out as H9XASH-linux\
+   with a .patch note beside every .so and a BUILDINFO.txt. Once:
+   build-linux.cmd -Setup -WithAmbuild (the h9build distro's tools; AMBuild
+   is what builds AMX Mod X). Then build-linux.cmd; -Skip amxx leaves AMX Mod X
+   out, -Steps rcbot,assemble runs only those, and -Stage packs dist\ after
+   the build (section 7). It refuses to start while D:\temp\HEAVY-JOB.lock
+   exists (one heavy job at a time). The steps are in linux\build-linux.sh,
+   the plan and status in docs\LINUX_SUPPORT.txt.
+   The one part that is not built from source is the easy_http module that
+   ts_advertise, h9_presence, h9_community, h9_compete and h9_rank need:
+   assemble downloads the Next21 Team's AmxxEasyHttp 1.4.0 Linux release once
+   (into the distro's work folder; H9_EASYHTTP_ZIP names a copy for a machine
+   without internet), refuses it unless the zip and the .so match the SHA-256
+   values pinned in build-linux.sh, and installs easy_http_amxx_i386.so, the CA
+   bundle and its MIT license (linux\LICENSE-AMXXEASYHTTP.txt). It carries no
+   .patch note: it is the release as published.
+   H9XASH-linux\ is the build's output, not a second copy of the game: the game's
+   content stays in H9XASH, and the three files the build derives from H9XASH's own
+   (ts\gameinfo.txt, ts\liblist.gam, ts\addons\metamod\plugins.ini) are made again
+   by every assemble. A build records what each step was built from in
+   H9XASH-linux\INPUTS.json, and node tools\linux-sync.mjs says whether the folder,
+   its libraries, those derived files and the ZIPs are in step with H9XASH and the
+   sources (docs\LINUX_BUILD_LAYOUT.txt describes the folder, the ZIPs and the rules).
 
  8. THE HOST PACKAGE (havoc9.org on a server)         make-vps-package.cmd
  ---------------------------------------------------------------------------

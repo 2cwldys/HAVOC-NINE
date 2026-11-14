@@ -3936,6 +3936,361 @@ Lines of the previous diff that this build replaced, kept here:
 +	// the release of this game, in the userinfo of every join: a server that holds its players to one release looks at it
 Diff sha256 0d5c2c72fa453408b6e50ddb5d5056ad7cd86983d0cdafa9a7c3bc2ef0ca8e34, the diff below.
 
+Generated Mon 11/09/2026  7:52:41.23, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 669ea21ff40f41c50a5e6b2471d4e4b890fd03f74b333ac49514fa2912102148, the diff below.
+
+Generated Mon 11/09/2026  7:57:13.95, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 c467f5d02d385aca3e29b32975143bedce1a2354d89d58306dd0c6b459be36a2, the diff below.
+
+Generated Mon 11/09/2026  7:59:47.79, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	if( cls.state != ca_cinematic || cls.movienum <= 0 )
+ static void SCR_CreateStartupVids( void )
+ 	file_t	*f;
+Diff sha256 0b27f83099eeef598b579ac95356a430b5404271483b4d195ba4ed45845376b4, the diff below.
+
+Generated Mon 11/09/2026  9:05:48.66, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 a71d084a2a83f781d3a81abd6cb339b5e290e33382772bc601943dc1cc877b59, the diff below.
+
+Generated Wed 11/11/2026 15:30:41.65, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 de4935da3fe8d27e5245d589e251875ca4905df75def3eccc846798de127cb10, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -12630,6 +12985,85 @@ index 00000000..ecbae394
 +	H9T_Advertise();
 +	H9UI_AddPanel( &h9t_panel );
 +}
+diff --git a/engine/client/cl_video.c b/engine/client/cl_video.c
+index d5c8fd2b..f65317f5 100644
+--- a/engine/client/cl_video.c
++++ b/engine/client/cl_video.c
+@@ -27,6 +27,12 @@ AVI PLAYING
+ static movie_state_t	*cin_state;
+ static int		cin_texture;
+ 
++// H9: the intro video (media/ts_intro.avi, named in media/StartupVids.txt) plays before the main menu unless this is 0
++static CVAR_DEFINE_AUTO( ts_intro, "1", FCVAR_ARCHIVE, "play the intro video before the main menu" );
++// H9: how loud the intro video plays: 1 is the video as recorded and the most the engine plays a video at, 0 is silent, 0.5 half
++static CVAR_DEFINE_AUTO( ts_intro_vol, "1", FCVAR_ARCHIVE, "how loud the intro video is: 0 silent, 1 full" );
++static qboolean scr_startup_movie; // H9: the video that plays now came from the startup list
++
+ /*
+ ==================
+ SCR_NextMovie
+@@ -39,6 +45,12 @@ qboolean SCR_NextMovie( void )
+ {
+ 	string	str;
+ 
++	scr_startup_movie = false;
++
++	// H9: ts_intro 0 leaves the intro out of the startup videos
++	while( cls.movienum >= 0 && cls.movienum < MAX_MOVIES && !ts_intro.value && Q_stristr( cls.movies[cls.movienum], "ts_intro." ))
++		cls.movienum++;
++
+ 	if( cls.movienum == -1 )
+ 	{
+ 		S_StopAllSounds( true );
+@@ -60,10 +72,28 @@ qboolean SCR_NextMovie( void )
+ 
+ 	Cbuf_InsertText( str );
+ 	cls.movienum++;
++	scr_startup_movie = true;
+ 
+ 	return true;
+ }
+ 
++/*
++==================
++SCR_SkipStartupVideo
++
++H9: any key or mouse button skips a startup video, as escape does. A video the movie command plays is left to escape.
++==================
++*/
++qboolean SCR_SkipStartupVideo( void )
++{
++	if( cls.state != ca_cinematic || !scr_startup_movie )
++		return false;
++
++	Con_Printf( "ts_intro: startup video skipped\n" );
++	SCR_NextMovie();
++	return true;
++}
++
+ static void SCR_CreateStartupVids( void )
+ {
+ 	file_t	*f;
+@@ -244,6 +274,10 @@ qboolean SCR_PlayCinematic( const char *arg )
+ 		AVI_RENDER_H, h,
+ 		AVI_PARM_LAST );
+ 
++	// H9: the intro plays at ts_intro_vol, a fraction of the full volume (any number: 2 is full, below 0 silent)
++	if( Q_stristr( arg, "ts_intro." ))
++		AVI_SetParm( cin_state, AVI_VOLUME, (int)( bound( 0.0f, ts_intro_vol.value, 1.0f ) * 255.0f + 0.5f ), AVI_PARM_LAST );
++
+ 	UI_SetActiveMenu( false );
+ 	cls.state = ca_cinematic;
+ 	Con_FastClose();
+@@ -279,6 +313,8 @@ SCR_InitCinematic
+ void SCR_InitCinematic( void )
+ {
+ 	AVI_Initailize ();
++	Cvar_RegisterVariable( &ts_intro );
++	Cvar_RegisterVariable( &ts_intro_vol );
+ 	cin_state = AVI_GetState( CIN_MAIN );
+ 	cin_texture = ref.dllFuncs.GL_CreateTexture( "*cintexture", 64, 64, NULL, TF_NOMIPMAP|TF_CLAMP );
+ }
 diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
 index c1b3ef13..600317c0 100644
 --- a/engine/client/cl_view.c
@@ -12699,7 +13133,7 @@ index c1b3ef13..600317c0 100644
  
  	switch( cls.scrshot_action )
 diff --git a/engine/client/client.h b/engine/client/client.h
-index e5db2dac..585f6e7a 100644
+index e5db2dac..89fd8edc 100644
 --- a/engine/client/client.h
 +++ b/engine/client/client.h
 @@ -145,6 +145,11 @@ typedef struct
@@ -12858,7 +13292,15 @@ index e5db2dac..585f6e7a 100644
  void UI_GetCursorPos( int *pos_x, int *pos_y );
  void UI_SetCursorPos( int pos_x, int pos_y );
  void UI_ShowCursor( qboolean show );
-@@ -1265,6 +1331,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
+@@ -1234,6 +1300,7 @@ void SCR_FreeCinematic( void );
+ qboolean SCR_PlayCinematic( const char *name );
+ qboolean SCR_DrawCinematic( void );
+ qboolean SCR_NextMovie( void );
++qboolean SCR_SkipStartupVideo( void );
+ void SCR_RunCinematic( void );
+ void SCR_StopCinematic( void );
+ void CL_PlayVideo_f( void );
+@@ -1265,6 +1332,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
  //
  void ID_Init( void );
  void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
@@ -13296,7 +13738,7 @@ index dd28842e..5919703e 100644
  		id = ID_GenerateRawId();
  
 diff --git a/engine/client/input/in_keys.c b/engine/client/input/in_keys.c
-index 5ebae8b8..a7a31986 100644
+index 5ebae8b8..d035ef62 100644
 --- a/engine/client/input/in_keys.c
 +++ b/engine/client/input/in_keys.c
 @@ -18,6 +18,7 @@ GNU General Public License for more details.
@@ -13307,7 +13749,18 @@ index 5ebae8b8..a7a31986 100644
  
  typedef struct
  {
-@@ -732,6 +733,10 @@ void GAME_EXPORT Key_Event( int key, int down )
+@@ -722,6 +723,10 @@ void GAME_EXPORT Key_Event( int key, int down )
+ {
+ 	key = Key_Rotate( key );
+ 
++	// H9: any key or mouse button skips a startup video (cl_video.c), but not the console key
++	if( down && key != '`' && key != '~' && SCR_SkipStartupVideo( ))
++		return;
++
+ 	if( OSK_KeyEvent( key, down ) )
+ 		return;
+ 
+@@ -732,6 +737,10 @@ void GAME_EXPORT Key_Event( int key, int down )
  	const char *kb = keys[key].binding;
  	keys[key].down = down ? true : false;
  
@@ -13318,7 +13771,7 @@ index 5ebae8b8..a7a31986 100644
  #ifdef HACKS_RELATED_HLMODS
  	if(( cls.key_dest == key_game ) && ( cls.state == ca_cinematic ) && ( key != K_ESCAPE || !down ))
  	{
-@@ -993,6 +998,60 @@ void Key_EnableTextInput( qboolean enable, qboolean force )
+@@ -993,6 +1002,60 @@ void Key_EnableTextInput( qboolean enable, qboolean force )
  	Key_SetTextInputBuffer( NULL );
  }
  
@@ -13379,7 +13832,7 @@ index 5ebae8b8..a7a31986 100644
  /*
  =========
  Key_SetKeyDest
-@@ -1000,6 +1059,8 @@ Key_SetKeyDest
+@@ -1000,6 +1063,8 @@ Key_SetKeyDest
  */
  void GAME_EXPORT Key_SetKeyDest( int key_dest )
  {
@@ -13388,7 +13841,7 @@ index 5ebae8b8..a7a31986 100644
  	IN_ToggleClientMouse( key_dest, cls.key_dest );
  
  	switch( key_dest )
-@@ -1026,6 +1087,9 @@ void GAME_EXPORT Key_SetKeyDest( int key_dest )
+@@ -1026,6 +1091,9 @@ void GAME_EXPORT Key_SetKeyDest( int key_dest )
  		Host_Error( "%s: wrong destination (%i)\n", __func__, key_dest );
  		break;
  	}
@@ -13697,10 +14150,21 @@ index 2cd7030b..0be3c374 100644
  
  	if((int)(endtime - snd.soundtime) > samps )
 diff --git a/engine/client/sound/s_stream.c b/engine/client/sound/s_stream.c
-index e74a4d26..9effee5a 100644
+index e74a4d26..f352ff50 100644
 --- a/engine/client/sound/s_stream.c
 +++ b/engine/client/sound/s_stream.c
-@@ -233,14 +233,13 @@ void S_StreamBackgroundTrack( void )
+@@ -121,7 +121,9 @@ void S_StartBackgroundTrack( const char *introTrack, const char *mainTrack, int
+ 
+ 	Q_strncpy( s_bgTrack.current, introTrack, sizeof( s_bgTrack.current ));
+ 	memset( &musicfade, 0, sizeof( musicfade )); // clear any soundfade
+-	s_bgTrack.source = cls.key_dest;
++	// H9: a track a config starts while a startup video plays (userconfig.cfg's menu music, a few frames after the intro starts)
++	// is the menu's: the key destination then is the movie's, and the music would stay paused once the menu shows
++	s_bgTrack.source = ( cls.state == ca_cinematic ) ? key_menu : cls.key_dest;
+ 
+ 	if( position != 0 )
+ 	{
+@@ -233,14 +235,13 @@ void S_StreamBackgroundTrack( void )
  	if( !s_musicvolume.value || cl.paused || snd.stream_paused )
  		return;
  
@@ -13846,6 +14310,22 @@ index 0084a31f..0d8945c5 100644
  
  	// fill it cls.userinfo, svs.serverinfo
  	if( !Cvar_UpdateInfo( var, fixed_string, true ))
+diff --git a/engine/common/dedicated.c b/engine/common/dedicated.c
+index 4be46bd4..6785b4f1 100644
+--- a/engine/common/dedicated.c
++++ b/engine/common/dedicated.c
+@@ -106,6 +106,11 @@ void CL_Disconnect( void )
+ 
+ }
+ 
++void CL_Presence_Frame( void )
++{
++
++}
++
+ void Host_Credits( void )
+ {
+ 
 diff --git a/engine/common/h9_overflowlog.c b/engine/common/h9_overflowlog.c
 new file mode 100644
 index 00000000..56a49581
@@ -16017,7 +16497,7 @@ index c95ce9a7..003d4f0a 100644
  		}
  
 diff --git a/engine/server/sv_frame.c b/engine/server/sv_frame.c
-index 3ff8edbf..7d6eeb09 100644
+index 3ff8edbf..d9ddf3b0 100644
 --- a/engine/server/sv_frame.c
 +++ b/engine/server/sv_frame.c
 @@ -488,7 +488,12 @@ static void SV_EmitPings( sizebuf_t *msg )
@@ -16105,7 +16585,27 @@ index 3ff8edbf..7d6eeb09 100644
  	// it will break all connected clients, but it takes more than one week to overflow it
  	if(( (uint)svs.next_client_entities ) + frame_ents.num_entities >= 0x7FFFFFFE )
  	{
-@@ -725,11 +775,57 @@ SV_UpdateUserInfo
+@@ -673,9 +723,18 @@ FRAME UPDATES
+ SV_SendClientDatagram
+ =======================
+ */
++// H9: one client's frame is one message: the time, the clientdata, the entities in view and the unreliable data the game and the
++// plugins queued for the client (cl->datagram, MAX_DATAGRAM). A frame that passes its buffer is thrown away whole, the client stands
++// still and its next update is a whole one again, and the first update after a spawn holds every entity in view whole: about 10 bytes
++// each and a player about 30, more than MAX_DATAGRAM on a big map. The netchan carries up to NET_MAX_MESSAGE unreliable bytes and splits
++// them into packets; what bounds a frame is the packet a client puts back together, NET_MAX_FRAGMENT. SV_H9_FRAME_MAX holds the most a
++// frame can be (MAX_VISIBLE_PACKET entities, a player in every slot and a full cl->datagram) and stays under that bound.
++#define SV_H9_FRAME_MAX		( MAX_DATAGRAM * 3 )
++typedef char sv_h9_frame_fits_a_packet[( SV_H9_FRAME_MAX < NET_MAX_FRAGMENT ) ? 1 : -1];
++
+ static void SV_SendClientDatagram( sv_client_t *cl )
+ {
+-	byte	msg_buf[MAX_DATAGRAM];
++	byte	msg_buf[SV_H9_FRAME_MAX];
+ 	sizebuf_t	msg;
+ 
+ 	memset( msg_buf, 0, sizeof( msg_buf ));
+@@ -725,11 +784,57 @@ SV_UpdateUserInfo
  */
  static void SV_UpdateUserInfo( sv_client_t *cl )
  {
@@ -16164,7 +16664,7 @@ index 3ff8edbf..7d6eeb09 100644
  /*
  =======================
  SV_UpdateToReliableMessages
-@@ -748,9 +844,10 @@ static void SV_UpdateToReliableMessages( void )
+@@ -748,9 +853,10 @@ static void SV_UpdateToReliableMessages( void )
  		if( cl->state != cs_spawned )
  			continue;
  
@@ -16176,7 +16676,7 @@ index 3ff8edbf..7d6eeb09 100644
  				SV_UpdateUserInfo( cl );
  		}
  
-@@ -775,6 +872,21 @@ static void SV_UpdateToReliableMessages( void )
+@@ -775,6 +881,21 @@ static void SV_UpdateToReliableMessages( void )
  		MSG_Clear( &sv.spec_datagram );
  	}
  

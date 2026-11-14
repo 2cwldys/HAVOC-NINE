@@ -17,6 +17,7 @@
 #include "event_api.h"
 #include "ts_attachments.h" // the local laser pass's dots and range
 #include "ts_reticle.h"
+#include "h9_vgui.h" // H9Look_HideAimName
 #include "player_info.h" // g_PlayerExtraInfo, g_PlayerInfoList
 #include "com_model.h"
 #include "r_studioint.h" // IEngineStudio.IsHardware
@@ -93,10 +94,14 @@ void TS_AimNames()
 		const bool enemy = gHUD.m_iTeamplay == 0 || g_PlayerExtraInfo[idx].teamnumber != g_PlayerExtraInfo[local].teamnumber;
 		if (name != nullptr)
 		{
-			if (enemy)
-				TSHud_DrawString(ScreenWidth / 2, ScreenHeight / 2 - 0x28, ScreenWidth, name, 0xc3, 0x2d, 0x2d);
-			else
-				TSHud_DrawString(ScreenWidth / 2, ScreenHeight / 2 - 0x28, ScreenWidth, name, 0x2d, 0xc3, 0x2d);
+			// An H9 server may say it draws a teammate's name itself, as a plaque, or that no name is drawn at all (a roleplay map).
+			if (!H9Look_HideAimName(!enemy))
+			{
+				if (enemy)
+					TSHud_DrawString(ScreenWidth / 2, ScreenHeight / 2 - 0x28, ScreenWidth, name, 0xc3, 0x2d, 0x2d);
+				else
+					TSHud_DrawString(ScreenWidth / 2, ScreenHeight / 2 - 0x28, ScreenWidth, name, 0x2d, 0xc3, 0x2d);
+			}
 			g_iTSAimTarget = enemy ? 2 : 1;
 		}
 	}

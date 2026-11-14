@@ -44,7 +44,9 @@
    modes.js          the mode's name, as the Discord card names it
    preset.js         the official preset (docs\H9_PRESENCE.txt section 4d): the plugin
                      list a report carries, the admins' allowlist (presence_preset,
-                     migration 12), each server's verdict (ok, rp, mod, opt or off),
+                     migrations 12 and 15: one list per game mode and a shared one),
+                     each server's verdict (ok, rp, mod, opt or off), judged against
+                     the list of the preset its report names ("preset"),
                      the browser's list /api/presence/servers/auth and the board's
                      auth field, and rated play's gate (compete.js asks it)
    compete.js        rated play: compts's Elo per kill and per match, the three
@@ -58,7 +60,8 @@
                      migrations 5, 8, 9, 10 and 11
    bin/presence-key.js   add | rotate | remove | list a hand-made key
    bin/preset-seed.js    the allowlist's entries from a build's H9XASH folder: to a file, or
-                     with --import --config straight into the database
+                     with --import --config straight into the database, each
+                     game mode's list from its own plugins.<Mode>.ini
  Data (never in git): <dataDir>/modules/presence/server-keys.json, net-key and
  enroll-key (the secret enrolled keys are worked out from), all mode 0600.
 
@@ -119,9 +122,13 @@
    POST /api/presence/admin/sanctions/<id>/revoke
    GET  /api/presence/admin/preset            the allowlist, and each reporting server's
         verdict with the files that are off it
-   POST /api/presence/admin/preset/import     { mode: add | replace, entries: [{ kind,
-        file, sha256, version?, optional?, note? }] }
-   POST /api/presence/admin/preset/remove     { kind, file, sha256 }
+   POST /api/presence/admin/preset/import     { mode: add | replace, gameMode?: "<tag>" | "*",
+        entries: [{ kind, file, sha256, version?, optional?, note? }] }
+        (gameMode names the list the entries go on, "*", also when left out, the
+        shared one every mode accepts; replace drops that list's entries that are
+        not optional first)
+   POST /api/presence/admin/preset/remove     { kind, file, sha256, gameMode? }
+        (off the one list, or off every list without gameMode)
    POST /api/presence/admin/announce                          { text }
    Audit actions: presence.flag.resolve, presence.device.allow,
    presence.device.unbind, presence.id.move, presence.id.reset,
@@ -325,7 +332,8 @@
  unknown ids dropped and never stored or logged; the states and the six
  switches; the batch read; playtime across reports, away and rejoin, the
  silent server, a server taken off the list; the id proof (forged, for another
- server, stale, copied, requireProof, no core hook); devices, two places at
+ server, stale, copied, an id listed twice and resolved by proof, requireProof,
+ no core hook); devices, two places at
  once, the admin hooks (flags, allow, unbind, move-id, reset-id, 503 without
  core); names in game; the relay's events; map pictures and modes; rate
  limits; presence-key.js; loading through the registry with core's hooks, and

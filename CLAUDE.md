@@ -47,6 +47,25 @@ work of your own:
    go stale against a committed one without anyone touching the tracked
    patch file at all -- that's exactly what happened on 2026-10-23.
 
+## Parity comes last, once
+
+The web client and the Linux build are heavy builds (the web sync compiles the engine and the client library for about 4 minutes and
+tests the result in a headless browser; the Linux sync runs several steps in WSL2 and packs three ZIPs), and the credits they cost are
+spent once a batch, not once a feature. The owner's order, 2026-11-10: "the parity is done after all features are implemented". A batch of
+features is finished in this order:
+
+1. Write every feature of the batch, in the owner's order: the plugin and client source, the docs, `COMMANDS.txt` and the configs.
+   `build.bat` builds and exports the plugins for the game, and the Windows `client.dll` is deployed with the game closed. Neither
+   touches the web client, `H9XASH-linux\` or the ZIPs.
+2. Check each feature on the Windows game as far as it can be checked without the owner's game (tests, headless servers, renders).
+3. Then, once, after the last feature: `node tools\webclient-sync.mjs`, then `build-linux.cmd -Stage`, which stages the three ZIPs.
+   `docs\H9_RELEASE.txt`, 2, has the same order for a release.
+4. Report the batch with its parity state. While features are still being written, say plainly that the web client, `H9XASH-linux\`
+   and the ZIPs are behind on purpose and what they will pick up, and never call a ZIP current before step 3.
+
+The two sections below say what the last step must cover, and a batch is not done before it has run. A single change with no batch
+behind it (an engine fix, say) is a batch of one and ends with the syncs, as the sections say.
+
 ## The web client moves with the engine
 
 The browser build (`webclient-bin`, `webclient-build\stage`, the page in `havoc9.org\webclient`) is made from the same
@@ -55,7 +74,8 @@ Both patch sets, the builds and the page are in git. A change that reaches the n
 same piece of work, or the web client silently falls behind: the server browser's chain and the scoreboard's pictures were
 native-only for days before anyone saw it.
 
-1. **Finish every engine, client-library or page change with `node tools\webclient-sync.mjs`.** It covers `xash3d-fwgs`,
+1. **Finish every batch of engine, client-library or page changes with `node tools\webclient-sync.mjs`, once, at the end of the batch
+   ("Parity comes last, once", above).** It covers `xash3d-fwgs`,
    `xash3d-h9-patches\patches`, `webassembly-patch`, `reTS`, `build-webclient.ps1`, `tools\make_webclient_*` and
    `havoc9.org\webclient`. When the engine or the client library changed it builds them (about 4 minutes, below-normal priority);
    otherwise it takes seconds. It lays out the stage, copies `webclient-bin`, the stage, the web tools and the page into the
@@ -76,6 +96,38 @@ native-only for days before anyone saw it.
 5. Report both builds when you report an engine change: the native `xash.dll` and the web `xash.wasm` (the pipeline prints
    the second). If the smoke test fails, the work is not done; say so with its output.
 6. `webclient-bin\INPUTS.json` is the pipeline's record, never written by hand. The pipeline never commits.
+
+## The Linux build moves with the web client
+
+The native Linux i386 server (`linux\`, `build-linux.cmd`, the WSL2 distro `h9build`; `docs\LINUX_SUPPORT.txt`) is built from the
+same patched `xash3d-fwgs` tree and patch chain, the same `reTS` and `rcbot-patch` sources, the AMX Mod X modules and the
+`H9XASH` folder as the Windows game and the web client, and its ZIPs pack whatever `H9XASH` holds at that moment. So the Linux
+build is synced in tandem with the web client: every piece of work that ends with `node tools\webclient-sync.mjs` ends with the
+Linux sync as well, or `H9XASH-linux\` and the Linux ZIPs silently fall behind the way the web client once did.
+
+1. **After the web sync, run `build-linux.cmd -Stage`.** Its steps are `rets metamod engine amxx rcbot assemble`
+   (`-Steps` picks some, `-Skip` leaves some out). A change to `xash3d-fwgs`, `xash3d-h9-patches\patches`, `reTS`'s game library,
+   `rcbot-patch`, an AMX Mod X module or `linux\` needs the step that builds it plus `assemble` (`-Steps engine,assemble`). A change
+   to `H9XASH` content only (a plugin, config, preset, model, sound, map, or the Windows client library) needs
+   `-Steps assemble -Stage`, which lays `H9XASH-linux\` out again and packs the ZIPs. When unsure, run every step.
+2. It is a heavy job like the web sync: it takes `<temp>\HEAVY-JOB.lock` itself and refuses while the lock exists. Run the two
+   one after the other, never together, and never take the lock over.
+3. Client-only code (`cl_dll`, the in-game panels, the Windows SAPI voices, WebView2, Discord presence) is not built for Linux,
+   because there is no native Linux client: the Wine package carries the Windows client and the web client runs the page.
+   When a feature is client-only, say in `docs\LINUX_SUPPORT.txt` what a Linux player gets.
+4. "Done" is `build-linux.cmd` exiting 0, `H9XASH-linux\BUILDINFO.txt` listing the hashes of what was built, and the three
+   ZIPs in `dist\` staged again (`H9XASH.zip`, `H9XASH-linux.zip`, `H9XASH-linux-server.zip`). A server-side change is also
+   started once in the distro (the unpacked server ZIP with `H9XASH-linux` laid over it, `h9xash_server.sh -port 27099`, rcon
+   over UDP: the engine, Metamod, AMX Mod X, RCBot and the plugins must load) before it is called working. Say what was and was
+   not run.
+5. Report the Linux build next to the two web builds when you report an engine change: the libraries built and their glibc
+   floor (`BUILDINFO.txt`), or "Linux: assemble only". The build never commits.
+6. `node tools\linux-sync.mjs` says whether `H9XASH-linux\` is in step with `H9XASH` and with the sources its libraries were built
+   from (it also checks the derived `gameinfo.txt`, `liblist.gam` and Metamod `plugins.ini`, the Linux counterpart of every module the
+   configuration loads, and the staged ZIPs); `docs\LINUX_BUILD_LAYOUT.txt` is the map of the folder and the ZIPs. Run it before
+   calling the Linux build current. `H9XASH-linux\` is the build's output, never edited by hand, and not a second copy of the
+   game's content. State what each ZIP holds when you report staging: `H9XASH-linux.zip` is the Wine/Proton package until a native
+   client build puts `xash3d` in `H9XASH-linux\`.
 
 ## Assault maps: placing the respawn sets
 
@@ -109,11 +161,46 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   (work folders, builds, caches, downloads, test copies) will be stored
   before it proceeds. Never assume %TEMP% or C:; drive space differs per
   machine and C: may be a small SSD.
+- Licenses: LICENSE.md at the root says which license covers which folder (the GPLv3 over the gamemode plugin code and the code
+  around it, the Half-Life SDK license over the mod code in reTS/ and its built libraries only; MIT and Apache 2.0 parts beside
+  them), and THIRD_PARTY_LICENSES/ holds a copy of each third-party license text. Whenever anything comes in from another project
+  (code, a library, a tool, a model, a sound, a data file, a patch to its source):
+  1. Find its license first, before the file goes in. No license file or header means no permission: stop and ask the owner.
+  2. It may join the plugin side (plugins, h9web, p2p, tools, docs, ...) only if the license is compatible with the GPLv3: MIT,
+     BSD, zlib, Apache 2.0 and the GPLv3 itself are. GPLv2-only, non-commercial, no-redistribution, "attribution and no
+     modification" and unlicensed material are not: stop and ask the owner rather than adding it.
+  3. Never put GPLv3 code, or anything whose license is not free-of-charge-compatible with the Half-Life SDK license, into
+     reTS/ (the mod code), and never copy Half-Life SDK code out of reTS/ into the plugin side: the two stay separate.
+  4. When it is compatible and goes in, in the same piece of work: its license text sits beside it, a copy goes into
+     THIRD_PARTY_LICENSES/, and LICENSE.md gets its row (what it is, where it lives, which license). A removed component loses
+     its row. A part of the repository that is another project's own repository is a git submodule, as SMAK is.
+  5. If the license does not fit, say so in plain words to the owner and do not add the file.
+- A third-party file (a binary, an include, a data file) ships with its license beside it,
+  in every folder that holds a copy: `easy_http_LICENSE.txt` next to AmxxEasyHttp's module,
+  CA bundle and include (compts, H9XASH, the Steam install, the git copy), and
+  `linux\LICENSE-AMXXEASYHTTP.txt` and `linux\LICENSE-AMBUILD.txt` for the Linux build's own.
+  A new third-party file brings its license text with it. A third-party binary carries no
+  `.patch` note (`tools\patch-notes-map.json`, binariesWithoutNotes); a rebuilt or changed one does.
+- The Linux server build is `build-linux.cmd` (the WSL2 distro `h9build`; it is a heavy job and
+  takes the lock); `H9XASH-linux\` is its git-ignored output and `stage-h9xash` packs it. It runs in
+  tandem with the web sync (the section above says when and how).
+  Pinned downloads (easy_http) are checked against the SHA-256 in `linux\build-linux.sh`.
+- A plugin, module or preset-list change ships with its hash: `build.bat` rewrites
+  `H9XASH\presets\official-preset.json` (`tools\preset-check.mjs --write`); commit it with
+  the `.amxx` files (the workflow `preset-hash.yml` fails otherwise) and have an admin import
+  it into the site (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
+  `ts_matchmode.sma` (what the plugin registers, so what the site lists): bump it with the update.
+  `stage-h9xash.ps1` does the bump and the hashes itself when it packs the ZIPs
+  (`tools\release-prepare.mjs`, `docs\H9_RELEASE.txt` 5): a changed plugin or module since the last
+  staged package raises the build by one, runs `build.bat` and `export.bat` under the heavy-job
+  lock and writes the presets; `-NoPrepare` skips it, `-DryRun` only says what it would do. The
+  join gate's release date (`h9_release.txt`) is never touched by it.
 - `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
   N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
   rebuild, applies/verifies the whole patch chain above), then `export.bat`
   to propagate into `H9XASH\`, then `node tools\webclient-sync.mjs` so the web
-  client follows (the section above).
+  client follows, then `build-linux.cmd -Stage` so the Linux build follows (the
+  two sections above).
 - No Unicode / non-ASCII in `.dm`-adjacent... n/a for this project, but: no
   em dashes or other non-ASCII punctuation in source files the toolchain is
   touchy about -- use `--` instead, consistent with the style already in

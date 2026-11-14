@@ -14,6 +14,7 @@
 #include "ts_weapon_info.h"
 #include "ts_gamerules.h" // TSGameRules (the customweapons flag/absorbs)
 #include "ts_utils.h"     // TSHudMessageOne/All
+#include "ts_mechrocket.h" // TSMechRocketResolveAssets
 
 #include <string.h>
 
@@ -82,6 +83,8 @@ void TSPrecache(void)
 		"weapons/sshell.wav"};
 	for (unsigned i = 0; i < sizeof(fixed1) / sizeof(fixed1[0]); i++)
 		PRECACHE_SOUND((char *)fixed1[i]);
+
+	TSMechRocketResolveAssets(); // the Mech rocket launcher's row takes the models that are on disk before the loop reads it
 
 	// 2. the weapon-table loop (models + sounds per weapon, @0x8f59b)
 	for (int i = 0; i < TSW_COUNT; i++)

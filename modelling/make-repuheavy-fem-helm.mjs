@@ -610,6 +610,23 @@ function build(V) {
     return INTO.get(b);
   };
 
+  /*
+   * WHICH SOURCE TRIANGLES SETTLE THE WINDING.
+   *
+   * meshOf reads which way round the donor's triangles go from the triangles it is handed: each one's face
+   * normal, worked out from its corners' positions, against its stored normal, summed over all of them. A
+   * corner's position is in the space of its own bone, so a triangle whose corners hang from two or three bones
+   * has a face normal made of points from different spaces and its vote is noise. Measured on the skin sheet
+   * (2.bmp) of female_merc's left arm: 29 of its 42 triangles are on several bones, the sum over all of them is
+   * +2 (the wrong way round, and the mirrored forearm and hand come out inside out) and the sum over the 13 on
+   * one bone is -13, the way every other piece of the arm votes. Only the triangles on one bone are handed in as
+   * the reference; a piece with none on a single bone hands in all of them.
+   */
+  const oneBone = (list) => {
+    const one = list.filter((t) => t.every((c) => c.bone === t[0].bone));
+    return one.length ? one : list;
+  };
+
   let armed = stripped;
   let madeN = 0;
   for (const [, piece] of armPieces) {
@@ -651,10 +668,10 @@ function build(V) {
     // The SOURCE triangles are handed in as the winding reference. Told nothing, meshOf
     // assumes the generators' convention, which is the opposite of this model's -- that is
     // what turned the pauldrons inside out on ins_proletarian and read, maddeningly, as a
-    // correctly made plate belonging to the other shoulder.
+    // correctly made plate belonging to the other shoulder. Those on one bone only, see oneBone.
     armed = K.replaceMesh(
       K.addMesh(armed, where), { ...where, mesh: at },
-      K.meshOf(piece.tris, tris, tex, mirrorBone([...FROM_B][0]), V.armSmooth ?? ARM_SMOOTH), tex,
+      K.meshOf(oneBone(piece.tris), tris, tex, mirrorBone([...FROM_B][0]), V.armSmooth ?? ARM_SMOOTH), tex,
     );
     madeN += tris.length;
   }

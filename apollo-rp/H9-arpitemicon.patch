@@ -1,0 +1,38 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index 214b385..c5aa9e0 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -2865,7 +2865,18 @@ GetMsg(id,Index)
+ 			if(get_entity_distance(id,Item) <= 50)
+ 				add(Message,127,"^nPress use (default e) to pick up")
+ 			
+-			UTIL_ARP_ClientPrint(id,"%s",Message)
++			// H9: a game that draws the HUD as a panel and says _h9vgui 7 is sent the item's picture as well, a line of kind HUDK_ICON that the panel
++			// draws above the notice (docs\ARP_INVENTORY_WINDOW.txt, 4); every other game gets the text alone
++			if(get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id] && h9vgui_protocol(id) >= H9VGUI_CREDIT_PROTOCOL)
++			{
++				static Icon[40]
++				formatex(Icon,39,"icon:%s",ItemName)
++				TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
++				UTIL_ARP_AddHudItem(id,HUD_QUAT,Icon,0,HUDK_ICON)
++				UTIL_ARP_AddHudItem(id,HUD_QUAT,Message,!g_HudPending,HUDK_EXTRA)
++			}
++			else
++				UTIL_ARP_ClientPrint(id,"%s",Message)
+ 		}
+ 	}
+ 	
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+index ad0a323..e0ab09b 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+@@ -24,6 +24,9 @@ native ARP_AddHudItem(id,channel,refresh,const item[],{Float,Sql,Result,_}:...)
+ #define HUDK_JOB     6
+ #define HUDK_STATUS  7   // the dead, loading and malfunction lines
+ #define HUDK_NEED    8   // a need (hunger, thirst): the text is "<label>: <0 to 100>%" and the panel draws it as a bar
++#define HUDK_ICON    9   // H9: the picture of an item, in the notice HUD: the text is "icon:<the item's name>"; the panel of a game at _h9vgui 7 draws
++                         // its picture (sprites/h9_arpicons.spr) above the notice's box and shows no text for the line. Sent by the core alone (ARP_AddHudItemKind keeps a
++                         // plugin's kind to HUDK_EXTRA to HUDK_NEED), and only to a game that draws it
+ 
+ // ARP_AddHudItem for a line of a given kind (a HUDK_ value; any other is HUDK_EXTRA)
+ native ARP_AddHudItemKind(id,channel,refresh,kind,const item[],{Float,Sql,Result,_}:...)

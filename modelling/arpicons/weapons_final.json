@@ -1,0 +1,157 @@
+[
+ {
+  "name": "Akimbo Beretta 92Fs",
+  "model": "w_berettas.mdl",
+  "flip": true
+ },
+ {
+  "name": "Barrett M82A1",
+  "model": "w_m82.mdl",
+  "flip": false
+ },
+ {
+  "name": "Benelli M3",
+  "model": "w_m3.mdl",
+  "flip": false
+ },
+ {
+  "name": "Colt M16A4",
+  "model": "w_m16.mdl",
+  "flip": false
+ },
+ {
+  "name": "Colt M4A1",
+  "model": "w_m4.mdl",
+  "flip": false
+ },
+ {
+  "name": "Combat Knife",
+  "model": "w_knife.mdl",
+  "flip": false
+ },
+ {
+  "name": "Daewoo USAS-12",
+  "model": "w_usas.mdl",
+  "flip": false
+ },
+ {
+  "name": "FN Five-seveN Tactical",
+  "model": "w_fnh.mdl",
+  "flip": true
+ },
+ {
+  "name": "G2 Contender",
+  "model": "w_contender.mdl",
+  "flip": false
+ },
+ {
+  "name": "GLOCK-18",
+  "model": "w_glock18.mdl",
+  "flip": true
+ },
+ {
+  "name": "GLOCK-20C",
+  "model": "w_glock22.mdl",
+  "flip": true
+ },
+ {
+  "name": "Golden Colt 1911A1s",
+  "model": "w_gold.mdl",
+  "flip": false
+ },
+ {
+  "name": "H&K MP5K",
+  "model": "w_mp5k.mdl",
+  "flip": false
+ },
+ {
+  "name": "H&K MP5SDA5",
+  "model": "w_mp5sd.mdl",
+  "flip": false
+ },
+ {
+  "name": "H&K MP7",
+  "model": "w_pdw.mdl",
+  "flip": false
+ },
+ {
+  "name": "H&K SOCOM MK23",
+  "model": "w_mk23.mdl",
+  "flip": true
+ },
+ {
+  "name": "H&K UMP",
+  "model": "w_ump.mdl",
+  "flip": false
+ },
+ {
+  "name": "IMI Desert Eagle",
+  "model": "w_desert.mdl",
+  "flip": true
+ },
+ {
+  "name": "Kalashnikova AK-47",
+  "model": "w_ak47.mdl",
+  "flip": false
+ },
+ {
+  "name": "Katana",
+  "model": "w_katana.mdl",
+  "flip": false
+ },
+ {
+  "name": "M61 Grenade",
+  "model": "w_m61.mdl",
+  "flip": false
+ },
+ {
+  "name": "Mini-Uzi",
+  "model": "w_uzi.mdl",
+  "flip": false
+ },
+ {
+  "name": "Mossberg 500",
+  "model": "w_mossberg.mdl",
+  "flip": false
+ },
+ {
+  "name": "Ruger MK1",
+  "model": "w_ruger.mdl",
+  "flip": true
+ },
+ {
+  "name": "Sawed-Off Shotgun",
+  "model": "w_sawedoff.mdl",
+  "flip": false
+ },
+ {
+  "name": "Seal Knife",
+  "model": "w_sealknife.mdl",
+  "flip": false
+ },
+ {
+  "name": "SPAS-12",
+  "model": "w_spas12.mdl",
+  "flip": false
+ },
+ {
+  "name": "Steyr AUG",
+  "model": "w_aug.mdl",
+  "flip": false
+ },
+ {
+  "name": "Taurus Raging Bull",
+  "model": "w_bull.mdl",
+  "flip": true
+ },
+ {
+  "name": "U.S. Ordnance M60E3",
+  "model": "w_m60.mdl",
+  "flip": false
+ },
+ {
+  "name": "vz. 61 \"Skorpion\"",
+  "model": "w_skorpion.mdl",
+  "flip": true
+ }
+]

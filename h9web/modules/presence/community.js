@@ -18,6 +18,7 @@
 //   PATCH  /api/presence/communities/:slug              staff: { name, chat, chatProof, dataProof, joinMode,
 //                                                       visibility, whitelist, whitelistProof }; the owner
 //                                                       also chatOpen (the web chat open to every account)
+//                                                       and switching chatProof or dataProof off
 //   DELETE /api/presence/communities/:slug              owner: { confirm }
 //   POST   /api/presence/communities/:slug/claim        staff: { code, tag }  link a server
 //   POST   /api/presence/communities/:slug/servers/:serverId   staff: { tag, readOnly }
@@ -55,6 +56,11 @@
 // member). Members-only servers (whitelist): the answer to a report kicks whoever is not a member.
 // The web chat is the members'; the owner may open it to every signed-in account (chatOpen), except
 // in a private community.
+// Proof: a line relayed from a game and a player's shared data (read or written) count only for a game
+// that proved the player id (the plugin's challenge, or the web client's relay), unless the owner switched
+// chatProof or dataProof off: an announced h9_clientid alone is nobody's, as any player on the server can
+// copy it. /find's asker counts as a member only with that proof as well. Both switches are on in every
+// community made here and in every one that existed when migration 14 ran (migrations.js).
 // The Discord bridge (docs\H9_COMMUNITIES.txt section 4a): an H9 site admin names a Discord channel
 // for a community; every chat line and announcement of the community but Discord's own goes there
 // ("discord-relay-out"), and the channel's lines come back ("discord-relay-in") as [Discord] lines
@@ -96,9 +102,9 @@ const JOIN_MODES = ["open", "request", "invite"];
 const VISIBILITIES = ["listed", "unlisted", "private"];
 
 function claimCode() {
-  const b = crypto.randomBytes(8);
   let s = "";
-  for (let i = 0; i < 8; i++) s += CLAIM_ALPHABET[b[i] % CLAIM_ALPHABET.length];
+  // randomInt draws without the bias that a modulo of a random byte has
+  for (let i = 0; i < 8; i++) s += CLAIM_ALPHABET[crypto.randomInt(CLAIM_ALPHABET.length)];
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 
@@ -139,7 +145,7 @@ export function createCommunity(deps) {
     invitesFor: db.prepare(`SELECT i.created_at, a.username, b.username AS by_name FROM presence_community_invites i JOIN accounts a ON a.id = i.account_id
       LEFT JOIN accounts b ON b.id = i.invited_by WHERE i.community_id = ? ORDER BY i.created_at LIMIT 500`),
     ownedBy: db.prepare("SELECT count(*) AS n FROM presence_communities WHERE owner_id = ?"),
-    insertCommunity: db.prepare("INSERT INTO presence_communities (slug, name, owner_id, created_at) VALUES (?, ?, ?, ?)"),
+    insertCommunity: db.prepare("INSERT INTO presence_communities (slug, name, owner_id, created_at, chat_proof, data_proof) VALUES (?, ?, ?, ?, 1, 1)"),
     updateCommunity: db.prepare(`UPDATE presence_communities SET name = ?, chat = ?, chat_proof = ?, data_proof = ?, join_mode = ?, visibility = ?,
       whitelist = ?, whitelist_proof = ?, chat_open = ? WHERE id = ?`),
     byDiscord: db.prepare("SELECT * FROM presence_communities WHERE discord_channel = ?"),
@@ -411,7 +417,7 @@ export function createCommunity(deps) {
     const report = wantReport.delete(server);
     rc.json(200, {
       ok: true, last: since, messages, report, serverId: enrollment.serverIdFor(server),
-      community: c ? { slug: c.slug, name: c.name, tag: c.tag, chat: c.chat === 1, readOnly: c.readOnly } : null,
+      community: c ? { slug: c.slug, name: c.name, tag: c.tag, chat: c.chat === 1, chatProof: c.chat_proof === 1, dataProof: c.data_proof === 1, readOnly: c.readOnly } : null,
       servers: serversView(c),
     });
   }, { csrf: false });
@@ -509,7 +515,8 @@ export function createCommunity(deps) {
   }));
 
   // The account behind a player on this server: the h9_clientid must be an account's, and that
-  // account in game here now by the plugin's own report.
+  // account in game here now by the plugin's own report. verified: the game proved the player id
+  // (a proof of it, or the web client's relay), which a copied h9_clientid cannot do.
   function presentAccount(server, id) {
     if (typeof id !== "string" || !CLIENT_ID.test(id.toLowerCase())) throw new HttpError(400, "bad_request", "id is the player's h9_clientid.");
     const accountId = accounts.clientIdIndex ? accounts.clientIdIndex(server).get(id.toLowerCase()) : undefined;
@@ -548,12 +555,14 @@ export function createCommunity(deps) {
     const name = cleanText(body.q, 32);
     if (!name) throw new HttpError(400, "bad_request", "Who? { q: name }");
     const c = communityOfServer(server);
-    // who asks: optional, the asking player's h9_clientid, an account in game on this server. A
-    // private community's servers show only to its members.
+    // who asks: optional, the asking player's h9_clientid, an account in game on this server whose game
+    // proved the player id (an announced id alone is nobody's). A private community's servers show only
+    // to its members.
     let asker = null;
     if (body.id !== undefined) {
       try {
-        asker = presentAccount(server, body.id).account;
+        const who = presentAccount(server, body.id);
+        asker = who.verified ? who.account : null;
       } catch (e) {
         asker = null;
       }
@@ -594,8 +603,13 @@ export function createCommunity(deps) {
     const c = communityOfServer(server);
     if (!c) throw new HttpError(403, "no_community", "This server is in no community.");
     let account;
-    if (body.id !== undefined) account = presentAccount(server, body.id).account;
-    else account = accountOrThrow(body.account);
+    if (body.id !== undefined) {
+      const who = presentAccount(server, body.id);
+      if (c.data_proof === 1 && !who.verified) throw new HttpError(403, "unverified", "This community's data needs a game that proves the player id.");
+      account = who.account;
+    } else {
+      account = accountOrThrow(body.account);
+    }
     const keys = Array.isArray(body.keys) ? body.keys : [body.key];
     if (!keys.length || keys.length > 16 || keys.some((k) => typeof k !== "string" || !DATA_KEY.test(k))) {
       throw new HttpError(400, "bad_request", "keys: 1 to 16 names of a to z, 0 to 9, _ . - (32 at most).");
@@ -768,6 +782,11 @@ export function createCommunity(deps) {
     }
     if (chatOpen !== c.chat_open && !isOwner(rc.account, c)) {
       throw new HttpError(403, "forbidden", "Only this community's owner may open its chat to everyone, or close it again.");
+    }
+    // switching a proof requirement off lets an announced id, which any player on a server can copy, speak or write
+    // as an account: the owner's decision, as opening the chat is
+    if (((chatProof === 0 && c.chat_proof === 1) || (dataProof === 0 && c.data_proof === 1)) && !isOwner(rc.account, c)) {
+      throw new HttpError(403, "forbidden", "Only this community's owner may switch off the proof that chat and shared data ask of a player's game.");
     }
     const joinMode = body.joinMode === undefined ? c.join_mode : body.joinMode;
     const visibility = body.visibility === undefined ? c.visibility : body.visibility;

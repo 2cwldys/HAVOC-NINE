@@ -137,3 +137,16 @@ Built:    branch h9 at 17c23c81, Thu 11/05/2026 18:40:28.20
 Built:    branch h9 at 17c23c81, Thu 11/05/2026 19:24:55.49
 Built:    branch h9 at 17c23c81, Thu 11/05/2026 19:49:37.13
 Built:    branch h9 at 17c23c81, Thu 11/05/2026 20:48:24.97
+Built:    branch h9 at 17c23c81, Mon 11/09/2026  7:52:40.63
+Built:    branch h9 at 17c23c81, Mon 11/09/2026  7:57:13.37
+Built:    branch h9 at 17c23c81, Mon 11/09/2026  7:59:47.09
+Built:    branch h9 at 17c23c81, Mon 11/09/2026  9:05:48.02
+Built:    branch h9 at 17c23c81, Mon 11/09/2026  9:17:56.53
+          engine-h9-serverauth.patch, engine-h9-webwarm.patch,
+          engine-h9-intro.patch and engine-h9-glowfix.patch
+Built:    branch h9 at 17c23c81, Wed 11/11/2026 15:30:41.06
+          engine-h9-intro.patch, engine-h9-glowfix.patch and
+          engine-h9-framesize.patch
+Built:    branch h9 at 17c23c81, Fri 11/13/2026 17:16:06.46
+          engine-h9-intro.patch, engine-h9-glowfix.patch,
+          engine-h9-framesize.patch and engine-h9-upscale.patch

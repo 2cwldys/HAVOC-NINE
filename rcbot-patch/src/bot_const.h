@@ -969,7 +969,8 @@ typedef enum : std::uint8_t
 	BOT_TASK_WAIT_FOR_RESOURCE_TOWER_BUILD,
 	BOT_TASK_IMPULSE,
 	BOT_TASK_DROP_WEAPON,
-	BOT_TASK_SENSE_ENEMY
+	BOT_TASK_SENSE_ENEMY,
+	BOT_TASK_TS_OBJECTIVE		// objective play (rcbot-patch CHANGE 11)
 }eBotTask;
 
 // A Task the bot should only change its view angles for
@@ -1401,7 +1402,8 @@ enum : std::uint16_t
 	BOT_DEBUG_MOVE_LEVEL = 1 << 5,	// Bot moves somewhere
 	BOT_DEBUG_AIM_LEVEL = 1 << 6,	// Bot aims at something
 	BOT_DEBUG_NAV_LEVEL = 1 << 7,	// Bot touches/finds waypoints
-	BOT_DEBUG_SEE_LEVEL = 1 << 8	// Bot sees something
+	BOT_DEBUG_SEE_LEVEL = 1 << 8,	// Bot sees something
+	BOT_DEBUG_MECH_LEVEL = 1 << 9	// A Mech bot picks between its M60 and its rocket launcher (CHANGE 13)
 };
 
 /////////////////////////////////

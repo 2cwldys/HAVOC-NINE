@@ -47,6 +47,8 @@
 #include "pm_shared.h"
 #include "keydefs.h"
 #include "h9_vgui.h" // H9 VGUI: ESC closes a server's panel
+#include "h9_arpinv.h" // H9 ARP inventory: the cursor while its window is up, its keys
+#include "h9_arpctx.h" // H9 ARP context menu: the cursor while it is up, its keys
 #include "demo.h"
 #include "demo_api.h"
 
@@ -1658,7 +1660,8 @@ void TeamFortressViewport::UpdateCursorState()
 {
 	// Need cursor if any VGUI window is up — OR the TS buy menu (HUD-drawn but mouse-clickable: the
 	// original lets you click entries, FUN_10038360; cont.69l). A free cursor lets the player click.
-	if (m_pSpectatorPanel->m_menuVisible || m_pCurrentMenu || m_pTeamMenu->isVisible() || GetClientVoiceMgr()->IsInSquelchMode() || gHUD.m_TSBuyMenu.IsUp())
+	if (m_pSpectatorPanel->m_menuVisible || m_pCurrentMenu || m_pTeamMenu->isVisible() || GetClientVoiceMgr()->IsInSquelchMode() || gHUD.m_TSBuyMenu.IsUp() ||
+		H9ArpInv_IsUp() || H9ArpCtx_IsUp())
 	{
 		g_iVisibleMouse = true;
 		App::getInstance()->setCursorOveride(App::getInstance()->getScheme()->getCursor(Scheme::scu_arrow));
@@ -1826,6 +1829,14 @@ bool TeamFortressViewport::SlotInput(int iSlot)
 // Direct Key Input
 bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurrentBinding)
 {
+	// H9 ARP context menu: while it is up, over everything else of H9's, it has ESC, the wheel and the number keys (h9_arpctx.cpp).
+	if (H9ArpCtx_KeyInput(down, keynum))
+		return false;
+
+	// H9 ARP inventory: while its window is up it has ESC, the wheel and the keys of its boxes (h9_arpinv.cpp).
+	if (H9ArpInv_KeyInput(down, keynum))
+		return false;
+
 	// H9 VGUI: ESC closes the newest server panel first, and goes no further (h9_vgui.cpp).
 	if (H9Vgui_KeyInput(down, keynum))
 		return false;

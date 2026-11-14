@@ -51,6 +51,9 @@
 #define H9VGUI_PROTOCOL  1       // the version this include speaks; _h9vgui must be at least it
 #define H9VGUI_STATUS_PROTOCOL 2 // the first _h9vgui whose game draws a STATUS
 #define H9VGUI_MARK_PROTOCOL 3   // the first _h9vgui whose game draws a MARK
+#define H9VGUI_LOOK_PROTOCOL 5   // the first _h9vgui whose game reads H9Look: which of TS's aim names to leave out
+#define H9VGUI_INV_PROTOCOL 6    // the first _h9vgui whose game draws Apollo RP's inventory and exchange windows (H9Inv, H9Trade: ARP_Inventory)
+#define H9VGUI_CREDIT_PROTOCOL 7 // the first _h9vgui whose game draws the credit sign: the single byte 0xA2 in a panel or HUD-font text, U+00A2 as UTF-8 in console, chat and centre text (arp_h9_credits)
 #define H9VGUI_MSG_MAX   188     // bytes a message may carry: GoldSrc's 192 less a margin
 
 // Ops: the first byte of an H9Vgui message.

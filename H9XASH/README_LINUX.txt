@@ -114,6 +114,9 @@
      program h9xash.sh does not start; the server lists work as usual.
    * h9xash_server*.bat, h9_presets.bat and h9_add_to_steam.ps1 are for
      Windows only.
+   * Spoken chat (text to speech) uses Windows speech voices (SAPI). Wine
+     usually offers none (untested), and then the game says it cannot speak and
+     servers send it nothing; the web client speaks with your browser's voices.
 
  Troubleshooting
  ---------------

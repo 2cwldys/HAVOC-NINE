@@ -1,0 +1,906 @@
+===============================================================================
+ LOADOUT REWORK  (GitHub issue 5: buying with TS's default equipment menu)
+===============================================================================
+
+ Status: implemented in ts_matchmode.sma behind the server cvar
+ tsm_loadoutrework (default 0), with a client half in H9's client library (the
+ buy window, section 12). The plugin compiles clean and the client library
+ compiles; the pure logic of the client half and the plugin's decisions were
+ tried in scratch programs. NOTHING HAS BEEN RUN IN A GAME. Section 4 and 5
+ are the rules and the state table, section 9 the live test plan, section 10
+ what is unverified, section 11 the risks.
+
+ The user-facing reference is COMMANDS.txt (LOADOUT REWORK, the cvar table,
+ amx_tsm_loadout). This file is the design: why it is built the way it is.
+
+
+1. THE ISSUE AND THE DECISIONS
+-------------------------------------------------------------------------------
+
+ Issue 5 asks that every class except the Mech use TS's default buy menu,
+ funded by cash, with the loadout kept consistent for the match and re-applied
+ at respawn waves; the Mech to be un-disarmable and unable to pick up other
+ players' weapons; the Heavy exempt (its slot cap is higher and could be
+ abused). The Mech's rocket weapon being undroppable is "covered through
+ issue 5" (it is: the Mech cannot drop at all, section 7).
+
+ Owner decisions this is built to:
+  1. Everything sits behind tsm_loadoutrework 0|1, default 0. With 0 the
+     plugin behaves exactly as before (section 3 says why that holds).
+  2. Reworked classes: all but the Mech and the Heavy ("covered" below). The
+     Mech and the Heavy keep their fixed class kits.
+  3. NO CLASS KIT for a covered class (2026-11-10: "why are loadouts still
+     being applied even though tsm_loadoutrework is 1?"). A covered human holds
+     what he bought; one who bought nothing holds TS's own default, his fists.
+     tsm_lr_kitfallback 1 gives such a player the class kit instead, for a
+     server that wants it. Bots cannot buy and keep the class kit.
+  4. BUY BEFORE THE MATCH, KEEP IT FOR THE MATCH (2026-11-10: "let people buy
+     what they need in the buy menu before they even join a team ... as long as
+     they get it during the pre round freeze and it is their loadout the
+     entire match"). A covered player buys in warmup, in ready-up and in the
+     freeze before a round, on a side or on none. What he holds when the round
+     first goes live for him is his loadout for the entire match (tsm_lr_lock
+     1): it is handed over again at every arm and respawn wave, and later
+     freezes and waves sell him nothing.
+  5. THE EQUIPMENT MENU MUST COME UP IN THE FREEZE (same words: "buy menu never
+     appears at the start of the pre match round freeze"). TS's client cannot
+     do it for a player who is alive; H9's client can, told by the server
+     (section 12).
+  6. tsm_lr_cash 8500: enough for a rifle, a pistol, a melee weapon and kevlar.
+  7. THE SLOT RULE ("the 81 slot cap only for mechs and heavy"). Read as: the
+     room past TS's 81 carried slots is for the Heavy and the Mech only; a
+     covered class carries at most tsm_lr_slotcap slots (default 81, TS's own
+     limit), and its hand-over does not lift the limit. If the owner meant the
+     reverse (no cap for the covered classes), tsm_lr_slotcap 0 is exactly
+     that.
+
+
+2. WHAT THE CODE DID BEFORE, AND WHAT THAT MEANS FOR THE DESIGN
+-------------------------------------------------------------------------------
+
+ Read from the sources (ts_matchmode.sma, reTS dlls\ts_buy.cpp, dlls\client.cpp,
+ dlls\ts_gun.cpp, cl_dll\ts_buymenu.cpp):
+
+ - The kit is never bought. arm_give_kit() -> give_class_weapons() hand the
+   class line's weapons over with ts_giveweapon, in the arm (task_arm_respawn,
+   in the freeze), in the late arm, in the go-live force-arm and in a wave
+   revive (task_revive_arm). resolve_loadout() already lets a claimed mode
+   swap in its own weapon list for one arm (g_lo_n / g_lo_wpn / g_lo_clips);
+   lo_count / lo_wpn / lo_clips read it. The rework plugs into exactly that
+   (lr_resolve), and every place a kit goes out goes through it.
+
+ - THE FIRST BUILD HANDED THE CLASS KIT TO EVERYONE WHO BOUGHT NOTHING, and
+   nobody bought, because the equipment menu never came up in the freeze. That
+   is the answer to "why are loadouts still being applied with the rework on":
+   lr_resolve returned without a set (so give_class_weapons gave the class
+   line), lr_commit said "Nothing bought -- you keep the <class> kit", the
+   freeze's chat line said "Buy nothing and you get the <class> kit", and the
+   window itself needed a side and a freeze, so a player who had not joined a
+   side could not buy at all. Every route that hands a kit (the freeze arm, the
+   late arm, the go-live force-arm, the wave revive, a re-give after a buy, a
+   class pick's re-arm, a reconnect into a freeze, the default class of a player
+   who never picked) ends in arm_give_kit -> resolve_loadout, so one change
+   there, lr_resolve, closes them all. Bots are not covered and Mech/Heavy are
+   not covered, so those routes still give them the class line.
+
+ - The buy menu is the client's. Its Apply sends, back to back: rst_cfg, one
+   batched "tkw <id>_<attach|count> ..." (a second bare "<id>_0" token makes an
+   akimbo pair), "tki 16" for kevlar, "tka <caliber>_<units> ...". The DLL only
+   QUEUES them (AddItemToArmament); the queue is applied by BuyArmament at a
+   SPAWN. There is no buy-now command.
+
+ - CashBased() is hard-wired to false in reTS (and in the shipped TS): nothing
+   is ever charged, a weapon is free, and cash is only a number that is shown
+   when usecash is on. The menu's own money bar is the constant 30000, not the
+   wallet. So "funded by the cash and credits system" cannot be enforced by
+   TS: the existing comment that an empty wallet makes TS refuse a purchase is
+   not what the source does (weaponrestriction 1 is what refuses). The rework
+   therefore keeps the account itself (section 4). reTS-proposals\
+   loadout-cash-economy.diff is the change that would make TS do it.
+
+ - tsm_block_buy 1 swallows tkw/tka/tki/rst_cfg/cashala in every state
+   (cmd_blockbuy) and "13_3"-style names (client_command). Warmup buying was
+   the exploit: buy a loadout, drop it, collect it live. drop_refused() keeps
+   drops shut in warmup, ready-up, freeze and match end. A purchase of the
+   rework is a record in the plugin and nothing is in the buyer's hands before
+   the arm, so buying in warmup opens no such door.
+
+ - hold_cash() sets the TS wallet to 0 every frame (TSM_ARM_CASH while the old
+   cash-lending flag g_cash_lend is set). It is the existing place that decides
+   what a player's wallet reads.
+
+ - A disarm is the game DLL's: a melee hit past a pressure threshold calls
+   CBasePlayer::DropWeapon(-2, damage) (ts_player.cpp, ts_stunt.cpp), which
+   holsters and throws the weapon in hand, unless the victim is spawn
+   protected. tsm_disarm in the plugin is about ELIMINATED players and is
+   unrelated. Weapons on the floor are picked up with the USE key (a throwable
+   on touch); dropped ones are the "WorldGun" entity (owner = the dropper),
+   map ones "ts_groundweapon".
+
+ - The menu is opened by the client, and only for a spectator. reTS cl_dll
+   ts_spectate.cpp opens it on the edge of the local player entering the
+   spectate state (the first open of a map comes up on a RANDOM loadout, TS's
+   own habit); the buy key (ts_commands.cpp, TS_Buy) opens it only while
+   spectating; and the weapon bar's Draw (ts_weaponbar.cpp, client.dll
+   0x1004d42f) closes it as soon as a player who is alive and playing has it
+   up. A player on no side is a spectator, so the menu is his from the moment
+   he joins; a player on a side is alive once he has spawned in (held in warmup
+   and ready-up, frozen in the freeze), so for him TS's client allows it
+   nowhere. Section 12 is what H9's client does about that.
+
+ - The slot limit. TS counts the weight of the weapons a player owns against
+   81 (TSPlayerFreeSlots, dlls\ts_gun.cpp: 81 minus what he owns, minus 20 for a
+   flag, minus 10 for kevlar, plus whatever ts_setuserslots added). The only
+   gate is PickUpWeapon's: a give is refused when it does not fit. The mp.dll
+   of this build has no second ceiling (mp.dll.patch, change 1). So a player the
+   plugin never raised is held to 81 by TS itself, and ts_setuserslots(id, 999)
+   is what lifted every class until now. The slot costs in the menu's table
+   (TSM_LR_SLOTS) are TS's own (kSlotCost, dlls\ts_weapon_info.cpp); the
+   combined cost of an akimbo pair (single + akimbo item) and of a stack (cost
+   per unit) agree with the menu's, so a cart that fits its cap is one TS gives
+   whole.
+
+ - What the plugin can see of a player's weapons. user_carries() reads the item
+   bits of pev->weapons, and the game library mirrors only weapons 0 to 31 into
+   it (player.h, SetWeaponBit). The M60E3 (32), sawed-off (33), katana (34), seal
+   knife (35), Contender (36), PPSh-41 (39) and laser rifle (40) are not in
+   those bits at all, so a check "does he hold it" is false for them whatever
+   he holds. lr_holds() takes them as held, and the retry after the last weapon
+   of a kit does not give a bought stack a second time (section 5).
+
+
+3. THE SWITCH
+-------------------------------------------------------------------------------
+
+ tsm_loadoutrework is read live (get_pcvar_num) at every use, nothing is cached.
+ Every hook the rework adds starts with that test and returns the old
+ behaviour when it is 0:
+
+   hold_cash      want = lr_wallet(id) -> 0 when off  (was 0)
+   cmd_blockbuy   lr_cmd(id) returns at once, then the old silent refusal
+   drops          lr_drop_blocked() false when off
+   resolve_loadout lr_resolve() changes nothing when off (the class kit)
+   give paths     lr_extra() = get_pcvar_num(tsm_wpn_extra) when no set;
+                  lr_give_room() lifts the slots exactly as the old
+                  ts_setuserslots(id, 999) did
+   fw_touch / fw_prethink Mech guards return at once when off
+   round start, wave revive, go-live, tick, class pick, H9Buy: no-ops
+
+ The only code that always runs is bookkeeping (a timestamp in lr_arm_begin, an
+ array reset in lr_forget). The cvar is documented in COMMANDS.txt; its value
+ line in ts_matchmode.cfg and the presets is commented out like tsm_live_gate,
+ because the cfg is exec'd on every map load and must not reset a value that
+ server.cfg, a mapconfig or the console set. The rework's other cvars
+ (tsm_lr_kitfallback, tsm_lr_lock, tsm_lr_slotcap, tsm_lr_cash and the rest)
+ are read where they are used and mean nothing with the rework off.
+
+ It also needs tsm_block_buy 1, tsm_classes on and tsm_weapon_mode 2 (the class
+ kit path): lr_on() says so. tsm_nocash 1 is only needed for the wallet display.
+
+
+4. THE ECONOMY AND THE RULES
+-------------------------------------------------------------------------------
+
+ (a) Cash. A class's allowance is tsm_lr_cash (8500: a rifle, a pistol, a
+     knife and kevlar), or tsm_lr_cash_<n> for class n when that cvar is
+     non-empty (n = the tsm_classN number); a class whose own kit carries a
+     weapon on tsm_lr_deny (the Marksman's Barrett) has that weapon's price
+     added to it (lr_budget). The figure the player's TS wallet
+     shows (set by hold_cash through lr_wallet) is the allowance minus the cost
+     of the loadout he holds, while his buy window is open, and 0 otherwise.
+     Before a class is picked the DEFAULT class (tsm_default_class) stands for
+     him: its cash, and whether the rework covers it. A player whose default
+     class is the Heavy or the Mech cannot buy until he has picked a covered
+     class in the first freeze.
+
+     The "existing cash-lending mechanism" (g_cash_lend, TSM_ARM_CASH) is left
+     alone: it still wins when set. Nothing in the rework lends cash.
+
+ (b) Pricing. TSM_LR_PRICE / TSM_LR_SLOTS / TSM_LR_SUPPORT are the equipment
+     menu's own table (cl_dll\ts_buymenu.cpp s_weapons: price, slot cost,
+     attachments it mounts), attachments 900 / 800 / 500 / 1800 (silencer,
+     laser, light, scope), kevlar 1900 and 10 slots. A weapon not in the
+     table (the akimbo singles, 29, 38 ...) is not sold. A stack (frag
+     grenade 2, combat knife 5, seal knife 10) is price x count. A second token
+     of the same single is the akimbo pair, allowed for 2, 3, 9, 14, 17 only.
+     tka is ignored: the menu's auto-ammo spends the unused part of its own
+     30000, so the units it asks for mean nothing here. A weapon comes with
+     tsm_lr_clips spare magazines (3), the same unit as a class line, with
+     tsm_clip_bonus and tsm_clip_max applied by give_class_weapons as for a
+     kit; a stack of N carries N-1 beyond the first, as "24:0" does.
+
+ (c) Refusals. An apply is judged as a whole. Refused, with a chat and centre
+     line saying why, and the player keeps what he held: an id the menu does
+     not sell, an id on tsm_lr_deny that the player's class does not carry
+     in its own kit (default 32,18: the M60E3 and the Barrett, the class
+     weapons; the word kevlar refuses the vest), the stealth shoes, a second
+     copy of a gun with no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a
+     total over the allowance, and a total weight over tsm_lr_slotcap slots
+     (81 by default, 0 for no limit). The Marksman, whose kit carries the
+     Barrett, may buy it (9000 and 70 slots, with 9000 added to his
+     allowance); every other covered class is told "the Barrett is not for
+     your class". The laser rifle and the katana are on sale to every class.
+
+ (d) Windows (lr_window_open). A covered human (lr_eligible: not a bot, the
+     rework usable, his class covered) whose loadout is not final may buy in:
+       warmup, ready-up    open for everyone covered, on a side or on none.
+                           What he buys is kept; NOTHING is handed over (no
+                           arm runs); begin_match keeps it
+       freeze              open for the whole of it, every round, for the same
+                           players (the freeze that opens a match lasts at
+                           least tsm_lr_freeze, 30)
+       live                closed. Only with tsm_lr_lock 0: ONE change for
+                           tsm_lr_buy_seconds (20) after a respawn wave put him
+                           on his feet (lr_revive_window)
+       round end, match end  closed
+     A player whose loadout is final (below) buys in none of them; the
+     equipment menu then says why in chat ("Your loadout is final for the
+     match").
+     An H9 client is told the window of a player who is alive on a side and
+     brings the equipment menu up in it (section 12). A player on no side is a
+     spectator and has the menu from TS's own client; so does a game that
+     cannot read the window (a stock client, an older H9 client), which is why
+     it is told in chat to buy before it joins a side.
+
+     The freeze of a round is short (tsm_freezetime 6 in the shipped cfg), and
+     six seconds was too short for the freeze that opens a match: that is where
+     the class is picked and, for whoever has not bought, the loadout. So that
+     freeze, the one the live gate starts (everyone typed .ready, or the gate-off
+     start), lasts at least tsm_lr_freeze seconds (30) while the rework is on:
+     freeze_seconds in the plugin, which finish_round_start uses for the
+     countdown, the chat line and the go-live task. Every later round keeps
+     tsm_freezetime.
+
+ (e) The buy-then-drop exploit stays shut. Drops are refused in warmup,
+     ready-up, freeze and match end as before, and also while a live buy
+     window is open (lr_drop_blocked, tsm_lr_lock 0 only) -- the drop key and
+     the weapon bar's drop_<n>. A purchase is a record, never a weapon in his
+     hands before the arm. The round-start sweep of dropped items is unchanged
+     (sweep_dropped_items; note it only looks for ts_groundweapon /
+     ts_groundammo, not the "WorldGun" entity a player's drop makes -- an
+     existing gap, not touched here).
+
+ (f) The slot rule. TS holds a player to 81 carried slots unless the plugin
+     raises his room with ts_setuserslots. The plugin raises it (to 999) for
+     everyone whose kit can weigh more than 81: bots, the Heavy, the Mech, a
+     class kit (tsm_lr_kitfallback 1), a claimed mode's loadout. It does NOT
+     raise it for a covered human's bought set: lr_give_room leaves TS's own
+     gate in place when the set is held to tsm_lr_slotcap 1 to 81, and lr_regive
+     puts the room back to 81 before a re-give. A cap of 0 (no limit) or past
+     81 lifts it for the set, since the cart check is then the only limit. The
+     cart check (the menu's slot costs, kevlar 10) and TS's gate use the same
+     table, so a cart that fits is given whole; if a weapon is still not given,
+     lr_record leaves it out of the set AND says so in chat. The menu itself
+     refuses a cart over 81 on the player's screen (its own cap).
+
+
+5. KEEPING THE LOADOUT
+-------------------------------------------------------------------------------
+
+ State per player (ts_matchmode.sma, "the loadout rework: state"):
+   g_lr_set_*   the bought set: weapon ids, spare figure, attachments each,
+                kevlar, cost (and, for information, the class and side it was
+                bought as). It follows the PLAYER: it is not tied to a class or
+                a side
+   g_lr_cart_*  the apply being collected (rst_cfg opens it, tkw/tki fill it,
+                a debounce task of 0.3 s after the last command commits it)
+   g_lr_lock    his loadout is final (tsm_lr_lock 1)
+
+ - Commit (lr_commit): checks the cart (allowance, deny list, 8 entries, the
+   slot cap), stores it as the set, and hands it over now with lr_regive (strip,
+   room back to 81, armour back to the class figure, arm_give_kit) -- only to a
+   body in the round: in the freeze after his own arm has run, or live in a
+   wave's window. Before the match, and in the freeze before his own arm, nothing
+   is handed over: the arm that is coming does it. An apply that buys nothing
+   clears the set: his fists, or the class kit with tsm_lr_kitfallback 1.
+
+ - Re-application: resolve_loadout() ends with lr_resolve() when no claimed
+   mode answered. For a covered human it first makes the set fit the class he
+   plays (lr_fit), then copies it into g_lo_*, so give_class_weapons, the
+   M60-first branch, task_give_rest, the late arm, the force-arm and the wave
+   revive all hand the set over with no further change. With no set it sets
+   g_lo_n to 0 (bare hands) unless tsm_lr_kitfallback is 1. A claimed mode's own
+   loadout (survival's mutants) still wins over everything. The attachments the
+   player chose ride in g_lo_att and reach ts_giveweapon through lr_extra.
+
+ - Fitting (lr_fit). A set bought before a class was picked, or for another
+   class's cash, is made to fit the class he plays: at the class pick, and at
+   every arm (so a cash cvar changed in the meantime is honoured). What is on
+   the deny list, or does not fit the class's cash or tsm_lr_slotcap, is left
+   out, from the end of what he bought (kevlar last), and he is told which. A
+   set that fits is not touched. For the Heavy and the Mech the set is ignored
+   (they take their kit) and the pick tells him so; the set stays recorded.
+
+ - Closing (lr_close_all, at the go-live, before the state changes): an apply
+   still in the air is committed, the window is closed, and for every covered
+   human on a side:
+     tsm_lr_lock 1   what he really holds is recorded (lr_record: a weapon the
+                     arm could not give is left out of the set and he is
+                     told), and his loadout becomes FINAL for the match
+     tsm_lr_lock 0   the record is taken as before and nothing is locked
+   The lock is per player and happens at HIS first go-live, whether or not he
+   bought anything: a player who joins the match late and has no set can still
+   buy until his own first go-live. lr_record is not taken again for a final
+   set: it is handed over whole at every arm.
+
+ - Cleared: when a match ends or is cancelled (clear_match_state), when a
+   player connects into a slot or leaves. NOT when a match begins
+   (lr_match_begin): what was bought in warmup and ready-up is the match's
+   loadout. A reconnect is a new player in the slot: his set and lock are gone,
+   and during a match he sits it out (g_locked_out) anyway. A map change reloads
+   the plugin: everything is gone.
+
+ - The arm gate (g_armed, g_arm_pending, task_go_live) is not touched. The
+   apply never sets g_armed, and the arm schedule is the old one.
+
+ THE STATE TABLE  (rework on and usable, tsm_lr_lock 1, tsm_lr_kitfallback 0,
+ tsm_lr_slotcap 81; "covered" is every class but the Mech and the Heavy)
+
+  state            player                          can he buy?     what he is handed
+  ---------------  ------------------------------  --------------  ------------------------
+  warmup/ready-up  covered, on no side             yes             nothing (the set is kept)
+  warmup/ready-up  covered, on a side              yes             nothing (the set is kept)
+  warmup/ready-up  default class not covered, no   no              nothing
+                   class picked yet
+  freeze           covered, on a side, loadout     yes             at his arm: the set, or his
+                   not final yet                                   fists if he has none
+  freeze           covered, on no side, not final  yes             nothing (he is not in play)
+  freeze           covered, on a side, final       no              at his arm: the set
+  freeze           Heavy / Mech                    no              their class kit
+  freeze           bot                             no              the class kit
+  live             covered, final (lock 1)         no              after a wave: the set
+  live             covered, tsm_lr_lock 0          one change,     after a wave: the set, or
+                   (never final)                   20 s after a    his fists
+                                                   wave
+  live             Heavy / Mech / bot              no              their class kit
+  round end,       anyone                          no              -
+  match end
+  halted match     covered, final                  no              (next freeze) the set
+  (ready-up)       covered, got a side after the   yes             at his first freeze: the
+                   first go-live (late joiner)                     set, or his fists
+
+  tsm_lr_kitfallback 1 changes "his fists" to "the class kit" everywhere above.
+  tsm_lr_lock 0 makes "final" never apply: a re-buy in every freeze and after
+  every wave, as in the first build.
+
+ EDGE CASES
+  late join        A player who connects while a match runs is benched until it
+                   ends (g_locked_out) and cannot buy, unless tsm_latejoin lets
+                   him in (on by default; docs\GAME_MODES.txt). He then
+                   takes a side and waits as a ghost, out of play and with no
+                   window, and is let in at his side's next respawn. A wave
+                   brings him as it brings a fallen player: the revive window
+                   opens (tsm_lr_buy_seconds), and opens again at every later
+                   revive, because he has been through no go-live and his
+                   loadout is not final; he has bought nothing, so he comes with
+                   his fists (the class kit with tsm_lr_kitfallback 1) until he
+                   buys. A round's start lets him in as a player of the round:
+                   the freeze is his window and the go-live makes it final.
+                   One who gets a side through a halted match (ready-up with the
+                   score kept) has no set and is not final: he buys in the
+                   ready-up and in his first freeze, and is made final at his
+                   first go-live.
+  class change     The class is picked once, in the first freeze, and locked,
+                   unless tsm_classchange lets him ask for another (on by
+                   default). A pick outside the freeze is held and
+                   goes on at his next respawn (a wave's revive, else the next
+                   round's start), and what the first pick did is done then,
+                   before the kit is handed: a pick of another covered class
+                   refits the set to its cash (a line to him: what no longer
+                   fits is left out, and a later switch to a richer class does
+                   not bring it back); a pick of the Heavy or the Mech ignores
+                   the set (a line to him) and hands the kit. In the freeze a
+                   pick is the class at once, as before. A late joiner's first
+                   pick is held the same way and settled as he is let in. An
+                   admin tool that changes a class later is refitted at the next
+                   arm.
+  side change      Sides change in warmup and ready-up only; the set follows the
+                   player, so a side change costs him nothing.
+  reconnect        His set and his lock are gone (a new player in the slot);
+                   in warmup he buys again, in a match he sits it out.
+  rework off       Mid-match: every hook is a no-op, the next arm hands the
+                   class kit, H9Buy windows close within a second. The sets and
+                   locks stay in memory: switched on again they apply, and a
+                   match end clears them. Switched on mid-match: players who
+                   passed a go-live before it are not final; their next freeze
+                   opens a window, they hold fists (or what they buy) and are
+                   made final at the following go-live.
+  new match, map   A match end clears every set and lock; a map change reloads
+  change           the plugin.
+  first freeze     The class menu has the screen. The window is open without the
+  before a class   menu coming up by itself; the buy key opens it (the number
+  is picked        keys belong to the class menu, the mouse to the equipment
+                   menu). The pick brings the menu up if he has bought nothing.
+                   Until the pick the default class's cash applies; an unpicked
+                   player is made the default class at the go-live.
+  buying while     TS's own client opens the equipment menu for a spectator
+  on no side       (the first open of a map on a random loadout: Reset Config
+                   first). The plugin accepts it as in any other state.
+
+
+6. WHO IS COVERED
+-------------------------------------------------------------------------------
+
+ lr_class_ok(): not a class with the Mech perk (7), not the regeneration perk
+ (5, the Heavy), not a class with the M60 in its kit. Today that is Assault,
+ Combat Engineer, Marksman, Breacher, Medic, Officer and Recon. Bots (is_user_bot)
+ are never covered: rcbot arms them and tsm_bot_class gives them the kit. The
+ class pick menu is untouched; the plugin has no weapon menu of its own, so
+ there was no loadout-menu path to retire -- the kit hand-over gives way to the
+ set, and to bare hands when there is none.
+
+ The class of a player who has not picked is the default class
+ (resolved_class): it decides whether he is covered, and his cash, until he
+ picks. The arm of an unpicked player uses it too, so a server whose default
+ class is the Heavy or the Mech arms an unpicked player with that kit.
+
+
+7. THE MECH
+-------------------------------------------------------------------------------
+
+ Behind the same cvar, for any player whose class carries the Mech perk:
+  - the drop key and the weapon bar's drop_<n> are refused in every state
+    (lr_drop_blocked) -- which is what makes the Mech's weapons undroppable;
+  - the use key does nothing while a weapon (WorldGun, ts_groundweapon,
+    weaponbox, weapon_*) is within 96 units: fw_prethink clears IN_USE for him
+    (the game reads the use key from pev->button after the plugin's pre-think,
+    the same way the plugin already clears the attack bits for a held player);
+    a door or button next to a weapon on the floor does not answer him either;
+  - touching a weapon is refused (fw_touch SUPERCEDE), for the throwable that
+    is taken on touch;
+  - a disarm is undone (lr_mech_guard, four times a second): a class weapon
+    seen in his hands that is gone at the next look is given again with the
+    spare rounds he had, and the WorldGun the disarm threw (owner = the Mech)
+    is removed. The DLL performs the disarm and nothing in a plugin can refuse
+    it, so he is bare-handed for up to a quarter second. Any strip of a living
+    Mech in a live round is undone the same way (the plugin's own strips are of
+    eliminated players, who are skipped). The guard reads the item bits of
+    pev->weapons (user_carries), which stop at weapon 31: the Mech's M60 (32) and
+    launcher (41) are not among them, so for those two it sees nothing and hands
+    nothing back, and it is the refusal in the game library (below) that stops a
+    disarm of them.
+ The game library of this build makes the same refusals itself for a player the
+ plugin marks in pev->fuser4 (lr_arm_begin) while tsm_loadoutrework is on:
+ CBasePlayer::DropWeapon (dlls\ts_gun.cpp) neither disarms him nor lets him
+ drop, and PickUpWeapon (dlls\ts_player.cpp) takes no dropped weapon for him.
+ The plugin's guard above is what backs that up, and what a mp.dll without it
+ relies on. With tsm_mech_nodrop on (default 1) CBasePlayer::DropWeapon also
+ refuses a marked Mech's disarm, the drop key, drop_<n> and the death scatter of
+ his weapons whatever the rework says (the CTF flag still drops with the key when
+ his hands are bare); the refusal of a dropped weapon's pickup stays with the
+ rework.
+
+ The floor guard and the touch refusal above do not need the rework: tsm_mech_nopickup
+ (default 1, independent of tsm_loadoutrework) makes them apply to a Mech by class
+ whatever the rework says, except that his own gear (the M60, the minigun that
+ replaces it, the rocket launcher) may still be taken up, so that a game library
+ that lets a disarm through never leaves him bare-handed. With the rework on the
+ guard refuses every weapon, as described, because the rework hands a disarmed
+ Mech his gun back itself and the game library refuses a dropped weapon too.
+ He is told once in a few seconds ("A Mech does not pick up weapons.") when the use
+ key was cleared next to a weapon. The CTF briefcase and flags are not weapons
+ (ts_briefcase, ts_flag, tsm_flag) and are not affected.
+
+
+8. RETS PROPOSALS AND WHAT THE GAME LIBRARIES HOLD
+-------------------------------------------------------------------------------
+
+ reTS-proposals\loadout-mech-nodisarm-nopickup.diff
+     DropWeapon and PickUpWeapon refuse for a player the plugin marks in
+     pev->fuser4, while tsm_loadoutrework is on. Taken into the game library
+     (section 7) and into the plugin (lr_arm_begin writes the mark).
+
+ reTS-proposals\loadout-cash-economy.diff
+     CashBased() follows usecash, BuyWeapon charges, the client menu's budget is
+     the wallet. Would let TS enforce the money, and the menu show the class's
+     cash instead of its constant 30000. Not needed for the rework as built; it
+     is a bigger change to every server's economy and to the arm path.
+
+
+9. LIVE TEST PLAN
+-------------------------------------------------------------------------------
+
+ Setup. A listen or dedicated H9 server, the H9 client of this build (reTS
+ client.dll with the buy window; it reports _h9vgui 4), two or three clients if
+ you can (one as a late joiner), bots optional, map h9_*, tsm_logging 1,
+ tsm_debug_log 2 (debug lines in the server console). Rcon:
+     tsm_loadoutrework 1
+ The rest is the shipped defaults (tsm_lr_cash 8500, tsm_lr_lock 1,
+ tsm_lr_kitfallback 0, tsm_lr_slotcap 81, tsm_lr_freeze 30). In the client
+ console cl_h9_buywindow says what the game knows of the window; in the
+ server's debug lines each message sent shows as "loadout rework: H9Buy to <id>:
+ window open, <n> s, menu to come up now" (the last part only when the menu is
+ asked for) or "window over". amx_tsm_loadout <you> prints the rest.
+
+ T1  Off means off.  tsm_loadoutrework 0, play a round.
+     Expect: class kit as ever; the equipment menu does nothing and prints
+     nothing; amx_tsm_loadout <you> says "tsm_loadoutrework 0, switched on and
+     usable no"; no H9Buy line in the debug log; cl_h9_buywindow says no
+     message has been read.
+
+ T2  Buy before you join a side.  tsm_loadoutrework 1, a map in warmup, connect
+     (or .team and choose Spectate). Expect: the equipment menu comes up by
+     itself, TS's own, on a random loadout; "4 Reset Config", build MP5K (1500)
+     and Glock-18 (850), Apply ("1 Use New Config" or a click off every entry).
+     Within a second: "[MATCH] Loadout bought: 2 weapon(s), $2350 of your $8500.
+     It is final for the match once the round goes live." (and the same in the AMX
+     log); nothing is in your hands; amx_tsm_loadout: recorded set 2 weapon(s),
+     buy window OPEN, a covered player on no side may buy now: yes.
+     Wrong: "Buying opens in the freeze before a round" or "Buying is closed"
+     (the first build), or a weapon appearing in warmup.
+
+ T3  Refusals.  Apply a cart of $9500: "Loadout not changed: $9500 is more
+     than the $8500 you have"; a Barrett: "the Barrett M82A1 is not for your
+     class"; rcon tsm_lr_slotcap 60 and two rifles: "it weighs 80 of the 60
+     slots you may carry"; the set you had stays (amx_tsm_loadout).
+     rcon tsm_lr_slotcap 81 afterwards.
+
+ T4  On a side, before the match.  Pick a side with .team: the hint "Loadout
+     rework: you buy your loadout with the equipment menu (key B opens it)".
+     With the equipment menu closed, press B: the menu comes up although you are
+     alive and held (cl_h9_buywindow: "buy window: OPEN", "menu: up (the
+     window's)"; debug line "H9Buy to <id>: window open, 60 s"); B again closes it.
+     Type .ready with nothing bought: "You have bought no loadout, so you start
+     with your fists". Buying more while ready still works.
+
+ T5  The first freeze.  Everyone ready; the match starts with a freeze of at
+     least 30 s. Expect the chat line, the class menu on the screen, and the
+     equipment menu NOT up (debug line "window open, 30 s" with no "menu to come
+     up now"). Press a class number (Assault): you are armed within a few
+     seconds with exactly what you bought, no M4A1/AK47 (the class kit), spare
+     magazines tsm_lr_clips 3 + tsm_clip_bonus. If you had bought nothing the
+     menu comes up by itself within a second of the pick ("menu to come up now")
+     with the cursor showing and the view held; Apply works and hands you the
+     new set at once.
+
+ T6  Fists.  Buy nothing, pick a class, let the round go live. Expect at the
+     arm: nothing but your fists (the weapon bar shows kung fu only); at the
+     go-live "[MATCH] You bought nothing, so you play this match with your
+     fists." With rcon tsm_lr_kitfallback 1 the next arm hands the class kit.
+     Bots hold the class kit either way.
+
+ T7  The lock.  After the go-live: the equipment menu does nothing and prints
+     "Your loadout is final for the match: it cannot be changed now"; B does
+     nothing (cl_h9_buywindow: closed); amx_tsm_loadout: loadout final yes. The
+     next round's freeze: chat tells nothing to buy, no window is sent, the arm
+     hands the same set. Die in the live round and come back with a wave: the
+     same set, no "You can change your loadout once" line, no window.
+     rcon tsm_lr_lock 0 for the next freeze: the old behaviour (a re-buy in the
+     freeze, 20 s after a wave).
+
+ T8  The end of the window.  In the first freeze leave the menu open to the
+     end. Expect: at the go-live it goes down by itself and the cursor goes back
+     to the game, the view does not jump, no shot is fired when the round goes
+     live. Hold the left mouse button as the freeze begins and let go later:
+     nothing is applied and the menu stays.
+
+ T9  The Mech and the Heavy.  Pick Mech or Heavy: the equipment menu does not
+     come up; with it up (buy key first, then the pick) it goes down at the
+     pick; a set you bought before: "The Heavy kit is fixed, so the loadout you
+     bought is not used"; you hold the class kit. The Mech: T key "The Mech
+     cannot drop its weapon"; hold use over a dropped gun: nothing is picked up.
+     Heavy and Mech carry what they always did (the M60 plus the rest: the room
+     past 81 is theirs).
+
+ T10 A class with less cash.  rcon tsm_lr_cash_6 2000, buy MP5K, Glock-18 and
+     kevlar ($4250) before the match, pick Medic: "Part of the loadout you
+     bought does not fit your class ($2000 to spend): Glock-18, kevlar left out."
+     You hold the MP5K.
+
+ T11 The weight.  A cart of 82 slots (if you can build one; the menu refuses
+     over 81 itself): refused with the slot line. rcon tsm_lr_slotcap 0 and a
+     server-side raise: a covered player can then carry more than 81 (amx_tsm_loadout
+     shows the cap 0); set it back to 81 and check a Marksman with a Barrett is
+     refused by the deny list, not the weight.
+
+ T12 Weapons the item bits cannot see.  Buy a Seal Knife and a Sawed-off (or a
+     Contender, or a PPSh-41 with h9_customweapons on), let the first round go
+     live, die and return with a wave: they are still there. The AMX log has no
+     "does not hold weapon 33/35/36/39 of the set he bought". (The first build
+     dropped them from the set at the go-live.)
+
+ T13 A late joiner.  Start a match, connect a third client: he is benched
+     ("A match is in progress") and the equipment menu answers "Buying is
+     closed". Make a side uneven (a player leaves) so the match halts, let him
+     take the short side: he can buy in the ready-up and in the first freeze
+     after the resume (menu by itself, if he has nothing), and is final from his
+     first go-live. A player who disconnects and reconnects has no set.
+
+ T14 Switch off in a window.  tsm_loadoutrework 0 in a freeze with the menu up:
+     within a second a "window over" line, the menu goes down and the cursor
+     with it; no H9Buy line is written while the rework stays off; the next arm
+     hands the class kit. Switch it on again in a freeze: the window is stated
+     again within a second.
+
+ T15 Other clients.  A game whose _h9vgui is 3 or less (an older H9 client.dll),
+     none (a stock TS 3.0 client) or 0 (cl_h9_vgui 0): no H9Buy line for it in
+     the debug lines, the chat lines as before, nothing else changed; it can buy
+     as a spectator (before it joins a side) and, on a side, not at all.
+     cl_h9_buyauto 0: no freeze puts the menu up by itself and B still opens it.
+
+ T16 A freeze that runs long.  Many bots queued for their sides, or a short
+     tsm_freezetime on a full server (the arm gate): the menu stays up through the
+     hold, and the debug lines show "window open, 10 s" again about every 11
+     seconds until the round goes live.
+
+ T17 The web client.  The same cl_dll in the browser: T4 and T5 with the web
+     client (join with the web page), cl_h9_buywindow in its console.
+
+ Console commands for all of it: amx_tsm_loadout <name> (admin flag cfg),
+ tsm_loadoutrework / tsm_lr_cash / tsm_lr_cash_<n> / tsm_lr_buy_seconds /
+ tsm_lr_deny / tsm_lr_clips / tsm_lr_kitfallback / tsm_lr_lock /
+ tsm_lr_slotcap by rcon.
+
+
+10. NOT VERIFIED
+-------------------------------------------------------------------------------
+
+  - Nothing was run in a game. The plugin compiles with no warnings; every
+    behaviour above is from reading the code and the reTS source, and from a
+    scratch model that follows the plugin's decisions line by line (the state
+    table, the lock, the fit, the room, the H9Buy message sequence).
+  - That register_clcmd sees the equipment menu's rst_cfg / tkw / tki on the
+    H9 build the way the old block did (it did for the refusal; the new code
+    reads their arguments with read_argc / read_argv).
+  - That strip_user_weapons followed by ts_giveweapon in the same frame, with no
+    respawn between, leaves a clean inventory and the right speed. It is the
+    hand-over pattern the revive arm uses minus the spawn() in between.
+  - That ts_giveweapon's extra argument takes the attachment bits the menu
+    uses (1 silencer, 2 laser, 4 light, 8 scope), and that a stack of N is
+    "N-1" in its third argument. The first is what tsm_wpn_extra's own
+    documentation says; the second is read from "24:0 is one M61 with no spare".
+  - That TS gives a cart that fits tsm_lr_slotcap 81 whole, without the room
+    being raised: the slot costs of the menu and of the game library agree
+    table for table and for akimbo pairs and stacks (read), but the TSX
+    ts_giveweapon path to PickUpWeapon was not read. lr_record says in chat
+    when a weapon is missing.
+  - Kevlar. There is no native for the vest; set_user_armor(100) is used, as the
+    Heavy's class armour is. reTS says armour is a marker and the vest is a
+    flag (m_bHasKevlar) that TakeDamage reads; if so the bought vest does
+    nothing for damage. Put "kevlar" in tsm_lr_deny until that is checked.
+  - That the game reads the use key from pev->button after the plugin's
+    pre-think (clearing IN_USE keeps the Mech from picking a weapon up).
+  - That pev_owner of a dropped "WorldGun" is the dropper in this build (from
+    reTS CTSWorldGun::CreateWeapon), which the disarm clean-up relies on.
+  - The prices are the client source's static table; a server using CustomWP to
+    re-price weapons (cl_dll MsgFunc_CustomWP) would price differently in the
+    menu than here.
+  - The buy window (section 12) was compiled (the client target) and its rules
+    were tried in a scratch program built from the real source files (the
+    window's state, the buy menu's Open / Close / Reset / mouse edges, the buy
+    key, the weapon bar's rule). What only a game shows: that the freeze's
+    force spawn really sends a ResetHUD after the window's message (the guard
+    in CHudTSBuyMenu::Reset answers it); that a frozen, living player can use
+    the cursor, the mouse buttons and the number keys on the menu (FL_FROZEN
+    stops the movement and the buttons of his moves on the server, not the
+    client's console commands or the engine's cursor); that the menu and the
+    HUD's own status boxes (drawn for a living player) do not hide each other
+    at low resolutions; that the engine delivers a user message to a client
+    that has just been spawned; the timing of a close against a click made in
+    the last moments of a freeze; that the web client behaves the same.
+  - That TS's client opens the equipment menu for a spectator in the H9
+    match flow the way ts_spectate.cpp reads (the edge of entering spectate),
+    including for a player who connects into warmup.
+
+
+11. RISKS
+-------------------------------------------------------------------------------
+
+  A player who buys nothing is bare-handed for the whole match. That is the
+  owner's rule (the lock) with the owner's choice of default (no class kit), so
+  everything depends on the menu coming up: the chat lines say what to do at
+  the side pick, at .ready and at the freeze, and the freeze menu comes up by
+  itself after the class pick. A server that would rather not risk it sets
+  tsm_lr_kitfallback 1.
+
+  Class weapons. The Marksman's Barrett and the M60E3 are on tsm_lr_deny: only
+  a class whose own kit carries a listed weapon may buy it, so the Barrett is
+  the Marksman's alone (9000 is added to his allowance, so it leaves the rest
+  of his cash alone; it weighs 70 of the 81 slots) and the M60E3 stays the
+  Heavy's and the Mech's by kit, which the rework does not cover. The
+  Officer's laser rifle and katana are on sale to every class. An empty deny
+  list lets any class buy all of them.
+
+  Economy balance. A player who buys gives firepower up or takes more than the
+  old kit: the Medic can now have a rifle, a Marksman buys his Barrett,
+  and nobody gets a free class kit. tsm_lr_cash_<n> per class, tsm_lr_deny and
+  tsm_lr_slotcap are the knobs. Ammunition is free with the weapon (3 +
+  tsm_clip_bonus magazines): a gun that eats ammunition buys the same as one
+  that does not.
+
+  Revive timing (tsm_lr_lock 0). A wave revive's window opens after
+  task_revive_arm has given the kit and closes 20 s later; a change in it is
+  strip + give inside one frame while the player may already be in a fight.
+
+  TS's own cash rules. TS charges nothing and refuses nothing by cash. The wallet
+  the player sees is a display the plugin sets each frame; a map's victorycash /
+  defeatcash handouts are still taken back by hold_cash as before.
+
+  The menu cannot be told about the budget. The player can compose a loadout the
+  menu accepts and the plugin refuses (money bar 30000, not the allowance); he
+  is told why in chat and keeps the loadout he had. The first open of a map as a
+  spectator is a random loadout that is nearly always over the allowance:
+  Reset Config first. A budget in H9Buy (the message already ignores bytes it
+  does not know) would remove that; not built.
+
+  Pre-match buying and the old exploit. Nothing is handed over before the arm,
+  and drops stay refused in warmup, ready-up and the freeze, so a warmup
+  purchase cannot be dropped for a friend.
+
+  Merge. The edits to ts_matchmode.sma are local: about twenty small anchors,
+  one block of functions in place of lr_close_all / lr_round_start /
+  lr_revive_window, and a handful of replaced functions inside the rework block.
+
+  Web client / H9 clients. The equipment menu is the reTS client's HUD menu; a
+  client without it (a stock TS 3.0 client) sends the same commands through its
+  own menu, which the plugin reads the same way. Only a game that reports
+  _h9vgui 4 or more is told the window (section 12): a stock client, an older
+  H9 client and a game with cl_h9_vgui 0 cannot use the menu on a side, as
+  before, and are told in chat only; as spectators they buy.
+
+
+12. THE BUY WINDOW IN THE CLIENT (H9Buy)
+-------------------------------------------------------------------------------
+
+ THE PROBLEM. The equipment menu is the client's: reTS cl_dll\ts_buymenu.cpp,
+ CHudTSBuyMenu, a HUD menu (TS has no server-side buy command). TS's client lets
+ it exist only in the spectate wait (section 2, last bullets) and the match mode
+ holds every player on a side ALIVE: held in warmup and ready-up, frozen in the
+ freeze. The window the plugin opens (4d) was a window nobody could use: the
+ menu did not open by itself, the buy key did nothing, and had it been up the
+ weapon bar would have closed it at once.
+
+ THE ANSWER is one plugin message, H9Buy, and a small client file,
+ cl_dll\h9_buywindow.cpp (and .h). The server tells an H9 game when a buy
+ window opens and when it ends; while the game believes one is open it lets
+ the menu exist for a living player, brings it up when asked, and takes it
+ down when the window is over. With none open nothing in the client changes:
+ the spectate wait buys, opens and closes as it always did. A player on no side
+ is a spectator and is not told anything: TS's own client opens the menu for
+ him, and the window does not fight it.
+
+ 12.1 The message
+   H9Buy is registered at precache with the other H9 messages (g_msg_buy),
+   variable length, reliable, to one player (MSG_ONE):
+     byte   op       1 the window is open (or its time is stated again), 2 over
+     short  seconds  how long it lasts from now (op 1; 0 with op 2)
+     byte   flags    bit 0: put the equipment menu up now (op 1)
+   The client reads these four bytes and ignores any that follow, so a later
+   version may add fields (the class's cash would be the first); a message of
+   another op, or a shorter one, is ignored.
+
+ 12.2 Who is sent it
+   A human the rework covers (lr_eligible), on a side, ALIVE, whose window is
+   open (lr_window_open: not final), and whose game reads the message: the
+   userinfo key _h9vgui, which every H9 game already sends as the H9 VGUI
+   protocol (1 panels, 2 STATUS, 3 MARK), says 4 or more. The message has no key
+   of its own: a client's userinfo is full. A game that says less or nothing (a
+   stock TS 3.0 client, an older H9 game, a game with cl_h9_vgui 0, which reports
+   0) is sent nothing, and its chat lines say that its game cannot open the menu
+   while it plays and that a loadout is bought before a side is joined (the
+   pick-a-side hint, .ready, the freeze's line). The key is read as it
+   is, not through h9vgui_protocol(), which also needs h9_vgui 1: this message is
+   not a panel. An older game that was sent the message anyway would be
+   unharmed: the engine reads the bytes of a user message nothing hooks and
+   drops them. With tsm_loadoutrework 0 nothing is sent; the registration of
+   the message at precache is all the plugin does. A bot is never sent anything.
+
+ 12.3 When it is sent
+   lr_buy_sync(id, fresh, by_itself) keeps one game in step with its window; it
+   runs for everyone once a second (lr_buy_tick, from task_tick) and at the
+   moments that change a window. It works out the seconds the window has
+   (lr_buy_secs) and compares it with what the game was last told (g_lr_sig):
+   OPEN (op 1; seconds = what is left of the window)
+     the window appears: a player gets a side and is alive in warmup or
+       ready-up (60 s, stated again 10 s before they run out, so about once a
+       minute); the freeze begins (lr_round_start, with the menu to come up by
+       itself unless he has bought a loadout already or the class menu has his
+       screen -- may_pick_class and no class yet); a respawn wave opens a window
+       (tsm_lr_lock 0 only, no menu by itself: he is in a fight);
+     he picks a class (pick_class -> lr_class_picked): the window again, with the
+       menu to come up by itself if he has bought nothing, which is what the
+       first message held back; if the class is one the rework leaves out (the
+       Heavy, the Mech) the window is over for him instead (CLOSE);
+     the rework was switched on, or the player arrived, during a window: the tick
+       opens it, a second at most after;
+     a freeze runs past its time with the window still open (a gate holds the
+       round: the arm gate, the bot queue): the window again, 10 seconds, no menu
+       by itself, about every 11 seconds until the round goes live.
+   CLOSE (op 2)
+     the round goes live (lr_close_all, before the state changes) and his loadout
+       becomes final;
+     any other end of a window, found by the tick within a second: he died,
+       changed class or side, left a side, the round or the match ended or was
+       cancelled, the rework was switched off, the wave's window ran out;
+     the match state is cleared (clear_match_state): lr_forget. A player who
+       leaves is only forgotten; nothing is sent to him.
+   A game is never sent a CLOSE for a window it was not sent an OPEN for, and
+   never the same state twice. The messages are rare: three to a player in a
+   first freeze, one a minute in warmup.
+
+ 12.4 What the client does (h9_buywindow.cpp)
+   It keeps four things: whether a window is open, when it runs out, whether
+   the server asked for the menu and the menu is not up yet, and whether the
+   menu now up is the window's. While a window is open:
+    - the buy key (ts_commands.cpp, TS_Buy) puts the menu up for a player who
+      is alive and playing, and takes it down again;
+    - a menu the window put up stays up: the weapon bar's Draw leaves it
+      (ts_weaponbar.cpp), does not draw the bar over its loadout columns, and
+      a respawn's ResetHUD does not take it down (CHudTSBuyMenu::Reset): the
+      freeze's force spawn sends one that can reach the client after the
+      window's message;
+    - the menu comes up by itself when the server asked and cl_h9_buyauto is
+      not 0, once the player is alive and playing, the HUD is drawn (nohud 0,
+      nothing hiding it, no intermission) and no other menu is up: a server's
+      text menu such as the class menu, or a VGUI window such as the MOTD. The
+      request waits for all of that. A request is taken at most once in 3
+      seconds;
+    - it opens on the last config applied (an empty one the first time), never
+      on the random loadout the spectate wait's first open of a map shows: the
+      plugin prices a loadout against the class's cash, which a random one
+      rarely fits;
+    - a mouse button already down when the menu comes up is not a click when it
+      is let go (a click off every entry applies the config); the rules in
+      inputw32.cpp's IN_MouseEvent that keep a click from firing a weapon on
+      spawn, and a released button from leaving the fire key held, are not
+      touched;
+    - a menu the player closes (Apply, the buy key, Cancel) is not asked for
+      again in that window; the buy key opens it again.
+   When the window is over, or runs out, the menu it put up goes down and the
+   cursor goes back to the game (UpdateCursorState resets it and flushes the
+   relative mouse, so the view does not jump). A menu of the spectate wait is
+   never taken down by a window: a player who dies in a window and spectates
+   keeps the menu he has, as in any round, and the window's claim on a menu
+   ends when he starts to spectate. A player who was spectating when a freeze
+   opened (dead in the previous round, force-spawned by the round start) keeps
+   the menu he had up when the server asked for it, and loses it, as before,
+   when it did not.
+   The client's own limits, whatever a message says: a window runs out 5
+   seconds after the time the server gave (so a close that is lost cannot
+   leave the menu or the cursor up), at most 900 seconds; at most 8 messages a
+   second are read; a new map forgets the window. The server states the
+   window again before it runs out, so the client never runs out on a window
+   the server still holds.
+
+ 12.5 Per situation (a game that reads H9Buy)
+   warmup / ready-up, on no side   no message; TS's spectate menu is his
+   warmup / ready-up, on a side    window open (60 s, restated), no menu by
+                                   itself; the buy key opens it
+   first freeze, no class yet      window open, no menu; the class menu has the
+                                   screen; the pick brings the menu up
+   first freeze, picks Heavy/Mech  window over; a menu that was up goes down
+   a freeze, nothing bought        window open, the menu up by itself
+   a freeze, a loadout bought      window open, no menu; the buy key opens it
+                                   (not final yet)
+   a freeze, loadout final         no window
+   a wave revive                   tsm_lr_lock 0 only: window open for
+                                   tsm_lr_buy_seconds, no menu; down at the end
+   dies in a window                window over within a second; a menu he has
+                                   stays as the spectate wait's
+   leaves                          nothing sent (forgotten)
+   changes class (admin) or side   window over within a second
+   the round goes live             window over, the menu down, the cursor back
+   match ends or is cancelled      window over at once (clear_match_state)
+   rework switched off             window over within a second, then silence
+   rework off all along            nothing ever sent
+   an older client (_h9vgui below 4), a stock client, cl_h9_vgui 0
+                                   nothing sent; the chat lines as before
+   a freeze that runs long         window stated again; the menu stays
+
+ 12.6 Switches and finding out
+   cl_h9_buyauto 0|1 (client, saved, 1): 0 never puts the menu up by itself;
+   the buy key still works. cl_h9_buywindow (client console) prints whether a
+   window is open and for how long, the menu, whether the server asked for it,
+   the player's state, and the last H9Buy message read. amx_tsm_loadout
+   <player> says whether his game reads H9Buy and was told the window is open.
+   tsm_debug_log 2 writes one line for each message sent.
+
+ 12.7 Files
+   ts_matchmode.sma: g_msg_buy, g_lr_sig, TSM_LR_BUY_*, lr_buy_client / _send /
+   _open / _close / _auto / _secs / _sync / _tick, lr_class_picked, and a call
+   each in lr_forget, lr_round_start, lr_revive_window, lr_close_all, task_tick,
+   pick_class and plugin_precache. reTS cl_dll: h9_buywindow.cpp and .h (new),
+   ts_buymenu.cpp / .h (Open(forWindow), the Reset guard, the click guard, the
+   Close hook), ts_commands.cpp, ts_weaponbar.cpp, hud.cpp, h9_vgui.h
+   (H9V_PROTOCOL 4), CMakeLists.txt. The web client compiles the same cl_dll;
+   nothing in it is native-only, so no WEB_PARITY.json entry is needed.

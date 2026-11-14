@@ -9,7 +9,10 @@
 #include "ts_hud.h"
 #include "vgui_TeamFortressViewport.h"
 #include "h9_vgui.h"
+#include "h9_arpinv.h" // H9ArpInv_Wanted: the protocol a game says
+#include "h9_arpctx.h" // H9ArpCtx_Wanted: and whether it has the context menu
 #include "vgui_H9Panel.h"
+#include "h9_theme.h" // the colour the player gives the panels: h9theme::Init makes the cvars
 #include "triangleapi.h" // WorldToScreen: a mark's place on the screen
 
 #include <string.h>
@@ -22,13 +25,22 @@ namespace
 {
 cvar_t* s_cvEnabled; // cl_h9_vgui: 0 refuses every server panel
 cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol version or 0
+cvar_t* s_cvArp;     // cl_h9_arpvgui: 0 keeps Apollo RP's menus as the text menu, 1 draws them as panels
+cvar_t* s_cvArpInfo; // _h9arpvgui: the userinfo key the server reads for it, 1 or 0
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
 cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
 cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
 cvar_t* s_cvReinforce; // cl_h9_show_reinforce: 0 hides the line that counts down this side's next respawn wave and the list of who waits for it
 cvar_t* s_cvZones;   // tsm_show_zones: 0 draws no mark on the world, through the walls; the row under the top stack stays
+cvar_t* s_cvAim;     // cl_h9_aimplaque: 0 draws TS's aim names always and shows no "aim" notice
 
 bool s_bInited = false;
+
+// LOOK: the server's word on the names TS draws over the player the crosshair is on (H9Look).
+bool s_bLookMate = false;       // the teammate's name is left out: the server shows a plaque of him
+bool s_bLookAll = false;        // no name is drawn
+float s_flLookAt = -100.0f;     // when the server last said it
+const float LOOK_LIFE = 15.0f;  // seconds its word holds with nothing to renew it
 
 // MENU, ROWS and TWIN.
 H9MenuDef s_Menus[H9V_MAX_MENUS];
@@ -102,6 +114,11 @@ inline int Clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v)
 bool Enabled()
 {
 	return s_cvEnabled && s_cvEnabled->value != 0.0f;
+}
+
+bool AimPlaqueOn()
+{
+	return s_cvAim == nullptr || s_cvAim->value != 0.0f;
 }
 
 // CRC-16/CCITT-FALSE (polynomial 0x1021, start 0xFFFF): what a TWIN carries of its menu's text.
@@ -345,6 +362,8 @@ void OpNotice()
 {
 	char slot[H9V_ID_LEN];
 	if (!ReadId(slot, false))
+		return;
+	if (0 == strcmp(slot, "aim") && !AimPlaqueOn())
 		return;
 	H9NoticeDef n;
 	memset(&n, 0, sizeof(n));
@@ -727,6 +746,24 @@ void OpMark()
 
 // ---- the message ------------------------------------------------------------------------------
 
+// H9Look (protocol 5): byte 1, byte flags (bit 0: no teammate's name, the server shows a plaque of him; bit 1: no name at all). The
+// server says it again every few seconds.
+int __MsgFunc_H9Look(const char* pszName, int iSize, void* pbuf)
+{
+	if (iSize < 2)
+		return 1;
+	BEGIN_READ(pbuf, iSize);
+	if (READ_BYTE() != 1)
+		return 1;
+	const int flags = READ_BYTE();
+	if (!READ_OK())
+		return 1;
+	s_bLookMate = (flags & 1) != 0;
+	s_bLookAll = (flags & 2) != 0;
+	s_flLookAt = gHUD.m_flTime;
+	return 1;
+}
+
 int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
 {
 	if (iSize <= 0 || iSize > H9V_MAX_MSG || !Enabled())
@@ -801,6 +838,9 @@ int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
 
 void CloseAll()
 {
+	s_bLookMate = false;
+	s_bLookAll = false;
+	s_flLookAt = -100.0f;
 	s_bSkinned = false;
 	s_Pending.valid = false;
 	for (H9NoticeDef& n : s_Notices)
@@ -930,9 +970,19 @@ void SyncUserinfo()
 	if (!s_cvInfo)
 		return;
 	char want[8];
-	snprintf(want, sizeof(want), "%d", Enabled() ? H9V_PROTOCOL : 0);
+	// the inventory window is Apollo RP's menu as a panel: a game that keeps those as text menus, or the inventory as text, says 5; the context menu comes with the
+	// inventory window (its Trade and Search are the window's), and a game that does not want it says 9
+	const bool inventory = H9ArpInv_Wanted() && (!s_cvArp || s_cvArp->value != 0.0f);
+	snprintf(want, sizeof(want), "%d", Enabled() ? (inventory ? (H9ArpCtx_Wanted() ? H9V_PROTOCOL : H9V_PROTOCOL_NO_CTXMENU) : H9V_PROTOCOL_NO_INVENTORY) : 0);
 	if (!s_cvInfo->string || 0 != strcmp(s_cvInfo->string, want))
 		gEngfuncs.Cvar_Set("_h9vgui", want);
+	if (s_cvArp && s_cvArpInfo)
+	{
+		char arp[4];
+		snprintf(arp, sizeof(arp), "%d", s_cvArp->value != 0.0f ? 1 : 0);
+		if (!s_cvArpInfo->string || 0 != strcmp(s_cvArpInfo->string, arp))
+			gEngfuncs.Cvar_Set("_h9arpvgui", arp);
+	}
 }
 
 void Frame()
@@ -1262,15 +1312,30 @@ void H9Vgui_Init()
 	s_bInited = true;
 	s_cvEnabled = CVAR_CREATE("cl_h9_vgui", "1", FCVAR_ARCHIVE);
 	CVAR_CREATE("cl_h9_vgui_scale", "1", FCVAR_ARCHIVE);
+	h9theme::Init(); // cl_h9_vgui_r, _g, _b and cl_h9_vgui_color: the colour of the panels
 	s_cvTop = CVAR_CREATE("cl_h9_vgui_top", "0", FCVAR_ARCHIVE);
 	s_cvMarks = CVAR_CREATE("cl_h9_marks", "1", FCVAR_ARCHIVE);
 	s_cvStrip = CVAR_CREATE("cl_h9_marks_strip", "1", FCVAR_ARCHIVE);
 	s_cvZones = CVAR_CREATE("tsm_show_zones", "1", FCVAR_ARCHIVE);
 	s_cvReinforce = CVAR_CREATE("cl_h9_show_reinforce", "1", FCVAR_ARCHIVE);
 	s_cvInfo = CVAR_CREATE("_h9vgui", Enabled() ? "1" : "0", FCVAR_USERINFO);
+	s_cvArp = CVAR_CREATE("cl_h9_arpvgui", "1", FCVAR_ARCHIVE);
+	s_cvArpInfo = CVAR_CREATE("_h9arpvgui", "1", FCVAR_USERINFO);
+	s_cvAim = CVAR_CREATE("cl_h9_aimplaque", "1", FCVAR_ARCHIVE);
 	gEngfuncs.pfnHookUserMsg("H9Vgui", __MsgFunc_H9Vgui);
+	gEngfuncs.pfnHookUserMsg("H9Look", __MsgFunc_H9Look);
 	s_Hud.Init();
 	gHUD.AddHudElem(&s_Hud);
+}
+
+bool H9Look_HideAimName(bool teammate)
+{
+	if (!Enabled() || !AimPlaqueOn())
+		return false;
+	const float now = gHUD.m_flTime;
+	if (now < s_flLookAt || now - s_flLookAt > LOOK_LIFE)
+		return false;
+	return s_bLookAll || (teammate && s_bLookMate);
 }
 
 bool H9Vgui_MenuArrived(int keys, const char* text)

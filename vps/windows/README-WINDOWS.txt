@@ -8,8 +8,9 @@
  the game's Internet tab reads, HTTPS for the domain, the firewall and the
  daily backups. Every step can be done by hand from this file alone; setup.ps1
  does steps 4 and 5 in one go and is safe to run again at any time. The Linux
- package (havoc9-vps-linux-<build>.zip, README-VPS.txt) is the same site on a
- Linux VPS; the two use the same backups, so a site moves between them.
+ package (havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip, README-VPS.txt) is the
+ same site on a Linux VPS; the two use the same backups, so a site moves
+ between them.
 
  Everything goes through the domain: players, game clients and the site use
  https://havoc9.org/ whatever the machine's address is, so moving to another
@@ -33,8 +34,10 @@
    10. Moving to another host, in order
    11. Updating to a new package
    12. The web client (optional)
-   13. When something is wrong
-   14. Checklist
+   13. The downloads
+   14. When something is wrong
+   15. Checklist
+   16. The P2P relay (optional)
 
 
  0. WHAT IS IN THE PACKAGE, AND THE STACK
@@ -46,6 +49,9 @@
    BUILD.txt            the build this package was made from
    h9web\, havoc9.org\, serverlist-bot\   h9web, the site and the list, the
                         same as in the Linux package
+   p2p\                 the P2P relay's code and its settings examples, for
+                        step 16 (p2p\README.txt); setup.ps1 puts it in place
+                        only when asked (-P2P module or -P2P standalone)
 
  The stack, and why:
    * Node.js 24 runs h9web, as on Linux.
@@ -67,7 +73,8 @@
    tools\            node, python, caddy, winsw
    h9web\            h9web's code
    serverlist\       the list's code and its Python packages
-   site\             the site
+   site\             the site; site\downloads\ the downloads and their file
+                     index (step 13)
    game\             the web client's game files (step 12)
    etc\              config.json, servers.json, Caddyfile, Caddyfile.extra,
                      backup-passphrase (SYSTEM, Administrators; LocalService
@@ -79,6 +86,9 @@
    data\caddy\       the certificates
    services\         the service wrappers;  logs\  the services' logs
    downloads\        the checked downloads, kept for the next run
+   p2p\              the P2P relay's code (step 16);  etc\p2p\  its
+                     relay.config.json and hosts.json, when it runs as a
+                     service of its own
 
 
  1. WHAT YOU NEED
@@ -90,9 +100,9 @@
    * Ports 80 and 443 (TCP) reachable from the internet, and 27015 (UDP)
      for a game server. Nothing else may use 80 or 443 on the machine (IIS,
      another web server, Skype's old setting): Caddy needs them.
-   * This package, havoc9-vps-windows-<build>.zip, and for a move or a
-     restore the offline copies of secrets.json, data.key and the backup
-     passphrase.
+   * This package, havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip, and for a
+     move or a restore the offline copies of secrets.json, data.key and the
+     backup passphrase.
 
 
  2. DNS, AND THE ROUTER FOR A HOME CONNECTION
@@ -111,9 +121,9 @@
 
  3. COPYING THE PACKAGE OVER
  ---------------------------
- Copy havoc9-vps-windows-<build>.zip to the machine (Remote Desktop copy and
- paste works), then right-click it, Properties, tick Unblock if it is there,
- OK, and Extract All, for example into C:\setup.
+ Copy havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip to the machine (Remote
+ Desktop copy and paste works), then right-click it, Properties, tick Unblock
+ if it is there, OK, and Extract All, for example into C:\setup.
 
 
  4. SETUP.PS1
@@ -125,12 +135,15 @@
  the old keys are in place.
    -WhatIf             show every step, change nothing (a dry run)
    -Check              only show what is installed and running
+   -FileIndex          only the downloads' file index (step 13)
    -Root D:\havoc9     another folder than C:\havoc9
    -Email you@...      the address Let's Encrypt may write to (optional)
    -GamePorts 27015/udp,27016/udp    the game servers' ports to open
    -H9Xash D:\H9XASH   without -GamePorts: the port= under [server] in
                        that folder's networking.ini (27015 when none)
    -NoFirewall         leave the firewall alone
+   -P2P module|standalone   the P2P relay (step 16); -P2PPort 27248 is its
+                       UDP port. Without -P2P nothing of it is touched.
  What it does, in order (each step is safe to repeat):
    1. makes the folders, and gives data\, etc\ and logs\ to SYSTEM,
       Administrators and LocalService only;
@@ -142,8 +155,9 @@
       is never touched;
    4. puts the list's code in with its Python packages, and makes its
       settings in data\serverlist when there are none;
-   5. puts the site in (the downloads' ZIPs, H9XASH-Updater's files\ and the
-      web client's files there are kept);
+   5. puts the site in (the downloads, their file index, H9XASH-Updater's
+      files\ and the web client's files there are kept), then links the
+      downloads into the file index and writes its SHA256SUMS.txt (step 13);
    6. writes etc\Caddyfile from Caddyfile.template and checks it; your own
       additions go in etc\Caddyfile.extra, which it never writes;
    7. (only with -Restore or -Keys, step 9) puts the keys in place and
@@ -152,6 +166,9 @@
       havoc9-serverlist, havoc9-caddy;
    9. schedules the backups and the log cleanup (step 8);
   10. opens TCP 80 and 443 and the game ports in Windows' firewall.
+ With -P2P there is one more step after 4 (the relay's code, and for
+ standalone its settings and its service havoc9-p2p) and one more firewall
+ rule (its UDP port).
  It ends with a list of warnings, if there were any.
 
 
@@ -268,11 +285,11 @@
 
  11. UPDATING TO A NEW PACKAGE
  -----------------------------
- Unpack the new havoc9-vps-windows-<build>.zip beside the old one and run its
- setup.cmd as administrator (or .\setup.ps1). It backs up the data first,
- stops the services, puts in the new code, site and tools, keeps every
- setting, key and all data, and starts the services again. A change to the
- database's layout runs at h9web's start, after one more copy into
+ Unpack the new havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip beside the old
+ one and run its setup.cmd as administrator (or .\setup.ps1). It backs up the
+ data first, stops the services, puts in the new code, site and tools, keeps
+ every setting, key and all data, and starts the services again. A change to
+ the database's layout runs at h9web's start, after one more copy into
  data\h9web\backups. Check with .\setup.ps1 -Check and the site. To go
  back: run the older package's setup.ps1, then restore the backup the newer
  one took first.
@@ -284,15 +301,59 @@
  not in this package. Copy webclient-build\stage from the PC that builds it
  (export.bat makes it) to the host, then:
    .\setup.ps1 -WebClientStage C:\setup\stage
- or unzip havoc9-vps-webclient-<build>.zip (make-vps-package.ps1 -WebClient)
- and give its webclient-build\stage folder. Without it PLAY says the client
- is in preparation; everything else works.
+ or unzip havoc9-vps-webclient-<build>-<yyyyMMdd-HHmm>.zip
+ (make-vps-package.ps1 -WebClient) and give its webclient-build\stage folder.
+ Without it PLAY says the client is in preparation; everything else works.
 
 
- 13. WHEN SOMETHING IS WRONG
+ 13. THE DOWNLOADS
+ -----------------
+ The DOWNLOADS page's buttons and its file index (ALL FILES,
+ https://havoc9.org/downloads/files/) show files you put in the site folder
+ yourself; setup.ps1 keeps them when it puts a new copy of the site in.
+   C:\havoc9\site\downloads\         you copy in the buttons' files:
+                                     H9XASH.zip, H9XASH-linux.zip,
+                                     H9XASH-Updater.exe
+   C:\havoc9\site\downloads\files\   you copy in the two host packages
+                                     (havoc9-vps-linux- and
+                                     havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip);
+                                     setup.ps1 adds the buttons' three files
+                                     and SHA256SUMS.txt (below)
+ They come from dist\ in the repository on the PC that builds them:
+ stage-h9xash.ps1 makes the two client ZIPs, tools\updater\build.cmd makes
+ H9XASH-Updater.exe and make-vps-package.ps1 the two host packages. The
+ .report.txt files made beside them stay off the index unless the owner
+ chooses otherwise: they are the build PC's own records, and
+ H9XASH.report.txt names its folders. Nothing else goes in the index:
+ not dist\files (the updater's own files, served at /files/), not the web
+ client's files, and never a config, key or token (ts_advertise.cfg,
+ secrets.json, data.key, serverlist.cfg, config.json), a backup or anyone's
+ data. Only .zip, .exe and .txt files are served there; any other file, a
+ subfolder and every dot file is a 404.
+ After new files go in (Remote Desktop copy and paste works), run in an
+ administrator PowerShell in the unpacked package folder:
+   .\setup.ps1 -FileIndex
+ Every full run of setup.ps1 does the same. It makes the buttons' three
+ files symbolic links in downloads\files, so the disk holds one copy and the
+ index serves exactly the file the button does, whatever replaced it since;
+ checks each link (its SHA-256 must be that of the file in downloads\: a
+ difference is a [WARN] that says IS NOT THE SAME FILE); skips, saying so, a
+ button file that is not there yet; and writes SHA256SUMS.txt for every
+ file the index lists. To check by hand, in PowerShell:
+   Get-ChildItem C:\havoc9\site\downloads\files | Format-Table Name, LinkType, Target
+   Get-FileHash C:\havoc9\site\downloads\H9XASH.zip, C:\havoc9\site\downloads\files\H9XASH.zip
+ (the same hash twice), and every line of SHA256SUMS.txt against its file:
+   cd C:\havoc9\site\downloads\files
+   Get-Content SHA256SUMS.txt | ForEach-Object { $h, $n = $_ -split '  ', 2; '{0}  {1}' -f $(if ((Get-FileHash $n).Hash -eq $h) { 'OK' } else { 'DIFFERENT' }), $n }
+ Remove a host package's older build when its new one goes in. A player
+ checks a download with sha256sum -c SHA256SUMS.txt --ignore-missing
+ (Linux) or Get-FileHash <file> (Windows).
+
+
+ 14. WHEN SOMETHING IS WRONG
  ---------------------------
    .\setup.ps1 -Check                       what runs, what answers
-   Get-Service havoc9-*                     the three services
+   Get-Service havoc9-*                     the three services (and havoc9-p2p)
    C:\havoc9\logs                           their logs, a file a day
    Restart-Service havoc9-h9web             (or -serverlist, -caddy)
    * The site answers 502 on account pages: h9web is not running; its log
@@ -303,7 +364,7 @@
      System, and the service's .wrapper.log in C:\havoc9\logs.
 
 
- 14. CHECKLIST
+ 15. CHECKLIST
  -------------
    [ ] DNS: havoc9.org and www.havoc9.org answer this host's public address
    [ ] TCP 80 and 443 (and UDP 27015) reach the machine (router, provider)
@@ -316,4 +377,71 @@
    [ ] servers.json and the list's servers.txt name the servers (step 7)
    [ ] the backup passphrase set and kept offline; offsite\ copied once
        (step 8)
+   [ ] the downloads and their file index in place, SHA256SUMS.txt made
+       (step 13)
    [ ] .\setup.ps1 -Check: the three services running
+   [ ] only with the P2P relay (step 16): https://havoc9.org/api/p2p/v1/health
+       answers {"ok":true,"v":1,...} and its UDP port reaches the machine
+
+
+ 16. THE P2P RELAY (OPTIONAL)
+ ----------------------------
+ What it is: a player who hosts a listen game at home can let friends in with
+ no port forwarded (a one-use invite code), and may list the game on the
+ site's SERVERS page (P2P GAMES). This host carries the rendezvous and relay
+ service that makes that work. docs\P2P_HOSTING.txt of the repository is the
+ whole guide (the three ways to host it, cost and risk); p2p\README.txt
+ documents every setting. It needs one UDP port reachable on this machine's
+ own address: Cloudflare cannot carry UDP, so the name players use for that
+ port is DNS only (grey cloud), like the game servers' name. Off unless you ask.
+ A game that a host lists publicly shows on the site's SERVERS page. It does
+ NOT show in the game's own server browser (Find Servers); the guide says why
+ and what that would need.
+
+   a. DNS: a DNS-only name for the UDP port, for example play.havoc9.org (an A
+      record to this host). It is the relay's publicUdp host. At home, the
+      router forwards UDP 27248 to this machine (step 2).
+   b. One of two ways to run it:
+
+      In h9web (the way for havoc9.org: a host is a havoc9.org account and uses
+      the link token its game holds; handing that token to the helper is not
+      built yet, docs\P2P_HOSTING.txt section 10), in an administrator
+      PowerShell:
+        .\setup.ps1 -P2P module
+      puts the code in C:\havoc9\p2p (beside h9web's, which is where the module
+      looks) and opens UDP 27248 (-P2PPort for another). Then put in
+      C:\havoc9\etc\config.json, and restart h9web (Restart-Service havoc9-h9web):
+        "modules": ["forum", "discord", "presence", "p2p"],
+        "moduleSettings": { "p2p": { "enabled": true,
+          "publicUdp": { "host": "play.havoc9.org", "port": 27248 },
+          "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } } } }
+      Hosts use the service address https://havoc9.org/api/p2p (the server
+      setting h9_p2p_service). Cloudflare: the WAF skip rule that has
+      /api/link/ gets /api/p2p/ too (docs\DEPLOY_CLOUDFLARE.txt, section 3).
+
+      As a service of its own (its own people, its own host tokens):
+        .\setup.ps1 -P2P standalone
+      makes C:\havoc9\etc\p2p\relay.config.json and hosts.json from the
+      examples, installs the havoc9-p2p service and leaves it stopped until
+      they are finished (setup.ps1 says what is missing). Edit publicUdp.host,
+      then make a token for each host:
+        C:\havoc9\tools\node\node.exe C:\havoc9\p2p\bin\h9rv.js token Mike --hosts C:\havoc9\etc\p2p\hosts.json
+      (the token is shown once; the file keeps its hash) and start it:
+        Start-Service havoc9-p2p
+      Its control plane listens on 127.0.0.1:28247: give it a name of its own
+      behind Caddy, never the plain port on the Internet (invite codes would
+      cross the network in clear). In C:\havoc9\etc\Caddyfile.extra:
+        play.havoc9.org {
+            reverse_proxy 127.0.0.1:28247
+        }
+      and the hosts use https://play.havoc9.org as h9_p2p_service.
+   c. Check: https://havoc9.org/api/p2p/v1/health (the module) or
+      http://127.0.0.1:28247/v1/health (standalone) answers {"ok":true,"v":1,...};
+      .\setup.ps1 -Check shows the service.
+   d. The relay keeps nothing on disk: a restart forgets the sessions and the
+      hosts open again by themselves. Nothing to back up but etc\p2p.
+   e. Risk, plainly: the UDP port is new attack surface on this machine's
+      address. The relay answers only packets that carry a valid tag, so it is
+      not a reflector and not an open relay; a flood of raw UDP is the
+      provider's matter, as for the game ports. Relayed traffic costs
+      bandwidth: about 50 to 300 kbit/s per player each way (an estimate).

@@ -27,6 +27,12 @@ AVI PLAYING
 static movie_state_t	*cin_state;
 static int		cin_texture;
 
+// H9: the intro video (media/ts_intro.avi, named in media/StartupVids.txt) plays before the main menu unless this is 0
+static CVAR_DEFINE_AUTO( ts_intro, "1", FCVAR_ARCHIVE, "play the intro video before the main menu" );
+// H9: how loud the intro video plays: 1 is the video as recorded and the most the engine plays a video at, 0 is silent, 0.5 half
+static CVAR_DEFINE_AUTO( ts_intro_vol, "1", FCVAR_ARCHIVE, "how loud the intro video is: 0 silent, 1 full" );
+static qboolean scr_startup_movie; // H9: the video that plays now came from the startup list
+
 /*
 ==================
 SCR_NextMovie
@@ -38,6 +44,12 @@ If the "nextmovie" cvar is set, that command will be issued
 qboolean SCR_NextMovie( void )
 {
 	string	str;
+
+	scr_startup_movie = false;
+
+	// H9: ts_intro 0 leaves the intro out of the startup videos
+	while( cls.movienum >= 0 && cls.movienum < MAX_MOVIES && !ts_intro.value && Q_stristr( cls.movies[cls.movienum], "ts_intro." ))
+		cls.movienum++;
 
 	if( cls.movienum == -1 )
 	{
@@ -60,7 +72,25 @@ qboolean SCR_NextMovie( void )
 
 	Cbuf_InsertText( str );
 	cls.movienum++;
+	scr_startup_movie = true;
 
+	return true;
+}
+
+/*
+==================
+SCR_SkipStartupVideo
+
+H9: any key or mouse button skips a startup video, as escape does. A video the movie command plays is left to escape.
+==================
+*/
+qboolean SCR_SkipStartupVideo( void )
+{
+	if( cls.state != ca_cinematic || !scr_startup_movie )
+		return false;
+
+	Con_Printf( "ts_intro: startup video skipped\n" );
+	SCR_NextMovie();
 	return true;
 }
 
@@ -244,6 +274,10 @@ qboolean SCR_PlayCinematic( const char *arg )
 		AVI_RENDER_H, h,
 		AVI_PARM_LAST );
 
+	// H9: the intro plays at ts_intro_vol, a fraction of the full volume (any number: 2 is full, below 0 silent)
+	if( Q_stristr( arg, "ts_intro." ))
+		AVI_SetParm( cin_state, AVI_VOLUME, (int)( bound( 0.0f, ts_intro_vol.value, 1.0f ) * 255.0f + 0.5f ), AVI_PARM_LAST );
+
 	UI_SetActiveMenu( false );
 	cls.state = ca_cinematic;
 	Con_FastClose();
@@ -279,6 +313,8 @@ SCR_InitCinematic
 void SCR_InitCinematic( void )
 {
 	AVI_Initailize ();
+	Cvar_RegisterVariable( &ts_intro );
+	Cvar_RegisterVariable( &ts_intro_vol );
 	cin_state = AVI_GetState( CIN_MAIN );
 	cin_texture = ref.dllFuncs.GL_CreateTexture( "*cintexture", 64, 64, NULL, TF_NOMIPMAP|TF_CLAMP );
 }

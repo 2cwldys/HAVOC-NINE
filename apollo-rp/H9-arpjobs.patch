@@ -1,0 +1,345 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index f59b003..c9c165d 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -271,6 +271,9 @@
+ 
+ new g_ConfigsDir[128]
+ 
++// H9: 1 runs a map's own SQL file at map start when every statement in it can be run again and again (LoadMapSql)
++new p_MapSqlAuto
++
+ new g_Version[] = ARP_VERSION
+ 
+ new TravTrie:g_PluginTrie
+@@ -974,6 +977,9 @@
+ 	p_HudRefresh = register_cvar("arp_hud_refresh","10")
+ 	// H9: seconds a join may wait for a havoc9.org account (arp_ids); 0: no account is waited for, used or recorded
+ 	p_AcctWait = register_cvar("arp_account_wait","30")
++	// H9: 1 runs the map's own SQL file (configs/arp/maps/<map>/<map>.sql) at map start when every statement in it can be run
++	// again and again; 0 leaves it to arp_config, entry 3
++	p_MapSqlAuto = register_cvar("arp_mapsql_autoload","1")
+ 	//p_CharacterSheet = register_cvar("arp_character_sheet","1")
+ 	
+ 	p_Welcome[0] = register_cvar("arp_welcome_msg1","This server is running Apollo RP (http://ApolloRP.org).")
+@@ -1270,6 +1276,301 @@
+ 	fclose(File)
+ }
+ 
++// H9: a map's own SQL file, configs/arp/maps/<map>/<map>.sql, is run at map start (LoadMapSql), after the tables are made and
++// before the jobs, properties and doors are read, so its rows are there in the same map load and nobody runs arp_config. It
++// is run only when every statement in it can be run again and again; any other file is left to arp_config, entry 3, and the
++// log says why. The rule, for each line (a blank line and a line that starts with - ; or # are passed over):
++//     INSERT OR IGNORE INTO <table> VALUES (...);
++// <table> is arp_jobs, arp_property or arp_doors, in lower case, and the map's own table takes its place; the name of an
++// ARP table comes up nowhere else in the statement. One statement to a line of at most 1000 characters, nothing after its
++// ";" (which may be left off), no other ";", no comment, no quoted name, every ' closed; at most 4000 statements.
++#define H9_MAPSQL_LINE 1000
++#define H9_MAPSQL_MAX 4000
++#define H9_MAPSQL_JOBS 1
++#define H9_MAPSQL_PROPERTY 2
++#define H9_MAPSQL_DOORS 3
++
++new g_MapSqlAsk			// statements handed to the database
++new g_MapSqlGot			// statements it has answered
++new g_MapSqlErr			// answers that were errors
++new bool:g_MapSqlSent		// every statement has been handed over
++new bool:g_MapSqlLogged		// the line for this map has been written
++
++// The next statement line of the file in Line, trimmed: 1 a line, 0 the end of the file, -1 a line too long to be a statement.
++// Number counts the lines read.
++H9_MapSqlRead(File,Line[],Len,&Number)
++{
++	while(!feof(File))
++	{
++		Line[0] = 0
++		fgets(File,Line,Len)
++		Number++
++
++		new Last = strlen(Line) - 1
++		if(Last >= Len - 1 && Line[Last] != '^n')
++			return -1
++
++		trim(Line)
++		if(strlen(Line) > H9_MAPSQL_LINE)
++			return -1
++
++		if(Line[0] == ';' || Line[0] == '#' || Line[0] == '-' || strlen(Line) < 3)
++			continue
++
++		return 1
++	}
++
++	return 0
++}
++
++// Is Line a statement the rule allows? The table it adds to (H9_MAPSQL_JOBS, _PROPERTY or _DOORS), or 0 with what is wrong with
++// it in Why. After is where the statement goes on after the table's name.
++H9_MapSqlCheck(const Line[],Why[],WhyLen,&After)
++{
++	static const Prefix[] = "INSERT OR IGNORE INTO "
++	static const Targets[][] = {"arp_jobs","arp_property","arp_doors"}
++	static const Names[][] = {"arp_users","arp_jobs","arp_property","arp_doors","arp_keys","arp_items","arp_data"}
++
++	if(!equali(Line,Prefix,charsmax(Prefix)))
++	{
++		copy(Why,WhyLen,"is not an INSERT OR IGNORE INTO statement")
++		return 0
++	}
++
++	new Table,Count
++	for(Count = 0;Count < sizeof Targets && !Table;Count++)
++	{
++		After = charsmax(Prefix) + strlen(Targets[Count])
++		if(equal(Line[charsmax(Prefix)],Targets[Count],strlen(Targets[Count])) && equali(Line[After]," VALUES",7) && (Line[After + 7] == ' ' || Line[After + 7] == '('))
++			Table = Count + 1
++	}
++
++	if(!Table)
++	{
++		copy(Why,WhyLen,"does not add VALUES to arp_jobs, arp_property or arp_doors (lower case)")
++		return 0
++	}
++
++	for(Count = 0;Count < sizeof Names;Count++)
++		if(containi(Line[After],Names[Count]) != -1)
++		{
++			copy(Why,WhyLen,"names a table of ARP's a second time")
++			return 0
++		}
++
++	new Len = strlen(Line),bool:Text
++	for(Count = After;Count < Len;Count++)
++	{
++		if(Line[Count] == 39)
++		{
++			Text = !Text
++			continue
++		}
++
++		if(Text)
++			continue
++
++		if(Line[Count] == ';' && Count < Len - 1)
++		{
++			copy(Why,WhyLen,"has a semicolon before its end")
++			return 0
++		}
++
++		if(Line[Count] == '"' || Line[Count] == '`')
++		{
++			copy(Why,WhyLen,"quotes a name")
++			return 0
++		}
++
++		if((Line[Count] == '-' && Line[Count + 1] == '-') || (Line[Count] == '/' && Line[Count + 1] == '*'))
++		{
++			copy(Why,WhyLen,"has a comment in it")
++			return 0
++		}
++	}
++
++	if(Text)
++	{
++		copy(Why,WhyLen,"has a quote that is never closed")
++		return 0
++	}
++
++	return Table
++}
++
++// The statement to run for a line that passed H9_MapSqlCheck: this map's own table in the place of the default one, and the
++// closing ";" left off.
++H9_MapSqlBuild(const Line[],Table,After,Statement[],Len)
++{
++	new Name[64]
++
++	switch(Table)
++	{
++		case H9_MAPSQL_JOBS:
++			copy(Name,sizeof Name - 1,g_JobsTable)
++		case H9_MAPSQL_PROPERTY:
++			copy(Name,sizeof Name - 1,g_PropertyTable)
++		default:
++			copy(Name,sizeof Name - 1,g_DoorsTable)
++	}
++
++	format(Statement,Len,"INSERT OR IGNORE INTO %s%s",Name,Line[After])
++
++	new Last = strlen(Statement) - 1
++	if(Statement[Last] == ';')
++		Statement[Last] = 0
++}
++
++// Whether the map's SQL file is to be run: arp_mapsql_autoload as arp.cfg sets it. This plugin reads arp.cfg itself for it,
++// because the server executes that file only after this plugin's precache, so on a server's first map the cvar is still its
++// default here; when arp.cfg does not name it, the cvar as it stands is the answer.
++H9_MapSqlWanted()
++{
++	new Wanted = get_pcvar_num(p_MapSqlAuto),Path[128]
++	get_configsdir(Path,sizeof Path - 1)
++	add(Path,sizeof Path - 1,"/arp/arp.cfg")
++
++	new Fp = fopen(Path,"r")
++	if(!Fp)
++		return Wanted
++
++	new Line[256],Left[48],Right[16]
++	while(!feof(Fp))
++	{
++		Line[0] = 0
++		fgets(Fp,Line,sizeof Line - 1)
++		trim(Line)
++
++		if(!Line[0] || Line[0] == '/' || Line[0] == ';')
++			continue
++
++		Left[0] = 0
++		Right[0] = 0
++		parse(Line,Left,sizeof Left - 1,Right,sizeof Right - 1)
++
++		if(equali(Left,"arp_mapsql_autoload"))
++			Wanted = str_to_num(Right)
++	}
++
++	fclose(Fp)
++
++	return Wanted
++}
++
++// Runs the map's SQL file. The whole file is read against the rule first and a file with one line the rule does not allow is
++// not run at all; then every statement goes to the database in the file's order. With nobody in the game each runs in line and
++// its answer is in before the next goes; with players the module's one worker keeps the order, so the reads in SqlInit see the
++// rows, and the answers, which come back in any order, are only counted (MapSqlAnswer, H9_MapSqlReport).
++LoadMapSql()
++{
++	if(g_SqlHandle == Empty_Handle)
++		return
++
++	new MapName[64],Path[160]
++	get_mapname(MapName,sizeof MapName - 1)
++	format(Path,sizeof Path - 1,"%s/%s.sql",g_ConfigsDir,MapName)
++
++	if(!file_exists(Path))
++	{
++		log_amx("[ARP] map SQL: none, %s is not there.",Path)
++		return
++	}
++
++	if(!H9_MapSqlWanted())
++	{
++		log_amx("[ARP] map SQL: %s.sql is not run, arp_mapsql_autoload is 0 (arp_config, entry 3, runs it by hand).",MapName)
++		return
++	}
++
++	if(g_SqlMode != SQLITE)
++	{
++		log_amx("[ARP] map SQL: %s.sql is not run, the database is not SQLite (arp_config, entry 3, runs it by hand).",MapName)
++		return
++	}
++
++	static Line[H9_MAPSQL_LINE + 100],Statement[H9_MAPSQL_LINE + 200],Why[128],Bad[256]
++	new Fp = fopen(Path,"r"),Read,Number,Table,After,Statements
++
++	if(!Fp)
++	{
++		log_amx("[ARP] map SQL: %s could not be opened.",Path)
++		return
++	}
++
++	Bad[0] = 0
++	while(!Bad[0] && (Read = H9_MapSqlRead(Fp,Line,sizeof Line - 1,Number)) != 0)
++	{
++		if(Read < 0)
++			format(Bad,sizeof Bad - 1,"line %d is longer than %d characters",Number,H9_MAPSQL_LINE)
++		else if(!H9_MapSqlCheck(Line,Why,sizeof Why - 1,After))
++		{
++			Line[60] = 0
++			format(Bad,sizeof Bad - 1,"line %d (%s) %s",Number,Line,Why)
++		}
++		else if(++Statements > H9_MAPSQL_MAX)
++			format(Bad,sizeof Bad - 1,"it has more than %d statements",H9_MAPSQL_MAX)
++	}
++	fclose(Fp)
++
++	if(Bad[0])
++	{
++		log_amx("[ARP] map SQL: %s.sql is not run: %s. arp_config, entry 3, runs it by hand.",MapName,Bad)
++		return
++	}
++
++	Fp = fopen(Path,"r")
++	if(!Fp)
++	{
++		log_amx("[ARP] map SQL: %s could not be opened.",Path)
++		return
++	}
++
++	new Data[1]
++
++	Number = 0
++	while(H9_MapSqlRead(Fp,Line,sizeof Line - 1,Number) > 0)
++	{
++		Table = H9_MapSqlCheck(Line,Why,sizeof Why - 1,After)
++		if(!Table)
++			continue
++
++		H9_MapSqlBuild(Line,Table,After,Statement,sizeof Statement - 1)
++
++		Data[0] = Number
++		g_MapSqlAsk++
++		UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"MapSqlAnswer",Statement,Data,1)
++	}
++	fclose(Fp)
++
++	g_MapSqlSent = true
++}
++
++public MapSqlAnswer(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
++{
++	g_MapSqlGot++
++
++	if(FailState != TQUERY_SUCCESS || Errcode)
++	{
++		g_MapSqlErr++
++		log_amx("[ARP] map SQL: line %d failed: %s",DataSize ? Data[0] : 0,Error)
++	}
++
++	H9_MapSqlReport()
++
++	return PLUGIN_CONTINUE
++}
++
++// The one line for this map's load, once every statement has been handed over and answered. SqlInit asks for it after the reads
++// too, so that the jobs, properties and doors it names are the ones read after the file.
++H9_MapSqlReport()
++{
++	if(!g_MapSqlSent || g_MapSqlLogged || g_MapSqlGot < g_MapSqlAsk)
++		return
++
++	g_MapSqlLogged = true
++	log_amx("[ARP] map SQL: %d statements, %d errors, jobs now %d, properties now %d, doors now %d",g_MapSqlAsk,g_MapSqlErr,g_JobsNum,g_PropertyNum,g_DoorNum)
++}
++
+ public SqlInit()
+ {
+ 	new Type[64]
+@@ -1381,6 +1682,9 @@
+ 	}
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
++	// H9: the map's own SQL file, run here so that its rows are in the tables when they are read below
++	LoadMapSql()
++
+ 	format(g_Query,4095,"SELECT * FROM %s",g_JobsTable)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchJobs",g_Query)
+ 	
+@@ -1389,6 +1693,8 @@
+ 	
+ 	format(g_Query,4095,"SELECT * FROM %s",g_DoorsTable)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchDoors",g_Query)
++
++	H9_MapSqlReport()
+ 	
+ 	new Forward = CreateMultiForward("ARP_Init",ET_IGNORE),Return
+ 	if(Forward <= 0 || !ExecuteForward(Forward,Return))

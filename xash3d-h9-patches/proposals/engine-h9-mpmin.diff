@@ -1,0 +1,16 @@
+diff --git a/engine/server/sv_cmds.c b/engine/server/sv_cmds.c
+--- a/engine/server/sv_cmds.c
++++ b/engine/server/sv_cmds.c
+@@ -211,6 +211,12 @@ static void SV_Map_f( void )
+ 	if( !SV_ValidateMap( mapname ))
+ 		return;
+
++	// H9: the "map" command of a multiplayer-only game (gameinfo gamemode) never starts it with one player slot.
++	// maxplayers 1 makes the engine set deathmatch 0, TS then plays as single-player, and its fire-to-play click
++	// issues "reload" (registered in a non-dedicated host only), restarting the map in a loop.
++	if( !Host_IsDedicated() && GI->gamemode == GAME_MULTIPLAYER_ONLY && (int)sv_maxclients.value < 2 )
++		Cvar_FullSet( "maxplayers", "32", FCVAR_LATCH );
++
+ 	Cvar_DirectSet( &sv_hostmap, mapname );
+ 	COM_LoadLevel( mapname, false );
+ }

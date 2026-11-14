@@ -15,6 +15,8 @@
      (section 4), or the H9 list bot (section 7), confirmed working this way.
    * Steam sign-in is optional, through the Steam broker (section 6). A shortcut
      named HAVOC 9 is what makes the game show as HAVOC 9 in Steam (section 6C).
+   * A friend can join a game with no forwarded port at all, through a relay and an
+     invite: section 11 and docs\P2P_JOIN.txt.
 
  1. HOW THE GAME FINDS SERVERS
  -----------------------------
@@ -142,6 +144,9 @@
      that route is not tested yet.
    * Ask for the address to be added to the H9 list once it exists (section 7),
      or add it to a list you publish yourself.
+   * No forwarded port: the P2P join path (section 11) lets a friend join through a
+     relay with an invite, and h9_p2p_public 1 shows the game on the relay's own
+     list.
 
  6. STEAM: SIGN-IN, THE BROKER, AND THE NAME IN STEAM
  ----------------------------------------------------
@@ -221,6 +226,12 @@
  to the internet. heartbeat=0 under [server] turns it off, for a LAN or private server. A
  heartbeat with the key from serverlist.cfg may name any address instead; open_heartbeats = 0
  in serverlist.ini makes the key necessary (serverlist-bot\README.md, "Heartbeats").
+ A heartbeat without the key is held to limits, so that one machine cannot fill the list
+ with servers it makes up: max_per_address servers from one address (8), max_open_servers
+ in all (100) and heartbeats_per_minute for one address (60, then 429 with a Retry-After),
+ all in serverlist.ini; a server already on the list is always refreshed, and at most four
+ such heartbeats are queried at once. The key, servers.txt and /addserver are not held to
+ them: a machine with more than eight servers heartbeats with the key.
  A heartbeat the list cannot answer (the server is loading a map) is tried again 15 seconds
  later, up to twelve times, and a server the list already knows stays listed for minutes
  (expire_seconds) whatever one heartbeat does. The window says two things on two lines,
@@ -354,13 +365,18 @@
  overlay\h9_networking.ps1           writes the generated files (section 2)
  overlay\h9xash.bat                  runs it, and stops the broker after play
  overlay\h9_add_to_steam.ps1         the Non-Steam shortcut helper (6C)
+ overlay\h9_p2p_host.bat, .sh        the P2P helper beside your game (section 11)
+ overlay\h9_p2p_join.bat, .sh        join a friend's game through the relay
+ overlay\p2p.ini.example             the template of p2p.ini, the file that holds the
+                                     host token (never shipped, never committed)
  xash.bat assemble, assets           leave an existing networking.ini alone
  export.bat                          ships networking.ini as the template only, and
                                      keeps the generated files and the Steam
                                      binaries out of the package and the repo
 
  serverlist-bot\serverlist.ini       the list bot's own settings: host, port,
-                                     gamedir, poll/expire timing (section 7)
+                                     gamedir, poll/expire timing, the limits on
+                                     heartbeats without the key (section 7)
  serverlist-bot\serverlist.cfg       the heartbeat key and Discord token. Git-ignored;
                                      copied from serverlist.cfg.example on first setup
  serverlist-bot\servers.txt          servers the list bot seeds itself with on start
@@ -379,3 +395,42 @@
  one-time Discord setup, and what is not done yet. The website's own live
  server table (7A) reuses this feature's map-name-as-image-key convention
  for its own thumbnails, rather than inventing a second one.
+
+ 11. JOINING WITHOUT A FORWARDED PORT (P2P)
+ ------------------------------------------
+ Everything above needs the host's UDP port to be reachable: a forwarded port, a LAN,
+ or a server on the internet. The P2P join path is for the host who cannot or does not
+ want to forward one. docs\P2P_JOIN.txt is the guide; this section is how it sits beside
+ the rest.
+
+   * A friend joins with an invite code from the host (h9_p2p_join.bat <code>) through a
+     RELAY: a small service anybody can run from the repository's p2p\ folder
+     (docs\P2P_HOSTING.txt), or the one havoc9.org runs. The friend's game connects to a
+     loopback address on the friend's own PC; a helper program carries the game's packets
+     to the relay, and the host's helper carries them on to the host's game. Nothing on
+     either router changes.
+   * Nothing is added to the engine. The helper is Node.js 20 or newer (a prototype helper;
+     a native one, or the same logic in the engine, is the follow-up), and the plugin
+     h9_p2p.amxx is the host's panel. Every part has a switch, and h9_p2p 0 (the stock
+     value) leaves all of it off.
+   * A game on the path can be listed. With h9_p2p_public 1 the relay shows it on its public
+     list ("P2P games" on havoc9.org/servers): name, map, players, password yes or no,
+     never an address; anybody may ask the relay for a one-use, relay-only invite to it.
+     The game's own server browser (Find Servers, the Internet tab) does not show it in this
+     version: that browser asks each listed address a plain question (section 1) and joins
+     with a plain connect, and a game on the relay has no address of its own to give. The
+     public list is on the website only. A later step, public relay ports, could change that;
+     docs\P2P_HOSTING.txt, "WHAT THE IN-GAME BROWSER NEEDS", says what it takes.
+
+ What the engine already has, and why this does not use it. The engine has a NAT bypass of
+ its own: sv_nat 1 on a server and cl_nat 1 on a client (engine\server\sv_main.c,
+ engine\client\cl_main.c and engine\common\masterlist.c in the FWGS source). A server with
+ sv_nat 1 heartbeats to every UDP master, and when a master passes it a client's address it
+ answers that client, which opens the server's NAT toward the client. It needs a UDP master
+ that speaks Xash's heartbeat and scan protocol (H9's list is an HTTP list, section 1); it
+ works through a cone NAT only (a symmetric NAT or a carrier NAT fails: there is no relay);
+ it has no token (the address is in the public list and sv_password is the only gate) and no
+ privacy. The P2P path keeps its idea, that a rendezvous tells the host to open toward a
+ friend, and adds what it lacks: an invite that works once, a relay for the NATs a punch
+ cannot cross, and relay-only paths in which neither side learns the other's address.
+ sv_nat and cl_nat stay as they are; nothing here sets them.

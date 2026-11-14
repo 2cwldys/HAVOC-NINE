@@ -62,6 +62,7 @@
 #include "bot_commands.h"
 #include "bot_client.h"
 #include "bot_menu.h"
+#include "bot_briefcase.h"
 #include "dir.h"
 
 #ifdef _WIN32
@@ -961,6 +962,13 @@ void CBotGlobals::KeyValue(edict_t* pentKeyvalue, const KeyValueData* pkvd)
 	{
 		m_Masters.AddMaster(pentKeyvalue, pkvd->szValue);
 	}
+
+	// TS's capture game (CHANGE 12): which team's base a briefcase is. Nothing of it reaches a bot afterwards, and the classname
+	// comes after the key in the map, so every entity that names an owner is kept and the briefcases are picked out later.
+	if (FStrEq(pkvd->szKeyName, "ownerteam"))
+	{
+		brief::g_Brief.onOwnerKey(ENTINDEX(pentKeyvalue), std::atoi(pkvd->szValue));
+	}
 	/*
 		if ( IsMod(MOD_TS) )
 		{
@@ -1135,6 +1143,7 @@ void CBotGlobals::MapInit()
 
 	std::memset(&m_Squads, 0, sizeof(CBotSquads));
 	std::memset(m_iJoiningClients, 0, sizeof(int) * MAX_PLAYERS);
+	brief::g_Brief.resetMap();
 	std::memset(m_iTeamScores, 0, sizeof(int) * MAX_TEAMS);
 	m_pDebugMessage = nullptr;
 	//m_pTFCDetect = nullptr;

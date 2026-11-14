@@ -2,12 +2,12 @@
 //
 // A game server is AUTHENTICATED while it reports to h9web with a live key and runs the official
 // preset: every AMX Mod X plugin and module and every Metamod plugin its report lists is on the
-// allowlist kept here (presence_preset: the kind, the file's name and the SHA-256 of its bytes). A
-// roleplay map is exempt from that check and rates nothing. A server that runs anything else is
-// "modified": it is not blocked, kicked or hidden, it simply is not authenticated, so the game's
-// browser draws it a red broken chain and its matches are not rated (compete.js answers a start 409
-// not_rated). The list is the server's own word, so it catches unofficial setups and mistakes, not a
-// determined operator with a modified h9_presence.
+// allowlist kept here (presence_preset: the kind, the file's name, the SHA-256 of its bytes and the
+// game mode whose list it is on). A roleplay map is exempt from that check and rates nothing. A server
+// that runs anything else is "modified": it is not blocked, kicked or hidden, it simply is not
+// authenticated, so the game's browser draws it a red broken chain and its matches are not rated
+// (compete.js answers a start 409 not_rated). The list is the server's own word, so it catches
+// unofficial setups and mistakes, not a determined operator with a modified h9_presence.
 //
 //   code  chain  rated  what it means
 //   ok    green  yes    reporting, and everything it lists is on the allowlist (or none is kept)
@@ -17,6 +17,13 @@
 //                       the server asked not to be authenticated or rated. 1, the default, asks for nothing: the
 //                       site judges what the server runs, and a server can never be more authenticated than that
 //   off   red    no     not reporting: not enrolled, silent, or a server this module keeps private
+//
+// GAME MODES. An entry is on the list of one game mode (a preset tag: Assault, Siege, TeamElimination,
+// from H9XASH\presets\plugins.<tag>.ini) or on the shared list "*", which every mode accepts. A server
+// whose report names a preset ("preset": "<tag>", set by h9_preset in h9_presence.sma) that has a list
+// is judged against that list and the shared one; a server that names none, or one that has no list,
+// is judged against every list together. Naming a mode never makes a server more authenticated: each
+// mode's list is part of the whole.
 //
 // GET /api/presence/servers/auth is the game's browser's read (cl_h9auth.c): the line "H9SRV 1", then
 // "<address> <code>" for each reporting server that is not private, ok, rp, mod or opt; a server that is
@@ -28,13 +35,34 @@
 import { roleplayMap } from "./modes.js";
 
 export const KINDS = Object.freeze({ amxx: "AMX Mod X plugin", module: "AMX Mod X module", meta: "Metamod plugin" });
+// the shared list: what every game mode accepts
+export const SHARED = "*";
 const HEX64 = /^[0-9a-f]{64}$/;
 const FILE = /^[A-Za-z0-9][A-Za-z0-9_. +()-]{0,63}$/;
+const GAME_MODE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
 
 const iso = (t) => (t ? new Date(t * 1000).toISOString().replace(/\.\d+Z$/, "Z") : null);
 const idOf = (kind, file, sha) => kind + "|" + file.toLowerCase() + "|" + sha;
 const cleanVersion = (v) => (typeof v === "string" ? v.replace(CONTROL, " ").replace(/\s+/g, " ").trim().slice(0, 24) : "");
+
+/**
+ * The preset tag a report names: a word of letters, digits, _ and - (24 at most), or null when it names
+ * none or something else. "*" is no tag: a server cannot name the shared list.
+ */
+export function readPresetName(raw) {
+  const v = typeof raw === "string" ? raw.trim() : "";
+  return GAME_MODE.test(v) ? v : null;
+}
+
+/**
+ * The game mode an import is for: "*" (the shared list) when none is given, else a tag. Returns null for
+ * anything that is neither.
+ */
+export function readGameMode(raw) {
+  if (raw === undefined || raw === null || raw === "" || raw === SHARED) return SHARED;
+  return readPresetName(raw);
+}
 
 /**
  * A report's "plugins" as a clean list [{ k, f, v, h }]: k amxx, module or meta; f the file's name;
@@ -84,33 +112,61 @@ export function createPreset(deps) {
   const startedAt = now();
   const tx = deps.transaction;
   const q = {
-    all: db.prepare("SELECT * FROM presence_preset ORDER BY kind, file, added_at"),
-    put: db.prepare(`INSERT INTO presence_preset (kind, file, sha256, version, optional, note, added_by, added_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (kind, file, sha256) DO UPDATE SET version = excluded.version, optional = excluded.optional, note = excluded.note`),
+    all: db.prepare("SELECT * FROM presence_preset ORDER BY kind, file, game_mode, added_at"),
+    put: db.prepare(`INSERT INTO presence_preset (kind, file, sha256, game_mode, version, optional, note, added_by, added_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (kind, file, sha256, game_mode) DO UPDATE SET version = excluded.version, optional = excluded.optional, note = excluded.note`),
     remove: db.prepare("DELETE FROM presence_preset WHERE kind = ? AND file = ? AND sha256 = ?"),
-    clearOfficial: db.prepare("DELETE FROM presence_preset WHERE optional = 0"),
+    removeIn: db.prepare("DELETE FROM presence_preset WHERE kind = ? AND file = ? AND sha256 = ? AND game_mode = ?"),
+    clearOfficial: db.prepare("DELETE FROM presence_preset WHERE optional = 0 AND game_mode = ?"),
     setComponents: db.prepare("UPDATE presence_servers SET plugins = ?, plugins_at = ? WHERE server = ?"),
     setOptedOut: db.prepare("UPDATE presence_servers SET opted_out = ? WHERE server = ?"),
-    row: db.prepare("SELECT server, name, map, humans, last_report, plugins, plugins_at, opted_out FROM presence_servers WHERE server = ?"),
-    fresh: db.prepare("SELECT server, name, map, humans, last_report, plugins, plugins_at, opted_out FROM presence_servers WHERE last_report >= ? ORDER BY server LIMIT 1000"),
+    setPreset: db.prepare("UPDATE presence_servers SET preset = ? WHERE server = ?"),
+    row: db.prepare("SELECT server, name, map, humans, last_report, plugins, plugins_at, opted_out, preset FROM presence_servers WHERE server = ?"),
+    fresh: db.prepare("SELECT server, name, map, humans, last_report, plugins, plugins_at, opted_out, preset FROM presence_servers WHERE last_report >= ? ORDER BY server LIMIT 1000"),
   };
 
-  let list = null; // id -> entry, rebuilt after a change, and every cacheSeconds (the command line tool writes the table too)
-  let names = null; // "kind|file" of every entry: the file is known, its bytes may not be
+  // What the table holds, rebuilt after a change and every cacheSeconds (the command line tool writes the table too):
+  //   rows    how many entries there are, a file on two lists counted twice
+  //   whole   every list together: { ids, names }, names being "kind|file" (the file is known, its bytes may not be)
+  //   modes   lower-case game mode -> { name, scope } for each mode with a list: the scope a server naming it is judged by
+  //           (that list and the shared one)
+  let held = null;
   let loadedAt = 0;
   function load() {
     loadedAt = now();
-    list = new Map();
-    names = new Set();
+    const lists = new Map(); // lower-case game mode -> { name, ids, names }
+    const whole = { label: null, ids: new Set(), names: new Set() };
+    let rows = 0;
     for (const r of q.all.all()) {
-      list.set(idOf(r.kind, r.file, r.sha256), r);
-      names.add(r.kind + "|" + r.file.toLowerCase());
+      rows++;
+      const id = idOf(r.kind, r.file, r.sha256);
+      const name = r.kind + "|" + r.file.toLowerCase();
+      const key = String(r.game_mode).toLowerCase();
+      if (!lists.has(key)) lists.set(key, { name: r.game_mode, ids: new Set(), names: new Set() });
+      lists.get(key).ids.add(id);
+      lists.get(key).names.add(name);
+      whole.ids.add(id);
+      whole.names.add(name);
     }
-    return list;
+    const shared = lists.get(SHARED) || { ids: new Set(), names: new Set() };
+    const modes = new Map();
+    for (const [key, l] of lists) {
+      if (key === SHARED) continue;
+      modes.set(key, { name: l.name, scope: { label: l.name, ids: new Set([...l.ids, ...shared.ids]), names: new Set([...l.names, ...shared.names]) } });
+    }
+    held = { rows, whole, modes };
+    return held;
   }
-  const allowed = () => (list && now() - loadedAt < s.cacheSeconds ? list : load());
-  const kept = () => allowed().size;
+  const kept = () => (held && now() - loadedAt < s.cacheSeconds ? held : load());
+  const size = () => kept().rows;
+
+  /** The lists a server naming this preset is judged by: its mode's and the shared one, or every list when it names none, or one with no list. */
+  function scopeOf(presetName) {
+    const k = kept();
+    const mode = presetName ? k.modes.get(String(presetName).toLowerCase()) : null;
+    return mode ? mode.scope : k.whole;
+  }
 
   /** The stored list of a server's report, or null when it never gave a usable one. */
   function componentsOf(row) {
@@ -123,27 +179,40 @@ export function createPreset(deps) {
     }
   }
 
-  /** What in a list is not on the allowlist, each with the reason. */
-  function offenders(components) {
-    const a = allowed();
+  /** What in a list is not on the lists it is judged by, each with the reason. */
+  function offenders(components, scope) {
+    const whole = kept().whole;
     const bad = [];
     for (const c of components) {
-      if (!c.h) bad.push({ ...c, why: "its file could not be read" });
-      else if (!a.has(idOf(c.k, c.f, c.h))) bad.push({ ...c, why: names.has(c.k + "|" + c.f.toLowerCase()) ? "not the official file (another hash)" : "not on the official list" });
+      if (!c.h) {
+        bad.push({ ...c, why: "its file could not be read" });
+        continue;
+      }
+      if (scope.ids.has(idOf(c.k, c.f, c.h))) continue;
+      const name = c.k + "|" + c.f.toLowerCase();
+      let why = "not on the official list";
+      if (scope.names.has(name)) why = "not the official file (another hash)";
+      else if (scope.label && whole.ids.has(idOf(c.k, c.f, c.h))) why = "not on the official list for " + scope.label;
+      else if (whole.names.has(name)) why = "not the official file (another hash)";
+      bad.push({ ...c, why });
     }
     return bad;
   }
 
-  /** Whether a server's last plugin list is the official preset: { ok, why, bad }. With no preset kept there is nothing to judge. */
+  /** Whether a server's last plugin list is the official preset: { ok, why, bad, judgedAs }. With no preset kept there is nothing to judge. */
   function compliance(row) {
-    if (row && row.opted_out === 1) return { ok: false, why: "its operator set h9_authenticated 0", bad: [] };
-    if (kept() === 0) return { ok: true, why: "no preset is kept", bad: [] };
+    if (row && row.opted_out === 1) return { ok: false, why: "its operator set h9_authenticated 0", bad: [], judgedAs: null };
+    if (size() === 0) return { ok: true, why: "no preset is kept", bad: [], judgedAs: null };
     const components = componentsOf(row);
     if (components === null) {
-      return { ok: false, why: row && row.plugins === "!" ? "its plugin list could not be read" : "it has not reported its plugin list", bad: [] };
+      return { ok: false, why: row && row.plugins === "!" ? "its plugin list could not be read" : "it has not reported its plugin list", bad: [], judgedAs: null };
     }
-    const bad = offenders(components);
-    return bad.length ? { ok: false, why: "something it runs is off the official list", bad } : { ok: true, why: "the official preset", bad: [] };
+    const scope = scopeOf(row && row.preset);
+    const bad = offenders(components, scope);
+    const judgedAs = scope.label;
+    return bad.length
+      ? { ok: false, why: "something it runs is off the official list" + (judgedAs ? " for " + judgedAs : ""), bad, judgedAs }
+      : { ok: true, why: "the official preset" + (judgedAs ? " (" + judgedAs + ")" : ""), bad: [], judgedAs };
   }
 
   /**
@@ -175,7 +244,7 @@ export function createPreset(deps) {
     if (row.opted_out === 1) return { code: "opt", why: "its operator set h9_authenticated 0: nothing is rated" };
     if (roleplayMap(row.map)) return { code: "rp", why: "roleplay map: nothing is rated" };
     const c = compliance(row);
-    return c.ok ? { code: "ok", why: c.why } : { code: "mod", why: c.why, bad: c.bad };
+    return c.ok ? { code: "ok", why: c.why, judgedAs: c.judgedAs } : { code: "mod", why: c.why, bad: c.bad, judgedAs: c.judgedAs };
   }
 
   /**
@@ -185,11 +254,14 @@ export function createPreset(deps) {
   const rated = (server) => compliance(q.row.get(server)).ok;
 
   /**
-   * What a report says for the verdict: its "plugins" are kept (an unusable list is kept as unusable), and
-   * authenticated: false, which h9_presence sends while the server's h9_authenticated is 0, opts the server out.
+   * What a report says for the verdict: its "plugins" are kept (an unusable list is kept as unusable),
+   * authenticated: false, which h9_presence sends while the server's h9_authenticated is 0, opts the server
+   * out, and "preset" is the game mode whose list it asks to be judged by (none: every list). A report that
+   * names no preset, as every report of an older h9_presence, leaves the server judged against every list.
    */
-  function noteReport(server, raw, authenticated, t) {
+  function noteReport(server, raw, authenticated, t, presetName) {
     q.setOptedOut.run(authenticated === false ? 1 : 0, server);
+    q.setPreset.run(readPresetName(presetName), server);
     if (raw === undefined) return;
     const components = readComponents(raw, s.presetMaxComponents);
     if (components === null) {
@@ -211,7 +283,7 @@ export function createPreset(deps) {
   }
 
   function entryView(r) {
-    return { kind: r.kind, file: r.file, sha256: r.sha256, version: r.version || null, optional: !!r.optional, note: r.note, addedAt: iso(r.added_at) };
+    return { kind: r.kind, file: r.file, sha256: r.sha256, gameMode: r.game_mode, version: r.version || null, optional: !!r.optional, note: r.note, addedAt: iso(r.added_at) };
   }
 
   function adminView(t) {
@@ -219,11 +291,16 @@ export function createPreset(deps) {
       const v = verdict(r.server, t, r);
       return {
         server: r.server, serverId: enrollment.serverIdFor(r.server), name: r.name, map: r.map, code: v.code, why: v.why,
+        preset: r.preset || null, judgedAs: v.judgedAs || null,
         listedAt: iso(r.plugins_at), reportedAt: iso(r.last_report), private: !!isPrivate(r.server),
         offending: (v.bad || []).map((c) => ({ kind: c.k, file: c.f, version: c.v || null, sha256: c.h || null, why: c.why })),
       };
     });
-    return { enforced: kept() > 0, freshSeconds: s.authFreshSeconds, quietSeconds: s.authQuietSeconds, holdSeconds: s.authHoldSeconds, entries: q.all.all().map(entryView), servers };
+    const k = kept();
+    return {
+      enforced: k.rows > 0, freshSeconds: s.authFreshSeconds, quietSeconds: s.authQuietSeconds, holdSeconds: s.authHoldSeconds,
+      gameModes: [...k.modes.values()].map((m) => m.name).sort(), entries: q.all.all().map(entryView), servers,
+    };
   }
 
   // The game's browser's read: small, public, and cached like the other public reads.
@@ -237,35 +314,42 @@ export function createPreset(deps) {
     router.get("/api/presence/admin/preset", admin(async (req, res, rc) => {
       rc.json(200, adminView(now()));
     }));
-    // { mode: "add" | "replace", entries: [{ kind, file, sha256, version?, optional?, note? }] }. "add" keeps
-    // what is there (older builds' hashes stay official); "replace" first drops every entry that is not
-    // optional. An entry that is there already takes the new version, optional flag and note.
+    // { mode: "add" | "replace", gameMode?: "*" | "<tag>", entries: [{ kind, file, sha256, version?, optional?, note? }] }.
+    // gameMode names the list the entries go on: a game mode's preset tag, or "*" (also when it is left out) for the
+    // shared list every mode accepts. "add" keeps what is there (older builds' hashes stay official); "replace" first
+    // drops every entry of that list that is not optional. An entry that is there already takes the new version,
+    // optional flag and note.
     router.post("/api/presence/admin/preset/import", admin(async (req, res, rc) => {
       const body = await rc.body({ maxBytes: 524288 });
       const mode = body.mode === undefined ? "add" : body.mode;
       if (mode !== "add" && mode !== "replace") throw new HttpError(400, "bad_request", "mode: add or replace.");
+      const gameMode = readGameMode(body.gameMode);
+      if (gameMode === null) throw new HttpError(400, "bad_request", "gameMode: a preset tag (letters, digits, _ and -, 24 at most), or * for the shared list.");
       const entries = readEntries(body.entries, s.presetMaxEntries, (m) => new HttpError(400, "bad_request", m));
       const t = now();
       tx(() => {
-        if (mode === "replace") q.clearOfficial.run();
-        for (const e of entries) q.put.run(e.kind, e.file, e.sha256, e.version || null, e.optional ? 1 : 0, e.note, rc.account.id, t);
+        if (mode === "replace") q.clearOfficial.run(gameMode);
+        for (const e of entries) q.put.run(e.kind, e.file, e.sha256, gameMode, e.version || null, e.optional ? 1 : 0, e.note, rc.account.id, t);
       });
       load();
-      record(rc, "presence.preset.import", null, "preset", entries.length + " file(s), " + mode);
-      rc.json(200, { ok: true, imported: entries.length, mode, total: kept() });
+      record(rc, "presence.preset.import", null, "preset", entries.length + " file(s), " + mode + (gameMode === SHARED ? "" : ", " + gameMode));
+      rc.json(200, { ok: true, imported: entries.length, mode, gameMode, total: size() });
     }));
+    // { kind, file, sha256, gameMode? }: the entry off every list, or off the one list gameMode names
     router.post("/api/presence/admin/preset/remove", admin(async (req, res, rc) => {
       const body = await rc.body();
       const file = typeof body.file === "string" ? body.file.trim() : "";
       const sha = typeof body.sha256 === "string" ? body.sha256.trim().toLowerCase() : "";
       if (!Object.hasOwn(KINDS, body.kind) || !FILE.test(file) || !HEX64.test(sha)) throw new HttpError(400, "bad_request", "kind, file and sha256 of the entry to remove.");
-      const r = q.remove.run(body.kind, file, sha);
+      const gameMode = body.gameMode === undefined ? undefined : readGameMode(body.gameMode);
+      if (gameMode === null) throw new HttpError(400, "bad_request", "gameMode: a preset tag, or * for the shared list.");
+      const r = gameMode === undefined ? q.remove.run(body.kind, file, sha) : q.removeIn.run(body.kind, file, sha, gameMode);
       if (!r.changes) throw new HttpError(404, "not_found", "No such entry.");
       load();
-      record(rc, "presence.preset.remove", null, "preset", body.kind + " " + file + " " + sha.slice(0, 12));
-      rc.json(200, { ok: true, total: kept() });
+      record(rc, "presence.preset.remove", null, "preset", body.kind + " " + file + " " + sha.slice(0, 12) + (gameMode === undefined ? "" : " from " + gameMode));
+      rc.json(200, { ok: true, total: size() });
     }));
   }
 
-  return { verdict, rated, noteReport, publicText, adminView, registerAdmin, reload: load, size: kept };
+  return { verdict, rated, noteReport, publicText, adminView, registerAdmin, reload: load, size };
 }

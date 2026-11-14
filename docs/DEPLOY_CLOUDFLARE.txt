@@ -8,6 +8,8 @@ in this file is a secret, and nothing in it may become one. The security design 
 ------------
   browser --https--> Cloudflare (proxy, orange cloud) --https--> nginx on the VPS --> h9web (127.0.0.1:8090), the server list, the pages
   game client / game server ----------------------------------> the VPS directly (UDP 27015 etc.; Cloudflare cannot carry UDP)
+  P2P helper (host's and friend's PC) ------------------------> the VPS directly (UDP 27248, the P2P relay's data plane, if you run it);
+                                                                its HTTP side is /api/p2p/ through the proxy like the rest of /api/
 
   * One origin serves everything (pages, /api/, the relay, /serverlist, /downloads). That is what the shipped game expects: it talks to
     https://havoc9.org for the server list, presence, link and downloads, and the browser game needs the page, the API and the relay on
@@ -23,7 +25,8 @@ in this file is a secret, and nothing in it may become one. The security design 
      Behind a Cloudflare TUNNEL instead (no open web port at all): "trustProxy": "cf-connecting-ip", and in serverlist.ini
      [http] proxy_header = cf-connecting-ip. Never leave "true" behind a tunnel: cloudflared forwards a visitor's own X-Real-IP.
   c. allowedOrigins stays ["https://havoc9.org"]. www.havoc9.org must redirect to the apex at nginx (a login from www is refused by design).
-  d. SSH key-only (vps/linux/hardening), unattended upgrades, ufw: only 22 (your address if you can), 80/443 from Cloudflare, the game's UDP ports.
+  d. SSH key-only (vps/linux/hardening), unattended upgrades, ufw: only 22 (your address if you can), 80/443 from Cloudflare, the game's UDP ports,
+     and the P2P relay's UDP port (27248) when you run it: ufw allow 27248/udp (docs/P2P_HOSTING.txt; vps/linux/setup.sh does it with P2P=module).
 
 3. CLOUDFLARE DASHBOARD
 -----------------------
@@ -32,6 +35,9 @@ in this file is a secret, and nothing in it may become one. The security design 
                                                                                   or the address itself, if you do not want the apex to be a UDP name)
          Note: the shipped game also uses havoc9.org:27015 as a seed name; with the apex proxied that name does not carry UDP. Keep a
          DNS-only name for it and list it, or list the IP.
+         play.havoc9.org (any name)    DNS only (grey cloud)    -> <ORIGIN-IP>   (the P2P relay's UDP port, 27248: the publicUdp.host of h9web's
+                                                                                  p2p module; an A record only, the data plane is IPv4;
+                                                                                  docs/P2P_HOSTING.txt)
   SSL/TLS:   mode Full (strict) with a Cloudflare Origin CA certificate (or Let's Encrypt) on nginx; Always Use HTTPS on;
              minimum TLS 1.2; HSTS stays in nginx's headers (do not also set it in Cloudflare with different values).
   Network:   WebSockets ON (the browser game's relay is /webclient/relay).
@@ -42,8 +48,10 @@ in this file is a secret, and nothing in it may become one. The security design 
   Security:  WAF managed rules ON. Then a Skip rule (WAF custom rule, action Skip: all managed rules, rate limiting, bot fight/super bot
              fight) for:
                URI path starts with /api/presence/   (the plugin's reports are HMAC-signed over the RAW body: nothing may rewrite it)
-               URI path starts with /api/link/ , /api/community/ , /api/rank/ , /serverlist/v1/heartbeat
-             and a user-agent allow for the game plugins: h9_presence/*, h9_compete/*, h9_rank/*, h9_community/* (they are not browsers).
+               URI path starts with /api/link/ , /api/community/ , /api/rank/ , /api/p2p/ , /serverlist/v1/heartbeat
+                 (/api/p2p/ is the P2P relay's control plane: the helper is not a browser, signs its host calls and long-polls for 25 s.
+                  The skip covers the two browser routes /api/p2p/public and /api/p2p/public/join as well; they have limits of their own)
+             and a user-agent allow for the game plugins: h9_presence/*, h9_compete/*, h9_rank/*, h9_community/*, h9_p2p/* (they are not browsers).
              Bot Fight Mode on for the rest. Security level Medium. Rate limits: Cloudflare in front of nginx's own limits, not instead.
   Origin:    Authenticated Origin Pulls (mTLS) ON, if you want nginx to refuse any connection that is not Cloudflare's, on top of ufw.
   Access:    protect /admin/ (the admin page and /api/admin/*) with Cloudflare Access (your e-mail or a one-time PIN): a second lock in

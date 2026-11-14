@@ -1,0 +1,43 @@
+THE STATUS CHECK -- every check this repository has, in one run, before a commit
+================================================================================
+
+    node tools/status-check.mjs                 the working tree against HEAD (changed and untracked files)
+    node tools/status-check.mjs --staged        only what is staged, what a commit would hold
+    node tools/status-check.mjs --fast          skip the test suites and the mirror check (seconds)
+    node tools/status-check.mjs --all           run the test suites whether or not their folders changed
+    node tools/status-check.mjs --only hygiene,patch-notes      only these checks
+    node tools/status-check.mjs --strict        a warning fails as well
+    node tools/status-check.mjs --install-hook  put a git pre-commit hook in .git/hooks (it runs --staged --fast)
+
+It reads, never edits. It prints one line for each check ([ ok ], [FAIL], [warn], [skip]) with what to fix under a failure, and exits 1
+when something failed, so it can stand in front of a commit (the hook) or in a workflow. Run it from the repository (the git copy); the
+mirror check only runs where the master tree exists (D:\Downloads\TSM, or the folder in the environment variable H9_MASTER).
+
+THE CHECKS
+  git-state     the branch and how many files are modified, staged and untracked. Information.
+  hygiene       the faults of the files themselves, each of which happened:
+                  a control byte in a text file (a stray tab or BEL where a backslash sequence was meant);
+                  a non-ASCII byte in a plugin source or a config (.sma, .inc, .cfg are ASCII; Apollo RP's own files are as upstream
+                  left them);
+                  a file whose whole change is its line endings (git apply, an editor or autocrlf flipped them; git's own diff decides,
+                  so a CRLF checkout under core.autocrlf is not reported);
+                  a merge conflict marker; a binary (.dll, .exe, .amxx, .so, .wasm, .avi, .spr) replaced by a git-lfs stub;
+                  scratch files (.bak, .tmp, .orig).
+  secrets       private keys, AWS and GitHub and Slack tokens, Discord webhook URLs in the files; a quoted value after password,
+                  secret, api key or auth token is a warning (the value is never printed).
+  cvar-docs     a cvar or command that a changed plugin source (src\*.sma) or client source (reTS\cl_dll\*.cpp) registers and
+                  docs\COMMANDS.txt does not mention: a warning that names it.
+  patch-notes   tools\patch-notes-check.mjs (docs\PATCH_NOTES_CHECK.txt): a source or a binary changed without its .patch note.
+  preset        tools\preset-check.mjs: the official preset files hold the hash of every plugin, module and Metamod plugin.
+  release       tools\release-check.mjs: the build, the release and the download page agree.
+  mirror        tools\mirror-check.ps1: the master tree and this copy are in step.
+  h9web-tests   node --test in h9web, when h9web (or havoc9.org) changed, or with --all.
+  serverlist-tests  the serverlist bot's unit tests, when it changed, or with --all.
+
+A FAILURE IS NOT A VERDICT ON THE WHOLE COMMIT: it names a file and, for the hygiene faults, a line. Fix it where the file comes from (the
+master tree) and run the export, rather than in the copy, or the next export puts the fault back.
+
+THE HOOK
+  node tools/status-check.mjs --install-hook   writes .git/hooks/pre-commit (a shell script git runs on Windows too). It runs
+  --staged --fast on every git commit and stops the commit on a failure; git commit --no-verify skips it. Remove the hook by deleting
+  the file. The workflows (ci.yml, preset-hash.yml, patch-notes.yml) run the same tools on the server for every push and pull request.

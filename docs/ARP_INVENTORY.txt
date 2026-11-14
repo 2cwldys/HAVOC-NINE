@@ -1,0 +1,512 @@
+APOLLO RP'S INVENTORY -- cells and stacks, the window, and the exchange of goods
+==================================================================================
+
+What it is, the rules it keeps, the switches, the hooks a plugin can use and the protocol of the window. docs\APOLLO_RP.txt section 9 is the
+short form and section 10 the table of every H9 addition to ARP with its switch; docs\ARP_INVENTORY_CHECKS.txt says what to look at in a game.
+The plugin is apollo-rp\base\addons\amxmodx\scripting\ARP_Inventory.sma (ORIGIN.txt items 29 to 33, 35 and 36, H9-arpinventory.patch; the context menu of section 10 is ARP_H9Ctx.sma, item 50); the window itself is the
+client's (reTS\cl_dll, the coordinator's half; docs\ARP_INVENTORY_WINDOW.txt describes it), which speaks the messages of section 5.
+
+
+1. WHAT IT IS
+-------------
+
+Apollo RP keeps what a player owns as a count for each kind of item (ARP_GetUserItemNum, the table arp_items: [authid|item name, count]). That is
+still the truth, and no row of any ARP table is changed. ARP_Inventory adds the ARRANGEMENT of those counts into CELLS, held for each player while
+he is in the game and kept between his visits in a table of its own (section 8):
+
+  * a player has `slots` cells, numbered from 0 (arp_h9_inv_slots, 32 as shipped); a cell is empty or holds one kind of item and a count of it up
+    to the stack limit of that kind;
+  * the cells are made when his character has loaded (the Player_Ready event): kinds in item order, each in full stacks and then the remainder,
+    from cell 0, and then, as far as he still owns the items, laid out as he left them (section 8; arp_h9_inv_persist 0 leaves it at the packing);
+  * what a player does with the cells (move, combine, split, tidy) changes the arrangement and never a count; what changes a count (a shop, a
+    pick-up, another plugin, an admin command) is put into the cells;
+  * the invariant, which the tests check after every operation: for every kind the cells hold exactly the count ARP has, and no cell is over the
+    stack limit (a lowered limit is the one thing that may leave a cell over it, below).
+
+A player whose game draws H9's inventory window (_h9vgui 6, include\h9_vgui.inc H9VGUI_INV_PROTOCOL; not a bot) is sent the cells (H9Inv, section
+5) and drives them with the client command h9inv; /items and /inventory open the window for him in place of the text menu. EVERY OTHER player keeps the
+text menu exactly as before (one line for each kind, with the total) and the same cell rules apply to him: they are the server's. A game that says _h9vgui 8 (H9VGUI_SEARCH_PROTOCOL)
+also draws the search window: the use key on a handcuffed player opens his cells beside the player's own (H9Search, section 9). A game that says _h9vgui 10 also draws the
+context menu of the use key on a player (H9Ctx, section 10).
+
+Stock Apollo RP stays possible. With arp_h9_inv_slots 0 nothing is ever refused (no limit of cells), and arp_h9_vgui 0 (or arp_h9_inv_window 0) gives
+every player the text menu; arp_h9_inv_persist 0 packs the cells at every join and writes nothing; arp_h9_search 0 leaves a handcuffed player alone, as before; with
+ARP_Inventory not loaded, or paused, the core answers none of its hooks and is stock ARP.
+
+
+2. THE RULES
+------------
+
+CELLS AND STACKS
+  stack limit   arp_h9_inv_stack (1 to 999, 20 as shipped) for a kind that configs\arp\inventory.ini does not name; the file's line "item name|limit"
+                names it (1 means the item does not stack: each one has a cell of its own). The file is read when the map starts; a map's own folder
+                may hold its own copy.
+  MOVE a cell to another   an empty cell takes it; a cell of the same kind COMBINES: as many move as fit under the stack limit and the rest stays
+                (the cell it came from empties when all fit; a full target moves nothing and is refused); a cell of another kind SWAPS. Moving a
+                cell onto itself, an empty cell, or a cell an exchange holds is refused.
+  SPLIT n off a cell   1 <= n < the count; into the cell named, which must be empty, or into the first empty cell (none: refused, "Your inventory is
+                full."). The new cell is an ordinary cell: it can be used, dropped, given, shown, offered and combined again.
+  TIDY   every kind's partial stacks are merged (full stacks first) and the cells are packed to the front in item order; a cell an exchange holds is
+                not merged and stays where it is, and the rest packs around it.
+
+WHAT AN ACTION DOES TO THE CELLS
+  USE, DROP ONE, DROP ALL, a drop by dragging out of the window, and GIVE act on the cell they were made from: the count the core takes is taken
+  from that cell first. A change of a count that names no cell (another plugin's add or remove, an admin command, the use key's pick-up, the
+  text menu) is reconciled: an increase fills the kind's partial cells in cell order and then empty cells in cell order; a decrease takes from the
+  highest cell of that kind downward (a cell an exchange holds last of all). SHOW acts on the cell's item and changes no count.
+  A handler that gives the unit it was called for back to the player (ARP_HungerMod's food, ARP_TS' ammunition do: "you don't feel like eating")
+  is not made to drop it: while an item is being used, a unit that does not fit in a full cell is held above the stack limit until the use is over,
+  and only what the use did not take away again is then treated as an add that does not fit.
+
+ROOM(kind, q)   how many of q fit = for each cell of the kind that is not held by an exchange, what is left under the stack limit, plus a whole stack
+                for each free cell. Free cells are the empty cells below the limit of cells, and no more than the limit less the cells in use. A player
+                over his limit has no free cells: his cells are kept, the grid shows them (the window says "over capacity"), and nothing new can be added
+                until he is back under it; room left in a partial stack is still room.
+                No limit (arp_h9_inv_slots 0): everything fits. The grid grows in rows of 8, never under 32, to 256 cells (INV_MAX_CELLS); past that
+                an add is piled on a cell above the stack limit, never lost.
+
+WHEN THE INVENTORY IS FULL
+  * The use key on a pack on the floor (what a drop made, or a pack a map placed) takes what fits; the rest STAYS in the pack, whose count is
+    changed (the entity is removed only when all is taken). "[ARP] Your inventory is full: you took 3 of 5 Soda." and, when nothing fits, "[ARP] Your
+    inventory is full." with the pack untouched. A game with the window is sent the same text as a NOTE.
+  * A shop, bank, doctor or gun shop NPC (ARP_NPCs: five places that charge and then add) refuses before the money moves: "[ARP] Your inventory is
+    full." No money is taken for an item that does not fit.
+  * GIVE is all or nothing: if the other player has no room for all of it, nothing moves and the giver is told "<NAME>'s inventory is full."
+  * A non-interactive add that has no room (another plugin, an admin command, a reward): what fits is added; the rest is made a pack on the floor at the
+    player's feet, with "[ARP] Your inventory is full: 4 Soda fell at your feet." If no pack can be made (arp_performance 10 or less) it is kept over the
+    limit instead: items are never lost.
+  * DROP makes the pack first and takes the items from the player after it (ARP_Core made them leave before the pack existed, and made no pack at all
+    when arp_performance was 10 or less). If no pack can be made the items stay: "[ARP] You cannot drop items right now."
+
+WHEN A LIMIT IS LOWERED  (once a second the plugin reads arp_h9_inv_slots and arp_h9_inv_stack: AMX Mod X cvar hooks do not fire on H9 servers)
+  Nothing is cut. A stack over a lowered stack limit is split into empty cells inside the limit of cells (what cannot be split stays whole and the
+  player is over capacity until he tidies); cells that lie beyond a lowered limit of cells are brought into empty cells inside it where there are some,
+  and otherwise stay (over capacity). A raised limit changes nothing; TIDY merges.
+
+THE ITEM PATHS  Use, Give, Drop and Show are ARP's own: the text menu (ItemsOptions, ItemsGive, ItemsDrop) and the window run the same functions of
+  ARP_Core (H9_UserUse, H9_UserGive, H9_UserDrop, H9_UserShow), so the events Item_Use, Item_Give, Item_Drop and Item_Show fire as ever (a plugin that
+  hooks one keeps working: JailMod's cuffs, a license's own readout), the g_ItemUse mutex of ARP_ItemSet holds, and an item's handler runs as it did.
+  Two things changed for the text menu as well: Use of an item the player no longer has is refused ("You do not have any of this item."; it used to run
+  the handler and store -1, which read back as 1), and the drop order above.
+  SHOW (SHOW TO ... in the window): the Item_Show event first, then the chat lines the text menu has always printed ("You show X your Y." and "X shows
+  you his Y."); the target is also shown a banner, h9vgui_notice(target, "show", H9V_NOTICE_BANNER, "<NAME> SHOWS YOU^n<ITEM>^n<description>", 6.0, 0.5,
+  182, 145, 234, -1.0, 0.45), in any game (a game without panels gets it as a hudmessage), and the shower a NOTE "You show <NAME> your <ITEM>.". The
+  target must be alive, a person (not a bot), not the shower, within 150 units and in his line of sight (a give: 200 units). Nothing leaves the cell.
+
+
+3. THE SWITCHES  (configs\arp\arp.cfg; COMMANDS.txt, ITS H9 SWITCHES and ITS INVENTORY)
+------------------------------------------------------------------------------------
+
+  arp_h9_vgui          1    ARP's H9 panels for every game (the menus of include\ApolloRP_VGui.inc, the inventory and exchange windows); 0: every
+                            ARP menu is the AMX Mod X text menu, whatever the player's game and his cl_h9_arpvgui
+  arp_h9_inv_window    1    the inventory and exchange windows (needs arp_h9_vgui 1); 0: /items is the text menu for everybody
+  arp_h9_inv_slots     32   the cells a player has, 8 to 96; 0: no limit
+  arp_h9_inv_stack     20   the count of one kind in one cell, 1 to 999 (configs\arp\inventory.ini names a limit per item)
+  arp_h9_credits       1    what the money is called in the window and in this plugin's messages: credits (1), cash (0); and, with 1, the credit sign in
+                            place of "$" for a player whose game can draw it, in every Apollo RP plugin (section 7). The amounts are ARP's wallet and
+                            bank. The window learns the wording from the server (OPEN flag bit 2), never from its own cvar. With 0 every Apollo RP
+                            plugin sends what stock Apollo RP sends
+  arp_h9_inv_persist   1    the arrangement of the cells is kept in the database (section 8); 0: packed at every join, nothing read or written
+  arp_h9_trade_range   250  (the exchange of goods, section 6)
+  arp_h9_trade_timeout 120  (the exchange of goods, section 6)
+  arp_h9_search        1    the search of a handcuffed player (section 9); 0: the use key on him does what it did, "That player cannot make an exchange now."
+  arp_h9_search_range  150  (the search, section 9: how near the searcher must stay once the window is open; a limit, not a switch)
+  arp_h9_ctxmenu       0/1  the context menu of the use key on a player (section 10; the plugin's own default is 0, arp.cfg ships 1), with arp_h9_ctx_range, arp_h9_ctx_cuff,
+                            arp_h9_ctx_fine, arp_h9_ctx_give, arp_h9_ctx_fine_amounts and arp_h9_ctx_give_amounts
+
+
+4. WHAT A PLUGIN CAN USE  (include\ApolloRP_Items.inc)
+-----------------------------------------------------
+
+  natives   ARP_UserUseItem(id, item), ARP_UserGiveItem(id, target, item, num), ARP_UserDropItem(id, item, num), ARP_UserShowItem(id, target, item):
+            the item menu's own paths; they return 0 (ARP_ITEM_OK) or the reason (ARP_ITEM_NONE, _BUSY, _VETOED, _INVALID, _FULL, _NOPACK) and print no
+            refusal.
+            ARP_DropPack(id, item, num) makes a pack at the player's feet without taking anything from him (the entity, or 0).
+            ARP_GetItemInfo(item, name[], len, desc[], dlen, &disposable): what no native returned before.
+            ARP_InvRoom(id, item, qty): how many of qty the player's inventory has room for (qty when no inventory is loaded or the cells have no limit):
+            ask it before charging for an item.
+            ARP_SaveUser(id): saves the character (wallet, bank, job, items) now.
+  forwards  ARP_InvOnCount(id, item, old, new): the core is about to change a count; ARP_Inventory answers the count to keep, plus one (0: no opinion).
+            ARP_InvOnRoom(id, item, qty), ARP_InvOnUse(id, item, begin), ARP_InvOnNote(id, level, text[]). Nothing but ARP_Inventory implements them.
+  menu      include\ApolloRP_H9Ctx.inc: the forward ARP_H9CtxBuild(id, target) and the native ARP_H9CtxAdd(label, handler, enabled, note): an entry of the context menu
+            of the use key on a player (section 10).
+  events    Item_Inventory (the plugin takes /items for a game with the window), Player_Ready (the cells are made), and ARP's own Item_Use, Item_Drop,
+            Item_Give, Item_Show and Item_Pickup, unchanged.
+
+  Every add that charges first (a shop) asks ARP_InvRoom before the money moves; an add that does not charge needs nothing: the core makes what does
+  not fit a pack at the player's feet.
+
+
+5. THE PROTOCOL OF THE WINDOW  (the byte layouts are the contract between ARP_Inventory and the client)
+-------------------------------------------------------------------------------------------------------
+
+Two user messages registered with engfunc(EngFunc_RegUserMsg, name, -1) in plugin_precache and sent reliably (MSG_ONE) to a game that has _h9vgui 6
+(H9VGUI_INV_PROTOCOL) only; a third, H9Search, goes to a game that says 8 (section 9). Little-endian: a byte 0 to 255, a short (the client reads it signed: 0 to 32767 is sent), a long (signed 32 bit; money is
+sent 0 to 2147483647), a string (ASCII, NUL-terminated, no '%' and no '^'; the summary of an exchange may also hold the single byte 0xA2, the credit sign,
+section 7). A message is at most 188 bytes. Names are at most 32 characters,
+descriptions and notes 120. At most 11 messages go to one player in one frame, and a flush sends at most six, the rest a twentieth of a second later.
+
+H9Inv, server to client; the first byte is the op
+  1 OPEN      byte 1; byte flags (bit 0 over capacity, bit 1 no limit of cells, bit 2 the money is called credits); short cells shown; long wallet;
+              long bank; string name (the player's); string job (or "").  Sent when the window is asked for (h9inv open, /items) and again, whole,
+              when the cells shown or the flags change (a changed arp_h9_credits, a player over his limit): the cells, the catalog and the reserve
+              are sent again after it.
+  2 CATALOG   byte 2; byte n; n of { short item; short stack limit; byte 0; string name }.  The kinds the client has to draw cells with: item numbers
+              are ARP's, by registration order, not stable across a restart, which is why the name always comes with them. Sent before the SLOTS
+              that use a kind, as many entries as fit in a message, and again after every OPEN.
+  3 SLOTS     byte 3; short first cell; byte count (at most 40); count of { short item; short count } (item 0, count 0: an empty cell). After an OPEN
+              the cells 0 to shown - 1, in chunks of 40; while the window is open only the cells that changed, a run of them in a message.
+  4 MONEY     byte 4; long wallet; long bank. When either changed while the window is open, at most four a second.
+  5 DESC      byte 5; short item; string text: the answer to h9inv info, the description ARP_RegisterItem was given, or "No description."
+  6 NOTE      byte 6; byte level (0 plain, 1 warning); string text: a line for the window's status row (a refusal, "Your inventory is full.", "That is in
+              your exchange."). Sent to every game that has the window; the same text is printed as chat "[ARP] ..." when the window is not open (the
+              window does not echo it to the chat).
+  7 CLOSE     byte 7: the server shuts the window (the player died, or the window or ARP's panels were switched off). An exchange that ends
+              (a cuff, a jail, a range, a refusal) is ended by H9Trade CLOSE, below; the inventory window stays open then.
+  8 RESERVE   byte 8; short first cell; byte count; count of { short n }: what an open exchange holds of each cell, 0 for free.
+  The cells shown are `slots`, or the number of cells the player's arrangement reaches, in rows of 8, when he is over his limit; with no limit the
+  grid length (never under 32).
+
+h9inv, client to server: the console command h9inv <op> <args> (register_clcmd; arguments are read one by one). At most ten a second from a player,
+the rest dropped without a word; every argument is checked; a command that is not valid, or is refused, changes nothing and is answered with a NOTE (level 1).
+  open | close | tidy
+  move <from> <to>             cells 0 to shown - 1
+  split <cell> <n> [<to>]      <to> omitted or 255: the first empty cell
+  use <cell>
+  drop <cell> <n>              the count shown for DROP ALL, 1 for DROP ONE and for a shift-drag out, the whole cell for a plain drag out of the window
+  give <cell> <n> <player>     <player> is the player's entity number (1 to 32), alive, a person, within 200 units and in sight, not the giver
+  show <cell> <player>         within 150 units, otherwise the same; nothing moves
+  info <item>                  the item's number as the CATALOG gave it
+  x accept | decline | cancel  answer an invitation to an exchange, or withdraw from one (section 6)
+  x offer <cell> <n> [<entry>] put n of a cell in the offer: in <entry> (0 to 11), or the first free one when it is left out or 255; the same cell
+                               again adds to its entry
+  x take <entry>               take an entry back
+  x money <amount>             the money offered, 0 to the wallet (never the bank); it replaces the amount before
+  x seal | unseal              agree to the exchange as it stands, or take the agreement back
+  s take <cell> <n>            take n of a cell of the searched player's grid into the searcher's inventory (section 9)
+  s close                      close the search window
+
+H9Trade, server to client; the first byte is the op. Sent only to a game that has the window: a player whose game has none is never invited and
+never told anything.
+  1 INVITE    byte 1; byte seconds left (12); string name.  "<NAME> OFFERS YOU AN EXCHANGE": the player was looked at with the use key.
+  2 OPEN      byte 2; string partner; long wallet; byte cells (12); byte flags (bit 0 the money is called credits).  The exchange window opens for
+              both, with empty offers and no seal; the wallet is the player's own.
+  3 OFFER     byte 3; byte side (0 mine, 1 theirs); byte entry (0 to 11); short item; short count; string name.  One entry of an offer changed (item 0:
+              the entry is empty). The name is the item's for side 1 (the client may not know the kind), and "" for side 0.
+  4 MONEY     byte 4; byte side; long amount.  What one side offers of its money.
+  5 SEAL      byte 5; byte mine (0/1); byte theirs (0/1); byte tenths of a second until his own seal button may be pressed (0: now, at most 30).
+  6 CLOSE     byte 6; byte reason; string summary.  The exchange is over. Reasons: 0 completed (the summary is the two result lines, the lower player
+              number first, with a bar between them: "ANTON WEISS RECEIVES: Fries x10, 30 credits|LEON FISCHER RECEIVES: Soda x5, 100 credits"), 1 you
+              withdrew, 2 they withdrew, 3 declined, 4 the invitation lapsed, 5 out of range, 6 you died, 7 they died, 8 they left, 9 cuffed or jailed,
+              10 your inventory is full, 11 their inventory is full, 12 the check failed (an item or the money changed), 13 the map changed, 14 busy
+              (the player invited is in an exchange or has an invitation), 15 timed out.  The summary is empty unless the reason is 0. Each player is sent his own: the
+              money in it is the single byte 0xA2 and the digits for a game that says _h9vgui 7 (section 7), "<n> credits" for any other with arp_h9_credits 1, "$<n>" with 0.
+  The layouts are those of the design's contract (DESIGN.md 3.3); nothing was added to them. H9Inv keeps flowing while an exchange is open: its RESERVE
+  says which cells the exchange holds (section 2), its SLOTS and MONEY follow what changes.
+
+Checking from the server console: arp_h9_inv_dump <player> (the arrangement: "DUMP ..." and "C <cell>:<item>:<count> ..." lines) and arp_h9_inv_check
+<player> ("CHECK id=N OK", or what is wrong), where <player> is his number or a part of his name; the console, or an ARP admin (arp_admin_access).
+
+
+
+6. THE EXCHANGE OF GOODS  (ARP_Inventory.sma, stock tr_*; the use key on a player)
+----------------------------------------------------------------------------------
+
+STARTING. client_PreThink of ARP_Core keeps the entity get_user_aiming found (100 units) and, when the door, pack, NPC and zone branches did not take
+the key, fires the event Player_Use (id, the aimed player) if it is a living player. ARP_Inventory answers it (first it asks ARP_H9Ctx whether the press is the context
+menu's, section 10: with arp_h9_ctxmenu 1 and a game that draws the menu it is, and Trade there runs the rules below; otherwise):
+  * the first press offers an exchange: the sender is INVITING, the target INVITED for 12 seconds, the target is sent INVITE, the sender is told
+    "Exchange offered to <NAME>." (a NOTE);
+  * the target accepts with the use key on the sender (within the key's range and in sight) or with h9inv x accept: both are TRADING, both are sent OPEN
+    with empty offers, nothing sealed and nothing reserved;
+  * h9inv x decline, the sender's h9inv x cancel, a lapse (12 seconds) or either leaving end it with CLOSE 3, 1/2, 4 or 8.
+  Refused with a NOTE (level 1) or CLOSE 14: a bot (a roaming citizen too), a dead player, a player who is cuffed or in jail (ARP_JailMod answers
+  H9_Restrained(id): the cuffs, or its jail; a game that says 8 searches him instead, section 9), a player whose game has no window ("That player has no inventory window."), a player whose character has
+  not loaded, a player who is already in an exchange or has an invitation or is in the middle of a search (CLOSE 14 to the sender), the same two within 2 seconds of the end of their
+  last exchange ("Wait a moment."), and, without a word, a sender who has already tried within the last 3 seconds.
+
+THE OFFERS. Each side offers up to 12 entries, each a cell and a count of it, and an amount of money from the WALLET (never the bank). While an exchange
+is open the offered cells are RESERVED: use, drop, give, show, move and a merge of that cell are refused with "That is in your exchange."; an add fills only
+what is not held; a count another plugin takes comes from the held cell last of all; the cell keeps its place. An offer is refused when the cell is empty,
+the count is more than the cell holds less what is already offered of it ("You do not have that many."), the entry is taken, or all 12 are used ("Your offer
+is full."). EVERY change to either offer (an entry put in or taken back, another amount of money) breaks BOTH seals, kills both seal buttons for 3 seconds
+(the SEAL message carries the time left) and restarts the idle time.
+
+THE SEAL. h9inv x seal is refused while the button is dead ("The seal waits 3 seconds after a change."), when both offers and both amounts of money are
+empty ("Nothing is offered."), when an offered cell no longer holds what was offered ("An item or the money changed.") and when the swap would not fit
+("Your inventory is full." or "<NAME>'s inventory is full."). Otherwise it seals, and the second seal makes the swap at once. h9inv x unseal takes it back.
+
+THE SWAP (tr_execute). Everything is looked at again at that instant. Nothing has moved until step 4, and nothing in step 4 can fail:
+  1. both are connected, alive, not cuffed or jailed, with the window, in this exchange with each other and within arp_h9_trade_range;
+  2. every offered cell still holds the kind that was offered and at least the count, and each wallet still holds what that side offers (and can take the
+     other's without passing 2,000,000,000): else CLOSE 12, logged "refused (an item or the money changed)", nothing moved;
+  3. the fit is worked out on COPIES of both players' cells: each side's offered items leave its cells, then the other side's arrive (partial stacks first,
+     then empty cells, within the limit of cells and the stacks): a side that cannot take its share closes the exchange with CLOSE 10 (to him) and 11 (to
+     the other), logged "refused (an inventory is full)", nothing moved. Two full inventories can therefore swap one full cell for another;
+  4. the copies become the cells, the counts of the kinds follow the cells through ARP's own count change (UTIL_ARP_SetUserItemNum, with this plugin's
+     guard so the cells are not arranged twice), the wallets change, both characters are saved (ARP_SaveUser), and the swap is logged;
+  5. CLOSE 0 to both with the result lines, and both windows are brought up to date (SLOTS, MONEY, RESERVE).
+Why nothing can be duplicated: an item is never on both sides. It leaves the owner's total and enters the partner's inside this one function, which has
+no yield and no wait, and ARP's count change fires no event in between; a plugin that changed a count while the exchange was open is caught by step 2.
+
+BREAKING OFF (looked at every second, and at every command): the other connected and alive, neither cuffed nor jailed, both with the window, the distance
+at most arp_h9_trade_range (250 units), and a change within arp_h9_trade_timeout (120 seconds). A death is seen at once (the DeathMsg), a disconnect and a
+changed map at once. The reasons are those of CLOSE in section 5. The held cells are free as the exchange ends.
+
+THE LOG. Every completed exchange, and every one refused at the swap (steps 2 and 3), is written with log_amx and ARP_Log, one line:
+  [ARP] exchange completed on <map>: <name><<authid>> gave [<items>] and <money>, <name><<authid>> gave [<items>] and <money>
+The money is worded as this plugin's sentences word it (credits or $, arp_h9_credits). An exchange that was only offered, declined, withdrawn or broken off
+for range, death or a lapse moves nothing and is not logged.
+
+THE SWITCHES. arp_h9_inv_window (with arp_h9_vgui) switches the whole feature: with it 0 the use key on a player does what it did (nothing), and an
+exchange that is open is closed (CLOSE 1 and 2). arp_h9_trade_range and arp_h9_trade_timeout are only limits. With ARP_JailMod not loaded nobody is
+cuffed or jailed as far as the exchange is concerned.
+
+
+7. THE CREDIT SIGN  (arp_h9_credits; include\ApolloRP_Credits.inc; ORIGIN.txt item 33)
+---------------------------------------------------------------------------------------
+
+The owner asked for the cent sign (U+00A2) in place of "$" for credits. With arp_h9_credits 1, wherever Apollo RP shows a player "$<digits>" he sees the sign and the
+digits instead, if his game can draw it. The rule, and where each part of it is done:
+
+WHO. A player is shown the sign when arp_h9_credits is 1 and his game says _h9vgui H9VGUI_CREDIT_PROTOCOL (7, include\h9_vgui.inc) or more, with h9_vgui 1; he is not a bot.
+  The client says 7 when its inventory window is wanted (cl_h9_arpinv 1, cl_h9_arpvgui 1) and 5 otherwise; the games before it say 6 (the window without the sign). Every other player, a bot, the console,
+  every log (ARP_Log, log_amx, the server console) and anything a plugin parses keep "$"; so does arp_h9_credits 0, and a server where ARP_Inventory (which registers the
+  cvar) is not loaded. In ARP_Inventory's own sentences a player in credits mode who is not shown the sign reads "1,250 credits", cash mode reads "$1,250" (inv_money).
+
+THE HUD LABEL. The HUD's money line says "Credits: $<n>" while arp_h9_credits is 1 and "Wallet: $<n>" while it is 0, as stock ARP does (ARP_HUD.sma looks the cvar up when it builds
+  the line). It follows the server's switch alone, whatever the player's game says; the sign in it is the player's own (WHO, above).
+
+HOW IT IS SPELLED. By where the text ends:
+  chat, console and centre text (client_print)       the UTF-8 bytes C2 A2 (the engine decodes UTF-8 there)
+  the text of an H9 panel                            the single byte A2 (Latin-1; the panels draw a byte above 127 as that character)
+  the classic AMX text menu and a hudmessage         "$": the HUD font has no such glyph
+  A "$" is converted when a digit follows it ("$25" and "($10)" are, "$x" and "cost $" are not).
+
+WHERE.
+  * client_print. AMX Mod X sends the message of client_print itself, straight to the engine, and register_message() only sees the messages the game sends: no message hook
+    can reach a chat line another plugin prints (tried: a TextMsg hook ran for the game's own messages and for none of three sent by a plugin). So every Apollo RP plugin
+    includes ApolloRP_Credits.inc (through ApolloRP.inc), whose macro sends each client_print to arp_client_print: it formats the text (vformat), converts it for the player it
+    is for (client_print(0, ...) is sent to every player with his own text) and calls the real client_print with it. The limits of client_print hold: 189 bytes of chat and
+    centre text, 126 of console text; a sign that would not fit stays "$". ARP_Commands includes the file before amxmisc.inc, so that show_activity, a stock that calls client_print,
+    is redirected as well (the admin commands' activity lines). What players type in the talk area (ApolloRP_Chat.inc, ARP_StdChat) is not changed: it is sent with the real
+    client_print (arp_print_plain). Other plugins' text that goes through client_print of an Apollo RP plugin is converted: a player whose name has a "$" and a digit in it
+    sees the sign in it in an Apollo RP line.
+  * The HUD panel. ARP_Core converts each line it copies into the H9ArpHud message for a player who is shown the sign (single byte); the text HUD keeps "$"; arp_hudstate shows "$".
+  * Panel menus. arpvgui_show_menu converts the text the panel is drawn from (and the text menu sent with it, so that the two stay the same); a paged menu converts the price of
+    a row ("<name> - $<price>" is drawn as the name and the price). The split of a row reads "- $" and "- <sign>" alike.
+  * ARP_Inventory. inv_money has the player it words the money for: the result lines of an exchange are each player's own (the single byte for a game that says 7, "<n> credits"
+    for one that says 6); the window itself draws the sign from the credits flag of OPEN.
+  With arp_h9_credits 0, or for a player whose game says less than 7, what an Apollo RP plugin sends is what stock Apollo RP sends (the same bytes, and the same text menus and HUD).
+
+TESTED (a private headless server, bots that say _h9vgui N inside one server command): the bytes that reach the real client_print for
+a player who says 7, 6, nothing, a bot, with arp_h9_credits 0 and h9_vgui 0, in chat, console, centre and notify text, with format arguments, at the length limits, and with
+client_print(0, ...); the model of the rule against 160 random texts; talk-area chat unchanged; the text handed to the panel for a menu, the rows of a paged menu, and the H9ArpHud
+message the core writes (decoded again from its bytes); ARP_H9Menu's money line and show_activity as the real plugins print them; inv_money for each kind of player; the result
+lines of a real exchange for a player who says 7 and one who says 6; and that the log line of the exchange never holds the sign.
+
+
+8. THE ARRANGEMENT IN THE DATABASE  (arp_h9_inv_persist; ARP_Inventory.sma, the persistence part, stock inv_db_*; ORIGIN.txt item 35)
+---------------------------------------------------------------------------------------------------------------------------------
+
+Where a player put his items is kept between his visits. The counts stay the truth: they are in arp_items as ever and nothing here changes one; what is stored
+is only the arrangement, in a table of its own beside ARP's.
+
+THE TABLE. arp_h9_cells (authid VARCHAR(36), cells TEXT, updated INT(11), UNIQUE authid): one row for each character, under the key arp_items uses (ARP_GetUserKey:
+his authid, or the key of his havoc9.org account). It is made with CREATE TABLE IF NOT EXISTS the first time it is needed (a few milliseconds that the server waits
+for, once), as arp_ids was; no row of any ARP table is changed and going back is dropping the table. `cells` is the cells as text with the item NAMES, because item
+numbers are not stable across a restart: "<cell>:<count>:<item name>|<cell>:<count>:<item name>|..." in cell order, for example "0:20:Soda|1:20:Soda|9:5:Soda|12:3:Pizza".
+A cell with an item whose name has a "|" in it is not stored. The text is cut after 3,500 characters (about 200 cells: the query that carries it is at most 4,095
+characters long), whole cells only; what is cut is packed again at the next join. `updated` is the time (seconds since 1970).
+
+SAVE. The cells are written when they differ from what the database holds (a number made from the cells is compared once a second), once they have been
+QUIET for 3 seconds, or have been changing for 15: a burst of moves, splits and merges is one write, never one for each click. They are also written with ARP's own save of
+the character (the event Player_Save: every arp_save_interval seconds, at disconnect and at a map change, so those two are always covered), when they changed since the
+last write. An exchange, a purchase, a pick-up, a drop and every other change of a cell is a change like any other. Nothing is written for a layout nobody changed since the
+join (a character with no row gets no row until he arranges something), and an arrangement of no cells is never written over a row (a character whose counts did not load must
+not wipe where his items were; a saved cell of an item he does not own is ignored when the row is read, so a row that is out of date does no harm). A write that fails is said once
+in the AMX Mod X log and nothing is tried for a minute.
+
+LOAD. When the character has loaded (Player_Ready), the cells are packed as a join always packed them, and the row is asked for (a query that does not wait). When it comes
+the saved cells are laid over what he owns now:
+  1. each saved cell goes back to the cell it was in, with the count it held clipped to what he still has of the item and to the stack limit now in force; an item that no
+     longer exists, or that he no longer has, is left out;
+  2. a cell beyond the limit of cells now in force (arp_h9_inv_slots lowered), or on a cell that is already taken, is pulled into the first empty cell inside the limit, in
+     the order the cells were saved (what cannot be pulled in stays in the next step);
+  3. whatever he owns that no saved cell took (items he found while away, the part of a stack that was clipped) is added to the cells the way a purchase is: into the partial
+     stacks of its kind, then into empty cells, kinds in item order, and, when the cells inside the limit are full, beyond it, as a join does (the window says "over capacity");
+     nothing he owns is left out of the cells.
+The check command (arp_h9_inv_check) agrees after it as after any other change: for every kind the cells hold exactly the count. When anything had to be adapted the adapted
+arrangement is written once it is quiet. The row is ignored, and the packed cells stand, when: there is no row; the row cannot be read (any token that is not
+"<cell>:<count>:<name>" with a cell below 256, a count above 0 and an item that exists is skipped, the rest is used); the database is down (ARP_SqlHandle says so) or the table
+cannot be made or the query fails (said once in the log, nothing tried for a minute); the player is not there any more when the row comes; or he has already moved something
+since the join (what he did wins and is written in its turn). A bot, a player whose authid ARP does not save a character under (pending, LAN, unknown) unless his havoc9.org account gives him a key, and a server with arp_h9_inv_persist 0 are neither
+read nor written.
+
+THE SWITCH. arp_h9_inv_persist (1): with 0 the cells are packed at every join and nothing is read or written, exactly as before. It is looked at at every read and write, so it
+may be changed while the server runs; a character that joined with it 0 has no row to write until he joins again.
+
+CHECKING. arp_h9_inv_dump <player> prints a line "DB persist=<0|1> key=<1 if he has a key> saved=<1 if the database holds what the cells are> pending=<a read is on its way>
+writes=<n> reads=<n> applied=<n>" after its header (the three counts are since the map began, for all players). The rows can be read with any SQLite tool on a COPY of
+data\sqlite3\arp.sq3: select * from arp_h9_cells.
+
+9. THE SEARCH OF A HANDCUFFED PLAYER  (arp_h9_search; ARP_Inventory.sma, stock sr_*; ORIGIN.txt item 36)
+--------------------------------------------------------------------------------------------------------
+
+A player who presses the use key on a player who is handcuffed or in jail (ARP_JailMod says it, H9_Restrained, as it does for the exchange) is not offered an
+exchange: a SEARCH window opens on his screen with the other player's cells beside his own, and what he takes with it moves from the one's inventory to the
+other's at once. The player searched sees nothing but chat lines: "[ARP] <NAME> is searching you." at the start and "[ARP] <NAME> took 3 Soda from you." for
+each take. No count changes but through ARP's own count change (UTIL_ARP_SetUserItemNum): a take is the one count going down and the other going up, so every
+other plugin and the database see what they always saw, and nothing is made or lost.
+
+THE GATE. The searcher's game must say _h9vgui 8 (include\h9_vgui.inc, H9VGUI_SEARCH_PROTOCOL: the client with its inventory window wanted that can also draw
+the search window), with arp_h9_vgui 1 and arp_h9_inv_window 1; he is not a bot. A searcher whose game says less (6, 7 or none) gets what the use key on a
+handcuffed player gave before, "That player cannot make an exchange now."; there is no text-menu fallback. The player searched needs nothing: any game.
+
+STARTING. ARP_Inventory answers the event Player_Use (the use key on a living player, 100 units, in sight) with the search rules first and then, when the
+press is not the search's, with the exchange rules (section 6). The press is the search's when the target is handcuffed or in jail and the searcher's game can
+draw the window; it then opens a search or is refused, and a handcuffed player is never offered an exchange. A search opens when:
+  * arp_h9_search is 1, with the window switches (arp_h9_vgui, arp_h9_inv_window);
+  * the target is handcuffed or in jail, is not the searcher, is a person (a bot, a roaming citizen too, is never searched, and nothing is said), is alive and
+    has his character loaded ("That player is not ready.");
+  * the searcher is alive, has his character loaded, is not handcuffed or in jail himself ("You cannot do that now.") and is in no exchange, offered or open
+    ("Finish your exchange first."); a search he has open on somebody else is replaced by the new one;
+  * nobody else is searching the target ("Somebody is already searching him.");
+  * no plugin vetoes the event Player_Search (searcher, target), fired last: a handler that returns non-zero stops the search and says why itself. Nothing in
+    ARP implements it; it is the hook for "police only", a cooldown or a license.
+The refusals are notes in the searcher's window (H9Inv NOTE, level 1). The use key on the player already searched, by the same searcher, does nothing. While a
+search is open the searcher is busy for exchanges: his use key on a free player is answered "Finish your search first." and an invitation sent to him is
+answered with CLOSE 14 (busy). A search that may not go on any more (the target's cuffs came off, the searcher's went on) is closed when either of the two is
+next looked at, not only at the next tick.
+
+THE WINDOW. The searcher's own inventory window is opened first when it is not open (H9Inv OPEN, CATALOG, SLOTS), then come H9Search OPEN (the other player's
+name and the length of his grid), the H9Inv CATALOG entries for the kinds in his cells that the searcher's game lacks, and H9Search SLOTS: the other player's
+cells exactly as he sees them in his own window, same positions and same stacks, the empty cells empty. While the window is open only the cells that changed
+are sent. The player searched is not frozen and may go on moving, dropping or giving in his own window: the searcher is sent what his cells become, and a take
+is looked at when it comes. A player with nothing on him opens the window all the same, with "He has nothing on him.". The searcher's own cells are drawn
+beside his by the client, from the H9Inv messages he already has. Nothing is reserved while a search is open. There is no money and no weapon in the hand in
+the window: what the cells hold is what can be taken. If the searcher's own window is opened again while the search is open (a changed arp_h9_credits, a
+changed limit of cells: the client's catalog starts again with an H9Inv OPEN), OPEN and the whole snapshot are sent again. How the two grids sit in one window
+and how a take is made with the mouse are the client's: docs\ARP_INVENTORY_WINDOW.txt.
+
+TAKING. h9inv s take <cell> <n> takes n of a cell of HIS grid (0 to cells - 1 of the last OPEN). A take is the pick-up rule: what fits in the searcher's
+inventory is taken and the rest stays in his cell, nothing falls to the floor and nothing is lost ("You took 3 Soda." or "You took 3 of 5 Soda. Your inventory
+is full."). Refused with a note, and nothing moves: "That cell is empty." (the cell holds nothing, or is not in his grid), "He does not have that many.",
+"Your inventory is full." (not one fits), "That is not a number.". A take for a search that cannot go on (the target freed, dead or gone, the searcher out of
+range, dead or handcuffed) is answered by the CLOSE. The count goes down for the target, from the cell the searcher clicked first, and up for the searcher, in
+one function with no wait and no event between the two. Every take is logged with log_amx and ARP_Log, one line:
+  [ARP] search on <map>: <name><<authid>> took <n> <item> from <name><<authid>>
+A search that took nothing is not logged. h9inv s close closes the window (and so does closing the player's own inventory window, silently).
+
+IT ENDS (looked at every second and at every take; the searcher's game is sent H9Search CLOSE with the reason, the other player nothing): 0 the searcher
+closed it, 1 the target is no longer handcuffed or in jail, 2 he died (seen at once), 3 he left the game (at once) or his character was loaded again, 4 the
+searcher is farther than arp_h9_search_range (150 units) from him, 5 the searcher died, was handcuffed or lost his own window (arp_h9_inv_window or
+arp_h9_vgui turned off), 6 the map is changing or arp_h9_search was turned off. A target who is freed while the window is open closes it: nothing is taken
+from a free player.
+
+H9Search, server to client, registered like H9Inv and sent only to a game that says 8; the first byte is the op
+  1 OPEN      byte 1; byte flags (bit 0 his cells are over capacity; the others are 0); short cells (the length of his grid); string name (his, at most 32)
+  2 SLOTS     byte 2; short first cell; byte count (at most 40); count of { short item; short count }: the layout of H9Inv SLOTS, here his cells (item 0: an empty cell)
+  3 CLOSE     byte 3; byte reason (above)
+  4 NOTE      byte 4; byte level (0 plain, 1 warning); string text (at most 120): a line for the search window's status row, not printed to the chat as well
+  5 MONEY     byte 5; long wallet (0 or more): what the player searched holds in his wallet (the bank is never sent). Only to a game that says _h9vgui 9 and with arp_h9_search_money 1;
+              sent after the snapshot and again whenever his wallet changes (looked at every second and after a take). A game that has not been sent it has no money row.
+  The command "h9inv s money <n>" takes min(n, his wallet) from his wallet into the searcher's (n at least 1; the same range and ending rules as a take of a cell; the answer is a
+  MONEY and a NOTE, he is told in chat, and one log line says who took what from whom).
+The layouts are those of the contract in DESIGN-M5.md, section 2; the strings, the 188 bytes and the 11 messages in a frame are as for H9Inv. The order when a
+search opens: his own H9Inv messages (when his window was not open), H9Search OPEN, the H9Inv CATALOG entries the client lacks, H9Search SLOTS. With no search
+open, h9inv s take is answered by an H9Inv NOTE "You are not searching anyone.".
+
+THE SWITCHES. arp_h9_search (1) switches the whole feature: with 0 the use key on a handcuffed player does what it did ("That player cannot make an exchange
+now.") and a search that is open is closed with reason 6 within a second. arp_h9_search_range (150) is only a limit. arp_h9_inv_dump <player> prints a line
+"SEARCH searching=<the player he searches, or 0> searched_by=<the player searching him, or 0>".
+
+
+10. THE CONTEXT MENU OF THE USE KEY ON A PLAYER  (arp_h9_ctxmenu; ARP_H9Ctx.sma, a plugin of its own; ORIGIN.txt item 50)
+---------------------------------------------------------------------------------------------------------------------
+
+The use key on a living player (the event Player_Use) was the exchange of goods (6), or the search of a handcuffed player (9). Not everyone pressed on wants to trade, a bot cannot, and
+other plugins want the key too, so with arp_h9_ctxmenu 1 a player whose game draws it is shown a MENU of what he can do to that player instead, with the cursor up. ARP_H9Ctx is a plugin of its
+own: ARP_Inventory asks it first (H9Ctx_Press, by callfunc, so a server without it, or with it paused, is the use key as it was), and ARP_JailMod and ARP_Items each give it one small public
+function (H9_Cuffed, H9_RopeState). Nothing is a new game action: the menu reaches what exists.
+
+THE GATE. The press is the menu's when arp_h9_ctxmenu is 1; the presser is a person (a bot never sees a menu), alive, with his character loaded; his game says _h9vgui 10
+(H9VGUI_CTXMENU_PROTOCOL: the client with the menu and cl_h9_ctxmenu 1; include\h9_vgui.inc has no name for it, as it has none for 8 and 9) and wants Apollo RP's panels (arp_h9_vgui 1 and his
+cl_h9_arpvgui); the other is a living player; and at least one entry is listed. Every other press is what it was: the exchange (6), the search (9), the refusals of both. The press that
+ACCEPTS an exchange offered to him by that player is never the menu's. A game that says less than 10 (an older client.dll, the web client until it is synced, a classic client, a player who set
+cl_h9_ctxmenu 0) is not sent H9Ctx at all.
+
+THE ENTRIES, in this order. Each is LISTED or not by the rule of its own feature, and LISTED it is ENABLED or greyed with a reason of at most 33 characters, the one the action would give.
+A row's key is its place (1 to 9, the 0 key for the tenth and for Back); the rows after the tenth have none.
+  Trade                     listed with arp_h9_inv_window 1. Enabled when the exchange could be offered now (the tests of tr_use, in its order, made by ARP_Inventory without a side effect:
+                            H9Inv_CtxWhy). Reasons: "You cannot do that now", "Finish your search first", "You are in an exchange", "Wait for his answer", "Answer the offer first",
+                            "You have no inventory window", "Bots cannot trade", "He is dead", "He is not ready", "You are cuffed or jailed", "He is cuffed: search him" (or "He is cuffed" with
+                            arp_h9_search 0), "He has no inventory window", "He is busy", "Wait a moment".
+  Search                    listed with arp_h9_search 1. Enabled when the search could open now (sr_use's tests). Reasons: "Cuff him first", "You have no search window" (his game says less than 8),
+                            "Bots cannot be searched", "You are cuffed or jailed", "You are being searched", "He is dead", "He is not ready", "Finish your exchange first", "Somebody is searching him".
+  Cuff, or Free             listed with arp_h9_ctx_cuff 1; Free when he is cuffed (ARP_JailMod's H9_Cuffed: what /cuff itself decides by), Cuff otherwise. Police (arp_police_access) need no item;
+                            anyone else needs a Cuffs item (the note says "uses Cuffs") and may not be cuffed himself; police cannot be cuffed. 200 units and in sight. Reasons: "Police only" (no
+                            Cuffs item exists: arp_h9_restraints 0), "You are cuffed", "You have no Cuffs", "Police cannot be cuffed", "Not in sight", "Too far".
+  Tie, or Untie             listed when the Rope item exists (arp_h9_restraints 1); Untie when he is tied. Tie needs a Rope (the item stays) and a holder with nobody on a rope; Untie needs no item and
+                            a mouth that is not taped (/untie is refused to a taped mouth). 100 units. Reasons: "You have no Rope", "You hold someone already", "Your mouth is taped", "Not in sight", "Too far".
+  Tape mouth, or Remove tape  listed when the Tape item exists; Remove tape when his mouth is taped (/removetape: no item, refused to a taped mouth); Tape mouth uses a roll (the note says so).
+                            100 units. Reasons: "You have no Tape", "Your mouth is taped", "Not in sight", "Too far".
+  Fine >                    listed with arp_h9_ctx_fine 1; opens the page of the amounts of arp_h9_ctx_fine_amounts. Police only; enabled when the smallest amount is no more than his bank and
+                            wallet together (as /fine counts it); a page row greys an amount he cannot pay ("He cannot pay"). A choice runs /fine <amount> on him, which asks him to Pay or Refuse in its own
+                            menu. 200 units. Reasons: "Police only", "No amounts are set", "He has no money", "Not in sight", "Too far".
+  Give money >              listed with arp_h9_ctx_give 1; the page of arp_h9_ctx_give_amounts; enabled when the smallest amount is within the giver's wallet (a row greys an amount over it: "You have
+                            less"); a choice runs /givemoney <amount>. 200 units. Reasons: "No amounts are set", "Bots cannot hold money", "He is not ready", "Your wallet is empty", "Not in sight", "Too far". The amounts are written as the
+                            window writes money (the credit sign with arp_h9_credits 1 for a game that draws it, "100 credits" for one that does not, "$100" with 0).
+  Show license or card >    listed with arp_h9_inv_window 1; the page lists what he has whose item name has "license" or "card" in it (at most 8, in item order: on H9's maps Permitted License, Restricted
+                            License, ATM Card, Debit Card, Phone Prepaid Card); a choice shows the first cell that holds it as the window's SHOW TO does (inv_op_show: the Item_Show event, then the banner
+                            to the other player, within 150 units and in sight). Reasons: "No license or card", "Bots cannot see it", "Not near enough".
+  entries of other plugins  after these, below. "Back" ends every page of choices (the 0 key); a page is a new menu with a new serial.
+ONE RULE FOR A SWITCH: an entry whose feature is switched off is not listed (the menu never offers what the server has turned off); an entry that is listed and does not apply is greyed with its
+reason ("Police only" to a civilian is one). A greyed row can be clicked: the menu says the reason under the rows and sends nothing.
+
+THE SERVER DECIDES, and decides again. Every enabled or greyed state above is the server's, from the rules the actions already have: ARP_Inventory answers for Trade, Search and Show (H9Inv_CtxWhy asks the very
+tests tr_use, sr_use and inv_op_show make, with no side effect, and returns the words), ARP_JailMod and ARP_Items for what holds a player (H9_Cuffed; H9_RopeState: bit 0 tied, bit 1 holds somebody on a rope,
+bit 2 mouth taped), and the item, wallet and job natives of ARP for the rest. A choice is DONE through the code the use key and the window run (H9Inv_CtxDo for Trade and Search, H9Inv_CtxShow for a show),
+so there is no second copy of a rule. Cuff, Free, Tie, Untie, Tape mouth, Remove tape, a fine and money act on "the player looked at" in ARP's own commands (SayCuff, the items' use, /untie, /removetape, /fine,
+/givemoney: each calls get_user_aiming), so the menu runs THAT command, with the presser's view turned toward the player the menu is about for the length of the call and given back after it (nothing is sent to
+the client, whose next command overwrites the view in any case): the target is the menu's, never whoever stands in the crosshair when the click comes, and the command's own rules, range and refusals apply.
+The menu is built again every half second while it is up (a change is sent to the player: the same menu refreshed), and again when a choice arrives: a choice is done only when its entry is still in the menu
+and enabled, whatever the client sent. An index that is not a row, a serial that is not the menu's, a menu that is not up, a closed switch, a target out of range or dead, and more than ten h9ctx commands in a
+second do nothing.
+
+IT CLOSES (the player is sent CLOSE with the reason, looked at every half second): 0 the switch went off, or his game cannot draw the menu any more; 1 the player the menu is about is gone or dead; 2 he went
+beyond arp_h9_ctx_range (150; 0 is no limit but each action's own reach); 3 a choice was carried out; 4 the player died or was cuffed. The player closes it himself with the client command
+h9ctx close <serial> (ESC, a right click, a click outside the menu). A page of the menu that has been up for 90 seconds is closed by the client, which tells the server.
+
+EXTENDING (include\ApolloRP_H9Ctx.inc). A plugin that wants an entry (a shove, a faction NPC's order, a siege claim) takes the forward
+    public ARP_H9CtxBuild(id, target)
+which ARP_H9Ctx calls in every plugin that has it each time it builds the menu of id on target (when it opens and every half second), and inside it calls the native
+    ARP_H9CtxAdd(const label[], const handler[], bool:enabled = true, const note[] = "")      returns 1 when the entry was added
+The label is at most 23 characters, the note at most 33 (ASCII; anything else becomes ?). An enabled entry shows the note as a small detail after the label ("uses Cuffs"); with enabled false it is greyed and
+the note is its reason. The handler is a public function of the calling plugin, public handler(id, target), run when the player chooses the entry, after the menu was built again and the entry found in it
+and enabled (so a choice of an entry that is gone, or greyed meanwhile, never reaches it), with the aim turned toward target as above. The menu lists the first four entries that plugins add, on its first page,
+after its own; the native adds nothing outside ARP_H9CtxBuild (it returns 0). The menu is not kept: what the plugins add now is the menu now, so an entry of a plugin that is paused or unloaded is gone from the
+next menu and from the one that is up within half a second, and a choice of it in between is refused with a note ("That is not available now."). A plugin that wants the entry only when ARP_H9Ctx is there takes
+the native filter, set_native_filter("ARP_H9CtxFilter") in plugin_natives: it then loads, and ARP_H9CtxAdd does nothing, on a server without the plugin.
+
+THE SWITCHES. arp_h9_ctxmenu (the plugin's own default is 0, arp.cfg ships 1), arp_h9_ctx_range (150), arp_h9_ctx_cuff, arp_h9_ctx_fine and arp_h9_ctx_give (1; 0 leaves the entry out of the menu and
+touches neither /cuff, /fine nor /givemoney), arp_h9_ctx_fine_amounts ("50 100 250 500 1000") and arp_h9_ctx_give_amounts ("10 50 100 500 1000") (up to 8 numbers of 1 or more). Every one is read when
+it is used: none needs a map change; with arp_h9_ctxmenu 0 a menu that is up is closed (reason 0) within half a second and the use key is what it was. The player's own switch is the client's cl_h9_ctxmenu
+(saved; 0 says _h9vgui 9). arp_h9_ctx_dump <user> [<target>] (the server's console, or an ARP admin's) prints the menu <user> has up (CTX user= on= level= wanted= up= serial= target= page= range=, then
+ROW lines: key, flags, keyno, label, note, and ROWS: the count and a signature of what was sent), or, with <target>, the first page the use key on <target> would give him, and sends nothing.
+
+H9Ctx, server to client, registered by ARP_H9Ctx like H9Inv (variable length), sent only to a game that says 10; the first byte is the op, and a message is at most 188 bytes (the rows of a page are
+cut into as many messages as that takes)
+  1 OPEN    byte 1; byte serial (1 to 255, counting up for each menu and each page of one); byte flags (bit 0: the same menu again with its rows replaced, a refresh); byte page (0 the first page, 1 a fine,
+            2 money, 3 a show); byte rows (how many ROWS will follow, at most 12); string title (the other player's name, or the page's: "FINE", "GIVE MONEY", "SHOW"); string line under the title (the
+            other player's name on a page of choices, else empty)
+  2 ROWS    byte 2; byte serial; byte first row; byte count; then for each row: byte flags (bit 0 it can be chosen, bit 1 it opens a page of choices, bit 2 drawn in red, bit 3 a half row of gap above it);
+            byte key (1 to 9, 10 for the 0 key, 0 for none); string label (at most 23); string note (at most 33)
+  3 CLOSE   byte 3; byte serial (0: whatever is up); byte reason (above)
+  4 NOTE    byte 4; byte serial; byte level (0 plain, 1 a refusal); string text (a short line; the client keeps 71 characters): the line under the rows
+The client sends, at most ten commands a second and only when a menu is up:
+  h9ctx pick <serial> <index>   the row <index> (counting from 0, in the order of the ROWS) of the menu with that serial; the server checks it against the menu it holds
+  h9ctx close <serial>          the player closed it (serial 0 closes whatever is up)
+A client holds only a list of rows and what it was told: what a row means, whether it is enabled and why not are the server's, and every index, length and string of a message is checked and cut to the
+client's own limits (docs\ARP_INVENTORY_WINDOW.txt, 7). The layouts are tested from this text alone: tests\test_arpctx.cpp builds the messages from it, and the server's test run feeds the bytes ARP_H9Ctx really
+sent through the client's reader.

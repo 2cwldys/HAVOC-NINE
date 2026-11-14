@@ -50,6 +50,10 @@ public:
 	void Commit();              // FIRE: send `weapon_<N>` for the cursor, close the menu
 	void CloseSelect();
 	bool IsSelecting() const { return m_selecting; }
+	// Where the bar's drawing ends: the y just below the lowest cell of the columns that touch x0 to x1 (all five by default), 0 when the
+	// bar draws nothing now. What stands under the bar uses it (h9_arphud.cpp). It is the bottom of the bar as it is drawn with the select
+	// open, whether it is open or shut, so what stands under the bar does not move when the select opens.
+	int DrawnBottom(int x0 = 0, int x1 = 0x7fffffff) const;
 	// A cell's clip, kept by the client between WStatus messages (the WeaponInfo handler and the
 	// predicted gun, client.dll @0x1004f8b0 and @0x100581c0). bOwn also marks the weapon held.
 	void SetClip(int type, int clip, bool bOwn);

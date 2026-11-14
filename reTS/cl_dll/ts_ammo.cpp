@@ -64,6 +64,9 @@ bool CHudTSAmmo::Init()
 bool CHudTSAmmo::VidInit()
 {
 	m_flMeleeBar = 100.0f; // @0x1004cd2d: a new map starts the melee bar full
+	// @0x1004cc55: a new map starts on kung fu, and a gun the server has out says otherwise.
+	m_iWeaponType = 0;
+	g_iTSActiveWeapon = 0;
 	// The attachment rows' dot (weapon bar +0x144, loaded with the weapon sprites at 0x1004cbb5);
 	// handles go stale across a map change, so it is reloaded here.
 	m_hInstalled = SPR_Load("sprites/weapons/item_installed.spr");
@@ -72,7 +75,10 @@ bool CHudTSAmmo::VidInit()
 
 void CHudTSAmmo::Reset()
 {
-	// Keep drawing across respawns; the server resends WeaponInfo on weapon deploy.
+	// Keep drawing across respawns. A new life starts on kung fu (@0x1004cd7e); the server sends
+	// WeaponInfo when it holds a gun.
+	m_iWeaponType = 0;
+	g_iTSActiveWeapon = 0;
 	m_iFlags |= HUD_ACTIVE;
 }
 
@@ -353,10 +359,16 @@ bool CHudTSAmmo::Draw(float flTime)
 		const int mode = (m_iFireMode >= 1 && m_iFireMode <= 5) ? m_iFireMode : 0;
 		y -= LINEH;
 		FillRGBA(x, y, 0x80, LINEH - 1, hr, hg, hb, 0x0f);
-		TSHud_DrawString(x + 2, y, SW, CHudTextMessage::BufferedLocaliseTextString(s_mode[mode]), tr, tg, tb);
+		// The Mech's launcher names its two modes for what they do: the burst is its volley, semi one rocket a pull.
+		const char* modeName = TS_IsRocketWeapon(m_iWeaponType) ? (mode == TSFM_BURST ? "Volley" : "Single")
+		                                                       : CHudTextMessage::BufferedLocaliseTextString(s_mode[mode]);
+		TSHud_DrawString(x + 2, y, SW, modeName, tr, tg, tb);
 		y -= LINEH;
 		FillRGBA(x, y, 0x80, LINEH - 1, hr, hg, hb, 0x0f);
-		TSHud_DrawString(x + 2, y, SW, get_ammo_info(wi->iCaliber)->szName, tr, tg, tb);
+		// The caliber's name; the Mech's launcher keeps its rockets in the Barrett's caliber (all sixteen are taken), so the
+		// row names what it holds instead.
+		const char* ammoName = TS_IsRocketWeapon(m_iWeaponType) ? "Missile" : get_ammo_info(wi->iCaliber)->szName;
+		TSHud_DrawString(x + 2, y, SW, ammoName, tr, tg, tb);
 	}
 
 	// The name row, alpha 0x23: the weapon table's name (weapon info +0x44).

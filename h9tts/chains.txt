@@ -1,0 +1,85 @@
+// chains.txt -- the effect chains of H9's Kokoro text to speech.  ASCII only; // starts a comment.
+//
+// This file is DATA, read by the client library (reTS/cl_dll/h9_tts_chains.h and h9_tts_fx.h). The grammar is two kinds
+// of line:   const <name> <number>      and      chain <id> [resample=<ratio>] <stage> <stage> ...
+// A number in a stage may be written A/s (it becomes A / (1 + s)) or A*s (A times s); s is cl_h9_tts_muffle for a mask chain and 1 for
+// a machine chain, so   lowpass=5200/s,0.7071   is a 2600 Hz low-pass at the default strength and 1733 Hz at strength 2.
+//
+// THE ORDER OF ONE LINE  (24000 Hz, mono; every filter runs on doubles)
+//   1 render     Kokoro speaks the words with the variant's blend and speed (voices.txt).
+//   2 trim       Kokoro puts about 0.65 s of near-silence around a line (0.32-0.48 s before, 0.41-0.48 s after, measured). Frames of
+//                10 ms RMS (hop 5 ms); the line runs from the first to the last frame above (loudest frame) + trim_db; trim_pad_ms are kept
+//                on each side and a 10 ms raised-cosine fade closes both ends.
+//   3 resample   ONE pass, cubic Hermite (Catmull-Rom) interpolation, by   ratio = chain resample * depth_step ^ depth.
+//                depth = the variant's default depth + the speaker's cl_h9_tts_mydepth (+ the step cl_h9_tts_individual gives
+//                his slot), limited to -12..+12. A ratio above 1 is faster AND higher, as the depth control is today.
+//   4 normalise  gated RMS to target_db, then the soft limiter (below).
+//   5 chain      the stages of the chain, left to right:
+//                  man / woman, gas-masked, cl_h9_tts_muffle > 0   the variant's mask chain (mask_man / mask_woman), strength s = muffle
+//                  Mech / droid / bot, cl_h9_tts_robot 1            the kind's chain (mech / droid / bot), s = 1
+//                  Mech / droid / bot, cl_h9_tts_robot 0            no stages; the chain's resample ratio stays (the kind's own pitch and tempo)
+//                  anyone else                                      no chain
+//                A Mech, droid or bot is never masked, whatever the mask list says (as today).
+//   6 normalise  again, so a mask is dull and not quiet: every line leaves the chain at target_db whatever it went through.
+//   7 volume/pan gain = volume * headroom * pan_gain;  left = gain * cos(theta), right = gain * sin(theta),
+//                theta = (pan * pan_range + 1) * pi / 4  (pan -1 .. +1, the game's constant-power law); each channel through the
+//                soft limiter, then rounded to 16 bit. At volume 1 a centred voice is -5.9 dB per ear, a hard-panned one -2.9 dB / -21.4 dB.
+//
+// LEVEL  gated RMS = the RMS of the 20 ms frames (hop 10 ms) whose energy is within 20 dB of the loudest frame's. target_db is -18 because
+//        Windows SAPI's David and Zira measure -18.4 and -18.2 dBFS on the twelve survey lines, so cl_h9_tts_volume and the mix stay
+//        where they are. Soft limiter: |x| <= 0.8 passes unchanged; above it y = 0.8 + 0.2 * tanh((|x| - 0.8) / 0.2), so nothing
+//        reaches 1.0 and nothing is hard-clipped (the same function guards the 16-bit output after volume and pan).
+//
+// STAGES  (f in Hz, q = Q, db in dB; biquads are the RBJ cookbook's, direct form, a0 normalised to 1)
+//   lowpass=f,q   highpass=f,q   bandpass=f,q (constant 0 dB peak gain)   peak=f,q,db   lowshelf=f,db   highshelf=f,db (shelf slope 1)
+//        Two lowpass=F,0.7071 in a row are a fourth-order Linkwitz-Riley low-pass: -6 dB at F, 24 dB per octave above.
+//   ringmod=hz,depth      y = x * ((1 - depth) + depth * sin(2 pi hz n / 24000))      amplitude/ring modulation, phase 0 at sample 0
+//   tremolo=hz,depth      y = x * (1 - depth * (0.5 - 0.5 sin(2 pi hz n / 24000)))
+//   bitcrush=bits,hold    y[n] = round(x[hold * floor(n / hold)] * 2^(bits-1)) / 2^(bits-1)   sample-and-hold, then rounding (half to even)
+//   saturate=drive        y = tanh(drive * x) / tanh(drive)
+//   clip=thr              y = clamp(x, -thr, +thr)
+//   comb=ms,fb            y[n] = x[n] + fb * y[n - D],  D = round(ms * 24 + 0)   (a feedback comb; |fb| <= 0.9)
+//   noise=db,follow       white noise (xorshift32, seed 2463534242, scaled to RMS 1) at db below the gated RMS of the line; follow 0 = steady,
+//                         1 = multiplied by the line's own envelope (|x| through a one-pole low-pass, tau 20 ms, peak 1)
+//   gain=db               y = x * 10^(db/20)
+//   breath=pre_ms,post_ms,burst_db,leak_db,center_hz
+//                         breathing through a respirator: the output is pre_ms + the line + post_ms long. Noise = xorshift32 white ->
+//                         bandpass(center_hz, Q 0.7) -> lowpass(1800 Hz, Q 0.7071), scaled to RMS 1. With L = the gated RMS of the line and s
+//                         the strength:  leak = L * 10^(leak_db/20) * s over the whole output;  inhale = L * 10^(burst_db/20) * s * sin^2(pi/2 * t/T)
+//                         over the pre_ms before the line;  exhale = L * 10^(burst_db/20) * s * (1 - t/T)^1.5, after a 10 ms ramp, over the post_ms
+//                         after it. The line itself is added untouched.
+//   Plain C++ for every one of them: a few multiplies per sample, a delay line, tanh from <math.h>; h9_tts_fx.h is 460 lines, no library.
+//
+
+const sample_rate 24000
+const target_db -18
+const trim_db -46
+const trim_pad_ms 50
+const depth_step 1.025
+const pan_range 0.85
+const headroom 0.6
+const pan_gain 1.2
+
+// MASK, MAN.  A rubber face piece over the mouth: no rumble (highpass 100), a boxy resonance at 650 Hz (peak, +5 dB per unit of strength),
+// a short cavity echo (comb 2.6 ms, feedback 0.3 per unit of strength), everything above about 2600 Hz at strength 1 removed by a fourth-order
+// low-pass (5200 / (1 + s) twice: 1733 Hz at strength 2, 3467 Hz at 0.5), and the wearer's breathing: 200 ms of inhale before the line and
+// 320 ms of exhale after it (-18 dB under the voice at the peak), plus a constant air leak at -44 dB.  Strength s = cl_h9_tts_muffle, clamped to 0 .. 2
+// (the comb feedback 0.3 s stays under 0.9); 0 = no mask, the chain is skipped.  The output is longer than the input by 520 ms.
+chain mask_man highpass=100,0.7071 peak=650,1.3,5*s comb=2.6,0.3*s lowpass=5200/s,0.7071 lowpass=5200/s,0.7071 breath=200,320,-18,-44,450
+
+// MASK, WOMAN.  The same mask moved up with the voice: highpass 130, resonance at 780 Hz, comb 2.2 ms, low-pass 6000 / (1 + s) twice
+// (3000 Hz at strength 1), breath noise centred at 560 Hz.  Same strength rules and the same 520 ms of breathing.
+chain mask_woman highpass=130,0.7071 peak=780,1.3,5*s comb=2.2,0.3*s lowpass=6000/s,0.7071 lowpass=6000/s,0.7071 breath=200,320,-18,-44,560
+
+// MECH.  Huge, low, heavy.  The line is played 0.82 times as fast (pitch down 3.4 semitones, tempo 18 percent slower; the bases are deep voices
+// to begin with, median F0 of the played line 66 .. 73 Hz), +5 dB of body below 170 Hz, a slow 30 Hz amplitude growl (depth 0.35), a 14 ms
+// feedback echo (the inside of a steel hull), mild saturation and everything above 4000 Hz rolled off.
+chain mech resample=0.82 lowshelf=170,5 ringmod=30,0.35 comb=14,0.25 saturate=1.5 lowpass=4000,0.7071
+
+// BOT.  A neutral robot.  Pitch and tempo of the base voice are kept; a 62 Hz ring modulation (depth 0.45) and a 3.3 ms comb make it metallic,
+// 12 bit / half-rate sample and hold makes it digital, band-limited to 150 .. 5000 Hz.
+chain bot resample=1.0 highpass=150,0.7071 ringmod=62,0.45 comb=3.3,0.35 bitcrush=12,2 lowpass=5000,0.7071
+
+// DROID.  Light, clipped, synthetic.  Played 1.15 times as fast (higher and quicker), thin (highpass 300), a +5 dB presence peak at 2.8 kHz,
+// a 170 Hz ring modulation (depth 0.35), 10 bit / half-rate sample and hold, soft clipping (saturate 2) and a 7500 Hz low-pass.
+chain droid resample=1.15 highpass=300,0.7071 peak=2800,1.2,5 ringmod=170,0.35 bitcrush=10,2 saturate=2 lowpass=7500,0.7071

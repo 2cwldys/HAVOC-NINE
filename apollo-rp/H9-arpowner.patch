@@ -1,0 +1,40 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -5324,7 +5324,7 @@
+ 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+ 	}
+ 	
+-	new Property = get_param(1) - 1,OwnerAuth[33]
++	new Property = get_param(1) - 1,OwnerAuth[36]
+ 	if(!UTIL_ARP_ValidProperty(Property))
+ 	{
+ 		format(g_Query,4095,"Property does not exist: %d",Property)
+@@ -5333,7 +5333,8 @@
+ 	
+ 	UTIL_ARP_PropertyChanged(Property)
+ 	
+-	get_string(2,OwnerAuth,32)
++	// H9: the whole key of a character (35 characters on H9XASH), not the 32 stock ARP kept
++	get_string(2,OwnerAuth,35)
+ 	array_set_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth)
+ 	
+ 	return SUCCEEDED
+@@ -5347,14 +5348,15 @@
+ 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+ 	}
+ 	
+-	new Property = get_param(1) - 1,OwnerAuth[33]
++	new Property = get_param(1) - 1,OwnerAuth[36]
+ 	if(!UTIL_ARP_ValidProperty(Property))
+ 	{
+ 		format(g_Query,4095,"Property does not exist: %d",Property)
+ 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+ 	}
+ 	
+-	array_get_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth,33)
++	// H9: the whole key, so that ARP_PropertyGetOwner (a player's key is 35 characters) finds the owner who is in the game
++	array_get_string(array_get_int(g_PropertyArray,Property),3,OwnerAuth,35)
+ 	set_string(2,OwnerAuth,get_param(3))
+ 	
+ 	return SUCCEEDED

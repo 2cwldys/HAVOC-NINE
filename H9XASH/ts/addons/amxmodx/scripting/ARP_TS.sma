@@ -6,6 +6,8 @@
 #include <tsx>
 #include <tsfun>
 #include <sqlx>
+#include <ApolloRP_VGui>
+#include <ApolloRP_H9Teams>
 
 new g_9Parabellum
 new g_12Gauge
@@ -77,7 +79,8 @@ new g_GunStats[TS_MAX_WEAPONS][WEAPON] =
 	{80,TSA_LASERSIGHT|TSA_SCOPE},
 	{0,0},
 	{0,0},
-	// H9: 39 the PPSh-41 (H9's reTS), not sold here
+	// H9: 39 the PPSh-41 and 40 the laser rifle (H9's reTS): no attachments, so the item gives the gun at once
+	{0,0},
 	{0,0}
 }
 
@@ -123,7 +126,8 @@ new g_WeaponAmmo[TS_MAX_WEAPONS] =
 	35,//"contender" (H9: 36)
 	300,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion)
 	0,//"tknife" (H9: 38)
-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
 }
 
 new g_AmmoTypes[TS_MAX_WEAPONS] =
@@ -168,12 +172,18 @@ new g_AmmoTypes[TS_MAX_WEAPONS] =
 	13,//"contender" (H9: 36)
 	12,//"askorpion" (H9: 37, .32 ACP as the Skorpion)
 	0,//"tknife" (H9: 38)
-	0//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
+	0,//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
+	0//"laserrifle" (H9: 40, plasma cells: no ARP ammo item either)
 }
 
 new Handle:g_SqlHandle
 
 new g_WeaponTable[] = "arp_weapons"
+
+public plugin_precache()
+{
+	arpvgui_precache()
+}
 
 public plugin_init()
 {
@@ -189,8 +199,14 @@ public plugin_init()
 	
 	ARP_RegisterCmd("arp_addgun","CmdAddGun","(ADMIN) <weaponid> <ammo> <extra> <save (0/1)> - adds gun to wall")
 	
+	arpvgui_init("arpts")
 	register_menucmd(register_menuid(g_AttachMenu),g_Keys,"AttachMenuHandle")
+	
+	TeamInit()
 }
+
+public plugin_cfg()
+	TeamConfigured()
 
 public ARP_Error(const Reason[])
 	pause("d")
@@ -260,7 +276,8 @@ public ARP_RegisterItems()
 		{"G2 Contender","Handgun; Prohibited; 7.62mm NATO"},
 		{"",""},
 		{"",""},
-		{"",""}
+		{"PPSh-41","Sub-machine Gun; Prohibited; 7.62 x 25mm"},
+		{"Laser Rifle","Rifle; Prohibited; Plasma cell"}
 	}
 	
 	for(new Count;Count < TS_MAX_WEAPONS;Count++)
@@ -473,7 +490,7 @@ public _Weapon(id,ItemId)
 	for(new Count;Count < Num;Count++)	
 		Keys |= (1<<Count)
 	
-	show_menu(id,Keys,Menu,-1,g_AttachMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_AttachMenu,"arpts.attach")
 }
 
 public AttachMenuHandle(id,Key)
@@ -524,7 +541,20 @@ public AttachMenuHandle(id,Key)
 }	
 
 GiveWeapon(id)
+{
+	// H9: the PPSh-41 and the laser rifle are weapons of H9's reTS, there only while the server's h9_customweapons is 1. Without them the gun cannot be
+	// made. The core takes the item as this handler returns (neither has an attachment menu, so GiveWeapon runs inside it), so it is put back here, as
+	// _Ammo does for a round that fits no weapon, and the player is told.
+	if(g_Cell[id] >= 39 && !(cvar_exists("h9_customweapons") && get_cvar_num("h9_customweapons")))
+	{
+		new Item = g_GunStats[g_Cell[id]][ITEMID]
+		ARP_SetUserItemNum(id,Item,ARP_GetUserItemNum(id,Item) + 1)
+		ARP_ClientPrint(id,"This server does not have that weapon (h9_customweapons is 0).")
+		return
+	}
+	
 	ts_giveweapon(id,g_Cell[id],250,g_Attachments[id])
+}
 
 public _Ammo(id,ItemId)
 {
@@ -569,3 +599,505 @@ public _Ammo(id,ItemId)
 
 // TS ammo: TSX's native ts_setuserammo (tsfun.inc), which H9's AMX Mod X provides for TS 3.0 and
 // reTS alike, in place of the TS 3.0 private-data writer that stood here.
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+// H9: team play (arp_teamplay, docs\APOLLO_RP.txt, 10).
+//
+// With arp_teamplay 1 a roleplay map plays on TS's team rules with three teams (ARP_Core sets that up before TS makes its rules: include\ApolloRP_H9Teams.inc), and this
+// plugin puts every player on the team of his job and keeps him there. ARP_Core says which team that is (ARP_H9_TeamOf); this plugin moves him to it the way the match
+// mode moves a player -- TS's own jointeam, run for him, and the team field of his entity, which RCBot reads -- and tells ARP_H9_TeamChanged. A player cannot move himself:
+// jointeam and changeteam (the command that opens TS's team panel) are refused for as long as the teams run.
+//
+// A move to another team costs the player a respawn, TS's own rule for a team change: it takes him out of play for respawntime (5 seconds in server.cfg) and he presses
+// fire to come back, with the hands TS gives at a spawn. A join costs nothing, since a joining player is out of play already: TS gives him the team with the fewest players
+// and this plugin moves him to the team of his job as soon as his character is loaded.
+//
+// mp_defaultteam stays 0, TS's own value. With any other value TS puts every player back on the first team at every spawn (CBasePlayer::Spawn asks SetDefaultPlayerTeam, which
+// then answers team_names[0]), so no team but the first would hold; with 0 it keeps the team that the last jointeam wrote into his userinfo.
+//
+// It does nothing until TS has reported ARP's team list (the TeamNames message): a map that is not on team rules, or whose team list is not ARP's, is left alone and the log
+// says so once.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#define TEAM_TASK 5311
+#define TEAM_ENSURE_SECS 60.0	// the server's own files run after the plugins at a map's start and set some of what TeamEnsure sets: it is set again for this long
+#define TEAM_JUDGE_SECS 20.0	// how long after the first player is in the game TS may take to report a team of ARP's before it is said to run none
+#define TEAM_RETRY_SECS 2.0	// before a move that did not take is asked again
+#define TEAM_TRIES 3		// the moves asked for one player before the log says TS refuses them
+
+new p_Teamplay			// arp_teamplay (ARP_Core)
+new p_TeamplayOn		// arp_teamplay_on: set here, read by ARP_Core and tsrp_roambots
+new g_TeamFwd			// ARP_H9_TeamChanged
+new g_TeamTs[MAX_PLAYERS + 1]	// the team TS reports for each player (TeamInfo): ARP_H9_TEAM_*, 0 until it has
+new g_TeamPut[MAX_PLAYERS + 1]	// the team ARP last put him on, what ARP_H9_TeamChanged was last told: 0 until it has
+new Float:g_TeamTryAt[MAX_PLAYERS + 1]	// when a move for him may be asked again
+new g_TeamTries[MAX_PLAYERS + 1]	// the moves asked for him that did not take
+new Float:g_TeamToldAt[MAX_PLAYERS + 1]	// when he was last told that his team follows his job
+new g_TeamVerdict		// 0 not known yet, 1 TS runs ARP's team list, -1 it does not on this map
+new g_TeamSeen			// the TeamInfo messages that named a team of ARP's
+new g_TeamListOk		// the TeamNames messages that gave ARP's list
+new g_TeamListTs[128]		// the first list of teams TeamNames gave that is not ARP's, as TS sent it
+new g_TeamMsgNames		// the id of the TeamNames message once it is hooked
+new g_TeamMsgSay		// the id of the SayText message once it is hooked
+new g_TeamSayOut		// the join lines of TS that MsgSayText left out
+new Float:g_TeamStart		// the clock at plugin_cfg
+new Float:g_TeamFirst		// when the first player was found in the game
+new g_TeamCorrected		// the settings TeamEnsure has had to put back, one bit each, logged once
+new bool:g_TeamWrote		// a team field of an entity was written, so the switch's going off has something to take back
+new bool:g_TeamLoaded		// arp_teamplay was 1 in the server's files (arp.cfg, the map's mapconfig) as this map loaded, so ARP set the game's half of team play up for it (ARP_Core, H9_TeamsPrecache)
+new bool:g_TeamLateSaid		// TeamLate has said that the console's arp_teamplay 1 does nothing on this map
+new const g_TeamSettings[4][] = {"mp_friendlyfire","mp_defaultteam","mp_teammodels_force","mp_teamlist"}
+
+TeamInit()
+{
+	p_Teamplay = get_cvar_pointer("arp_teamplay")
+	p_TeamplayOn = get_cvar_pointer("arp_teamplay_on")
+	if(!p_Teamplay || !p_TeamplayOn)
+		return
+
+	g_TeamFwd = CreateMultiForward("ARP_H9_TeamChanged",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
+
+	// TS tells every client the team of every player with this message, whenever one changes (InitHUD, ChangePlayerTeam): the one reading of a player's team that is
+	// right on every platform
+	new Msg = get_user_msgid("TeamInfo")
+	if(Msg)
+		register_message(Msg,"MsgTeamInfo")
+
+	TeamHook()
+
+	register_clcmd("jointeam","CmdJoinTeam")
+	register_clcmd("changeteam","CmdChangeTeam")
+
+	ARP_AddCommand("arp_teams","(ADMIN) Shows team play: whether TS reports ARP's three teams, and every player's team by his job, by TS and by his entity")
+	register_concmd("arp_teams","CmdTeams",_,"- team play: whether TS reports ARP's three teams, and every player's team")
+
+	set_task(1.0,"TeamTick",TEAM_TASK,"",0,"b")
+}
+
+// The two messages that are hooked when the game has registered them: TeamNames, TS's list of teams (sent to a joining player and to everybody after every team change),
+// which says what list TS runs, and SayText, for the line TS says to a joining player (MsgSayText)
+TeamHook()
+{
+	if(!g_TeamMsgNames)
+	{
+		g_TeamMsgNames = get_user_msgid("TeamNames")
+		if(g_TeamMsgNames)
+			register_message(g_TeamMsgNames,"MsgTeamNames")
+	}
+
+	if(!g_TeamMsgSay)
+	{
+		g_TeamMsgSay = get_user_msgid("SayText")
+		if(g_TeamMsgSay)
+			register_message(g_TeamMsgSay,"MsgSayText")
+	}
+}
+
+// arp_teamplay asked for in the server's files (arp.cfg and the map's mapconfig, which the server runs only after this): the settings TS reads as it goes are written now,
+// before the first player joins and the first citizen is added. The files are the one place a map's load asks in: TS makes its rules as the map loads and ARP reads
+// arp_teamplay then, so the cvar as it is typed later (g_TeamLoaded false) changes nothing on this map.
+TeamConfigured()
+{
+	g_TeamStart = get_gametime()
+	g_TeamLoaded = p_Teamplay && h9_teams_requested()
+
+	if(g_TeamLoaded)
+		TeamEnsure()
+}
+
+// The switch is on, wherever it was set: arp.cfg, a mapconfig, the console
+bool:TeamSwitched()
+	return p_Teamplay && get_pcvar_num(p_Teamplay) != 0
+
+// The switch is on and the map's load asked for team play, so ARP's half of it is set up and this plugin works; a switch turned on later changes nothing on the map
+bool:TeamAsked()
+	return TeamSwitched() && g_TeamLoaded
+
+bool:TeamLive()
+	return TeamAsked() && p_TeamplayOn && get_pcvar_num(p_TeamplayOn) != 0
+
+// The number of a team of ARP's from the name TS gives it, 0 for any other name
+TeamByName(const Name[])
+{
+	new Own[40]
+	for(new Team = ARP_H9_TEAM_FIRST;Team <= ARP_H9_TEAMS;Team++)
+	{
+		ARP_H9_TeamName(Team,Own,39)
+		if(equali(Name,Own))
+			return Team
+	}
+
+	return ARP_H9_TEAM_NONE
+}
+
+// ARP's team list as TS reads mp_teamlist: the names in the order of the numbers, ";" between them
+TeamOwnList(List[],Len)
+{
+	new Own[40]
+
+	List[0] = 0
+	for(new Team = ARP_H9_TEAM_FIRST;Team <= ARP_H9_TEAMS;Team++)
+	{
+		ARP_H9_TeamName(Team,Own,39)
+		if(Team > ARP_H9_TEAM_FIRST)
+			add(List,Len,";")
+		add(List,Len,Own)
+	}
+}
+
+// What TS reads as it goes, and the list others read: mp_friendlyfire at every hit (1: a hit between two players of one team hurts, as the owner asked), mp_defaultteam at every
+// spawn (0, TS's own: a player keeps the team of his last jointeam; any other value puts everybody back on the first team at each spawn) and mp_teammodels_force at every team
+// and userinfo change (0: the server never writes a model key). mp_teamlist is what TS read when it made its rules; it is written again only so that what the console and the
+// other plugins read is the same. game.cfg, server.cfg and the mapconfig set some of these after the plugins start.
+TeamEnsure()
+{
+	new Have[128],List[128]
+
+	TeamSetting(0,1)
+	TeamSetting(1,0)
+	TeamSetting(2,0)
+
+	TeamOwnList(List,127)
+
+	get_cvar_string("mp_teamlist",Have,127)
+	if(!equal(Have,List))
+	{
+		set_cvar_string("mp_teamlist",List)
+		TeamCorrected(3,Have)
+	}
+}
+
+TeamSetting(Index,Value)
+{
+	if(!cvar_exists(g_TeamSettings[Index]) || get_cvar_num(g_TeamSettings[Index]) == Value)
+		return
+
+	new Was[16]
+	get_cvar_string(g_TeamSettings[Index],Was,15)
+	set_cvar_num(g_TeamSettings[Index],Value)
+	TeamCorrected(Index,Was)
+}
+
+// A setting that was not what team play needs when it was looked at: said once, with what it was (the first time it is a config file of the server, run after the plugins)
+TeamCorrected(Index,const Was[])
+{
+	if(g_TeamCorrected & (1<<Index))
+		return
+
+	g_TeamCorrected |= (1<<Index)
+	log_amx("[ARP] team play set %s, which was ^"%s^".",g_TeamSettings[Index],Was)
+}
+
+// What TS says of a player's team
+public MsgTeamInfo(MsgId,Dest,Ent)
+{
+	new Who = get_msg_arg_int(1)
+	if(Who < 1 || Who > MAX_PLAYERS)
+		return PLUGIN_CONTINUE
+
+	new Name[40]
+	get_msg_arg_string(2,Name,39)
+
+	g_TeamTs[Who] = TeamByName(Name)
+	if(g_TeamTs[Who])
+		g_TeamSeen++
+
+	return PLUGIN_CONTINUE
+}
+
+// TS's list of teams: sent to a joining player, and to everybody after every team change. It is the one reading of what list TS runs, as it holds it (mp_teamlist is only what
+// was written when it made its rules). A team's name alone cannot say it: the Middle Sea Republic is the first team of the match mode's list too.
+public MsgTeamNames(MsgId,Dest,Ent)
+{
+	new Count = get_msg_arg_int(1),Name[40],Own[40],List[128],bool:Ours = Count == ARP_H9_TEAMS
+
+	if(Count > 8)
+		Count = 8
+
+	for(new Index;Index < Count;Index++)
+	{
+		get_msg_arg_string(2 + Index,Name,39)
+		if(Index)
+			add(List,127,";")
+		add(List,127,Name)
+
+		if(Ours)
+		{
+			ARP_H9_TeamName(ARP_H9_TEAM_FIRST + Index,Own,39)
+			if(!equal(Name,Own))
+				Ours = false
+		}
+	}
+
+	if(Ours)
+		g_TeamListOk++
+	else if(!g_TeamListTs[0])
+		copy(g_TeamListTs,127,List)
+
+	return PLUGIN_CONTINUE
+}
+
+// What TS tells a joining player, "* assigned to team X" or "* you are on team 'X'", names the team it gave him by the count of players, before his job has moved him. With
+// team play that is not his team, so the line is left out, and TeamNotice says which team his job puts him on.
+public MsgSayText(MsgId,Dest,Ent)
+{
+	if(!TeamAsked())
+		return PLUGIN_CONTINUE
+
+	new Text[48]
+	get_msg_arg_string(2,Text,47)
+
+	if(equal(Text,"* assigned to team ",19) || equal(Text,"* you are on team ",18))
+	{
+		g_TeamSayOut++
+		return PLUGIN_HANDLED
+	}
+
+	return PLUGIN_CONTINUE
+}
+
+public client_disconnected(id)
+{
+	g_TeamTs[id] = 0
+	g_TeamPut[id] = 0
+	g_TeamTryAt[id] = 0.0
+	g_TeamTries[id] = 0
+	g_TeamToldAt[id] = 0.0
+}
+
+// A player joins: the slot may have been a citizen's, whose team field tsrp_roambots wrote, so he carries no team on his entity until he is placed
+public client_putinserver(id)
+{
+	if(TeamAsked() && !is_user_bot(id))
+		entity_set_int(id,EV_INT_team,ARP_H9_TEAM_NONE)
+}
+
+// A player may not move himself: his team is the team of his job. Only while the teams run; until then TS's own handling goes on.
+public CmdJoinTeam(id)
+	return TeamRefuse(id)
+
+public CmdChangeTeam(id)
+	return TeamRefuse(id)
+
+TeamRefuse(id)
+{
+	if(!TeamLive())
+		return PLUGIN_CONTINUE
+
+	if(get_gametime() - g_TeamToldAt[id] > 3.0)
+	{
+		g_TeamToldAt[id] = get_gametime()
+		ARP_ClientPrint(id,"Your team follows your job: you cannot pick one.")
+	}
+
+	return PLUGIN_HANDLED
+}
+
+public TeamTick()
+{
+	if(!TeamSwitched())
+	{
+		// the switch is off: ARP touches no team, and takes back what it wrote to the entities
+		if(g_TeamWrote)
+		{
+			for(new id = 1;id <= MAX_PLAYERS;id++)
+				if(g_TeamPut[id])
+				{
+					if(is_user_connected(id))
+						entity_set_int(id,EV_INT_team,ARP_H9_TEAM_NONE)
+					g_TeamPut[id] = 0
+				}
+
+			g_TeamWrote = false
+		}
+
+		return
+	}
+
+	// the switch is on, but the map's load did not ask for team play: TS has made its rules, so nothing is set, judged or moved
+	if(!g_TeamLoaded)
+	{
+		TeamLate()
+
+		return
+	}
+
+	if(!g_TeamMsgNames || !g_TeamMsgSay)
+		TeamHook()
+
+	if(g_TeamVerdict != -1 && get_gametime() - g_TeamStart < TEAM_ENSURE_SECS)
+		TeamEnsure()
+
+	if(g_TeamVerdict == 0)
+		TeamJudge()
+
+	if(g_TeamVerdict != 1)
+		return
+
+	new Players[MAX_PLAYERS],Playersnum
+	get_players(Players,Playersnum,"ch")
+
+	for(new Count;Count < Playersnum;Count++)
+		TeamPlace(Players[Count])
+}
+
+// arp_teamplay is 1, typed at the console (or set by a file that the server runs after the map's start), on a map whose load did not ask for team play: said once, to the
+// server's console and the log, in the words an admin needs, and nothing is touched.
+TeamLate()
+{
+	if(g_TeamLateSaid)
+		return
+
+	g_TeamLateSaid = true
+	g_TeamVerdict = -1
+
+	new Map[64]
+	get_mapname(Map,63)
+
+	// the server's console cuts a line at 254 characters, so the console gets it in three
+	server_print("[ARP] arp_teamplay is 1 now, but team play cannot start on %s while the map runs.",Map)
+	server_print("[ARP] TS makes its rules once, as a map loads, and ARP reads arp_teamplay then, from configs\arp\arp.cfg and from a line in the map's own mapconfig, never from the console or another file.")
+	server_print("[ARP] Put arp_teamplay ^"1^" in one of those two files and change the map. Teams are left alone on this map.")
+	log_amx("[ARP] arp_teamplay is 1 now, but team play cannot start on %s while the map runs: put arp_teamplay ^"1^" in configs\arp\arp.cfg or in the map's mapconfig and change the map (TS makes its rules once, as a map loads). Teams are left alone.",Map)
+}
+
+// Whether TS runs ARP's teams, from what it has told: a TeamNames message with ARP's list says it does; one with another list (the match mode's) says it runs a list that is
+// not ARP's, and none at all, a while after the first player is in the game, says it runs no team rules
+TeamJudge()
+{
+	new Map[64],List[128]
+	get_mapname(Map,63)
+	TeamOwnList(List,127)
+
+	if(g_TeamListOk > 0)
+	{
+		g_TeamVerdict = 1
+		set_pcvar_num(p_TeamplayOn,1)
+		log_amx("[ARP] team play runs on %s: TS reports the teams %s. Every player is put on the team of his job; friendly fire is on and TS writes no model.",Map,List)
+		return
+	}
+
+	if(g_TeamListTs[0])
+	{
+		g_TeamVerdict = -1
+		log_amx("[ARP] arp_teamplay is 1, but TS reports the teams ^"%s^", not ^"%s^": ts\game.cfg runs h9_arp_teams to write ARP's list, and the log says when it does. Teams are left alone on %s; a change needs a map change.",g_TeamListTs,List,Map)
+		return
+	}
+
+	if(g_TeamFirst == 0.0)
+	{
+		if(get_playersnum() > 0)
+			g_TeamFirst = get_gametime()
+
+		return
+	}
+
+	if(get_gametime() - g_TeamFirst > TEAM_JUDGE_SECS)
+	{
+		g_TeamVerdict = -1
+		log_amx("[ARP] arp_teamplay is 1 in the files, but TS has reported no team on %s since a player came in: the map does not run TS's team rules (TS read mp_teamplay once, as the map loaded; it is %d now). Teams are left alone; a change needs a map change.",Map,get_cvar_num("mp_teamplay"))
+	}
+}
+
+// One player: on the team of his job, and told so; moved there if TS has him on another. Not before his job is loaded, and not while he is dying (TS keeps his body then); a
+// player out of play, joining, spectating or waiting for his respawn, is moved at no cost.
+TeamPlace(id)
+{
+	if(!ARP_PlayerReady(id))
+		return
+
+	new Want = ARP_H9_TeamOf(id),Have = g_TeamTs[id],Cost
+	if(Want == ARP_H9_TEAM_NONE || Have == ARP_H9_TEAM_NONE)
+		return
+
+	if(Have != Want)
+	{
+		new Alive = is_user_alive(id)
+		if((!Alive && !entity_get_int(id,EV_INT_iuser1)) || get_gametime() < g_TeamTryAt[id])
+			return
+
+		g_TeamTryAt[id] = get_gametime() + TEAM_RETRY_SECS
+		TeamMove(id,Want)
+
+		// the command runs in the game at once, and TS's TeamInfo comes back before it returns
+		if(g_TeamTs[id] != Want)
+		{
+			if(++g_TeamTries[id] == TEAM_TRIES)
+				log_amx("[ARP] team play: jointeam %d did not take for player %d (TS says team %d): asked %d times, and asked again every %.0f seconds.",Want,id,g_TeamTs[id],TEAM_TRIES,TEAM_RETRY_SECS)
+
+			return
+		}
+
+		Cost = Alive
+	}
+
+	g_TeamTries[id] = 0
+
+	if(entity_get_int(id,EV_INT_team) != Want)
+	{
+		entity_set_int(id,EV_INT_team,Want)
+		g_TeamWrote = true
+	}
+
+	if(g_TeamPut[id] != Want)
+	{
+		new Old = g_TeamPut[id]
+		g_TeamPut[id] = Want
+		TeamTell(id,Old,Want)
+		TeamNotice(id,Want,Cost)
+	}
+}
+
+// jointeam, run for the player in the game as he would run it: TS's TeamInfo comes with it
+TeamMove(id,Team)
+{
+	new Index[4]
+	num_to_str(Team,Index,3)
+	engclient_cmd(id,"jointeam",Index)
+}
+
+// A player is told his team when ARP has put him on it, the first time after he joins and whenever it changes (TS's own line at a join names the team it gave him by the count of
+// players, and is left out: MsgSayText): with what TS does to a player who was in play
+TeamNotice(id,Team,Cost)
+{
+	new Name[40]
+	ARP_H9_TeamName(Team,Name,39)
+
+	if(Cost)
+		ARP_ClientPrint(id,"Your job puts you on the %s team. TS takes you out of play for a few seconds on a team change: press fire to come back.",Name)
+	else
+		ARP_ClientPrint(id,"Your job puts you on the %s team.",Name)
+}
+
+TeamTell(id,Old,New)
+{
+	new Return
+	if(g_TeamFwd > 0)
+		ExecuteForward(g_TeamFwd,Return,id,Old,New)
+}
+
+public CmdTeams(id,cid)
+{
+	if(!ARP_CmdAccess(id,cid,1))
+		return PLUGIN_HANDLED
+
+	console_print(id,"[ARP] team play: arp_teamplay %d, ARP's team list reported by TS: %s (%d TeamNames of ARP's list, another list %s; %d TeamInfo of ARP's teams; %d join lines of TS left out), arp_teamplay_on %d.",get_pcvar_num(p_Teamplay),g_TeamVerdict == 1 ? "yes" : (g_TeamVerdict == -1 ? "no" : "not known yet"),g_TeamListOk,g_TeamListTs[0] ? g_TeamListTs : "-",g_TeamSeen,g_TeamSayOut,get_pcvar_num(p_TeamplayOn))
+	new List[128]
+	get_cvar_string("mp_teamlist",List,127)
+	console_print(id,"[ARP] TS: mp_teamplay %d, mp_friendlyfire %d, mp_defaultteam %d, mp_teammodels_force %d, mp_teamlist ^"%s^".",get_cvar_num("mp_teamplay"),get_cvar_num("mp_friendlyfire"),get_cvar_num("mp_defaultteam"),get_cvar_num("mp_teammodels_force"),List)
+
+	if(TeamSwitched() && !g_TeamLoaded)
+		console_print(id,"[ARP] arp_teamplay is 1 now, but this map did not ask for team play in arp.cfg or its mapconfig as it loaded: put the line in one of them and change the map.")
+
+	new Players[MAX_PLAYERS],Playersnum,Player,Name[32]
+	get_players(Players,Playersnum)
+	for(new Count;Count < Playersnum;Count++)
+	{
+		Player = Players[Count]
+		get_user_name(Player,Name,31)
+
+		console_print(id,"#%d %s%s: by his job %d, by TS %d, by his entity %d, put by ARP %d",Player,Name,is_user_bot(Player) ? " (a bot)" : "",ARP_H9_TeamOf(Player),g_TeamTs[Player],entity_get_int(Player,EV_INT_team),g_TeamPut[Player])
+	}
+
+	return PLUGIN_HANDLED
+}

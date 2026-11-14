@@ -1,0 +1,42 @@
+name: Patch notes
+
+# A change to the source a shipped binary is built from, or to that binary, needs the binary's .patch note changed with it
+# (docs/PATCH_NOTES_CHECK.txt; the rules are in tools/patch-notes-map.json). Any change to the note passes: the check asks that
+# the note was touched, and for the engine's patches which binary each lands in. A commit that says
+#   Patch-Notes: skip <the reason>
+# on a line of its own (a refactor, a comment, a rename) waives the check for the range. Nothing here edits the repository and
+# nothing uses a secret, so it runs for pull requests from forks too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  notes:
+    name: patch notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: pull request - the notes of what the branch changed
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node tools/patch-notes-check.mjs --base "$BASE" --head "$HEAD" --merge-base
+      - name: push - the notes of what the push changed
+        if: ${{ github.event_name == 'push' }}
+        env:
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: node tools/patch-notes-check.mjs --base "$BASE" --head "$HEAD"

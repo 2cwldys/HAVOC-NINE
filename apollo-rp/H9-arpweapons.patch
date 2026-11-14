@@ -1,0 +1,103 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_TS.sma b/base/addons/amxmodx/scripting/ARP_TS.sma
+index 2341c9a..6c27751 100644
+--- a/base/addons/amxmodx/scripting/ARP_TS.sma
++++ b/base/addons/amxmodx/scripting/ARP_TS.sma
+@@ -78,7 +78,8 @@ new g_GunStats[TS_MAX_WEAPONS][WEAPON] =
+ 	{80,TSA_LASERSIGHT|TSA_SCOPE},
+ 	{0,0},
+ 	{0,0},
+-	// H9: 39 the PPSh-41 (H9's reTS), not sold here
++	// H9: 39 the PPSh-41 and 40 the laser rifle (H9's reTS): no attachments, so the item gives the gun at once
++	{0,0},
+ 	{0,0}
+ }
+ 
+@@ -124,7 +125,8 @@ new g_WeaponAmmo[TS_MAX_WEAPONS] =
+ 	35,//"contender" (H9: 36)
+ 	300,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion)
+ 	0,//"tknife" (H9: 38)
+-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
++	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
++	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
+ }
+ 
+ new g_AmmoTypes[TS_MAX_WEAPONS] =
+@@ -169,7 +171,8 @@ new g_AmmoTypes[TS_MAX_WEAPONS] =
+ 	13,//"contender" (H9: 36)
+ 	12,//"askorpion" (H9: 37, .32 ACP as the Skorpion)
+ 	0,//"tknife" (H9: 38)
+-	0//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
++	0,//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
++	0//"laserrifle" (H9: 40, plasma cells: no ARP ammo item either)
+ }
+ 
+ new Handle:g_SqlHandle
+@@ -267,7 +270,8 @@ public ARP_RegisterItems()
+ 		{"G2 Contender","Handgun; Prohibited; 7.62mm NATO"},
+ 		{"",""},
+ 		{"",""},
+-		{"",""}
++		{"PPSh-41","Sub-machine Gun; Prohibited; 7.62 x 25mm"},
++		{"Laser Rifle","Rifle; Prohibited; Plasma cell"}
+ 	}
+ 	
+ 	for(new Count;Count < TS_MAX_WEAPONS;Count++)
+@@ -531,7 +535,20 @@ public AttachMenuHandle(id,Key)
+ }	
+ 
+ GiveWeapon(id)
++{
++	// H9: the PPSh-41 and the laser rifle are weapons of H9's reTS, there only while the server's h9_customweapons is 1. Without them the gun cannot be
++	// made. The core takes the item as this handler returns (neither has an attachment menu, so GiveWeapon runs inside it), so it is put back here, as
++	// _Ammo does for a round that fits no weapon, and the player is told.
++	if(g_Cell[id] >= 39 && !(cvar_exists("h9_customweapons") && get_cvar_num("h9_customweapons")))
++	{
++		new Item = g_GunStats[g_Cell[id]][ITEMID]
++		ARP_SetUserItemNum(id,Item,ARP_GetUserItemNum(id,Item) + 1)
++		ARP_ClientPrint(id,"This server does not have that weapon (h9_customweapons is 0).")
++		return
++	}
++	
+ 	ts_giveweapon(id,g_Cell[id],250,g_Attachments[id])
++}
+ 
+ public _Ammo(id,ItemId)
+ {
+diff --git a/base/addons/amxmodx/scripting/ARP_NPCs.sma b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+index d8e9a9e..f668897 100644
+--- a/base/addons/amxmodx/scripting/ARP_NPCs.sma
++++ b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+@@ -39,8 +39,8 @@ enum SELLING
+ 	LICENSE
+ }
+ 
+-// H9: H9's TSX numbers 0 to 39 (tsconst.inc), the throwing knife 38 and H9's reTS PPSh-41 39
+-#define MAX_WEAPONS 40
++// H9: H9's TSX numbers 0 to 40 (tsconst.inc), the throwing knife 38, H9's reTS PPSh-41 39 and laser rifle 40
++#define MAX_WEAPONS 41
+ new g_WeaponAmmo[MAX_WEAPONS] =
+ {
+ 	0,//"kung_fu" (H9: 0 in H9's TSX)
+@@ -83,7 +83,8 @@ new g_WeaponAmmo[MAX_WEAPONS] =
+ 	35,//"contender" (H9: 36)
+ 	210,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion here)
+ 	0,//"tknife" (H9: 38)
+-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
++	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
++	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
+ }
+ 
+ // the max possible in any given area is 44 assuming
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_TS.inc b/base/addons/amxmodx/scripting/include/ApolloRP_TS.inc
+index 84cc8dd..616f79a 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_TS.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_TS.inc
+@@ -4,7 +4,7 @@
+ 
+ #define _ApolloRP_TS_included
+ 
+-#define TS_MAX_WEAPONS 40
++#define TS_MAX_WEAPONS 41   // H9: 40 is the laser rifle of H9's reTS (39 the PPSh-41), after TS 3.0's own
+ 
+ stock ts_giveweapon(id,weapon,clip,extra)
+ {

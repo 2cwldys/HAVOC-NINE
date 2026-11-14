@@ -1,5 +1,3 @@
-original havoc 9 universe - cosmo
-gpl natural selection turret code - unknown worlds entertainment
 the specialists 3.0 - filippo "morfeo" de luca, lorenzo "john_matrix" pasini
 xash3D engine - unkle mike, FWGS team and maintainers
 havoc 9 team elimination mode - 2cwldys, claude
@@ -9,9 +7,13 @@ studio maker asset kit - deoroot and stevenlAFl
 reTS and recompiled source binaries - stevenlAFl
 sharing various tools and mapper assistance - babblingbrook
 compts elo plugin backend - xjiro
+original havoc 9 universe - cosmo
+gpl natural selection turret code - unknown worlds entertainment
 h9_te_meridian - deoroot
 ppsh-41 weapon models (view, player and world) - based on "ppsh-41" by zillious, sketchfab.com/3d-models/ppsh-41-5c8a64490fa747389e9cfcaecc69c88a (licence: attribution, see ppsh41_ATTRIBUTION.txt)
 ppsh-41 firing sound - darkest hour: europe '44-'45 team (the free red orchestra mod)
 laser rifle weapon models (view, player and world) - based on "sci-fi marksman rifle (updated textures)" by jett spaulding, skfb.ly/ozONJ, sketchfab.com/3d-models/sci-fi-marksman-rifle-updated-textures-909c08e41bb3491bac9110d9cf1d48e4 (licence: cc by 4.0, creativecommons.org/licenses/by/4.0, see laserrifle_ATTRIBUTION.txt)
 laser rifle sounds and sprites - made for havoc 9 team elimination mode
-transporter logic - FWGS/tf15-client reverse engineering of Team Fortress Classic
+kokoro text to speech model and voices (ts\h9tts) - hexgrad, kokoro-82m (apache 2.0), 8-bit onnx build from onnx-community/Kokoro-82M-v1.0-ONNX
+text to speech phoneme dictionaries and algorithm - misaki by hexgrad (apache 2.0), pronunciations partly derived from CMUdict (carnegie mellon university)
+onnx runtime - microsoft (mit)

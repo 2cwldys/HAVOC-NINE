@@ -206,7 +206,11 @@
    1. The AmxxEasyHttp module and its CA bundle, as for ts_advertise:
         ts\addons\amxmodx\modules\easy_http_amxx.dll
         ts\addons\amxmodx\data\amxx_easy_http_cacert.pem
-      build.bat installs both from compts\ when they are missing.
+      build.bat installs both from compts\ when they are missing. On a Linux
+      server they are ts/addons/amxmodx/modules/easy_http_amxx_i386.so and the
+      same CA bundle in ts/addons/amxmodx/data/; linux\build-linux.sh assemble
+      installs both (AmxxEasyHttp 1.4.0, the same version as the Windows
+      module; linux\LICENSE-AMXXEASYHTTP.txt).
    2. h9_presence.amxx in plugins and in plugins.ini. build.bat builds,
       deploys and registers it with the other plugins.
    3. Nothing more for a dedicated server: the plugin enrolls it by itself
@@ -239,6 +243,9 @@
                           0: a hand-made key only
    h9_presence_enroll     the enrollment code, set and cleared by the plugin
                           (in the server's rules while h9web looks for it)
+   h9_preset              the game-mode preset this server runs (section 4d), set
+                          by configs\h9_preset.cfg (H9XASH's h9_presets puts it
+                          there); empty names none
 
  The plugin logs to the AMXX log only when something changes: "h9web accepts
  this server's reports", or why not ("HTTP 401 bad_signature", "Could not
@@ -477,52 +484,117 @@
  catches unofficial setups and mistakes, not a determined operator with a
  modified h9_presence.
 
+ WHICH PRESET. From h9_presence 1.12 the report also names the game-mode preset the
+ server runs, when it has been told:  "preset": "Siege"  (a word of letters,
+ digits, _ and -, 24 at most). The server is told by the file
+ H9XASH\presets\h9_preset.<Tag>.cfg, which h9_presets.bat copies to
+ configs\h9_preset.cfg with the preset's other files (plugins.<Tag>.ini,
+ ts_matchmode.<Tag>.cfg ...) when a profile is applied; it holds one line,
+ h9_preset "<Tag>", and h9_presence runs it after h9_presence.cfg at each map start.
+ A server that names none, as every older h9_presence and every server that was not
+ set up by h9_presets, is judged against every game mode's list together (below).
+ The name is the server's own word, like the list: it can only narrow the check.
+
  A NEW PLUGIN IN THE PRESET. A build that adds a plugin to presets\plugins.<tag>.ini
  (ts_assault.amxx and ts_ctf.amxx, 2026-11-05, are the latest) makes a server that runs it read as
  modified until the allowlist has that file's hash: re-seed it from the build (the
  command below, mode "add"). Servers that have not updated run without the plugin and
  stay authenticated. The same holds for a rebuilt ts_matchmode.amxx or h9_presence.amxx.
 
+ PER GAME MODE. Beside official-preset.json (everything every mode ships) the folder holds one
+ official-preset-<Mode>.json for each presets\plugins.<Mode>.ini (Assault, Siege, TeamElimination): what that one mode
+ ships, that is the plugins its plugins.<Mode>.ini switches on, every module and every Metamod plugin. A server that
+ runs a mode's official preset is checked against that mode's file, so a plugin that is on the allowlist but is not
+ in that mode's list reads as modified, and a mode's list changes only when its own plugins.<Mode>.ini does (today
+ the three lists are the same, so the three files are). The hyphen is deliberate: h9_presets.bat takes a name with
+ three dot-parts for a preset to copy over a config. tools\preset-check.mjs writes and checks all of them; each
+ per-mode file also says "gameMode": "<Mode>" (preset-check writes it from the next build on), which the site's
+ import takes. The site keeps a list per game mode and judges a server by the one it names (THE ALLOWLIST, THE
+ VERDICTS).
+
+ EVERY UPDATE. The file an admin imports is committed beside the preset lists:
+ H9XASH\presets\official-preset.json (what preset-seed.js writes, with the
+ build's note). build.bat rewrites it at every build, from the plugins, modules
+ and Metamod plugins it has just put into H9XASH and before export.bat carries
+ it to the git copy, and prints what changed; tools\preset-check.mjs compares it
+ with the files (--write rewrites it); and the GitHub workflow
+ .github\workflows\preset-hash.yml runs that comparison for every push and pull
+ request that touches the plugins, the modules or the preset lists, so a binary
+ cannot reach the repository without its hash. What stays by hand is the
+ import: once a release is published, an admin sends the files to the site
+ (below), each per-mode file as the list of the game mode it names, mode "add" to
+ keep the older builds' hashes official or "replace" to drop them. The build a
+ plugin belongs to is the version it registers (the
+ "v" of the report; ts_matchmode's is its BUILD line, 1.59). With no h9web running yet
+ (no site deployed) there is nothing to import into: the files only stay committed and in
+ step with the build (tools\preset-check.mjs checks that), and the import is a step of
+ putting a site up, or of a local test copy.
+
  THE ALLOWLIST (an H9 site admin's)
- presence_preset (migration 12): the kind, the file's name and the SHA-256 of
- its bytes, one row per file an authenticated server may run. It is made from
- a build's own files:
+ presence_preset (migrations 12 and 15): the kind, the file's name, the SHA-256 of
+ its bytes and the game mode whose list it is on, one row per file an
+ authenticated server may run on that list. It is made from a build's own files:
    node modules/presence/bin/preset-seed.js --h9xash <the build's H9XASH folder>
-        --out preset.json                 (the plugins its presets\plugins.<tag>.ini
-                                           switch on, its modules, its Metamod plugins)
+        --out preset.json [--presets Siege]  (the plugins its presets\plugins.<tag>.ini
+                                           switch on, its modules, its Metamod plugins;
+                                           with one tag the file says "gameMode": that tag)
  and imported with POST /api/presence/admin/preset/import, signed in as an
- admin, the file as the body ({ "mode": "add" | "replace", "entries": [...] }),
- or straight into the database, as the service's user with the service's config
- (h9web-admin.js's way), the same tool with --import:
+ admin, the file as the body ({ "mode": "add" | "replace", "gameMode": "<tag>" | "*",
+ "entries": [...] }), or straight into the database, as the service's user with the
+ service's config (h9web-admin.js's way), the same tool with --import:
    node modules/presence/bin/preset-seed.js --h9xash <the build's H9XASH folder>
-        --import --config /etc/h9web/config.json [--mode replace] [--live]
+        --import --config /etc/h9web/config.json [--mode replace] [--live] [--game-mode <tag>|*]
  (--live adds the plugins.ini the build's server runs now; the audit log says
  "(command line)"; the site reads the table again every cacheSeconds, 15, so
  it needs no restart).
- GET /api/presence/admin/preset lists the entries and, for each server that
- reports, its verdict and the files that are off the list; POST .../remove
- { kind, file, sha256 } takes one away. Both changes are in the audit log
- (presence.preset.import, presence.preset.remove).
+ GET /api/presence/admin/preset lists the entries (each with its gameMode) and, for
+ each server that reports, its verdict, the preset it names, the list it was judged by
+ and the files that are off it; POST .../remove { kind, file, sha256, gameMode? } takes
+ one away, off the list gameMode names, or off every list without it. Both changes are
+ in the audit log (presence.preset.import, presence.preset.remove).
    * "add", the default, keeps the hashes of older builds official, so a server
      that has not updated yet stays authenticated until an admin removes them;
-     "replace" first drops every entry that is not optional;
+     "replace" first drops every entry that is not optional from the list the
+     import is for (the command line tool: from every list);
    * an entry with "optional": true (a community's own plugin, say) stays
      through a replace;
    * with no entry at all no preset is kept, and every server that reports
      counts as authenticated until one is imported.
+ The lists. An entry is on the list of one game mode (a preset tag: Assault, Siege,
+ TeamElimination; compared without regard to case) or on the shared list "*", which
+ every mode accepts. The import's "gameMode" says which list it fills; left out, or
+ "*", it fills the shared one. preset-seed.js --import fills each mode's list from its
+ own plugins.<Mode>.ini (the plugins it switches on, every module, every Metamod
+ plugin) and --live's plugins go on the shared list; --game-mode puts the whole build
+ on one list (* gives it to every mode). Migration 15 put every entry that existed
+ when it ran on the shared list, so no server's verdict changes by the update itself. The
+ older, shared entries are accepted in every mode, so to judge by mode import each
+ mode's list and then drop them: the command line tool with --mode replace does both
+ at once; through the route, import each mode's file and take the shared entries off
+ with POST .../remove (name gameMode "*": without one it takes an entry off every list).
 
  THE VERDICTS
    ok    reports, and everything it lists is on the allowlist
    rp    reports, on a roleplay map (rp_ or tsrp_ at the start of its name, _rp_
          or _tsrp_ in it): authenticated, and nothing there is ranked; the
          browser says "[UNRANKED: roleplay]" beside it
-   mod   reports, but a file it lists is not on the list (a file of its own, or
-         another build's: "not the official file (another hash)"), a file could
+   mod   reports, but a file it lists is not on the list it is judged by (a file
+         of its own, another build's: "not the official file (another hash)", or
+         another game mode's: "not on the official list for Siege"), a file could
          not be read, or it has listed nothing yet
    opt   reports, and its operator set h9_authenticated 0 (below)
    off   does not report: not enrolled, or silent and not answering (below), or a
          private community's server or a listen server (never shown)
  ok and rp are the green chain; mod, opt and off the red one.
+
+ WHICH LIST A SERVER IS JUDGED BY
+   * a server whose report names a preset that has a list (Siege, say) is judged
+     against that list and the shared one, and against nothing else;
+   * a server that names none, or one that no list exists for, is judged against
+     every list together;
+   * the name only narrows the check: a mode's list is part of the whole, a roleplay
+     map is still rp, h9_authenticated 0 is still opt, and a file that is on no list
+     is mod whatever the server says it runs.
 
  A VERDICT IS HELD. A report earns the verdict, and the verdict stays while the server
  is there: a server that has been judged ok or rp does not turn red because reports
@@ -739,6 +811,24 @@
  members-only servers' proof switch (docs\H9_COMMUNITIES.txt section 2a) and
  the scoreboard's pictures (section 4b) go by.
 
+ A copied id. Every player on a server can read the others' h9_clientid, so an
+ id that two slots announce is a copy on one of them. The plugin lists each
+ slot of such an id whose game holds a proof with the id, and the others by
+ slot alone (a members-only server's report lists them, and names on does too;
+ otherwise they are left out). h9web keeps the one entry whose proof matches
+ the account's player id: that is the account's, with its presence, chain and
+ level as ever, and the others count for nothing, with no flag against the
+ account. When no entry proves the id, or two do (one game open twice), none
+ is kept: the server cannot say which is real, and a members-only server
+ turns each of them away. h9_community.sma sends a ".relay" line only for a slot
+ h9web has proven (h9p_account), so a copy cannot speak as the real player, nor as
+ one who is not in game; a community whose owner switched CHAT NEEDS PROVEN PLAYERS
+ off (docs\H9_COMMUNITIES.txt section 2) takes the announced id, except from
+ a slot whose id another player announces too. h9_compete.amxx names only proven
+ players to h9web, as the roster, the killer or the victim of a kill, so the id a
+ player takes for the moment of a kill credits and blames nobody; h9_rank.amxx
+ and /find name only a proven game as the asker.
+
  8a. CREATE GAME: A LISTEN SERVER, ITS OWN PLAYER AND ITS KEY
  ------------------------------------------------------------
  A game started with Create Game is a listen server: the player who starts it
@@ -886,9 +976,11 @@
  Protected:
    * forged, changed or replayed reports: each is signed with that server's
      key and must be newer than the last;
-   * a copied h9_clientid, once the challenge is on: without the raw player id
-     no proof can be made, so the copy counts for nothing, earns nothing, gets
-     no name, and the real player's name cannot be taken by it;
+   * a copied h9_clientid beside the real, proven player, once the challenge
+     is on: without the raw player id no proof can be made, so the copy counts
+     for nothing, earns nothing, gets no name, cannot take the real player's
+     name or place (the real player is not dropped, nor kicked from a
+     members-only server), and cannot speak as the player in community chat;
    * a proof captured on the way: it answers one nonce the plugin gave one
      slot, for one server's address; another slot, another server, or a day
      later it is refused;
@@ -911,6 +1003,13 @@
      report anything about the players it really sees; it cannot make proofs,
      so with requireProof it cannot invent verified players. Revoke an
      enrolled key, or rotate a hand-made one, when a server changes hands.
+   * a copied h9_clientid beside a player whose game cannot prove (an older
+     H9XASH, or h9_presence_challenge 0): the server cannot say which is real,
+     so neither is counted, and a members-only server turns both away. The
+     copy of the id of a player who is not in game is that player's unproven
+     sighting: it counts for nothing, and ".relay", /find, .rank, a rated kill and
+     a community's shared data leave it out too, since each needs a proven game,
+     unless the community's owner switched its proof off for chat or for data.
    * presence before the challenge ships: game sightings are unverified until
      then, shown as such, and never counted.
    * the downloaded game in its own menu: nothing reports it.
@@ -962,6 +1061,7 @@
  TSM\h9_presence.cfg.example         the config template; the live
                                      ts\addons\amxmodx\configs\h9_presence.cfg
                                      is never committed or exported
+ H9XASH\presets\h9_preset.<Tag>.cfg  which game-mode preset a server runs (4d)
  h9web\modules\presence\             the h9web module (README.txt inside)
  h9web\modules\presence\bin\presence-key.js   hand-made keys
  h9web\modules\presence\enroll.js    enrollment; a2s.js reads a server's rules;

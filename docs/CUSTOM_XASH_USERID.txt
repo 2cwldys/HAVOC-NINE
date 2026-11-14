@@ -180,7 +180,10 @@
  Budget note for anyone adding more userinfo keys of their own: the whole
  userinfo string shares one 256-byte limit across every key a client sends
  (name, model, rate, and so on). h9_clientid costs about 45 of those bytes,
- _h9idv (section 3a) about 9, _h9lnk (section 2a) about 9.
+ _h9idv (section 3a) about 9, _h9lnk (section 2a) about 9. The match mode's
+ tsm_music (about 12) and tsm_deathsounds (about 18) are set only by a player
+ who types the command, and a game with no room for one keeps the choice for
+ that visit alone.
 
  Linked while connected (.link on a server), the game salts h9_clientid again
  with the account's player id and sends it at once, so the server sees the

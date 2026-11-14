@@ -1,0 +1,37 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index f15b631..119555c 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -3261,10 +3261,13 @@ public ClassSaveHandle(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		return UTIL_ARP_ThrowError(0,0,g_Query,0)
+ 	}
+ 	
+-	new LastQuery,TravTrie:CurTrie = TravTrie:Data[1]
+-	TravTrieGetHCell(CurTrie,"/lastquery",LastQuery)
++	// H9: "/lastquery" counts the answers still to come, and the save is done when the count is spent: the SQL module hands
++	// over the answers that finished in one frame last in, first out, so the numbers of the queries are no order of the answers
++	new Pending,TravTrie:CurTrie = TravTrie:Data[1]
++	TravTrieGetHCell(CurTrie,"/lastquery",Pending)
++	TravTrieSetHCell(CurTrie,"/lastquery",--Pending)
+ 	
+-	if(Data[0] == LastQuery /*&& g_SqlMode != SQLITE*/)
++	if(Pending <= 0)
+ 	{
+ 		TravTrieSetHCell(CurTrie,"/saving",0)
+ 	
+diff --git a/base/addons/amxmodx/scripting/include/celltravtrie.inc b/base/addons/amxmodx/scripting/include/celltravtrie.inc
+index 4ae335a..d743779 100644
+--- a/base/addons/amxmodx/scripting/include/celltravtrie.inc
++++ b/base/addons/amxmodx/scripting/include/celltravtrie.inc
+@@ -205,8 +205,11 @@ stock TravTrieClear(TravTrie:trie)
+     new Array:iter;
+     if(!TrieGetCell(Trie:trie,"",any:iter)) { TrieClear(Trie:trie); return; }
+ 
++    // H9: TrieClear removes the "" key with the others, and the key list is behind it: it goes back under
++    // its key, or nothing could be stored in the trie again
+     ArrayClear(iter);
+     TrieClear(Trie:trie);
++    TrieSetCell(Trie:trie,"",any:iter);
+ }
+ 
+ //stock TravTrieSize(TravTrie:trie) return TrieGetSize(trie) - 1;

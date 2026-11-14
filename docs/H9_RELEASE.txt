@@ -36,6 +36,18 @@ compares as text (older sorts first). To make a new release, edit that file and 
     build.bat <the plugins>    writes include\h9_release.inc from the file (H9_RELEASE) and builds the plugins with it
     export.bat                 lays the file into H9XASH, the export and the git copy
     node tools\webclient-sync.mjs
+    build-linux.cmd -Stage     the Linux build, and the three ZIPs in dist\ staged again
+
+stage-h9xash.ps1 does the build number and the plugins' hashes of this for you when it runs (section 5); the order above is what it follows.
+
+The whole of it is run ONCE, after the last feature that is to be in the release has been written and has had its Windows build and
+checks: the web client, the Linux build and the ZIPs come last, not after each feature (CLAUDE.md, "Parity comes last, once"). Until
+then they are behind on purpose, and a report says so.
+
+tools\release-check.mjs says whether the build (VERSION in ts_matchmode.sma) and the release agree everywhere they
+are stated: the site's download page (--write puts the build there), the game folder's h9_release.txt and the plugins'
+include\h9_release.inc. build.bat and export.bat run it, and so does the GitHub workflow preset-hash.yml for every push
+and pull request that touches them (with tools\preset-check.mjs, docs\H9_PRESENCE.txt 4d).
 
 Both sides read the same file: the client engine (cl_presence.c, CL_Presence_Init) sets its read-only cvar _h9rel
 to it and writes the same key into its userinfo (a cvar set that way never reaches the userinfo by itself), which every
@@ -74,7 +86,34 @@ every client of the old release, and one whose plugins are old refuses a client 
 No new patch was added to xash.bat's chain (its xash.dll line has no room for one); the three above carry the change.
 
 
-5. THINGS TO KNOW
+5. THE BUILD NUMBER AND THE PLUGINS' HASHES, DONE BY THE STAGE SCRIPT
+---------------------------------------------------------------------
+
+  stage-h9xash.ps1 runs tools\release-prepare.mjs of the source tree (-Tsm, or the folder H9_TSM names, or D:\Downloads\TSM) before it copies
+  anything, and records what it packed once the ZIPs are written (dist\.release-state.json: the build, the release and the SHA-256 of every
+  plugin, module and Metamod plugin of the official presets):
+
+    * the official presets (docs\H9_PRESENCE.txt, 4d) are written from what H9XASH holds (tools\preset-check.mjs --write);
+    * when a plugin or module differs from the ones of the package staged last (with no record: always), the build goes up by one (VERSION in
+      ts_matchmode.sma: 1.60 becomes 1.61; a letter some builds carry goes), build.bat and export.bat run so that ts_matchmode.amxx carries it,
+      and the download page's notes and VERSION.txt follow (tools\release-check.mjs --write); with nothing changed the build stays, and one
+      someone raised by hand since is not raised again;
+    * the release (section 2, the join gate's date) is never changed by it: edit h9_release.txt by hand when a release is to make older clients
+      refuse the server.
+
+  A step that fails puts the old build back and no ZIP is written. build.bat and export.bat run under D:\temp\HEAVY-JOB.lock like every heavy job
+  of the project, and are refused while a game runs from H9XASH. The admin imports the new presets as ever: a bump changes ts_matchmode.amxx's
+  hash, so a staged package always has new presets to import.
+  -NoPrepare stages what H9XASH holds; -DryRun says what would be done and changes nothing; -VersionedName names the ZIPs H9XASH-<build>. By hand:
+      node tools\release-prepare.mjs                      the presets written from H9XASH, build and release checked
+      node tools\release-prepare.mjs --auto --dry --state <file>   what a stage would do
+      node tools\release-prepare.mjs --bump               a new build now
+  stage_h9xash.py (Linux, and a machine with no source tree) does not do this step. tools\release_prepare_test.mjs tests its rules.
+  The tool finds ts_matchmode.sma beside it or in the git copy's H9XASH, so --check works in either tree. A new build needs build.bat and export.bat, which are in the source tree
+  only: anywhere else a bump (a dry run too) is refused with "there is no build.bat and export.bat"; --no-build writes the new number into ts_matchmode.sma alone.
+
+
+6. THINGS TO KNOW
 -----------------
 
   * The gate is an update enforcement, not security: _h9rel is a plain string the game sends, and a player who edits

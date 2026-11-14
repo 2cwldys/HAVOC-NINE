@@ -207,6 +207,18 @@ Renderer extras
   compiles out. What remains is MSR's bloom (r_bloom 1) and scene MSAA
   (r_scene_msaa 4), both on by default, with checkboxes in the video menu. The
   browser build itself has not been made yet.
+  A glowing model (an additive texture: the meridian maps' streetlamps, the RepuTengu glasses, ceiling
+  lights) feeds the bloom. engine-h9-glowfix.patch makes R_Set2DMode bind GL_MODULATE before the bloom is
+  composed: the studio renderer leaves GL_REPLACE bound after the viewmodel, and without it every blur tap
+  was added at full strength and the glow came out as a white rounded square. r_bloom 0 turns the bloom off.
+  engine-h9-upscale.patch adds h9_upscale (0 by default, saved with the renderer's settings): with 1, the 3D scene that
+  r_scene_scale made smaller than the window is carried to the screen by AMD's FidelityFX Super Resolution 1.0 (an edge
+  adaptive upsampling, then a sharpening, as GLSL 1.10 shaders through the ARB shader-object calls the renderer already
+  loads) in place of the plain bilinear blit; h9_upscale_sharp (0.84, AMD's recommended value) sets the sharpening. For a weak
+  PC: r_scene_scale 0.67 to 0.77 with h9_upscale 1. At r_scene_scale 1 it only sharpens; the HUD stays at the window's
+  resolution. Where the renderer cannot run it (no shader objects, a shader that does not build) it says so once and the
+  blit stays. The OpenGL ES and WebGL renderers compile it out and keep the cvars; Windows, Linux and Wine run the same
+  code. See docs\H9_UPSCALE.txt.
 
 Valve's content
   Steam  The install's own valve\.

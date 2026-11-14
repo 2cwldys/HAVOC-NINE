@@ -1,0 +1,217 @@
+--- a/engine/server/sv_frame.c
++++ b/engine/server/sv_frame.c
+@@ -358,6 +358,204 @@
+ 
+ /*
+ =============
++SV_H9TrimEntities
++
++H9: a frame is one message of MAX_DATAGRAM bytes. An entity new to a client costs about ten bytes
++(19 header bits, a flag bit for each of the 54 fields, and what differs from its baseline), so a
++client that is sent 1,500 of them at once -- the first update, the update after a lost one, a view
++from outside the map, which is seen in full -- is sent more than the message holds. The whole
++message is then dropped, the client gets no delta base from it, and the next update is a full one
++again: it never recovers while the view stays where it is.
++
++Two limits, both off at 0:
++  sv_h9_entbudget  bytes the entities new to this client may take in one update. The farthest of
++                   them are left out, as if they were not in view, and come in on the next
++                   updates. Players, and every entity the client already holds, are kept.
++  sv_h9_entdist    units. A map entity that never moves by itself (no velocity, no parent, solid
++                   bsp, slidebox or none) farther than this from the client's eye is left out.
++                   The eye is taken to a 128 unit grid, so what is in range changes only when the
++                   client crosses a cell, never on every step.
++=============
++*/
++#define SV_H9_BYTES_NEW_ENTITY	12
++#define SV_H9_BYTES_NEW_PLAYER	40
++#define SV_H9_ENTDIST_CELL	128.0
++
++typedef struct
++{
++	int	index;		// into ents->entities
++	float	dist;		// squared, from the eye
++} sv_h9_cand_t;
++
++static int SV_H9FarthestFirst( const void *a, const void *b )
++{
++	float d1 = ((const sv_h9_cand_t *)a)->dist;
++	float d2 = ((const sv_h9_cand_t *)b)->dist;
++
++	if( d1 > d2 ) return -1;
++	if( d1 < d2 ) return 1;
++	return 0;
++}
++
++static qboolean SV_H9IsStaticMapEntity( const edict_t *ent )
++{
++	if( FBitSet( ent->v.effects, EF_MERGE_VISIBILITY | EF_REQUEST_PHS ))
++		return false;
++
++	if( FBitSet( ent->v.flags, FL_CUSTOMENTITY | FL_CLIENT | FL_FAKECLIENT ))
++		return false;
++
++	if( ent->v.movetype != MOVETYPE_NONE && ent->v.movetype != MOVETYPE_PUSH )
++		return false;
++
++	if( ent->v.solid != SOLID_BSP && ent->v.solid != SOLID_SLIDEBOX && ent->v.solid != SOLID_NOT )
++		return false;
++
++	if( ent->v.aiment || ent->v.owner || !VectorIsNull( ent->v.velocity ) || !VectorIsNull( ent->v.avelocity ))
++		return false;
++
++	return true;
++}
++
++static void SV_H9TrimEntities( sv_client_t *cl, sv_ents_t *ents )
++{
++	static convar_t		*budget_cvar, *dist_cvar;
++	static sv_h9_cand_t	cand[MAX_VISIBLE_PACKET];
++	static byte		drop[MAX_VISIBLE_PACKET];
++	const client_frame_t	*from = NULL;
++	const edict_t		*view;
++	vec3_t			eye;
++	float			range;
++	int			budget, oldmax = 0, oi = 0, ncand = 0, spent = 0, ndrop, keep, i;
++
++	if( !budget_cvar )
++	{
++		budget_cvar = Cvar_Get( "sv_h9_entbudget", "10000", FCVAR_SERVER, "H9: bytes the entities new to a client may take in one update, 0 = no limit" );
++		dist_cvar = Cvar_Get( "sv_h9_entdist", "0", FCVAR_SERVER, "H9: map entities that never move are not sent to a client farther away than this, 0 = no limit" );
++	}
++
++	budget = (int)budget_cvar->value;
++	range = dist_cvar->value;
++
++	if(( budget <= 0 && range <= 0.0f ) || ents->num_entities < 2 )
++		return;
++
++	view = cl->pViewEntity ? cl->pViewEntity : cl->edict;
++	VectorAdd( view->v.origin, view->v.view_ofs, eye );
++
++	// the centre of the cell the eye is in
++	for( i = 0; i < 3; i++ )
++		eye[i] = ( floor( eye[i] / SV_H9_ENTDIST_CELL ) + 0.5 ) * SV_H9_ENTDIST_CELL;
++
++	if( range > 0.0f )
++	{
++		for( keep = 0, i = 0; i < ents->num_entities; i++ )
++		{
++			const edict_t	*ent = NULL;
++
++			if( !SV_IsPlayerIndex( ents->entities[i].number ))
++				ent = SV_EdictNum( ents->entities[i].number );
++
++			if( ent && SV_IsValidEdict( ent ) && SV_H9IsStaticMapEntity( ent ))
++			{
++				vec3_t	nearest;
++				int	k;
++
++				// the nearest point of the entity's box to the eye
++				for( k = 0; k < 3; k++ )
++					nearest[k] = bound( ent->v.absmin[k], eye[k], ent->v.absmax[k] );
++
++				if( VectorDistance2( nearest, eye ) > range * range )
++					continue;
++			}
++
++			ents->entities[keep++] = ents->entities[i];
++		}
++
++		ents->num_entities = keep;
++	}
++
++	if( budget <= 0 || ents->num_entities < 2 )
++		return;
++
++	qsort( ents->entities, ents->num_entities, sizeof( ents->entities[0] ), SV_EntityNumbers );
++
++	// the update the client holds, as SV_EmitPacketEntities picks it
++	if( cl->delta_sequence != -1 )
++	{
++		from = &cl->frames[cl->delta_sequence & SV_UPDATE_MASK];
++
++		if( from->first_entity > ( svs.next_client_entities - svs.num_client_entities ))
++			oldmax = from->num_entities;
++	}
++
++	for( i = 0; i < ents->num_entities; i++ )
++	{
++		int		number = ents->entities[i].number;
++		qboolean	known = false;
++
++		while( oi < oldmax )
++		{
++			const entity_state_t	*old = &svs.packet_entities[( from->first_entity + oi ) % svs.num_client_entities];
++
++			if( old->number < number )
++			{
++				oi++;
++				continue;
++			}
++
++			if( old->number == number )
++				known = true;
++			break;
++		}
++
++		if( known )
++			continue;
++
++		if( SV_IsPlayerIndex( number ))
++		{
++			spent += SV_H9_BYTES_NEW_PLAYER;
++			continue;
++		}
++
++		cand[ncand].index = i;
++		spent += SV_H9_BYTES_NEW_ENTITY;
++		ncand++;
++	}
++
++	if( spent <= budget || ncand == 0 )
++		return;
++
++	for( i = 0; i < ncand; i++ )
++	{
++		const edict_t	*ent = SV_EdictNum( ents->entities[cand[i].index].number );
++		vec3_t		center;
++
++		VectorAverage( ent->v.absmin, ent->v.absmax, center );
++		cand[i].dist = VectorDistance2( center, eye );
++	}
++
++	qsort( cand, ncand, sizeof( cand[0] ), SV_H9FarthestFirst );
++
++	ndrop = ( spent - budget + SV_H9_BYTES_NEW_ENTITY - 1 ) / SV_H9_BYTES_NEW_ENTITY;
++	ndrop = Q_min( ndrop, ncand );
++
++	memset( drop, 0, ents->num_entities );
++
++	for( i = 0; i < ndrop; i++ )
++		drop[cand[i].index] = true;
++
++	for( keep = 0, i = 0; i < ents->num_entities; i++ )
++	{
++		if( !drop[i] )
++			ents->entities[keep++] = ents->entities[i];
++	}
++
++	ents->num_entities = keep;
++}
++
++/*
++=============
+ SV_EmitEvents
+ 
+ =============
+@@ -674,6 +872,9 @@
+ 		cl->ignored_ents = c_notsend;
+ 	}
+ 
++	// H9: the update is held to what one frame can carry (SV_H9TrimEntities)
++	SV_H9TrimEntities( cl, &frame_ents );
++
+ 	// if there were portals visible, there may be out of order entities
+ 	// in the list which will need to be resorted for the delta compression
+ 	// to work correctly.  This also catches the error condition

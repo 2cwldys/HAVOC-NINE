@@ -1,0 +1,297 @@
+===============================================================================
+ H9_UPSCALE -- the 3D scene upscaled with AMD FidelityFX Super Resolution 1.0
+===============================================================================
+
+ QUICK START
+ -----------
+   WHAT IT DOES. The game draws the 3D scene on fewer pixels than your window has, and a sharpening upscaler (AMD's FSR 1)
+   stretches it to the window. The picture is nearly the same, and a weak graphics card has less to draw. The HUD, the menus and
+   the console are drawn after that, at the window's own size, so they stay sharp.
+
+   TURN IT ON. Open the console (the ~ key) and type these two lines, in either order:
+
+       r_scene_scale 0.67        draws the 3D scene at 0.67 of the window's width and height. In a 1920x1080 window that is
+                                 1286x724, 45 percent of the pixels.
+       h9_upscale 1              stretches that scene to the window and sharpens it.
+
+   Both count on the next frame. There is no restart. For a milder step type r_scene_scale 0.77 (59 percent of the pixels).
+   Stay between 0.5 and 1.0: that is the range the upscaler is made for. There is no menu entry for either: use the console.
+
+   TURN IT OFF. Type h9_upscale 0. The plain stretch is back at once. Type r_scene_scale 1 as well to draw the scene at the
+   window's full size again: r_scene_scale stays where you leave it, and does not go back by itself when h9_upscale is 0.
+
+   SHARPNESS. h9_upscale_sharp, 0 to 1, says how hard the picture is sharpened. 0.84 is AMD's own value and the default. 0 is
+   no sharpening and 1 is the strongest. If the edges look too hard, lower it.
+
+   SAVED. h9_upscale, h9_upscale_sharp and r_scene_scale are saved in opengl.cfg, in the game's ts folder, when you quit the
+   game. The next start has them as you left them.
+
+   WHAT YOU SHOULD SEE. A 3D scene a little softer than at full size, but crisper than r_scene_scale alone gives. On still
+   pictures of H9's maps at 0.67 the plain stretch keeps about six tenths of the full-size picture's edge strength and the
+   upscaler about nine tenths (section 4). The upscaler costs a little: 0.31 ms a frame on an RTX 3070 at 1920x1080, against
+   0.17 ms for the plain stretch. Weak cards were not measured. A screenshot shows the upscaled picture. No game has shown it
+   yet: the numbers come from still pictures and a test program (section 8).
+
+   WHEN IT IS NOT WORTH IT.
+     * Your card already draws the game fast at full size. At r_scene_scale 1 the upscaler only sharpens.
+     * r_scene_scale above 1 (a scene bigger than the window): the plain stretch is used. The upscaler does not shrink.
+     * It does not make a PC faster by itself. The speed comes from r_scene_scale, which gives the card fewer pixels to draw.
+       The upscaler makes that smaller picture look better.
+     * r_scene_scale 1 with r_bloom 0 and r_scene_msaa 0: the game draws straight to the window. There is no scene picture to
+       filter, and h9_upscale does nothing.
+     * The web (browser) client has no upscaler. h9_upscale 1 says so once and the plain stretch stays.
+   To save more work on a weak card, also type r_scene_msaa 0 and r_bloom 0. Both are on by default, and the video menu has them
+   as the checkboxes "Smooth edges" and "Glow of magic".
+
+   ON A CARD THAT CANNOT RUN IT. The console prints ONE line that starts with "h9_upscale:" and says why. For example "this OpenGL
+   driver has no shader objects", or a shader that did not compile, with the driver's own words. From then on the game draws the
+   normal picture, and it does not try again. h9_upscale keeps the value you gave it. To try again, type h9_upscale 0 and then
+   h9_upscale 1. A card with no framebuffer objects cannot make a smaller scene at all: the console says "r_scene_scale requires
+   framebuffer objects, which are not supported", and the game draws straight to the window.
+
+
+ COMMANDS
+ --------
+   No console command is added. The upscaler is two cvars (settings: type the name and a value in the console), and it depends on
+   a few that the engine already has. SAVED names the file the game writes the value to when you quit. LIVE means the next frame
+   counts a change, with no restart. COMMANDS.txt (H9XASH CLIENT) has the rows of the two new ones.
+
+   h9_upscale                            (new: engine-h9-upscale.patch)
+       default 0.   Range 0 or 1: 1 or more is on, below 1 is off.   Saved in opengl.cfg.   Live: read every frame.
+       1 draws the 3D scene to the window with FSR 1. 0 is the plain stretch, as before: no shader is built, no target is made
+       and no GL call is added to the frame.
+
+   h9_upscale_sharp                      (new: engine-h9-upscale.patch)
+       default 0.84.   Range 0 to 1 (a value outside it is held to it).   Saved in opengl.cfg.   Live: read every frame.
+       How hard the picture is sharpened. 0 is no sharpening: the sharpening pass is not drawn. 1 is the strongest. 0.84 is
+       AMD's own value (0.25 stops).
+
+   r_scene_scale                         (the engine's own)
+       default 1.0.   Range 0.1 to 8 (a value outside it is held to it).   Saved in opengl.cfg.   Live: the scene picture is
+       made again at the next frame.
+       The 3D scene is drawn at this fraction of the window's width and height, and the HUD is not touched. Under 1 the scene
+       is smaller and the upscaler stretches it. At 1 the upscaler only sharpens. Above 1 the picture is bigger than the window
+       and the plain stretch shrinks it.
+
+   r_scene_msaa                          (the engine's own)
+       default 4.   Range 0 and up: 0 off (unless the window itself is multisampled), 1 is 4 samples, 2 or more is that many.
+       Saved in config.cfg, not opengl.cfg.   Live.
+       Smooths the edges of the 3D scene, off screen. A value of 1 or more makes the engine keep a scene picture even at
+       r_scene_scale 1, so the upscaler has one to work on. The video menu's "Smooth edges" checkbox sets it.
+
+   r_bloom                               (the engine's own)
+       default 1.   Range 0 or 1.   Saved in config.cfg, not opengl.cfg.   Live.
+       The soft glow round what models draw additively (ice, lightning, flames). On, it also makes the engine keep a scene
+       picture at r_scene_scale 1. The video menu's "Glow of magic" checkbox sets it.
+
+   gl_fbo_nearest                        (the engine's own)
+       default 0.   Range 0 or 1.   Saved in opengl.cfg.   Live.
+       1 stretches a smaller scene with no smoothing, so it looks blocky. While h9_upscale is on and working, it has no say in
+       that stretch.
+
+   gl_shaderobjects, gl_framebuffer_object     (the engine's own)
+       default 1.   Saved in opengl.cfg.   Read-only: the console refuses them, and the renderer reads them when it starts.
+       The renderer's own switches for two features of the card. A 0 in opengl.cfg turns the feature off. Without
+       gl_shaderobjects the upscaler cannot run (one console line, then the plain stretch), and without gl_framebuffer_object
+       there is no smaller scene to make.
+
+===============================================================================
+ THE WHOLE ACCOUNT -- how it works, what it costs, how it is built, how it was checked
+===============================================================================
+
+ What the cvar is, what it does with a frame, what it costs and gives, how it is built, what it does on Linux, under Wine and
+ Proton and in the browser, the licence of what it is made from, and how it was checked. The engine's own (engine-h9-upscale.patch,
+ xash3d-h9-patches\patches); the rows for the player are in COMMANDS.txt, H9XASH CLIENT.
+
+ CONTENTS
+    Quick start and Commands: above
+    1. What it is, and what it is not
+    2. The two cvars, and what a weak PC should set
+    3. What it does with the frame
+    4. What it gives and what it costs
+    5. How it is built
+    6. Linux, Wine, Proton and the browser
+    7. The licence
+    8. How it was checked, and what only a game can show
+    9. Files
+
+
+ 1. WHAT IT IS, AND WHAT IT IS NOT
+ ---------------------------------
+   The engine draws the 3D scene into a target of its own, r_scene_scale of the window's size (1 by default, 0.1 to 8), and carries
+   it into the screen target, the window's size, where the HUD, the menus and the console are drawn afterwards. That carrying is a
+   bilinear blit. h9_upscale 1 puts AMD's FidelityFX Super Resolution 1.0 (FSR 1) in its place: EASU, an edge adaptive upsampling,
+   and then RCAS, a sharpening. A scene drawn on fewer pixels comes out crisper than the blit makes it.
+
+   It is a spatial filter: one picture in, one picture out. It has no motion vectors, no history of earlier frames and no neural
+   network, and it cannot add detail that was not drawn; it resamples and sharpens better than a bilinear blit does. It is not DLSS
+   (which needs Direct3D 11/12 or Vulkan, a 64-bit process and motion vectors, none of which this renderer has), and it does not
+   speed a PC up by itself: it makes the cheaper picture, the scene at less than 100 percent, look better. It does nothing for a
+   fast GPU that renders at 100 percent, except the sharpening of section 3.
+
+
+ 2. THE TWO CVARS, AND WHAT A WEAK PC SHOULD SET
+ -----------------------------------------------
+   h9_upscale 0|1         0 (the default) is the plain blit, exactly as before: no shader is compiled, no target is made and no
+                          GL call is added to the frame. 1 is on; a value above 1 acts as 1, one below 1 is off. Saved with the
+                          renderer's settings (opengl.cfg, with r_scene_scale), and read every frame: typed in the console it
+                          takes effect on the next frame, no restart.
+   h9_upscale_sharp 0..1  how strongly RCAS sharpens (0.84). It is FSR's own constant: AMD sets it in "stops" of attenuation, 2 to
+                          the power of minus the stops, and its sample's default is 0.25 stops, which is 0.84. 1 is AMD's strongest
+                          (0 stops), 0 is no sharpening at all (the RCAS pass is not drawn). Saved, live.
+
+   A weak PC or a laptop: r_scene_scale 0.67 (0.77 for a milder step) and h9_upscale 1. The 3D scene then costs about half the
+   pixels and comes out sharper than r_scene_scale alone gives. 0.5 to 1.0 is the range EASU is made for (1x to 4x in area).
+   r_scene_msaa 0 and r_bloom 0 save more on a weak GPU. h9_upscale does not change r_scene_scale or anything else: it is a
+   switch for the filter, not a preset. (A quality preset, one setting that pairs r_scene_scale with h9_upscale for Low, Medium and
+   High, would be an idea for the video menu; it is not built and nothing asked for it.)
+
+   While h9_upscale is on, it takes the place of what gl_fbo_nearest chooses for that blit.
+
+
+ 3. WHAT IT DOES WITH THE FRAME
+ ------------------------------
+   The scene's MSAA resolve and the bloom's compose happen before, in the order they always had; the upscaler only replaces the last
+   step, the scene target into the screen target. What is drawn depends on the two sizes:
+
+     scene smaller than the screen    (r_scene_scale below 1) EASU into a target of the screen's size, RCAS from it into the screen
+                                      target. With h9_upscale_sharp 0, EASU draws into the screen target itself.
+     scene the screen's size          (r_scene_scale 1) RCAS alone, from the scene into the screen target: the sharpening of FSR
+                                      without a scaling. With h9_upscale_sharp 0 there is nothing to do and the blit runs.
+     scene bigger than the screen     (r_scene_scale above 1, a supersampled picture) the blit, as before: FSR does not downscale.
+
+   The HUD, the menus, the console and every 2D draw come after and stay at the window's resolution, untouched. A screenshot is taken
+   from the window after all that, so it shows the upscaled picture.
+
+   It works on the scene target, and the engine makes one while r_scene_scale is not 1, or r_bloom is on, or r_scene_msaa is 1 or more
+   (the last two are on by default, so the target is there at r_scene_scale 1 too). With all three off the engine draws straight into
+   the window, there is no scene picture to filter, and h9_upscale does nothing.
+
+
+ 4. WHAT IT GIVES AND WHAT IT COSTS
+ ----------------------------------
+   Measured on a picture, not in a game (section 8): pictures of H9's maps (export-map\out) and a drawn test scene were reduced to
+   0.67 and 0.75 of their size the way an ideal anti-aliased render of that size holds them (the exact area average, kept as 8
+   bits), then drawn back to the full size by the engine's own blit and by the real gl_upscale.c on an RTX 3070. PSNR against the
+   full-size picture, in dB (higher is closer), and how much of the original's edge strength each keeps (the mean horizontal
+   luma gradient against the original's):
+
+                              0.67 of the size                    0.75 of the size
+                              blit  h9_upscale  edges kept        blit  h9_upscale  edges kept
+      city (640x480)          28.94  29.76      0.56 -> 0.86      29.62  30.60      0.60 -> 0.94
+      plaza (640x480)         28.59  29.41      0.59 -> 0.90      29.19  30.01      0.62 -> 0.98
+      shaft (720x540)         37.23  37.62      0.56 -> 0.88      37.78  38.10      0.60 -> 0.97
+      neuropolis (1376x752)   35.10  36.94      0.59 -> 0.90      36.00  38.02      0.63 -> 0.97
+      test scene (960x540)    35.28  37.77      (not measured)    35.93  38.55      (not measured)
+
+   (h9_upscale_sharp 0.84. EASU alone, h9_upscale_sharp 0, scores within 0.6 dB of these; 1.0 keeps more edge and is further from the
+   original: 0.4 to 1 dB below 0.84 on these pictures.) The picture on screen is the judge: previews of the same pictures, original |
+   blit | h9_upscale, are in the delivery's preview folder. A vertical step edge is 1.6 to 2.5 pixels wide after the blit and 1.5 to
+   2.2 after EASU, by where it falls between two scene pixels; RCAS adds local contrast without an overshoot (the profile stays
+   between 0 and 1: RCAS solves for the strength that does not clip).
+
+   Cost, on the RTX 3070 at 1920x1080 from 0.67 of the size: about 0.31 ms a frame for EASU and RCAS, against 0.17 ms for the plain
+   blit (EASU alone 0.23 ms; RCAS alone, at r_scene_scale 1, 0.12 ms); at 3840x2160 0.68 ms against 0.23 ms (two runs differ by
+   0.01 ms; the harness times the passes with glFinish after each). Weak GPUs were not measured: it is twelve texture fetches a
+   pixel for EASU and five for RCAS. Memory: a colour target of the screen's size (8.3 MB at 1920x1080, RGBA8) while RCAS follows
+   EASU, and two small programs.
+
+
+ 5. HOW IT IS BUILT
+ ------------------
+   * ref\gl\gl_upscale.c (new, in every renderer's source list: ref\gl\wscript takes *.c) holds the two passes as GLSL shaders, the
+     shader-object and target code and the fallback. gl_fbo.c's GL_BlitTarget asks GL_UpscaleBlit first when the blit is the scene
+     target into the screen target (a four-line hook at its top); a false answer runs the old blit untouched. gl_opengl.c defines and
+     registers the two cvars beside gl_fbo_nearest and calls GL_UpscaleShutdown from R_Shutdown; gl_local.h declares them. Nothing
+     else of the old path was edited: the lines of GL_BindScreenTarget and GL_CheckRenderTargets belong to the hunks of the web port's
+     engine.patch, whose check in xash.bat fails when a later patch changes a line inside one.
+   * The shaders are GLSL 1.10 (#version 110), which every driver with GL_ARB_shading_language_100 takes, in a compatibility context;
+     they are built through the ARB shader-object calls gl_opengl.c already loads (glCreateShaderObjectARB and the rest) and nothing
+     else: no vendor extension, no 16-bit storage, no compute shader, no textureGather (GL 4.0), no texelFetch or bit casts (GL 3.0
+     and 3.3). EASU reads its twelve texels one by one at texel centres with nearest filtering and clamp-to-edge, takes its position
+     from gl_FragCoord, and a full-screen quad comes from a vertex stage that passes clip coordinates through.
+   * Where it differs from AMD's shaders (ffx_fsr1.h, ffx_a.h, v1.20210629): AMD approximates three reciprocals with integer bit
+     tricks (APrxLoRcpF1, APrxMedRcpF1) and one reciprocal square root (APrxLoRsqF1); these shaders use 1.0 / x and inversesqrt, the
+     exact values. The two differ by 0.16 level on average (EASU) and 0.32 level (EASU and RCAS) on a real crop of a map picture, with
+     3 and 7 percent of the pixels more than one level apart and isolated pixels up to 14 and 19 levels, in noisy texture detail where
+     AMD's 5 percent error in the direction vector moves the kernel; on an edge or a gradient the two agree to under a level. (AMD's
+     RCAS also makes a NaN where a ring of pixels is pure black or pure white and leans on the hardware's max() to drop it; here the
+     same result is written out with a test, so no NaN is made.) The picture between the two passes is RGBA8, where AMD's sample
+     keeps a half or full float: 0.2 level on average and isolated pixels up to 9 levels (0.3 to 0.75 percent of the pixels differ by
+     more than one), measured with the CPU reference. Left out: RCAS's optional denoise and alpha pass-through, and the extras of
+     ffx_fsr1.h (film grain, tone mapping, dither). FSR 1 wants a gamma-encoded picture; the engine's scene target is one (the
+     engine's ENGINE_LINEAR_GAMMA_SPACE mode, which The Specialists does not use, would give it linear light).
+   * The fallback is polite: no shader objects or no GLSL, a core-profile context (a GLSL 1.10 shader is not accepted there), a
+     shader that does not compile or link, a target that cannot be made: ONE console line saying which and why (the driver's own
+     log, on one line), and the blit from then on, with no retry on the next frame. h9_upscale keeps the value the player gave it;
+     h9_upscale 0 and then 1 tries again. h9_upscale 0 after it ran frees the programs and the target. The engine has no vid_restart:
+     the renderer keeps its context for the whole run, a window or mode change only changes the targets' sizes (the target of EASU's
+     picture follows the screen's size at the next frame), and R_Shutdown frees what the upscaler holds before the context goes.
+   * What a frame it draws changes, besides the framebuffer bindings the blit changes too: the viewport, face culling, the depth
+     test, blending and the alpha test (R_Set2DMode sets what 2D drawing needs right after), the texture bound on unit 0, and the
+     filters of the two textures it reads, which it sets to nearest each frame. No program stays bound.
+
+
+ 6. LINUX, WINE, PROTON AND THE BROWSER
+ --------------------------------------
+   Native Linux: the code is plain C99 and GLSL 1.10 through the same function pointers as the rest of ref_gl, with nothing of
+   Windows or of Visual C++. ref_gl builds as libref_gl.so for Linux i386 (like the rest of H9XASH) and x86-64 with no warning at
+   all (gcc 11.4 and the engine's own flags), needs only libc and libm, and the file also compiles clean with clang. Mesa's llvmpipe
+   (Mesa 23.2.1, OpenGL 4.5 compatibility profile, a software driver, in the h9build distro under Xvfb) builds and runs the shaders and
+   passes the same checks as the RTX 3070's driver (section 8). The two drivers' finished pictures differ by 0.02 to 0.5 level on
+   average and by up to 3 levels (5 at h9_upscale_sharp 1) at isolated pixels, because they round the 8-bit picture between the
+   passes differently and RCAS magnifies a one-level step; a picture made by RCAS alone agrees to within one level. There is no
+   native Linux client to run it in yet (docs\LINUX_SUPPORT.txt section 0); a native client's libref_gl.so carries it.
+   Wine and Proton, which is how Linux players run H9XASH today: the Windows ref_gl.dll runs unchanged; Wine's opengl32 hands the
+   shader-object calls to the host's OpenGL driver (Mesa or NVIDIA), which compiles the same GLSL 1.10. Not run here (no Wine on the
+   build PC).
+   The browser: the OpenGL ES and WebGL renderers (XASH_GLES, ref_webgl2 and ref_gles3compat in this tree) compile gl_upscale.c to
+   an empty stand-in: the cvars exist there (a config line never errors), h9_upscale 1 says once that "this renderer has no
+   upscaler", and the blit stays. A WebGL port of the shaders is not part of this. xash3d-h9-patches\WEB_PARITY.json says so
+   (native-only).
+
+
+ 7. THE LICENCE
+ --------------
+   The two shaders are a port of AMD FidelityFX Super Resolution 1.0 (FSR 1), EASU and RCAS: github.com/GPUOpen-Effects/FidelityFX-FSR,
+   ffx-fsr\ffx_fsr1.h and ffx-fsr\ffx_a.h, version v1.20210629, Copyright (c) 2021 Advanced Micro Devices, Inc., MIT licence. AMD's
+   notice and permission text stand in full at the top of ref\gl\gl_upscale.c (so in the source diff that ref_gl.dll.patch carries)
+   and ship as a file beside the renderer: xash3d-h9-patches\overlay\ref_gl.FSR1-LICENSE.txt, which assemble lays into H9XASH as
+   ref_gl.FSR1-LICENSE.txt, named as h9webview.WebView2-LICENSE.txt is for h9webview.dll (a licence beside its library). The engine
+   itself is GPL-3; MIT code is free to be part of it, and gl_upscale.c's own lines carry the engine's GPL-3 header.
+
+
+ 8. HOW IT WAS CHECKED, AND WHAT ONLY A GAME CAN SHOW
+ ----------------------------------------------------
+   Nothing here ran in the game. What was run:
+   * A CPU reference of EASU and RCAS in Python and numpy, written from AMD's sources in both flavours (AMD's own arithmetic and the
+     shaders'), with a self-test of 95 checks: the constants against the header text, the constant setup, symmetry, no ringing from
+     EASU, RCAS inside 0..1, the NaN corners, and the amd-against-port numbers above.
+   * A test harness that compiles the real gl_upscale.c unchanged against a thin stand-in for the engine's own services and runs it on a
+     real OpenGL compatibility context (a hidden 64x64 window made with SDL2, the same ARB shader-object link path): on the RTX 3070
+     (32-bit Windows, driver 617.14, OpenGL 4.6) and on Mesa's llvmpipe (32-bit Linux). 35 checks of the fallback and the life cycle
+     pass on both: off is no GL call at all (every GL pointer NULL while it runs), a scene bigger than the screen or a sharpness of 0
+     at the same size are the blit with no GL call, a resize frees the old target and makes one new one, off frees the programs and the
+     target, and no shader objects, no GLSL, a core context, a shader that does not compile, a program that does not link and a
+     target that cannot be made each say exactly one line, do not retry, leave the cvar alone, and work again after h9_upscale 0 and 1;
+     no GL error is left behind. 22 checks of the pictures pass on both: the float EASU of the GPU equals the CPU reference to 2.5e-5
+     (RTX 3070) and 1.6e-6 (llvmpipe), RCAS to 5e-7, and the shipped 8-bit picture equals the CPU's RCAS of the GPU's own 8-bit EASU
+     picture within one level. (The RTX 3070 rounds a float colour to 8 bits down for a fraction from .50 to about .56, where a CPU
+     rounds up from .50: that is the driver's, and it moves the picture between the passes by one level on 0.4 to 8.7 percent of its
+     pixels; llvmpipe, 0 to 1.4 percent.)
+   * Builds: ref_gl.dll for 32-bit Windows (Visual Studio, the engine's configuration) with no warning more than the five of
+     gl_sprite.c that the unpatched tree has; libref_gl.so for Linux i386 and x86-64 and the OpenGL ES renderer
+     (ref_gles3compat, the same sources with XASH_GLES) with no warning at all.
+   What only a game can show: a real frame in the real renderer (the picture is the judge: crispness against ringing, the bloom
+   and the viewmodel under the filter, a screenshot), the cost on a weak GPU, the interplay with every state a real frame leaves
+   (the harness stands in for the engine's state), AMD and Intel drivers on Windows (only NVIDIA's and Mesa's were run; the shaders use
+   GLSL 1.10 only, which Mesa's strict compiler takes), and Wine and Proton.
+
+
+ 9. FILES
+ --------
+   xash3d-h9-patches\patches\engine-h9-upscale.patch                 ref\gl\gl_upscale.c (new), gl_fbo.c, gl_opengl.c, gl_local.h
+   xash3d-h9-patches\overlay\ref_gl.FSR1-LICENSE.txt                 AMD's licence, laid beside ref_gl.dll
+   xash3d-h9-patches\xash.bat                                        the patch in the chain and in ENGINE.txt, ref_gl.dll's description
+   xash3d-h9-patches\WEB_PARITY.json, patches\PATCH_CHANGELOG.md     the browser build's entry, the patch's row and entry
+   COMMANDS.txt (H9XASH CLIENT)                                      the two rows

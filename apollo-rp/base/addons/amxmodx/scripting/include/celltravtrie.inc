@@ -205,8 +205,11 @@ stock TravTrieClear(TravTrie:trie)
     new Array:iter;
     if(!TrieGetCell(Trie:trie,"",any:iter)) { TrieClear(Trie:trie); return; }
 
+    // H9: TrieClear removes the "" key with the others, and the key list is behind it: it goes back under
+    // its key, or nothing could be stored in the trie again
     ArrayClear(iter);
     TrieClear(Trie:trie);
+    TrieSetCell(Trie:trie,"",any:iter);
 }
 
 //stock TravTrieSize(TravTrie:trie) return TrieGetSize(trie) - 1;

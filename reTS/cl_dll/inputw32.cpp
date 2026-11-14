@@ -25,6 +25,8 @@
 #include "../public/keydefs.h"
 #include "view.h"
 #include "Exports.h"
+#include "h9_arpinv.h" // H9 ARP inventory: its window takes the mouse buttons while the cursor is up
+#include "h9_arpctx.h" // H9 ARP context menu: it takes them before the inventory window
 
 #include "PlatformHeaders.h"
 
@@ -499,6 +501,11 @@ void DLLEXPORT IN_MouseEvent(int mstate)
 	{
 		if (gHUD.m_TSBuyMenu.IsUp() && !TS_VGUIMenuUp())
 			gHUD.m_TSBuyMenu.HandleMouse(mstate);
+		// the ARP inventory window takes the buttons the same way: a click it takes is not a shot; the context menu, which may stand over it, takes them first and leaves it none
+		if (H9ArpCtx_IsUp() && !TS_VGUIMenuUp())
+			H9ArpCtx_HandleMouse(mstate);
+		else if (H9ArpInv_IsUp() && !TS_VGUIMenuUp())
+			H9ArpInv_HandleMouse(mstate);
 
 		// Keep the edge-detect state in sync while the cursor is up. Otherwise mouse_oldbuttonstate stays
 		// frozen, and once the cursor goes the next IN_MouseEvent compares the live button to that stale

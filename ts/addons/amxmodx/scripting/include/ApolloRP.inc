@@ -24,6 +24,7 @@
 #include <ApolloRP_SC>
 #include <ApolloRP_Speed>
 #include <ApolloRP_Events>
+#include <ApolloRP_Credits>
  
 /* 
 

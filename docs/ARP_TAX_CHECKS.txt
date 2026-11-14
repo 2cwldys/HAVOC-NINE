@@ -1,0 +1,122 @@
+THE ARP PROPERTY TAX -- TO CHECK (docs\APOLLO_RP.txt 11 says what it is, 10 the table of switches)
+====================================================================================================
+
+(The server half was run on a private headless server, a copy of the game folder with the real core, the real SQLite module and every ARP plugin compiled from the masters: the roaming citizens
+of h9_tsrp_hive were the players that make ARP use its threaded queries, bots that a test command counts as persons were the owners in the game, and test builds of the core and of the plugin had
+commands that load a character and stand in for the crosshair. With nobody in the game ARP runs its statements in line: both ways were run. What no test could show is the client's: the H9 panel
+of the menu and what it draws of each row, the popups and their colour, the crosshair on a real door, and a real join. Each step below names what to look at.)
+
+A. Deploy (the lead's builds): build.bat apollo (ARP_PropertyTax is the last of ARP_TARGETS), with the settings of configs\arp\arp.cfg: arp_h9_tax, arp_h9_tax_minutes, arp_h9_tax_percent,
+   arp_h9_tax_flat, arp_h9_tax_manual (1), arp_h9_tax_evict (1), arp_h9_tax_evict_tolls (288) and arp_h9_tax_evict_debt (0). Change the map, or restart the server: a new cvar registers only
+   then. Back up data\sqlite3\arp.sq3 first: nothing is migrated and no row of any ARP table is added, but tables are made when first needed: arp_h9_tax and arp_h9_taxbase, and, while
+   arp_h9_tax_manual is 1, arp_h9_taxdue and arp_h9_taxnote (dropping them takes the feature back out). The plugin needs ARP_TalkArea, which comes before it in plugins.ini (say /tax, /renew and
+   /paytax go through it).
+
+B. Server only, nobody at a screen (the server's console or rcon).
+   1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found"; amx_plugins lists eighteen ARP plugins running, ARP_PropertyTax among them. arp_h9_tax_dump says "TAX on=1 minutes=15.0 ...",
+      "DB made=1 loaded=1 prices=<n> failed=0 ...", "TABLES ...", and, with arp_h9_tax_manual 1, "HAND manual=1 evict=1 limit_tolls=288 limit_debt=0 loaded=1 rows=<n> owing=<n> owed=<n> automatic=<n>
+      on_its_way=0 to_write=0" and "HANDDB made=1 due_table=arp_h9_taxdue note_table=arp_h9_taxnote". (made=0 until a second after the map starts.)
+   2. The tax with the new settings off: arp_h9_tax_manual 0 (the plugin's own default; the settings are read at every toll, so the server's console is enough): the dump has no HAND lines (unless
+      arp_h9_tax_manual was 1 earlier in this map), the next toll charges the owners' banks ("toll N: ... owners, ... in the game, ... away"), no row of arp_h9_taxdue changes, and
+      say /renew is plain chat. arp_h9_tax 0: nothing is read or written, as before.
+   3. A toll by hand with nobody in the game. With the server stopped and data\sqlite3\arp.sq3 backed up, give a character who has a row in arp_users a property, with any SQLite tool:
+      UPDATE arp_property_h9_tsrp_hive SET ownerauth='<his authid>',ownername='Test' WHERE internalname='h9_pc_flat_res4';  (properties are read when the map starts). Start the server,
+      arp_h9_tax_value h9_pc_flat_res4 2400 and arp_h9_tax_minutes 1: within two minutes the log has "[ARP] property tax: toll 1 (by hand): 1 properties charged, 1 owe $24 more, 0 automatic
+      owners ..., 0 taken back, 0 warned" and his bank in arp_users is NOT changed; select * from arp_h9_taxdue has a row: the map's property table, h9_pc_flat_res4, his authid, due 24, tolls 1,
+      autopay 0, locked -1. The next toll makes it 48 and 2 tolls, one row.
+   4. Eviction by the period: arp_h9_tax_evict_tolls 2. The first toll of a map takes nothing back, so the second toll (tolls 2) does: the log has "h9_pc_flat_res4 was taken back from <authid> (it
+      owed $48 for 2 tolls; the period was used up; it is locked and its price is $2400)"; arp_h9_tax_dump says gone=1; arp_h9_taxdue has no row for it; arp_h9_taxnote has one: his authid, the
+      property table, h9_pc_flat_res4, its name as players see it (cut at 20 characters), 2, 48, why 1. Once ARP has saved (arp_save_interval seconds, or a map change) the property table holds it
+      as nobody's: ownername and ownerauth empty, price 2400 (what he paid: arp_h9_taxbase), locked 1 (sealed: the lock was not noted, the property being given by hand and not bought).
+   5. The ceiling: arp_h9_tax_evict_tolls 0 and arp_h9_tax_evict_debt 30, the property owned again as in 3: the toll at which it owes 30 or more takes it back (from the second toll of the map),
+      and the log says "the ceiling was reached"; the notice's why is 2. Either limit alone is enough.
+   6. Automatic payment while he is away: UPDATE arp_h9_taxdue SET autopay=1 WHERE name='h9_pc_flat_res4';  and restart (the table is read at the start), or turn it on by menu (C) and leave. At a
+      toll his bank is lower by what the property owed plus the toll's amount, and the property owes nothing (due 0, tolls 0); arp_h9_tax has a row: taken that sum, tolls 1, props 1. With
+      UPDATE arp_users SET bankmoney=5 WHERE authid='<his authid>';  the toll takes NOTHING (not even the 5: all or nothing) and the property owes one more toll. With two automatic properties and a
+      bank that holds one sum but not both: nothing.
+   7. A restart: tolls=0 and the clock starts again, HAND rows=<n> (what each property owed is read from arp_h9_taxdue), nobody's bank changed for the time the server was down, and the first toll after
+      the restart takes nothing back even when a property is over its allowance (it goes at the second).
+   8. Keys of 32 to 34 characters (a property row saved before the core kept the whole key: its ownerauth is the beginning of the character's key): its owner is found by the beginning of his key,
+      so the property owes, is paid for automatically, is taken back and has its notice written for his character (arp_users keeps the whole key). arp_h9_tax_dump counts the owners whose key was cut at
+      the last toll (cut_keys: with arp_h9_tax_manual 1 those of automatic properties).
+   9. A database that fails (a second connection renames a table: ALTER TABLE arp_h9_taxdue RENAME TO arp_h9_taxdue_x): the log says once "[ARP] property tax: the database failed (...)", nothing is
+      written for a minute, the tolls go on in memory, and once the table is back and the minute is over every row is written again.
+   10. arp_h9_tax_evict_tolls 2 and arp_h9_tax_evict 0: nothing is ever taken back; switch it on and every property that is over its allowance goes at the next toll. Lowering arp_h9_tax_evict_tolls under the tolls a property has owed does the same, with no warning.
+   11. A property with several doors: h9_pc_skytech has eight. Give it to a character as in 3: one row in arp_h9_taxdue, whatever the doors; taken back as one (the owner cleared once, one notice).
+
+C. With H9's client on h9_tsrp_hive: one character with money in his bank (an ARP admin gives it: arp_createbank <player> 15000, docs\ARP_ADMINS.txt 8) and arp_h9_tax_minutes 1.
+   1. Buy a property that is for sale: look at its door (the plaque says FOR SALE and the price; Paradise Flat 4 is 14000) and say /buy. say /tax: a popup "Property tax: $14 at each toll, every 1
+      minute, for 1 property; the next toll is in <n> minutes." and the console lists "Paradise Flat 4: $14 a toll, owes nothing, pays by hand".
+   2. A toll comes: NO popup, and the bank line of the HUD does not change. say /tax now has a second popup: "Property tax owed: Paradise Flat 4 $14 (about 2 hours left). You must pay it: say
+      /renew at the door." and the console says "owes $14 (1 toll), pays by hand, about 2 hours left".
+   3. Face a door of the property and say /renew: the menu opens as an H9 panel: ARP Property Tax; Paradise Flat 4; Tax a toll: $14; Owes: $14 (1 toll); Left: 95 tolls; Time: about 2 hours; Bank:
+      $15000; Wallet: $...; 1. Pay $14 now; 2. Automatic payment OFF; 0. Close (the credit sign in place of each $ with arp_h9_credits 1 on a new client). WRONG: a line cut short, a row missing, a
+      "$" where the credit sign should be, a panel that does not close with 0. With cl_h9_arpvgui 0 or arp_h9_vgui 0 it is the classic text menu with the same rows.
+   4. Press 1: the bank is $14 lower (the HUD at once), a popup "Property tax paid: $14 taken from your bank for Paradise Flat 4.", and the menu comes back with "Owes: nothing" and the pay row
+      dimmed. Let two tolls pass and pay again after setting the bank to 5 (arp_setbank <player> 5) and the wallet to 5: a popup in the warm colour, "You cannot pay the $28 that Paradise Flat 4
+      owes: your bank holds $5 and your wallet $5.", and nothing is taken. With bank 10 and wallet 500: "$10 taken from your bank and $18 from your wallet".
+   5. Press 2: "Automatic property tax payment for Paradise Flat 4 is ON ..." and the menu says ON; press 2 again: OFF.
+   6. Automatic payment in the game: ON, bank $15000. At the next toll a popup "Property tax: $<what it owed plus the toll> taken from your bank for Paradise Flat 4." (not the warm colour) and the
+      bank is lower by that. With the bank at 5: a popup in the warm colour, "Property tax for Paradise Flat 4: $<sum> could not be taken (not enough in your bank), so it is owed now. Say
+      /renew at the door to pay.", and the bank is still 5 (nothing is taken).
+   7. A door that is not his, or nothing: face another property's door, say /renew: "That property is not yours." and the list; face a wall: "You are not looking at a door of a property of yours:
+      face one of its doors and say /renew."
+   8. A building with several doors (the Skytech has eight): /renew at each door opens the menu of the same property; pay at one door, say /tax: it owes nothing for every door.
+   9. Warnings and eviction: arp_h9_tax_evict_tolls 6, the property left unpaid. At the third toll a popup in the warm colour: "Property tax: Paradise Flat 4 owes $42. You must pay it (say /renew at its
+      door) within less than an hour, or the server takes it back."; again at the fifth. At the sixth a popup in the warm colour "The server has taken back Paradise Flat 4: its property
+      tax was not paid, so you do not own it any more.", /renew at its door says "That property is not yours.", the plaque says FOR SALE at 14000 and the door is as it was before he bought it
+      (locked or unlocked). He can buy it again.
+
+D. Away and back (the owner of C leaves the server, or the map is changed and he stays out; arp_h9_tax_minutes 1).
+   1. A property owing but not yet over its allowance: he joins: once his HUD is up and he has been alive for a few seconds (not while he picks a class or watches), ONE popup "Property tax owed:
+      Paradise Flat 4 $42 (about 2 hours left). You must pay it: say /renew at the door." with the property nearest to being taken back first and at most three names ("and N more"). He leaves and
+      joins again: the same popup (it is what he owes, not an event).
+   2. Taken back while he was away (arp_h9_tax_evict_tolls 3 and three tolls pass): in the log "was taken back"; select * from arp_h9_taxnote has his row; he joins: ONE popup "While you were away,
+      the server took back Paradise Flat 4: its property tax was not paid, so you do not own it any more." in the warm colour, and the row is gone. He leaves and joins again: nothing more. A character
+      that was in the game but whose HUD had not loaded gets the same popup later.
+   3. Automatic payment while away: ON for one property, he leaves, two tolls pass: his bank is lower by two tolls, arp_h9_tax has one row (taken, tolls 2, props 1), and when he joins ONE popup "While
+      you were away, property tax took $28 from your bank (2 tolls on 1 property)." With a bank that cannot hold the sum nothing is taken and he is shown "Property tax owed: ...".
+   4. He joins and stays in the class menu or as a spectator: no popup until he is alive, and then four seconds later. If he dies in those four seconds the wait starts again.
+
+E. The rest.
+   1. A property is sold between two tolls (/sell <price> at his door, another player says /buy): the new owner owes one toll (arp_h9_tax_percent) of what HE paid, with automatic payment off, and the old
+      owner's debt and his opt-in are gone with the sale. The sale credits the old owner as ever. The same holds when the sale comes while an automatic payment of the old owner, who is away, is on its way to the database: the answer changes nothing for the new owner (only a database that is held up for a moment shows it).
+   2. A property an admin gave to a player with arp_setproperty (never bought, no price): it costs the flat sum only, so with arp_h9_tax_flat 0 it owes nothing and is never taken back; arp_h9_tax_value
+      gives it a price and the next toll charges it. A property nobody owns (the Ministry's posts, the clinics) is never charged. A property taken back that had no price on record keeps the price it had
+      (0: it stays a state property until an admin prices it).
+   3. A property that was bought from a player: when it is taken back its lock is the one noted at the FIRST sale, whatever the seller did with it.
+   4. Keyholders: a property with keyholders in the game that is taken back loses its keys at once (the keys table has no row for it). One whose keyholders are all away keeps their rows in the keys
+      table (a gap of ARP_Core's ARP_PropertyClearAccess, docs\APOLLO_RP.txt 11): each keeps his key until the property is bought again (CmdBuy deletes the rows).
+   5. arp_h9_tax_manual 0 while the server runs: the next toll is the old toll, say /renew is plain chat, nothing in arp_h9_taxdue changes; 1 again: the dues are as they were. arp_h9_tax 0: nothing at
+      all; 1 again: the clock starts again, the first toll an interval later.
+   6. A map with its own users table (its arp.ini names arp_table_users): the rows of arp_h9_tax and the notices of arp_h9_taxnote are that table's (arp_h9_tax_<name>, arp_h9_taxnote_<name>).
+   7. Other plugins: ARP_Inventory and the rest behave as ever; the amx log has no run time error with "ARP_PropertyTax" in it.
+
+F. The shops' profit and the town treasury (arp_h9_tax_treasury 1, which arp.cfg ships; with arp_h9_tax_manual 1 and arp_h9_tax_evict 1). Back up data\sqlite3\arp.sq3 first: the table arp_h9_treasury is made when it is
+   first needed while the cvar is 1, and dropping it takes the feature back out. The server half was run on the same private headless server as the rest (the real ARP_NPCs read the new npcs.ini, and purchases were made
+   through its real handlers); what no test could show is a real client's: the plaque of a shop NPC, a purchase at a real counter, the real clock.
+   1. The links. On h9_tsrp_hive the AMX Mod X log has no ARP error. Look at the Gear Guys arms dealer (behind the wood counter of the red shop in Paradise City): the plaque says GEAR GUYS ARMS DEALER, ROLE GUN SHOP and the use
+      hint, with no owner row and no Affiliation line; the Snack Archive's cashier, the Pawn Prawn bartender and Cafe Avalon's Cantina (no link) say the same. A plaque never names a property, so a link shows in what the shop
+      earns, as in step 2: the Gear Guys' Ammunition Counter (beside the arms dealer) adds a quarter of a sale to h9_pc_gear_guys, and Cafe Avalon Cantina adds to no property.
+   2. A shop earns. Buy a $40 item at the Green Dragon (Xenon City, east of the concourse): after arp_save_interval seconds (or a map change) select profit from arp_property_h9_tsrp_hive where
+      internalname='h9_xe_green_dragon'; is 10, and an $80 item adds 20. A purchase at an NPC with no link (the Snack Archive, Cafe Avalon) changes no property; arp_profit_fraction 0 adds nothing; an owner takes his property's profit with
+      /profit while he faces one of its doors.
+   3. The credit. Give a character h9_xe_green_dragon (with the server stopped: UPDATE arp_property_h9_tsrp_hive SET ownerauth='<his authid>',ownername='Test' WHERE internalname='h9_xe_green_dragon'; or arp_setproperty),
+      arp_h9_tax_value h9_xe_green_dragon 4800, arp_h9_tax_minutes 1 and arp_h9_tax_evict_tolls 2: at the second toll the log has "h9_xe_green_dragon was taken back from ..." and then "the profit of
+      h9_xe_green_dragon ($<profit>) went to the treasury of the town xe". arp_h9_tax_towns prints TOWN xe faction=msr balance=<profit> and al and pc with 0 and "no row yet"; select * from arp_h9_treasury; has one row
+      (the map's property table, xe, msr, <profit>); once ARP has saved, the property's profit is 0.
+   4. Two towns. Do the same with a property of Paradise City (h9_pc_pikkys, the Uncle Pikkys NPC's) and one of Alexandria (h9_al_kline): each balance goes to its own city, and a second property of one city adds to its row.
+   5. The faction (after 3, when the row of xe exists: a town has none before its first credit, and an UPDATE of no row changes nothing; INSERT OR IGNORE INTO arp_h9_treasury (tbl,town,faction,balance) VALUES
+      ('arp_property_h9_tsrp_hive','xe','msr',0); makes it). UPDATE arp_h9_treasury SET faction='ins' WHERE town='xe'; : arp_h9_tax_towns says faction=ins with the same balance, and the next eviction in
+      Xenon City adds to it as before.
+   6. Nothing to credit. A property with a profit of 0 is taken back with no line about a treasury and no row. arp_h9_tax_treasury 0: the log has no such line, no table is made, the profit stays with the property
+      (select profit from arp_property_h9_tsrp_hive ... still has it after the eviction) and arp_h9_tax_towns says that the switch is 0.
+   7. A property in no town: arp_addproperty "shop_x" "Shop X" "" "" 4000 0 "" 300 (a hive property whose name starts with none of h9_al_, h9_pc_, h9_xe_), given to a character and taken back as in 3: the log says "the profit of
+      shop_x ($300) stays with it: the property is in no town of this map" and its profit is still 300.
+   8. Another map: on h9_tsrp_newbyzantium arp_h9_tax_towns lists ONE town, all, and a property of that map that is taken back with a profit adds to it.
+   9. A change of map and back keeps every balance: arp_h9_tax_towns prints the same ones.
+   10. A crash (do not try it on a server that matters): kill the server within arp_save_interval seconds of an eviction that credited a treasury. At the restart the property is its ex-owner's again, with its profit, and the
+      treasury still holds the sum: it is in both places (docs\APOLLO_RP.txt, 11); the log line of the eviction names the sum, which UPDATE arp_h9_treasury SET balance=balance-<sum> WHERE ... takes out again.
+
+G. What to send back if it fails: the AMX Mod X log lines with "property tax", arp_h9_tax_dump at the moment it looked wrong, and from a COPY of data\sqlite3\arp.sq3: select * from arp_h9_taxdue,
+   select * from arp_h9_taxnote, select * from arp_h9_tax, select * from arp_h9_taxbase, select * from arp_h9_treasury, arp_h9_tax_towns and the character's row of arp_users and the property's row of arp_property_<map>.

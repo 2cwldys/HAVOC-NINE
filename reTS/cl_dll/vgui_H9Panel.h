@@ -63,6 +63,29 @@ protected:
 	bool m_bPlainBox; // without art: a dark box behind (a menu, a panel), or nothing (a notice)
 };
 
+// The pictures of Apollo RP's items for the panels: sprites/h9_arpicons.spr, a sheet of 32 x 32 frames, and sprites/h9_arpicons.txt, which
+// names them, a line for each (the item's name, a bar, the frame); modelling/arpicons makes both. H9ItemPicture is the frame of an item's
+// picture, -1 for none (a name the sheet does not have, or no sheet).
+int H9ItemPicture(const char* itemName);
+
+// A picture on its own: a frame of the sheet at a whole number of times its size, with nothing behind it.
+class CH9PicturePanel : public CH9Surface
+{
+public:
+	CH9PicturePanel();
+	bool SetPicture(int frame, int times); // false when the frame cannot be had; the panel is then to stay hidden
+	int Side() const { return m_iSide; }
+
+protected:
+	void paintBackground() override {}
+	void paint() override;
+
+private:
+	int m_iFrame;
+	int m_iTimes;
+	int m_iSide;
+};
+
 // The fonts every panel draws in: the textscheme's schemes, stepped down when text must fit.
 vgui::Font* H9Font(int which, int step);
 int H9TextWide(vgui::Font* font, const char* text);

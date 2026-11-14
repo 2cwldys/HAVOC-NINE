@@ -96,6 +96,9 @@ about the first kind:
 | 51 | `engine-h9-overflowlog.patch` | `common/h9_overflowlog.c` (new), `common/sys_con.c` (two prototypes after the includes, `Con_Printfv`, new `Con_H9Unprinted`, the early returns of `Con_Printf`, `Con_DPrintf` and `Con_Reportf`) | every console message, printed or held back (developer level, no console), is matched against the engine's overflow and limit messages; a match is appended to `<game>/logs/h9_overflow.log` (`ts\logs`) with the date and time, the side (server, listen or client) and the map, whatever `-dev` or `-log` say. The same message (its first 24 characters) at most once in 10 s, with the count held back; at most 2000 lines a run; C stdio, opened and closed for each line. A held-back developer message is formatted only when its format string matches. Independent of every other patch: no other patch touches `sys_con.c` |
 | 52 | `engine-h9-vguitype.patch` | `client/vgui/vgui_draw.c` (`VGUI_IsInGame`) | the VGUI panels stay painted while the chat line is open. The VGUI support library paints only when the engine says the player is in the game, which was `cls.key_dest == key_game`, so every VGUI panel (TS's scoreboard and menus, H9's match bar, banners and menus) vanished while a say key's chat line was open and came back when it closed; `key_message` now counts as in the game too, as on GoldSrc. The console and the menu still hide them. Independent of every other patch |
 | 53 | `engine-h9-serverauth.patch` | `client/cl_h9auth.c` (new), `client.h` (`CL_H9Srv_Init` after `CL_Escape_f`), `cl_main.c` (`CL_Init`, after `S_Init`) | the server browser's chain asks havoc9.org and never the servers. `h9_servers` (a restricted command, once in 20 seconds at the most; `cl_h9_servers 0` turns it off) fetches `/api/presence/servers/auth` with `HTTP_GetToMemoryEx` (https with the certificate checked for havoc9.org; `cl_h9_site` names a local test site, as for the pictures) and puts the answer in two cvars the menu reads: `_h9srv` (" address=c address=c ", c o for ok, r for a roleplay map, m for modified) and `_h9srv_gen` (0 until an answer was read). The browser build compiles none of it. The menu's half is in `mainui-h9-browser.patch`. Independent of every other patch |
+| 54 | `engine-h9-intro.patch` | `client/cl_video.c` (cvars `ts_intro` and `ts_intro_vol`, `SCR_SkipStartupVideo`, the intro skipped in `SCR_NextMovie` when it is 0), `client/client.h`, `client/input/in_keys.c` (`Key_Event`), `client/sound/s_stream.c` (`S_StartBackgroundTrack`) | the intro video before the main menu: `ts_intro` (archived, 1), `ts_intro_vol` (archived, 1: how loud it is), any key or mouse button skips a startup video |
+| 55 | `engine-h9-glowfix.patch` | `ref/gl/gl_draw.c` (`R_Set2DMode`) | MSR's bloom: `GL_MODULATE` is bound before the compose, so a glowing mesh (lamps, the RepuTengu glasses) is no longer drawn as a white square |
+| 57 | `engine-h9-upscale.patch` | `ref/gl/gl_upscale.c` (new), `ref/gl/gl_fbo.c` (`GL_BlitTarget`), `ref/gl/gl_opengl.c` (two cvars, their registration, `R_Shutdown`), `ref/gl/gl_local.h` | `h9_upscale` 0 or 1 and `h9_upscale_sharp` 0 to 1 (0.84): with `h9_upscale` on, the scene target's blit into the screen target (`GL_BlitTarget` asks `GL_UpscaleBlit` first) is drawn by AMD FidelityFX Super Resolution 1.0 instead: EASU into a target of the screen's size and RCAS from it, or RCAS alone at `r_scene_scale` 1, as GLSL 1.10 shaders through the ARB shader objects `gl_opengl.c` loaded and nothing called. The plain blit when it is off, when the scene is bigger than the screen and whenever the upscaler cannot work (one console line, no retry until `h9_upscale` goes to 0 and 1). AMD's MIT notice is in `gl_upscale.c` and in `overlay/ref_gl.FSR1-LICENSE.txt`. The OpenGL ES and WebGL renderers compile `gl_upscale.c` to a stub (the cvars stay). **Applies after the whole chain**: its hunks in `gl_fbo.c`, `gl_opengl.c` and `gl_local.h` sit clear of every hunk of `engine.patch` (the lines of `GL_BindScreenTarget`, the cvar block and the registration block are its), so every earlier patch still reverse-checks as in place. See `docs\H9_UPSCALE.txt` |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -1805,3 +1808,76 @@ Only the `menus/ConnectionProgress.cpp` section of the patch was replaced (`git 
 Nothing was added to the chain (the `xash.dll` description line in `xash.bat` is as long as it was); the descriptions there still name #45's bots and auth flag,
 and this entry is the record. h9_presence.sma registers `h9_require_release` (1) and `h9_plugin_release` (the release build.bat writes into
 `include\h9_release.inc` from the overlay's h9_release.txt) and logs a package mismatch.
+
+### 2026-11-09 -- engine-h9-intro.patch (new): the intro video before the main menu, ts_intro, any key skips it
+
+`media/StartupVids.txt` names `media/ts_intro.avi` (the original Specialists intro, cut to 21 s, MJPEG with PCM sound); the engine plays the startup videos before
+the main menu shows, and stock FWGS skips one only with escape and has no switch. `cl_video.c`: the archived cvar `ts_intro` (1), registered in
+`SCR_InitCinematic` (before `config.cfg` runs, so a saved 0 holds), and `SCR_NextMovie` steps past an entry whose name holds `ts_intro.` while it is 0, so with 0
+the list ends at once and the menu shows; `SCR_SkipStartupVideo` (declared in `client.h`): while a startup video plays (a flag `SCR_NextMovie` sets when it starts one from the list, so not one the `movie`
+command plays; it prints "ts_intro: startup video skipped") it goes to the next one. `in_keys.c`, `Key_Event`: right after `Key_Rotate`, a key or mouse button going down (not the console key) calls it and
+returns. `SCR_PlayCinematic` sets the video's volume (`AVI_VOLUME`, 0 to 255) from the archived cvar `ts_intro_vol` (1) when the file is the intro: 1 is the video as recorded, 0 silent, 0.5 half, a number above 1 is 1. `s_stream.c`, `S_StartBackgroundTrack`: the track's source (the key destination it plays under) is the menu's while a cinematic plays. userconfig.cfg
+starts the menu music (`exec menu_music_resolved.cfg`) a few frames after the intro starts; the key destination then is the movie's (key_game), so the track
+was recorded as game music, stayed paused behind `snd.streaming` while the video played and, once the menu showed, was paused for good by the rule that a game
+track does not play in the menu: no menu music after the intro. Now it waits behind the movie's sound and plays when the menu shows. Made from before and
+after copies of the four files in the state the chain has them at #53; five hunks in cl_video.c, one each in client.h, in_keys.c (five lines clear of
+engine-h9-motd.patch's hunk there) and s_stream.c (clear of engine-h9-consolemusic.patch's). Added to the end of the chain in `xash.bat` and to the `xash.dll` description line as a bare
+name (that line is 8,174 of cmd's 8,191 characters now). The browser build compiles the same code; it has no FFmpeg, so a movie does not start there and the
+menu shows as before.
+
+### 2026-11-09 -- engine-h9-glowfix.patch (new): GL_MODULATE bound before the bloom compose
+
+MSR's bloom (`GL_GlowPass`, `ref/gl/gl_fbo.c`) weights each blur tap with its vertex colour and set no texture environment; `R_StudioRestoreRenderer` leaves
+`GL_REPLACE` bound (upstream) and the viewmodel is the last studio draw of a first-person frame, so the compose ran under `GL_REPLACE` on desktop GL: the vertex
+colour was dropped, the 9 taps of each of four passes were added at full strength, and every additive mesh (the streetlamps of the meridian maps, the glasses of
+the RepuTengu models, ceiling lights) was blown out to a flat white rounded square 125 to 150 px wide at 1080p with a soft halo. `gl2_shim` (the browser) ignores
+`glTexEnv`, so the browser build always modulated and looked right. `R_Set2DMode` (`gl_draw.c`), the only caller of `GL_BindScreenTarget` and so of the compose,
+now binds `GL_MODULATE` first. The line is not in `gl_fbo.c` itself, where `GL_GlowPass` would be the natural place: the bloom is added by `engine.patch`, whose
+reverse check fails once a later patch changes a line inside its hunk there. Made from before and after copies of `gl_draw.c`; one hunk, far from
+`engine-h9-serverfog.patch`'s. Added to the end of the chain in `xash.bat` and to the `ref_gl.dll` description.
+
+### 2026-11-09 -- engine-h9-presence.patch (changed): a CL_Presence_Frame stub for the dedicated build
+
+`Host_Frame` (`host.c`) calls `CL_Presence_Frame()`, which `cl_presence.c` defines in the client; the dedicated build (`waf configure -d`, `linux/build-linux.sh engine`) has no client code and stopped at the link with `undefined reference to CL_Presence_Frame`. `engine/common/dedicated.c`, where the dedicated build keeps its client stubs, now has an empty `CL_Presence_Frame` after the `CL_Disconnect` stub: one hunk added to this patch, and no other patch touches `dedicated.c`. The file is compiled only into the `-d` build, so `HAVOC 9.exe`, `xash.dll` and the browser engine are unchanged by it.
+
+### 2026-11-11 -- engine-h9-framesize.patch (new): a client's frame is built in 48 KB
+
+`SV_SendClientDatagram` (`sv_frame.c`) wrote a client's whole update for one frame (the time, the clientdata, the entities in view and the unreliable data queued for the client) into a
+`MAX_DATAGRAM` buffer of 16,384 bytes, and a frame that passed it was cleared and not sent: "Datagram overflowed for <name>". The first update after a spawn holds every entity in view
+whole, about 10 bytes each and a player about 30, so a spawn that sees 1,500 map entities (the open parts of New Byzantium, the plazas of the hive) passed it: the client got no update and no
+delta base, and the next update was whole again. The owner's `logs\h9_overflow.log` has it at his spawns on h9_tsrp_newbyzantium (2026-11-08) and h9_tsrp_hive (2026-11-11), and in the
+game it is a model that keeps running its legs while the view does not update. The netchan is not what limits it: `SV_GetFragmentSize( FRAGSIZE_UNRELIABLE )` is `NET_MAX_MESSAGE` (about
+192 KB), `Netchan_TransmitBits` splits the datagram into packets, and a client puts a split packet back together up to `NET_MAX_FRAGMENT` (65,535 bytes; `XASH_LOW_MEMORY` is 0 on every
+H9 build, the browser's too). The buffer is now `SV_H9_FRAME_MAX`, three times `MAX_DATAGRAM` (49,152 bytes: the most a frame holds is 2,048 entities (`MAX_VISIBLE_PACKET`) at 12 bytes,
+a player in each of 128 slots at 40 and a full client queue of 16 KB, about 46 KB), with a compile-time check that it stays under `NET_MAX_FRAGMENT`. `cl->datagram` and `sv.datagram`,
+the queues the game and the plugins write unreliable messages into, keep their 16 KB. engine-h9-entbudget.patch (spreading the entities new to a client over several updates) stays a
+proposal (`xash3d-h9-patches\proposals`). One hunk in `sv_frame.c` at `SV_SendClientDatagram`, made from a copy of the file as the chain leaves it (`git apply --check` clean), built
+2026-11-11 15:30. Added to the end of the chain in `xash.bat` and to the `xash.dll` description line (that line is 8,159 of cmd's 8,191 characters now: the line is ONE cmd command, its fifth
+argument counts too, and the text about the menu's video lost words for room). A dedicated server on Linux carries it with its next engine build. Not tried in a game: a spawn that sees more
+than 16 KB should now get its first update.
+
+### 2026-11-13 -- engine-h9-upscale.patch (new): h9_upscale, AMD FSR 1 in place of the scene's blit
+
+The scene target is carried into the screen target by one `glBlitFramebuffer` (`GL_BlitTarget`, called from `GL_BindScreenTarget` in `ref/gl/gl_fbo.c`).
+`GL_BlitTarget` now asks `GL_UpscaleBlit` (new `ref/gl/gl_upscale.c`) first when its source is the scene target and its destination the screen target.
+With `h9_upscale` on, FSR 1's EASU, and RCAS when `h9_upscale_sharp` is above 0, draw the frame as GLSL 1.10 shaders through the ARB shader-object pointers
+`gl_opengl.c` already loaded and nothing called; a false answer (off, a scene bigger than the screen, anything the upscaler cannot do: one console line, no
+retry until `h9_upscale` goes to 0 and 1) leaves the old blit to run. The cvars are defined after `gl_fbo_nearest` (`FCVAR_GLCONFIG`, "0" and "0.84") and
+registered after its registration; `R_Shutdown` calls `GL_UpscaleShutdown` after `GL_FreeRenderTargets`. The OpenGL ES and WebGL renderers (`XASH_GLES`)
+compile the file to a stand-in that says once that the renderer has no upscaler, and `WEB_PARITY.json` has the entry (native-only).
+
+Why the hook is four inserted lines at the top of `GL_BlitTarget` and not in `GL_BindScreenTarget`, where the blit is called: the bloom's lines there
+(`if( tr.targets.glowDrawn )` and `GL_ComposeGlow();` with their three lines of context, 588 to 596 in the file as the chain leaves it) are a hunk of
+`engine.patch`, whose reverse check in `xash.bat` fails once a later patch changes a line inside a hunk or cuts one in two. Every other hunk of
+`engine.patch` in the three files was kept clear the same way: the two cvar lines go in after line 13 (its hunk is at 41 to 52), the registration after
+`gl_fbo_nearest`'s (its hunk is at 1254 to 1263), and the extern lines and prototypes in `gl_local.h` outside its hunks at 200, 358 and 820. Checked with
+`git apply --reverse --check` of `engine.patch` and the 46 `engine-h9-*.patch` files of the root chain against the tree with this patch applied: every one
+in place, as on the tree without it; the patch applies forward to pristine copies of the three files and gives the work files' bytes, and
+`patch --binary -p1 --dry-run` agrees.
+
+Built privately, from a copy of the tree with the engine's own configuration: `ref_gl.dll` for 32-bit Windows with the five `gl_sprite.c` warnings the
+unpatched tree gives and none more; `libref_gl.so` for Linux i386 and x86-64 and `ref_gles3compat` with no warning. The file's real source runs on a real
+OpenGL context in a test harness (an RTX 3070 driver and Mesa's llvmpipe: 35 life-cycle and fallback checks, 22 picture checks against a CPU reference of
+EASU and RCAS) and compiles clean with gcc and clang. Not run in the game. `docs\H9_UPSCALE.txt` has the rest. AMD's licence text is in the header of
+`gl_upscale.c` and in `overlay\ref_gl.FSR1-LICENSE.txt` (assemble lays it beside `ref_gl.dll`). Added to the end of the chain in `xash.bat`, to its ENGINE.txt
+list and to the `ref_gl.dll` description (the `xash.dll` line is not touched).

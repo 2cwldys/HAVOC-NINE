@@ -1,0 +1,65 @@
+Apollo RP and the player's id
+=============================
+
+Why. H9XASH makes a player's authid per server: "ID_" and an MD5 of his player id and the IPv4 address of the
+server (docs\CUSTOM_XASH_USERID.txt). The same person has another authid on every server, and on one server
+another when its address changes. Apollo RP kept a character (wallet, bank, job, items, keys, the property he owns)
+under the authid alone, so a change of address made every player a new character.
+
+What an ARP plugin can read (include\h9_presence.inc, docs\H9_PRESENCE.txt 4b)
+  h9p_account(id)   the player's havoc9.org account number (accounts.id), once h9_presence has PROVEN it: the game is
+                    H9XASH linked to the account (userinfo _h9lnk 1, _h9idv 1) and answered the server's challenge.
+                    0 for a Steam client, an unlinked or older game, a bot, an empty slot, or not yet.
+  When              never at client_putinserver. A second or two after the player is in game, and about 15 to 20
+                    seconds after a map starts (h9_presence's first report waits FIRST_DELAY 15 s), again after
+                    every map change. It needs h9_presence loaded and h9_presence_challenge 1 (or
+                    h9_require_account 1); the live configs\h9_presence.cfg has it.
+  The raw player id never reaches a server; h9_clientid is the same per-server value as the authid.
+
+What ARP does now (ARP_Core, include\ApolloRP_Player.inc ARP_GetUserKey)
+  * A character is kept under its KEY, the authid its rows were made with. For nearly every player the key is his
+    authid, as before. ARP_GetUserKey(id, key[], len) gives it to the other plugins; ApolloRP_Properties.inc uses it
+    for keys and owners. Until a character is loaded the key is the engine's authid.
+  * The table arp_ids (id, authid, acct) lists the authids each account was seen with. When h9_presence proves a
+    player, ARP_Core records his authid with the account (INSERT OR IGNORE). The first authid recorded for an
+    account (the lowest id) is its character's key.
+  * A join: SELECT the key of the account his authid is recorded with. Found: he is that character, under any authid.
+    Not found: his authid is his key, as before, and the character is read. If no row has that key and his game can
+    prove an account, the join waits for the proof, a second at a time, for up to arp_account_wait seconds (30) -
+    the HUD keeps saying his account is loading - then asks for the account's key, and only if there is none, or the
+    proof never comes, makes him a new character under his authid.
+  * Only a player no row knows waits, so the usual join (a row under the authid) is as fast as before. A player
+    that cannot prove an account (see above) never waits.
+  * Nothing is rewritten. No row of arp_users, arp_items, arp_keys_*, arp_property_* or the class tables is changed
+    to follow an account: they stay under the authid they were made with, and the account's key points at them.
+
+The migration (ARP_Core, SqlInit, at every start; idempotent and non-destructive)
+  CREATE TABLE IF NOT EXISTS arp_ids (id INTEGER PRIMARY KEY AUTOINCREMENT,authid VARCHAR(36),acct INT(11),UNIQUE (authid))
+  (MySQL: id INT(11) AUTO_INCREMENT, PRIMARY KEY (id), UNIQUE KEY (authid).) No ALTER, no DROP, no UPDATE of an
+  existing row. A database that has never seen it gets the empty table; ARP works on it as it always did until a
+  player is proved.
+
+Limits
+  * A character made under an earlier authid before this table existed is found only when the player joins once under
+    that authid with his account proved (that records it). One whose server address had already changed is lost to
+    him, as before.
+  * A player whose proof is slower than arp_account_wait gets a new character this time; the next join finds the
+    account's key.
+  * An account is a person, not a device: two games of one account share a character (they share an authid too).
+  * A web client has no _h9idv: it is not waited for, and its authid is recorded when the proof comes.
+  * The jail and cuff state (ARP_JailMod classes) stays under the engine's authid.
+
+Going back (by hand)
+  * To stop using accounts at once: arp_account_wait 0 in configs\arp\arp.cfg (or the server console); it applies from
+    the next join. ARP then reads no arp_ids, records nothing, and every key is the authid.
+  * To remove what was recorded: with the server stopped (or arp_query on the console), DROP TABLE arp_ids; one
+    player only: DELETE FROM arp_ids WHERE authid='ID_...'. ARP makes the empty table again at the next start.
+  * An older ARP build ignores the table, and every character is still under the authid it was made with.
+  * Nothing else needs restoring: no existing row was ever changed. Back up data\sqlite3\arp.sq3 first all the same
+    (copy the file with the server stopped).
+
+Testing without the game: copy data\sqlite3\arp.sq3 to a scratch folder and run the statements above with any SQLite
+tool (python's sqlite3). The three queries ARP sends:
+  SELECT m2.authid FROM arp_ids m1,arp_ids m2 WHERE m1.authid='<authid>' AND m2.acct=m1.acct ORDER BY m2.id LIMIT 1
+  SELECT authid FROM arp_ids WHERE acct=<account> ORDER BY id LIMIT 1
+  INSERT OR IGNORE INTO arp_ids (authid,acct) VALUES ('<authid>','<account>')

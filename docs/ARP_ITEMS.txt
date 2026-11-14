@@ -1,0 +1,634 @@
+ARP ITEMS: THE CATALOGUE OF H9'S APOLLO RP
+==========================================
+
+  Every item a character can carry on H9's two roleplay maps (h9_tsrp_hive and h9_tsrp_newbyzantium): its number, its name, what the game's own list prints for it, what
+  using it does, and which shop sells it for how much. There are 95 (92 with arp_h9_restraints 0). docs\ARP_CONTENT.txt, section 5, has the counts and the shops in prose;
+  this file is the catalogue.
+  The tables are written by tools\gen_items.py from the plugins' sources and the two npcs.ini files, and tools\check_items.py compares them with what the game prints
+  (arp_itemlist) and with docs\ARP_CONTENT.txt (section 12 says how to run both). Apollo RP's ARP_BCompat, ARP_CS and ARP_TFC register items for other games; H9 does not
+  run them and they are not here.
+
+  CONTENTS
+    1. Listing items in the game, and what the number is
+    2. Giving an item (admins)
+    3. How to read the tables
+    4. ARP_HungerMod: food (8)
+    5. ARP_Items: licences, tobacco, lighters, tools, drinks, drugs, door breakers, cards, the tazer, chlorofoam, Tape and Rope, the Assassin Knife (33)
+    6. ARP_JailMod: Cuffs (1)
+    7. ARP_TalkArea: phones, subscriptions, bugs (7)
+    8. ARP_TS: guns (33) and ammunition (13)
+    9. What each shop role sells
+    10. Not sold by any NPC
+    11. Odd things the code does
+    12. Keeping this file true
+
+
+1. LISTING ITEMS IN THE GAME, AND WHAT THE NUMBER IS
+----------------------------------------------------
+
+  In the game's console (the ~ key) any player can type
+
+      arp_itemlist          items 1 to 30
+      arp_itemlist 30       items 31 to 60
+      arp_itemlist 60       items 61 to 90
+      arp_itemlist 90       items 91 to the last
+
+  It is a command of a player's own console: it prints there, and the server's console does not know it ("Unknown command"). A page is arp_items_per_page items (30). The
+  number after the command is the last item of the page before, and every page that is not the last ends with the command for the next one. A number past the last item
+  answers "No jobs to display at this area." (the core reuses the job list's words). A line reads
+
+      #<number>   <name>   <Yes or No>   <description>
+
+  Yes is the item's disposable flag. The description is cut to 63 characters, as the core stores it. A player's own items: say /items (an H9 client opens the inventory
+  window).
+
+  THE NUMBER is the item's id. The core counts the calls of ARP_RegisterItem from 1 each time a map loads: ARP_Core runs the forward ARP_RegisterItems once, in its
+  precache, and AMX Mod X calls the plugins in the order of configs\plugins.ini, so the number follows the plugin order and, inside a plugin, the order of its calls. The
+  order this file uses is H9's (plugins.ini's, with ARP_PayScale, ARP_H9Ctx, ARP_PropClip last, where build.bat appends it):
+
+      ARP_Core, ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod, ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu,
+      ARP_Inventory, ARP_PropertyTax, ARP_PayScale, ARP_H9Ctx, ARP_PropClip
+
+  Five of them register items (ARP_PayScale and the others do not): ARP_HungerMod 1 to 8, ARP_Items 9 to 41, ARP_JailMod 42, ARP_TalkArea 43 to 49, ARP_TS 50 to 95.
+  Moving a plugin in plugins.ini, a new plugin that registers items or a new item in one renumbers what follows. A character's items are kept by name (the table arp_items
+  holds "<character key>|<item name>"), so a renumbering moves nobody's things; but a number typed into arp_createitems, or noted down, then means another item.
+
+  arp_h9_restraints (configs\arp\arp.cfg, 1 as shipped) decides whether Tape (39), Rope (40) and Cuffs (42) exist; ARP_Items and ARP_JailMod read it from arp.cfg when the
+  items are registered, so a change needs a map change. With 0 there are 92 items: those before Assassin Knife (41) keep their numbers, and a later one is lower by the
+  number of those missing before it (from Assassin Knife (41) on, 2 lower; from Motorola RAZR (43) on, 3 lower). Both numbers are in the tables: NO is the number with the
+  shipped 1, R0 the number with 0.
+
+
+2. GIVING AN ITEM (ADMINS)
+--------------------------
+
+  An ARP admin (docs\ARP_ADMINS.txt, section 8) gives items from the server's console or from his own:
+
+      arp_createitems "<player>" "<item name or part of it>" <n>
+      arp_createitems "<player>" <number> <n>
+
+  The item is a number from this file or a part of a name, in any case. A part that fits two items is refused ("Found more than one item with that name."): "Lighter" (it
+  is in "Zippo Lighter"), "Lockpick" (it is in "Electric Lockpick"), "Gin" (it is in "Taurus Raging Bull"), "Bug" (it is in "Bug Scanner"). So is any other part that two
+  names hold, such as "GLOCK" or "Ammo"; say more of the name, or give the number. arp_removeitems and arp_setitems take the same arguments (docs\ARP_COMMANDS.txt, 6).
+
+
+3. HOW TO READ THE TABLES
+-------------------------
+
+  Each plugin has a list table (what the game prints, with the numbers) and a table of what its items do and where they are sold; the ARP_TS section has a third, of its
+  guns.
+
+    NO            the number with arp_h9_restraints 1, as shipped.  R0: the number with 0; "-" for an item that does not exist then.
+    NAME          as the list prints it.
+    DISP          Yes: the core takes one away after the item's handler has run. No: it stays, unless the handler takes one itself (each line says).
+    CUT           "cut" where the stored description is longer than the 63 characters the list prints; the whole text is in the next table.
+    DESCRIPTION   as the list prints it, spelling and all.
+    NOTE          what is special about the item.
+    SOLD BY       the shop role and its price in credits. A role is one stock: every NPC of a role, on both maps, sells the same things at the same prices (section 9 names the NPCs).
+                  "not sold by any NPC": no shop line, gun shop line or bank menu names the item. An admin gives it (arp_createitems), or players hand it on.
+                  A gun shop's price comes with the licence its menu asks for; a shop (the Black Market too) asks for none.
+
+
+4. ARP_HungerMod: food (8)
+--------------------------
+
+  Numbers 1 to 8 (with arp_h9_restraints 0: 1 to 8).
+
+   NO   R0  NAME                    DISP  CUT  DESCRIPTION                                                      NOTE
+  ---  ---  ----------------------  ----  ---  ---------------------------------------------------------------  --------------------------------------------------
+    1    1  Soda                    Yes        A can of soda, heals 5 hunger and, with thirst on, 35 thirst.
+    2    2  Fries                   Yes        A bag of fries, heals 10 hunger.
+    3    3  Milk                    Yes        A box of milk, heals 15 hunger and, with thirst on, 30 thirst.
+    4    4  Hotdog                  Yes        A weiner wrapped in bread, heals 25 hunger.
+    5    5  Pizza                   Yes        A slice of pepperoni pizza, heals 30 hunger.
+    6    6  Hamburger               Yes        A hamburger made of beef, heals 40 hunger.
+    7    7  Pasta                   Yes        A plate of pasta with tomato sauce, heals 50 hunger.
+    8    8  Steak                   Yes        A long well cooked piece of beef, heals 80 hunger.
+
+   NO  NAME                    WHAT USING IT DOES                                                                  SOLD BY
+  ---  ----------------------  ----------------------------------------------------------------------------------  ----------------------------------------------------
+    1  Soda                    Drinks it: takes 5 off hunger at 5 a second, moving at half speed meanwhile. It     General Store 10; Cantina 10; Pharmacy 10 [New
+                               also takes 35 off thirst (arp_thirst_enabled 1). Refused, item kept, while hunger   Byzantium only]
+                               is under 5 and thirst is 0.
+    2  Fries                   Eats it: takes 10 off hunger at 5 a second, moving at half speed meanwhile.         General Store 20; Cantina 20
+                               Refused, item kept, while hunger is under 10.
+    3  Milk                    Drinks it: takes 15 off hunger at 5 a second, moving at half speed meanwhile. It    General Store 30; Pharmacy 30 [New Byzantium only]
+                               also takes 30 off thirst (arp_thirst_enabled 1). Refused, item kept, while hunger
+                               is under 15 and thirst is 0.
+    4  Hotdog                  Eats it: takes 25 off hunger at 5 a second, moving at half speed meanwhile.         General Store 40; Cantina 40
+                               Refused, item kept, while hunger is under 25.
+    5  Pizza                   Eats it: takes 30 off hunger at 5 a second, moving at half speed meanwhile.         General Store 50; Cantina 50
+                               Refused, item kept, while hunger is under 30.
+    6  Hamburger               Eats it: takes 40 off hunger at 5 a second, moving at half speed meanwhile.         General Store 70; Cantina 70
+                               Refused, item kept, while hunger is under 40.
+    7  Pasta                   Eats it: takes 50 off hunger at 5 a second, moving at half speed meanwhile.         General Store 80
+                               Refused, item kept, while hunger is under 50.
+    8  Steak                   Eats it: takes 80 off hunger at 5 a second, moving at half speed meanwhile.         General Store 90; Cantina 90; Luxury Goods 120 [New
+                               Refused, item kept, while hunger is under 80.                                       Byzantium only]
+
+
+5. ARP_Items: licences, tobacco, lighters, tools, drinks, drugs, door breakers, cards, the tazer, chlorofoam, Tape and Rope, the Assassin Knife (33)
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+  Numbers 9 to 41 (with arp_h9_restraints 0: 9 to 39).
+
+   NO   R0  NAME                    DISP  CUT  DESCRIPTION                                                      NOTE
+  ---  ---  ----------------------  ----  ---  ---------------------------------------------------------------  --------------------------------------------------
+    9    9  Restricted License      No         Allows possession and acquisition of restricted firearms.
+   10   10  Permitted License       No         Allows possession and acquisition of permitted firearms.
+   11   11  Cuban Cigar             Yes        A heavy tobacco product from Cuba.
+   12   12  Cigarette               Yes        A small tobaco product.
+   13   13  Tobacco Pipe            Yes        A pipe that can have tobacco placed in it and lit.
+   14   14  Lighter                 No         A small plastic lighter.
+   15   15  Zippo Lighter           No         A large metal lighter with a wide flame.
+   16   16  Flashlight              No         A small flashlight to illuminate dark areas.
+   17   17  Spray Can               No         A metallic canister containing paint.
+   18   18  Flashbang               Yes        A metallic canister that blinds those who see it explode.
+   19   19  Lockpick                No         Used to open locks.
+   20   20  Electric Lockpick       No         Used to open locks.
+   21   21  Tazer                   No         Can be used to stun enemies.
+   22   22  First Aid Kit           No         Used to heal wounds.
+   23   23  Beer                    Yes        An alcoholic beverage - 5 blood alcohol.
+   24   24  Gin                     Yes        An alcoholic beverage - 10 blood alcohol.
+   25   25  Whiskey                 Yes        An alcoholic beverage - 20 blood alcohol.
+   26   26  Vodka                   Yes        An alcoholic beverage - 40 blood alcohol.
+   27   27  Hawk Miller Light       Yes        An alcoholic beverage - 80 blood alcohol.
+   28   28  Crack                   Yes        The drug crack                                                   not sold by any NPC
+   29   29  Heroin                  Yes        The drug heroin                                                  not sold by any NPC
+   30   30  PCP                     Yes        The drug PCP                                                     not sold by any NPC
+   31   31  Mushroom                Yes        The drug mushroom ("shrooms")                                    not sold by any NPC
+   32   32  Cocaine                 Yes        The drug cocaine                                                 not sold by any NPC
+   33   33  Acid                    Yes        The drug acid                                                    not sold by any NPC
+   34   34  Steel Axe               No         Used to smash doors                                              police only
+   35   35  Door C2                 Yes        Used to blow doors open                                          police only
+   36   36  ATM Card                No         A card used to operate an ATM machine.
+   37   37  Debit Card              No         A card used to allow you to withdraw money anywhere.
+   38   38  Chlorofoam              Yes        Puts a person to sleep in an instant.                            no handler: using it does nothing
+   39    -  Tape                    No    cut  Tapes the mouth of the person you look at, so that he cannot ta  only while arp_h9_restraints is 1
+   40    -  Rope                    No    cut  Ties the person you look at to you: he is pulled along when you  only while arp_h9_restraints is 1
+   41   39  Assassin Knife          No         Makes next attack an instant kill                                not sold by any NPC
+
+   NO  NAME                    WHAT USING IT DOES                                                                  SOLD BY
+  ---  ----------------------  ----------------------------------------------------------------------------------  ----------------------------------------------------
+    9  Restricted License      Only says "This is a restricted firearms license." A gun shop's Restricted menu     Black Market 10000; Ministry Licensing Clerk 5000;
+                               opens for a player who has one in /items.                                           Licensed Arms Dealer 5000 (Licenses menu: no licence
+                                                                                                                   needed)
+   10  Permitted License       Only says "This is a non-restricted firearms license." A gun shop's Permitted menu  Black Market 2000; Ministry Licensing Clerk 1000;
+                               opens for a player who has one in /items.                                           Licensed Arms Dealer 1000 (Licenses menu: no licence
+                                                                                                                   needed)
+   11  Cuban Cigar             Puts it in the mouth for 60 seconds of smoke; a Lighter or Zippo Lighter lights     Luxury Goods 40 [New Byzantium only]
+                               it. Used up.
+   12  Cigarette               Puts it in the mouth for 30 seconds of smoke; a Lighter or Zippo Lighter lights     General Store 10
+                               it. Used up.
+   13  Tobacco Pipe            Puts it in the mouth for 90 seconds of smoke; a Lighter or Zippo Lighter lights     Luxury Goods 60 [New Byzantium only]
+                               it. Used up.
+   14  Lighter                 Lights the tobacco in the user's mouth (use a smoke first): costs 10 health, needs  General Store 10; Hardware Counter 10 [New Byzantium
+                               more than 10, and puffs of smoke show for as many seconds as the tobacco lasts.     only]
+   15  Zippo Lighter           The same as the Lighter: the two lighters share one handler.                        General Store 50; Luxury Goods 80 [New Byzantium
+                                                                                                                   only]
+   16  Flashlight              Switches a light on or off that follows the point the user aims at (a white         General Store 40; Tech Counter 40; Ministry
+                               dynamic light, 10 times a second). The flashlight key (impulse 100) switches it     Quartermaster 30; Hardware Counter 40 [New Byzantium
+                               too and says "You do not have a flashlight" without the item.                       only]
+   17  Spray Can               Sprays the player's logo (impulse 201). Each spray, by this item or by the key,     General Store 50; Black Market 50; Hardware Counter
+                               uses up one can ("You need a spray can to use your spray"): the handler is not      50 [New Byzantium only]
+                               marked disposable, the spray is what takes it.
+   18  Flashbang               Flashes every player (bots excepted) within 600 units who has a clear line to the   Black Market 200; Ministry Quartermaster 150
+                               user: white screen, random view kick. Plays an explosion sound. Used up.
+   19  Lockpick                Lock picking on the rotating door (func_door_rotating) in view, within 100 units:   Black Market 1000
+                               a menu of Up, Down, Left, Right. A right key (1 in 4) adds a prong, a wrong one
+                               resets the lock 1 time in 6, and every try snaps the pick 1 time in 30 (one used
+                               up); with four prongs the menu offers Open Door. Sliding doors are refused.
+   20  Electric Lockpick       Opens the rotating door (func_door_rotating) in view, within 100 units, at once,    Black Market 2500
+                               and is not used up. Sliding doors are refused.
+   21  Tazer                   Stuns the living player in view within 200 units: 10 shock damage, half speed for   Black Market 500; Ministry Quartermaster 400
+                               5 seconds, his weapons dropped. 60 seconds to recharge; not against police; 1 use
+                               in 101 short-circuits and the Tazer is used up. /tazer does the same.
+   22  First Aid Kit           Heals the player in view within 200 units, or the user, by 15 health up to 100.     Ministry Quartermaster 120; Pharmacy 120 [New
+                               Refused above 99 health and under 50 ("too badly wounded, get to a doctor"). One    Byzantium only]; Medical Officer 150
+                               is used up by the handler.
+   23  Beer                    Drinks it: adds 5 blood alcohol (a HUD line), which falls 1 every 4 seconds. Above  Cantina 20
+                               70 the user stumbles about with a yellow glow; above 100 the screen fades to
+                               black.
+   24  Gin                     Drinks it: adds 10 blood alcohol (a HUD line), which falls 1 every 4 seconds.       Cantina 30
+                               Above 70 the user stumbles about with a yellow glow; above 100 the screen fades to
+                               black.
+   25  Whiskey                 Drinks it: adds 20 blood alcohol (a HUD line), which falls 1 every 4 seconds.       Cantina 40; Luxury Goods 60 [New Byzantium only]
+                               Above 70 the user stumbles about with a yellow glow; above 100 the screen fades to
+                               black.
+   26  Vodka                   Drinks it: adds 40 blood alcohol (a HUD line), which falls 1 every 4 seconds.       Cantina 60; Luxury Goods 80 [New Byzantium only]
+                               Above 70 the user stumbles about with a yellow glow; above 100 the screen fades to
+                               black.
+   27  Hawk Miller Light       Drinks it: adds 80 blood alcohol (a HUD line), which falls 1 every 4 seconds.       Cantina 80
+                               Above 70 the user stumbles about with a yellow glow; above 100 the screen fades to
+                               black.
+   28  Crack                   Halves the user's health at once and his speed for 12 seconds; blue screen pulses.  not sold by any NPC
+   29  Heroin                  Sets the user's health to 75 at once and doubles his speed for 12 seconds; magenta  not sold by any NPC
+                               screen pulses.
+   30  PCP                     Adds 100 health at once (200 at most); for 12 seconds god mode, a glow and double   not sold by any NPC
+                               speed; green screen pulses.
+   31  Mushroom                Adds 50 health at once (200 at most); for 25 seconds double speed, a blue glow and  not sold by any NPC
+                               hallucinations.
+   32  Cocaine                 Adds 30 health at once (200 at most); a white glow and half speed for 7 seconds.    not sold by any NPC
+   33  Acid                    Adds 50 health at once (200 at most); for 180 seconds double speed and              not sold by any NPC
+                               hallucinations.
+   34  Steel Axe               Police only ("You are not a cop"): smashes the door or breakable in view within     Ministry Quartermaster 300
+                               100 units, which is gone for 10 seconds.
+   35  Door C2                 Police only ("You are not a cop"): plants it on the door or breakable in view       Ministry Quartermaster 800
+                               within 100 units; after 5 seconds it blows (an explosion that hurts players near
+                               it) and the door is gone for 5 seconds. Used up.
+   36  ATM Card                Cannot be used ("walk up to an ATM to use it"). An ATM droid opens its menu only    Bank Teller 10 (the bank menu)
+                               for a player who has one in /items.
+   37  Debit Card              Only says "Say /withdraw to use this item". With one in /items, /withdraw works     Bank Teller 100 (the bank menu)
+                               anywhere and not only facing a teller.
+   38  Chlorofoam              Nothing at all: ARP_Items names a handler _Chlorofoam and defines none, so the      Black Market 400
+                               core finds no function to run, tells the player nothing and leaves the item in his
+                               hands (not used up).
+   39  Tape                    Gags the living player in view within 100 units: he cannot talk in chat or team     Black Market 50; Hardware Counter 50 [New Byzantium
+                               chat, nor (arp_voice 1) in voice, until /removetape. One roll is used up. Full      only]
+                               description: "Tapes the mouth of the person you look at, so that he cannot talk.
+                               /removetape takes it off."
+   40  Rope                    Ties the living player in view within 100 units to the user: he is pulled toward    Black Market 100; Ministry Quartermaster 80;
+                               the user when further than arp_h9_rope_length (150) units, and the rope snaps at    Hardware Counter 100 [New Byzantium only]
+                               four times that. Used on a tied player it frees him; so does /untie. Not used up.
+                               Full description: "Ties the person you look at to you: he is pulled along when you
+                               walk away. /untie frees him."
+   41  Assassin Knife          Equips or puts away the knife (not used up). While it is equipped the next hit on   not sold by any NPC
+                               a player within 100 units is an instant kill when the victim is not looking at the
+                               attacker, and "missed an assassination" when he is; either way it is put away.
+                               Works only if Ham_TakeDamage reaches the plugin: the plugin logs "[ARP] Items:
+                               Ham_TakeDamage on player is delivered here" at the first hit of a map when it
+                               does.
+
+
+6. ARP_JailMod: Cuffs (1)
+-------------------------
+
+  Number 42 (with arp_h9_restraints 0 the item does not exist).
+
+   NO   R0  NAME                    DISP  CUT  DESCRIPTION                                                      NOTE
+  ---  ---  ----------------------  ----  ---  ---------------------------------------------------------------  --------------------------------------------------
+   42    -  Cuffs                   No    cut  Cuffs the person you look at; use them again to free him. Polic  only while arp_h9_restraints is 1
+
+   NO  NAME                    WHAT USING IT DOES                                                                  SOLD BY
+  ---  ----------------------  ----------------------------------------------------------------------------------  ----------------------------------------------------
+   42  Cuffs                   Cuffs the player in view within 200 units: his weapons are dropped, he glows red,   Ministry Quartermaster 150
+                               moves at half speed, cannot attack or use, and is paid no salary. Used on a cuffed
+                               player it frees him. Police need no Cuffs: /cuff. A civilian's cuffing uses up one
+                               Cuffs, which goes back to whoever frees him (not to police). A cop cannot be
+                               cuffed. Full description: "Cuffs the person you look at; use them again to free
+                               him. Police need none: /cuff."
+
+
+7. ARP_TalkArea: phones, subscriptions, bugs (7)
+------------------------------------------------
+
+  Numbers 43 to 49 (with arp_h9_restraints 0: 40 to 46).
+
+   NO   R0  NAME                    DISP  CUT  DESCRIPTION                                                      NOTE
+  ---  ---  ----------------------  ----  ---  ---------------------------------------------------------------  --------------------------------------------------
+   43   40  Motorola RAZR           No         One of the smallest and best phones on the market.
+   44   41  Sony Ericsson           No         One of the more functional phones on the market.
+   45   42  Nokia 6820              No         One of the more durable phones on the market.
+   46   43  Phone Subscription      No         Allows usage of a cell phone charged per minute.                 no code reads it
+   47   44  Phone Prepaid Card      No         Allows usage of a cell phone for a certain amount of time.       no code reads it
+   48   45  Bug                     Yes        Used to tap into a user's communications and talking
+   49   46  Bug Scanner             No         Used to detect bugs
+
+   NO  NAME                    WHAT USING IT DOES                                                                  SOLD BY
+  ---  ----------------------  ----------------------------------------------------------------------------------  ----------------------------------------------------
+   43  Motorola RAZR           Opens the phone menu: Status (On, Invisible, Off), Ring (Ring, Vibrate, Silent)     Tech Counter 400
+                               and Place Call, a phonebook of the other living players who carry one of the three
+                               phones; the other answers or ignores. The three phones are the same.
+   44  Sony Ericsson           The same as the Motorola RAZR.                                                      Tech Counter 500
+   45  Nokia 6820              The same as the Motorola RAZR.                                                      Tech Counter 200
+   46  Phone Subscription      Cannot be used ("Use a phone, instead"). Nothing in any plugin reads it: calls      Tech Counter 150
+                               need no subscription.
+   47  Phone Prepaid Card      Cannot be used ("Use a phone, instead"). Nothing in any plugin reads it: calls      Tech Counter 60
+                               need no card.
+   48  Bug                     Bugs the living player in view within 100 units: the user then reads what that      Black Market 800
+                               player says ([BUG] lines in chat) until a Bug Scanner clears it, the bugged player
+                               dies, or either of them leaves. Used up even when nobody is in view.
+   49  Bug Scanner             Scans the player in view within 100 units, or the user, for 5 seconds, then finds   Tech Counter 700
+                               and removes every bug on him and tells both. Not used up.
+
+
+8. ARP_TS: guns (33) and ammunition (13)
+----------------------------------------
+
+  Numbers 50 to 95 (with arp_h9_restraints 0: 47 to 92).
+
+   NO   R0  NAME                    DISP  CUT  DESCRIPTION                                                      NOTE
+  ---  ---  ----------------------  ----  ---  ---------------------------------------------------------------  --------------------------------------------------
+   50   47  GLOCK-18                Yes        Handgun; Non-Restricted; 9mm Parabellum
+   51   48  Mini-Uzi                Yes        Sub-machine Gun; Non-Restricted; 9mm Parabellum
+   52   49  Benelli M3              Yes        Shotgun; Restricted; 12 gauge 2 3/4"
+   53   50  Colt M4A1               Yes        Rifle; Restricted; 5.56mm (NATO)
+   54   51  H&K MP5SDA5             Yes        Sub-machine Gun; Restricted; 9mm Parabellum
+   55   52  H&K MP5K                Yes        Sub-machine Gun; Non-Restricted; 9mm Parabellum
+   56   53  Akimbo Beretta 92Fs     Yes        Handgun(s); Non-Restricted; 9mm Parabellum
+   57   54  H&K SOCOM MK23          Yes        Handgun; Non-Restricted; .45 ACP
+   58   55  Daewoo USAS-12          Yes        Shotgun; Restricted; 12 gauge 2 3/4"
+   59   56  IMI Desert Eagle        Yes        Handgun; Non-Restricted; .50 AE
+   60   57  Kalashnikova AK-47      Yes        Rifle; Prohibited; 7.62mm                                        not sold by any NPC
+   61   58  FN Five-seveN Tactical  Yes        Handgun; Non-Restricted; 5.7mm
+   62   59  Steyr AUG               Yes        Rifle; Restricted; 5.56mm (NATO)
+   63   60  vz. 61 "Skorpion"       Yes        Sub-machine Gun; Non-Restricted; .32 ACP
+   64   61  Barrett M82A1           Yes        Rifle; Prohibited; .50 BMG                                       not sold by any NPC
+   65   62  H&K MP7                 Yes        Sub-machine Gun; Non-Restricted; 4.6mm
+   66   63  SPAS-12                 Yes        Shotgun; Restricted; 12 gauge 2 3/4"
+   67   64  Golden Colt 1911A1s     Yes        Handgun; Non-Restricted; .45 ACP
+   68   65  GLOCK-20C               Yes        Handgun; Non-Restricted; 10mm Auto
+   69   66  H&K UMP                 Yes        Sub-machine Gun; Non-Restricted; .45 ACP
+   70   67  M61 Grenade             Yes        Special; Prohibited                                              not sold by any NPC
+   71   68  Combat Knife            Yes        Special; Non-Restriced
+   72   69  Mossberg 500            Yes        Shotgun; Non-Restriced; 12 gauge 2 3/4"
+   73   70  Colt M16A4              Yes        Rifle; Restricted; 5.56mm (NATO)
+   74   71  Ruger MK1               Yes        Handgun; Non-Restricted; .22 LR
+   75   72  Taurus Raging Bull      Yes        Handgun; Restricted; .454 Casull
+   76   73  U.S. Ordnance M60E3     Yes        Machine-gun; Prohibited; 7.62mm (NATO)                           not sold by any NPC
+   77   74  Sawed-Off Shotgun       Yes        Shotgun; Prohibited; 12 gauge 2 3/4"                             not sold by any NPC
+   78   75  Katana                  Yes        Special; Non-Restricted
+   79   76  Seal Knife              Yes        Special; Non-Restricted
+   80   77  G2 Contender            Yes        Handgun; Prohibited; 7.62mm NATO                                 not sold by any NPC
+   81   78  PPSh-41                 Yes        Sub-machine Gun; Prohibited; 7.62 x 25mm                         the gun is given only while h9_customweapons is 1
+   82   79  Laser Rifle             Yes        Rifle; Prohibited; Plasma cell                                   the gun is given only while h9_customweapons is 1
+   83   80  9mm Parabellum Ammo     Yes        9mm Parabellum ammo for weapons
+   84   81  12 Gauge Shells Ammo    Yes        12 Gauge shells for weapons
+   85   82  5.56mm NATO Ammo        Yes        5.56mm NATO ammo for weapons
+   86   83  .45 ACP Ammo            Yes        .45 ACP ammo for weapons
+   87   84  .50 AE Ammo             Yes        .50 AE ammo for weapons
+   88   85  7.62mm Soviet Ammo      Yes        7.62mm Soviet ammo for weapons                                   not sold by any NPC
+   89   86  5.7mm FN Ammo           Yes        5.7mm FN ammo for weapons
+   90   87  .50 BMG Ammo            Yes        .50 BMG ammo for weapons                                         not sold by any NPC
+   91   88  10mm Auto Ammo          Yes        10mm Auto ammo for weapons
+   92   89  .22 Hornet Ammo         Yes        .22 Hornet ammo for weapons
+   93   90  .454 Casull Ammo        Yes        .454 Casull ammo for weapons
+   94   91  .32 ACP Ammo            Yes        .32 ACP ammo for weapons
+   95   92  7.62mm NATO Ammo        Yes        7.62mm NATO ammo for weapons                                     not sold by any NPC
+
+   NO  NAME                    WHAT USING IT DOES                                                                  SOLD BY
+  ---  ----------------------  ----------------------------------------------------------------------------------  ----------------------------------------------------
+   50  GLOCK-18                Opens the attachment menu (Flashlight, Lasersight, Suppressor), then gives TS       Licensed Arms Dealer 1000 (Permitted menu: needs a
+                               weapon 1 (TSW_GLOCK18). Used up.                                                    Permitted License)
+   51  Mini-Uzi                Opens the attachment menu (Suppressor), then gives TS weapon 3 (TSW_UZI). Used up.  Licensed Arms Dealer 1500 (Permitted menu: needs a
+                                                                                                                   Permitted License)
+   52  Benelli M3              Opens the attachment menu (Flashlight, Lasersight, Scope), then gives TS weapon 4   Licensed Arms Dealer 2000 (Restricted menu: needs a
+                               (TSW_M3). Used up.                                                                  Restricted License)
+   53  Colt M4A1               Opens the attachment menu (Flashlight, Lasersight, Scope, Suppressor), then gives   Licensed Arms Dealer 3000 (Restricted menu: needs a
+                               TS weapon 5 (TSW_M4A1). Used up.                                                    Restricted License)
+   54  H&K MP5SDA5             Opens the attachment menu (Flashlight, Lasersight, Scope), then gives TS weapon 6   Licensed Arms Dealer 2500 (Restricted menu: needs a
+                               (TSW_MP5SD). Used up.                                                               Restricted License)
+   55  H&K MP5K                Opens the attachment menu (Flashlight, Lasersight, Scope, Suppressor), then gives   Licensed Arms Dealer 1800 (Permitted menu: needs a
+                               TS weapon 7 (TSW_MP5K). Used up.                                                    Permitted License)
+   56  Akimbo Beretta 92Fs     Opens the attachment menu (Flashlight, Lasersight, Suppressor), then gives TS       Licensed Arms Dealer 1000 (Permitted menu: needs a
+                               weapon 8 (TSW_ABERETTAS). Used up.                                                  Permitted License)
+   57  H&K SOCOM MK23          Opens the attachment menu (Flashlight, Lasersight, Suppressor), then gives TS       Licensed Arms Dealer 600 (Permitted menu: needs a
+                               weapon 9 (TSW_MK23). Used up.                                                       Permitted License)
+   58  Daewoo USAS-12          Opens the attachment menu (Flashlight, Lasersight), then gives TS weapon 11         Licensed Arms Dealer 3000 (Restricted menu: needs a
+                               (TSW_USAS). Used up.                                                                Restricted License)
+   59  IMI Desert Eagle        Opens the attachment menu (Lasersight, Scope, Suppressor), then gives TS weapon 12  Licensed Arms Dealer 750 (Permitted menu: needs a
+                               (TSW_DEAGLE). Used up.                                                              Permitted License)
+   60  Kalashnikova AK-47      Opens the attachment menu (Scope), then gives TS weapon 13 (TSW_AK47). Used up.     not sold by any NPC
+   61  FN Five-seveN Tactical  Opens the attachment menu (Lasersight, Scope, Suppressor), then gives TS weapon 14  Licensed Arms Dealer 400 (Permitted menu: needs a
+                               (TSW_57). Used up.                                                                  Permitted License)
+   62  Steyr AUG               Opens the attachment menu (Lasersight, Suppressor), then gives TS weapon 15         Licensed Arms Dealer 3300 (Restricted menu: needs a
+                               (TSW_AUG). Used up.                                                                 Restricted License)
+   63  vz. 61 "Skorpion"       Opens the attachment menu (Lasersight, Suppressor), then gives TS weapon 17         Licensed Arms Dealer 1200 (Permitted menu: needs a
+                               (TSW_SKORPION). Used up.                                                            Permitted License)
+   64  Barrett M82A1           Opens the attachment menu (Lasersight), then gives TS weapon 18 (TSW_M82A1). Used   not sold by any NPC
+                               up.
+   65  H&K MP7                 Opens the attachment menu (Lasersight, Scope, Suppressor), then gives TS weapon 19  Licensed Arms Dealer 1600 (Permitted menu: needs a
+                               (TSW_MP7). Used up.                                                                 Permitted License)
+   66  SPAS-12                 Opens the attachment menu (Flashlight, Lasersight), then gives TS weapon 20         Licensed Arms Dealer 1800 (Restricted menu: needs a
+                               (TSW_SPAS). Used up.                                                                Restricted License)
+   67  Golden Colt 1911A1s     Gives TS weapon 21 (TSW_GCOLTS) at once: it has no attachment menu. Used up.        Licensed Arms Dealer 1200 (Permitted menu: needs a
+                                                                                                                   Permitted License)
+   68  GLOCK-20C               Opens the attachment menu (Flashlight, Lasersight, Suppressor), then gives TS       Licensed Arms Dealer 800 (Permitted menu: needs a
+                               weapon 22 (TSW_GLOCK20). Used up.                                                   Permitted License)
+   69  H&K UMP                 Opens the attachment menu (Flashlight, Lasersight, Scope, Suppressor), then gives   Licensed Arms Dealer 1500 (Permitted menu: needs a
+                               TS weapon 23 (TSW_UMP). Used up.                                                    Permitted License)
+   70  M61 Grenade             Gives TS weapon 24 (TSW_M61GRENADE) at once: it has no attachment menu. Used up.    not sold by any NPC
+   71  Combat Knife            Gives TS weapon 25 (TSW_CKNIFE) at once: it has no attachment menu. Used up.        Licensed Arms Dealer 100 (Permitted menu: needs a
+                                                                                                                   Permitted License)
+   72  Mossberg 500            Opens the attachment menu (Flashlight, Lasersight), then gives TS weapon 26         Licensed Arms Dealer 1000 (Permitted menu: needs a
+                               (TSW_MOSSBERG). Used up.                                                            Permitted License)
+   73  Colt M16A4              Opens the attachment menu (Flashlight, Lasersight, Scope), then gives TS weapon 27  Licensed Arms Dealer 2500 (Restricted menu: needs a
+                               (TSW_M16A4). Used up.                                                               Restricted License)
+   74  Ruger MK1               Opens the attachment menu (Lasersight), then gives TS weapon 28 (TSW_MK1). Used     Licensed Arms Dealer 250 (Permitted menu: needs a
+                               up.                                                                                 Permitted License)
+   75  Taurus Raging Bull      Opens the attachment menu (Lasersight, Scope), then gives TS weapon 31              Licensed Arms Dealer 1600 (Restricted menu: needs a
+                               (TSW_RBULL). Used up.                                                               Restricted License)
+   76  U.S. Ordnance M60E3     Gives TS weapon 32 (TSW_M60E3) at once: it has no attachment menu. Used up.         not sold by any NPC
+   77  Sawed-Off Shotgun       Opens the attachment menu (Lasersight), then gives TS weapon 33 (TSW_SAWED_OFF).    not sold by any NPC
+                               Used up.
+   78  Katana                  Gives TS weapon 34 (TSW_KATANA) at once: it has no attachment menu. Used up.        Licensed Arms Dealer 200 (Permitted menu: needs a
+                                                                                                                   Permitted License)
+   79  Seal Knife              Gives TS weapon 35 (TSW_SKNIFE) at once: it has no attachment menu. Used up.        Licensed Arms Dealer 150 (Permitted menu: needs a
+                                                                                                                   Permitted License)
+   80  G2 Contender            Opens the attachment menu (Lasersight, Scope), then gives TS weapon 36              not sold by any NPC
+                               (TSW_CONTENDER). Used up.
+   81  PPSh-41                 Gives TS weapon 39 (TSW_PPSH41) at once: it has no attachment menu. Used up. With   Black Market 4500
+                               h9_customweapons 0 the gun is not given: the item is put back and the player told.
+   82  Laser Rifle             Gives TS weapon 40 (TSW_LASERRIFLE) at once: it has no attachment menu. Used up.    Black Market 8000
+                               With h9_customweapons 0 the gun is not given: the item is put back and the player
+                               told.
+   83  9mm Parabellum Ammo     Refills the gun in hand to its cap when it takes this ammunition: GLOCK-18 210,     Ammunition Counter 40
+                               TSW_BERETTA (no item) 210, Mini-Uzi 210, H&K MP5SDA5 210, H&K MP5K 210, Akimbo
+                               Beretta 92Fs 210, TSW_AUZI (no item) 210. With any other gun in hand the item is
+                               kept.
+   84  12 Gauge Shells Ammo    Refills the gun in hand to its cap when it takes this ammunition: Benelli M3 60,    Ammunition Counter 60
+                               Daewoo USAS-12 60, SPAS-12 60, Mossberg 500 60, Sawed-Off Shotgun 60. With any
+                               other gun in hand the item is kept.
+   85  5.56mm NATO Ammo        Refills the gun in hand to its cap when it takes this ammunition: Colt M4A1 90,     Ammunition Counter 80
+                               Steyr AUG 90, Colt M16A4 90, U.S. Ordnance M60E3 90. With any other gun in hand
+                               the item is kept.
+   86  .45 ACP Ammo            Refills the gun in hand to its cap when it takes this ammunition: H&K SOCOM MK23    Ammunition Counter 60
+                               175, TSW_AMK23 (no item) 175, Golden Colt 1911A1s 200, H&K UMP 175. With any other
+                               gun in hand the item is kept.
+   87  .50 AE Ammo             Refills the gun in hand to its cap when it takes this ammunition: IMI Desert Eagle  Ammunition Counter 100
+                               70. With any other gun in hand the item is kept.
+   88  7.62mm Soviet Ammo      Refills the gun in hand to its cap when it takes this ammunition: Kalashnikova      not sold by any NPC
+                               AK-47 90. With any other gun in hand the item is kept.
+   89  5.7mm FN Ammo           Refills the gun in hand to its cap when it takes this ammunition: FN Five-seveN     Ammunition Counter 90
+                               Tactical 200, H&K MP7 200, TSW_A57 (no item) 200. With any other gun in hand the
+                               item is kept.
+   90  .50 BMG Ammo            Refills the gun in hand to its cap when it takes this ammunition: Barrett M82A1     not sold by any NPC
+                               30. With any other gun in hand the item is kept.
+   91  10mm Auto Ammo          Refills the gun in hand to its cap when it takes this ammunition: GLOCK-20C 100.    Ammunition Counter 70
+                               With any other gun in hand the item is kept.
+   92  .22 Hornet Ammo         Refills the gun in hand to its cap when it takes this ammunition: Ruger MK1 150.    Ammunition Counter 30
+                               With any other gun in hand the item is kept.
+   93  .454 Casull Ammo        Refills the gun in hand to its cap when it takes this ammunition: Taurus Raging     Ammunition Counter 110
+                               Bull 50. With any other gun in hand the item is kept.
+   94  .32 ACP Ammo            Refills the gun in hand to its cap when it takes this ammunition: vz. 61            Ammunition Counter 40
+                               "Skorpion" 300, TSW_ASKORPION (no item) 300. With any other gun in hand the item
+                               is kept.
+   95  7.62mm NATO Ammo        Refills the gun in hand to its cap when it takes this ammunition: G2 Contender 35.  not sold by any NPC
+                               With any other gun in hand the item is kept.
+
+  The guns: the TS weapon number and name (H9's tsconst.inc; 39 and 40 are H9's own, of its reTS), the class the description gives, the ammunition item that refills the
+  gun and the cap it refills to (g_AmmoTypes and g_WeaponAmmo of ARP_TS), and the attachments the menu offers (g_GunStats).
+
+   NO  NAME                    TS WEAPON           CLASS           AMMUNITION ITEM       CAP  ATTACHMENTS
+  ---  ----------------------  ------------------  --------------  --------------------  ---  -----------------------------------------
+   50  GLOCK-18                1 TSW_GLOCK18       Non-Restricted  9mm Parabellum Ammo   210  Flashlight, Lasersight, Suppressor
+   51  Mini-Uzi                3 TSW_UZI           Non-Restricted  9mm Parabellum Ammo   210  Suppressor
+   52  Benelli M3              4 TSW_M3            Restricted      12 Gauge Shells Ammo   60  Flashlight, Lasersight, Scope
+   53  Colt M4A1               5 TSW_M4A1          Restricted      5.56mm NATO Ammo       90  Flashlight, Lasersight, Scope, Suppressor
+   54  H&K MP5SDA5             6 TSW_MP5SD         Restricted      9mm Parabellum Ammo   210  Flashlight, Lasersight, Scope
+   55  H&K MP5K                7 TSW_MP5K          Non-Restricted  9mm Parabellum Ammo   210  Flashlight, Lasersight, Scope, Suppressor
+   56  Akimbo Beretta 92Fs     8 TSW_ABERETTAS     Non-Restricted  9mm Parabellum Ammo   210  Flashlight, Lasersight, Suppressor
+   57  H&K SOCOM MK23          9 TSW_MK23          Non-Restricted  .45 ACP Ammo          175  Flashlight, Lasersight, Suppressor
+   58  Daewoo USAS-12          11 TSW_USAS         Restricted      12 Gauge Shells Ammo   60  Flashlight, Lasersight
+   59  IMI Desert Eagle        12 TSW_DEAGLE       Non-Restricted  .50 AE Ammo            70  Lasersight, Scope, Suppressor
+   60  Kalashnikova AK-47      13 TSW_AK47         Prohibited      7.62mm Soviet Ammo     90  Scope
+   61  FN Five-seveN Tactical  14 TSW_57           Non-Restricted  5.7mm FN Ammo         200  Lasersight, Scope, Suppressor
+   62  Steyr AUG               15 TSW_AUG          Restricted      5.56mm NATO Ammo       90  Lasersight, Suppressor
+   63  vz. 61 "Skorpion"       17 TSW_SKORPION     Non-Restricted  .32 ACP Ammo          300  Lasersight, Suppressor
+   64  Barrett M82A1           18 TSW_M82A1        Prohibited      .50 BMG Ammo           30  Lasersight
+   65  H&K MP7                 19 TSW_MP7          Non-Restricted  5.7mm FN Ammo         200  Lasersight, Scope, Suppressor
+   66  SPAS-12                 20 TSW_SPAS         Restricted      12 Gauge Shells Ammo   60  Flashlight, Lasersight
+   67  Golden Colt 1911A1s     21 TSW_GCOLTS       Non-Restricted  .45 ACP Ammo          200  none
+   68  GLOCK-20C               22 TSW_GLOCK20      Non-Restricted  10mm Auto Ammo        100  Flashlight, Lasersight, Suppressor
+   69  H&K UMP                 23 TSW_UMP          Non-Restricted  .45 ACP Ammo          175  Flashlight, Lasersight, Scope, Suppressor
+   70  M61 Grenade             24 TSW_M61GRENADE   Prohibited      none                    -  none
+   71  Combat Knife            25 TSW_CKNIFE       Non-Restricted  none                    -  none
+   72  Mossberg 500            26 TSW_MOSSBERG     Non-Restricted  12 Gauge Shells Ammo   60  Flashlight, Lasersight
+   73  Colt M16A4              27 TSW_M16A4        Restricted      5.56mm NATO Ammo       90  Flashlight, Lasersight, Scope
+   74  Ruger MK1               28 TSW_MK1          Non-Restricted  .22 Hornet Ammo       150  Lasersight
+   75  Taurus Raging Bull      31 TSW_RBULL        Restricted      .454 Casull Ammo       50  Lasersight, Scope
+   76  U.S. Ordnance M60E3     32 TSW_M60E3        Prohibited      5.56mm NATO Ammo       90  none
+   77  Sawed-Off Shotgun       33 TSW_SAWED_OFF    Prohibited      12 Gauge Shells Ammo   60  Lasersight
+   78  Katana                  34 TSW_KATANA       Non-Restricted  none                    -  none
+   79  Seal Knife              35 TSW_SKNIFE       Non-Restricted  none                    -  none
+   80  G2 Contender            36 TSW_CONTENDER    Prohibited      7.62mm NATO Ammo       35  Lasersight, Scope
+   81  PPSh-41                 39 TSW_PPSH41       Prohibited      none                    -  none
+   82  Laser Rifle             40 TSW_LASERRIFLE   Prohibited      none                    -  none
+
+  TS weapons that have no item here: 0 TSW_KUNG_FU, 2 TSW_BERETTA, 10 TSW_AMK23, 16 TSW_AUZI, 29 TSW_BRIEFCASE, 30 TSW_A57, 37 TSW_ASKORPION, 38 TSW_TKNIFE.
+
+
+9. WHAT EACH SHOP ROLE SELLS
+----------------------------
+
+  Price in credits, as the npcs.ini lines say (an item by any part of its name: ARP takes the shortest name that holds the text). The same role sells the same list on
+  both maps. Where a name has a number in brackets, that many NPCs of the map carry the name. With arp_h9_restraints 0 the sell lines for Tape, Rope and Cuffs name no
+  item and the shop's menu shows "BAD ITEM ID: Contact admin" for each (Black Market: Rope, Tape; Ministry Quartermaster: Cuffs, Rope; Hardware Counter: Rope, Tape).
+
+  General Store (shop)
+    hive: Snack Archive General Store, Xenon City Gear General Store, K-Line Super Store
+    New Byzantium: General Store, Uncle Pikkys General Store, Stacks General Store
+    Soda 10, Fries 20, Milk 30, Hotdog 40, Pizza 50, Hamburger 70, Pasta 80, Steak 90, Cigarette 10, Lighter 10, Zippo Lighter 50, Flashlight 40, Spray Can 50
+
+  Cantina (shop)
+    hive: Pawn Prawn Cantina, Uncle Pikkys Pizzeria, Green Dragon Cantina, H&C Coffee Cantina, Cafe Avalon Cantina
+    New Byzantium: Cantina (3)
+    Beer 20, Gin 30, Whiskey 40, Vodka 60, Hawk Miller Light 80, Soda 10, Fries 20, Hotdog 40, Pizza 50, Hamburger 70, Steak 90
+
+  Tech Counter (shop)
+    hive: Amoeba Music Tech Counter
+    New Byzantium: Tech Counter (2)
+    Motorola RAZR 400, Sony Ericsson 500, Nokia 6820 200, Phone Prepaid Card 60, Phone Subscription 150, Flashlight 40, Bug Scanner 700
+
+  Black Market (shop)
+    hive: Black Market
+    New Byzantium: Black Market (2)
+    Flashbang 200, Tazer 500, Lockpick 1000, Electric Lockpick 2500, Chlorofoam 400, Tape 50, Rope 100, Bug 800, Spray Can 50, Permitted License 2000,
+    Restricted License 10000, PPSh-41 4500, Laser Rifle 8000
+
+  Ministry Quartermaster (shop)
+    hive: XCCP Quartermaster
+    New Byzantium: Ministry Quartermaster
+    Cuffs 150, Tazer 400, Flashlight 30, Flashbang 150, Rope 80, Steel Axe 300, Door C2 800, First Aid Kit 120
+
+  Ministry Licensing Clerk (shop)
+    hive: XCCP Licensing Clerk
+    New Byzantium: Ministry Licensing Clerk
+    Permitted License 1000, Restricted License 5000
+
+  Pharmacy (shop)
+    New Byzantium: Pharmacy
+    First Aid Kit 120, Milk 30, Soda 10
+
+  Hardware Counter (shop)
+    New Byzantium: Foundry Hardware Counter
+    Flashlight 40, Rope 100, Tape 50, Spray Can 50, Lighter 10
+
+  Luxury Goods (shop)
+    New Byzantium: Luxury Goods
+    Cuban Cigar 40, Tobacco Pipe 60, Zippo Lighter 80, Whiskey 60, Vodka 80, Steak 120
+
+  Ammunition Counter (shop)
+    hive: Gear Guys Ammunition Counter, Guns n Stuff Ammunition Counter
+    New Byzantium: Ammunition Counter
+    9mm Parabellum Ammo 40, 12 Gauge Shells Ammo 60, 5.56mm NATO Ammo 80, .45 ACP Ammo 60, .50 AE Ammo 100, 5.7mm FN Ammo 90, 10mm Auto Ammo 70, .22 Hornet Ammo 30,
+    .454 Casull Ammo 110, .32 ACP Ammo 40
+
+  Medical Officer (doctor)
+    hive: Romagna Clinic Medical Officer, Midgar Lab Medical Officer
+    New Byzantium: Infirmary Medical Officer (2), Medical Officer, Street Medic, Heights Medical Officer
+    Heal Me $100 (1 health a second until 100; the player cannot move meanwhile), then
+    First Aid Kit 150
+
+  Licensed Arms Dealer (gunshop)
+    hive: Gear Guys Arms Dealer, Guns n Stuff Arms Dealer
+    New Byzantium: Licensed Arms Dealer
+    three menus; a menu opens only for a player who has the licence of its name in /items, and the Licenses menu opens for anyone
+    Permitted (needs a Permitted License):
+      GLOCK-18 1000, Mini-Uzi 1500, H&K MP5K 1800, Akimbo Beretta 92Fs 1000, H&K SOCOM MK23 600, IMI Desert Eagle 750, FN Five-seveN Tactical 400, vz. 61 "Skorpion" 1200,
+      H&K MP7 1600, Golden Colt 1911A1s 1200, GLOCK-20C 800, H&K UMP 1500, Combat Knife 100, Mossberg 500 1000, Ruger MK1 250, Katana 200, Seal Knife 150
+    Restricted (needs a Restricted License):
+      Benelli M3 2000, Colt M4A1 3000, H&K MP5SDA5 2500, Daewoo USAS-12 3000, Steyr AUG 3300, SPAS-12 1800, Colt M16A4 2500, Taurus Raging Bull 1600
+    Licenses (no licence needed):
+      Permitted License 1000, Restricted License 5000
+
+  Bank Teller (bank)
+    hive: Paradise Bank Teller, Bank Terminal (2)
+    New Byzantium: Exchange Bank Teller (2), Bank Teller
+    Withdraw/Deposit (say /withdraw <amount> or /deposit <amount> facing it, or /withdraw with a Debit Card anywhere), then
+    ATM Card 10, Debit Card 100
+
+  ATM Droid (atm)
+    hive: ATM Droid (3)
+    New Byzantium: ATM Droid (7)
+    needs an ATM Card in /items; withdraws or deposits 10, 20, 50, 100, 250, 500 or 1000
+
+10. NOT SOLD BY ANY NPC
+-----------------------
+
+  16 items: no shop line, gun shop line or bank menu of either map names them.
+
+    Drugs               Crack, Heroin, PCP, Mushroom, Cocaine, Acid
+    Other               Assassin Knife
+    Guns (Prohibited)   Kalashnikova AK-47, Barrett M82A1, M61 Grenade, U.S. Ordnance M60E3, Sawed-Off Shotgun, G2 Contender
+    Their ammunition    7.62mm Soviet Ammo, .50 BMG Ammo, 7.62mm NATO Ammo
+
+
+11. ODD THINGS THE CODE DOES
+----------------------------
+
+  - Chlorofoam (38) is sold for $400 and has no handler: ARP_Items registers "_Chlorofoam" and defines no function of that name, so using it does nothing at all: the
+    core finds no function to run, tells the player nothing and leaves the item in his hands.
+  - Phone Subscription (46) and Phone Prepaid Card (47) are never read: calls need neither, and a character with one has nothing more than one without.
+  - H&K MP7 (65): the description says 4.6mm, but the ammunition it takes is 5.7mm FN Ammo.
+  - U.S. Ordnance M60E3 (76): the description says 7.62mm (NATO), but the ammunition it takes is 5.56mm NATO Ammo.
+  - PPSh-41 (81) and Laser Rifle (82): no ammunition item refills them (their ammunition type in ARP_TS is 0).
+  - The description of Combat Knife (71) and Mossberg 500 (72) spells the class "Non-Restriced"; the list prints it so.
+  - DISP says No for the First Aid Kit, the Spray Can, Tape and Cuffs, which the handler (or, for the Spray Can, the spray key) still takes away, and for the Lockpick
+    (it can snap) and the Tazer (it can short-circuit): the column is only what the core does after the handler has run.
+
+
+12. KEEPING THIS FILE TRUE
+--------------------------
+
+  The tables are not typed: tools\gen_items.py rebuilds them from the plugins' sources (the five plugins above, ARP_NPCs, the two npcs.ini files, plugins.ini and
+  build.bat for the order, tsconst.inc and ApolloRP_TS.inc for the TS weapons). After an item, a plugin's order, a shop line or a price changes (an NPC whose name no role
+  knows stops the generator and says which: one line in ROLE_OF of gen_items.py gives it its role):
+
+      python tools\gen_items.py --doc docs\ARP_ITEMS.txt         writes this file again
+      python tools\gen_items.py --facts                           checks the facts the "what it does" lines rest on against the plugins (171 patterns); one that fails names the line to read again
+      python tools\check_items.py                                 this file against the sources, against docs\ARP_CONTENT.txt (section 5) and against arp_itemlist
+
+  check_items.py reads a capture of arp_itemlist: run arp_itemlist, arp_itemlist 30, arp_itemlist 60 and arp_itemlist 90 in a game's console, save the text (the pages may
+  be pasted one after the other) and give the file with --itemlist. With the shipped arp_h9_restraints it must show 95 items, and with 0, 92; every name, disposable flag
+  and description must be the table's.

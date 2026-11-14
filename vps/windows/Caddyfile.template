@@ -24,12 +24,35 @@
 
 	# never for visitors: dot files and folders, backups, archives, sources, scripts, keys and
 	# logs, these notes and the deploy scripts. h9web's and the list's addresses are left alone
-	# (a username may end in .sh).
+	# (a username may end in .sh), and so are the two published downloads and the downloads'
+	# file index, which has its own rule below.
 	@hidden {
 		path_regexp hidden (?i)(/\.|\.(bak[^/]*|orig|rej|old|save|swp|swo|tmp|zip|7z|rar|tar|tgz|sql|sqlite3?|db-wal|db-shm|log|pem|key|crt|p12|pfx|env|sh|ps1|bat|cmd|py|sma|inc|amxx|patch|diff)$|~$)
-		not path /.well-known/* /api/* /serverlist/*
+		not path /.well-known/* /api/* /serverlist/* /downloads/H9XASH.zip /downloads/H9XASH-linux.zip /downloads/files/*
 	}
 	@notes path /webclient/DEPLOY.txt /deploy/*
+	# the downloads' file index (README-WINDOWS.txt step 13 lists what goes in it): a plain
+	# listing, and the packages, their reports and the checksums in it. A dot file, a subfolder or
+	# any other kind of file there is a 404, and so is a name Windows reads as another file than it
+	# looks (NAME~1, name:stream).
+	@packages path /downloads/files /downloads/files/*
+	@packages_hidden {
+		path /downloads/files/*
+		not path_regexp (?i)^/downloads/files/([^/.~:][^/~:]*\.(zip|exe|txt))?$
+	}
+	# H9XASH-Updater's files (stage-h9xash.ps1 publishes them; tools\updater\README_UPDATER.txt):
+	# the manifest, and each file under its SHA-256. Without the updater's X-H9-Updater header and
+	# User-Agent every address there is a 404, so is any other name, and there is no listing. This
+	# keeps the folder out of browsers and search engines; it is not access control.
+	@files_hidden {
+		path /files/*
+		not {
+			header X-H9-Updater 1
+			header User-Agent H9XASH-Updater/*
+			path_regexp ^/files/([0-9a-f]+|manifest\.json)$
+		}
+	}
+	@files_blob path_regexp ^/files/[0-9a-f]+$
 	@api {
 		path /api/*
 		not path /api/forum/avatar
@@ -38,10 +61,22 @@
 	route {
 		respond @hidden 404
 		respond @notes 404
+		respond @files_hidden 404
+		respond @packages_hidden 404
+		header /files/manifest.json {
+			Cache-Control "no-cache"
+			Vary "X-H9-Updater, User-Agent"
+		}
+		header @files_blob {
+			Cache-Control "public, max-age=31536000, immutable"
+			Content-Type "application/octet-stream"
+			Vary "X-H9-Updater, User-Agent"
+		}
 
-		# request bodies: 64 KB for h9web's API, 11 MB for a profile picture, 4 KB for the list
+		# request bodies: 128 KB for h9web's API (a 128-slot server's presence report), 11 MB for
+		# a profile picture, 4 KB for the list
 		request_body @api {
-			max_size 64KB
+			max_size 128KB
 		}
 		request_body /api/forum/avatar {
 			max_size 11MB
@@ -79,6 +114,11 @@
 		header /webclient/* Cache-Control "no-cache"
 
 		root * {ROOT}/site
+		# the downloads' file index: a listing of that folder only, without its dot files
+		file_server @packages {
+			browse
+			hide .*
+		}
 		file_server
 	}
 }

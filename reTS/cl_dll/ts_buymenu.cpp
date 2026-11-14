@@ -14,6 +14,7 @@
 #include "cl_util.h"
 #include "ts_hud.h"
 #include "ts_buymenu.h"
+#include "h9_buywindow.h" // H9BuyWindow_KeepsMenu / _MenuClosed: a menu a buy window put up
 #include "ts_weapon_info.h" // get_weapon_info — CustomWP live prices + tunables
 #include "parsemsg.h"
 #include "vgui_TeamFortressViewport.h" // GetNumberOfTeams() + UpdateCursorState() (cursor while up)
@@ -22,6 +23,7 @@
 #include <string.h>
 
 void IN_GetMousePos(int* mx, int* my);
+extern int mouse_oldbuttonstate; // inputw32.cpp: the mouse buttons as the last IN_MouseEvent saw them
 
 static const int TS_BUDGET = 30000; // FUN_10036640 (CashBased off)
 static const int TS_SLOTCAP = 0x51; // FUN_10036660 = 81
@@ -99,9 +101,9 @@ static const TSWeapon* WeaponInfo(int id)
 
 // Per-weapon ammo caliber (weapon_info byte +0x08), read from the live weapon table. 0 = melee/no
 // ammo. reference/MENUS.md. Indexed by tsweapon_t id.
-static const signed char s_weaponCaliber[41] = {
+static const signed char s_weaponCaliber[42] = {
 	/*0*/ 0, 1, 1, 1, 3, 4, 1, 1, 1, 2, 2, 3, 5, 6, 7, 4, 1, 12, 8, 7,
-	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14, 15};
+	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14, 15, 13};
 static int WeaponCaliber(int id) { return (id >= 0 && id < TSW_COUNT) ? s_weaponCaliber[id] : 0; }
 static_assert(sizeof(s_weaponCaliber) / sizeof(s_weaponCaliber[0]) >= TSW_COUNT, "the buy menu's caliber table must hold every weapon id");
 
@@ -242,6 +244,10 @@ bool CHudTSBuyMenu::VidInit()
 
 void CHudTSBuyMenu::Reset()
 {
+	// A menu a buy window put up stays up through the ResetHUD of a respawn that reaches the client after it (the freeze's force spawn);
+	// the window takes it down.
+	if (m_active && H9BuyWindow_KeepsMenu())
+		return;
 	m_active = false;
 	m_level = LVL_CONFIG;
 	m_cat = 0;
@@ -258,7 +264,7 @@ void CHudTSBuyMenu::Reset()
 // FUN_10036670 — open: load the last-applied config; on the FIRST open of the map, randomize the
 // loadout instead (so it comes up as a ready "Use New Config"). Subsequent opens reload the last
 // config ("Use Last Config").
-void CHudTSBuyMenu::Open()
+void CHudTSBuyMenu::Open(bool forWindow)
 {
 	if (m_active)
 		return; // already open — don't reload/re-randomize (FUN_10036670 guards on obj[0]==0). The
@@ -269,6 +275,8 @@ void CHudTSBuyMenu::Open()
 	m_weapon = -1;
 	m_attachMask = 0;
 	m_prevButtons = 0;
+	// A buy window puts the menu up under a player who may be holding a mouse button; letting it go is not a click on the menu
+	m_ignoreButtons = forWindow ? mouse_oldbuttonstate : 0;
 
 	// load the last config (obj+0x41c -> obj+0x14)
 	if (m_lastConfigValid)
@@ -277,7 +285,9 @@ void CHudTSBuyMenu::Open()
 		memset(m_slots, 0, sizeof(m_slots));
 	m_useNewConfig = false;
 
-	if (m_firstOpen)
+	// A buy window opens it on the last config (or an empty one), never on a random loadout: the plugin prices a loadout against the
+	// class's cash, which a random one rarely fits. The spectate wait's first open of a map is still the random one.
+	if (m_firstOpen && !forWindow)
 	{
 		m_firstOpen = false;
 		BuyRandom(); // FUN_100398e0 — fills a random loadout + flips to "Use New Config"
@@ -298,6 +308,7 @@ void CHudTSBuyMenu::Close()
 	m_iFlags &= ~HUD_ACTIVE;
 	if (gViewPort)
 		gViewPort->UpdateCursorState();
+	H9BuyWindow_MenuClosed();
 }
 
 //----------------------------------- accounting -----------------------------------
@@ -823,6 +834,8 @@ void CHudTSBuyMenu::HandleMouse(int buttons)
 		return;
 	int released = (buttons ^ m_prevButtons) & ~buttons; // newly released
 	m_prevButtons = buttons;
+	released &= ~m_ignoreButtons; // a button that was down when a buy window put the menu up
+	m_ignoreButtons &= buttons;
 
 	if (released & 1) // left
 	{

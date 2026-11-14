@@ -1,0 +1,48 @@
+# The P2P relay (bin/h9rv.js) as a systemd service on Linux. vps/linux/setup.sh installs this file as
+# /etc/systemd/system/h9-p2p.service when it is run with P2P=standalone; by hand:
+#
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin h9p2p
+#   sudo install -d /opt/p2p /etc/h9-p2p                       the code (this folder's lib, bin, package.json) and the settings
+#   sudo cp -r lib bin package.json /opt/p2p/
+#   sudo cp relay.config.example.json /etc/h9-p2p/relay.config.json   then edit it (README.txt lists every key)
+#   sudo cp hosts.example.json /etc/h9-p2p/hosts.json
+#   sudo chown root:h9p2p /etc/h9-p2p/*.json && sudo chmod 640 /etc/h9-p2p/*.json
+#   sudo node /opt/p2p/bin/h9rv.js token Mike --hosts /etc/h9-p2p/hosts.json     (as root: the file keeps its owner and mode)
+#   sudo cp h9-p2p.service.example /etc/systemd/system/h9-p2p.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now h9-p2p
+#   sudo ufw allow 27248/udp                                    the data plane's port (the one in publicUdp and bind.udp)
+#
+# It keeps nothing on disk (the sessions live in memory, a restart forgets them and the hosts open again by themselves) and
+# only reads /etc/h9-p2p. The service has to be able to write nothing, so most of the system is read-only to it.
+[Unit]
+Description=HAVOC 9 P2P relay (h9rv)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=h9p2p
+Group=h9p2p
+WorkingDirectory=/opt/p2p
+# auth.mode h9web: the address of the site, a line  H9RV_SITE_URL=https://havoc9.org  in /etc/h9-p2p/relay.site.ini (the - lets the file be missing)
+EnvironmentFile=-/etc/h9-p2p/relay.site.ini
+ExecStart=/usr/bin/node /opt/p2p/bin/h9rv.js --config /etc/h9-p2p/relay.config.json
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryMax=256M
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

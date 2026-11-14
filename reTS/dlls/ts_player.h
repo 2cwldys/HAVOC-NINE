@@ -20,6 +20,10 @@ bool DoubleFireRate(CBasePlayer *pPlayer); // @ 0x65fe4 — m_iPowerups & 0x10
 int  KungFu(CBasePlayer *pPlayer);         // @ 0x65fd8 — m_iKungFu
 // The slow-motion rate an object a player drops or throws starts with (inlined in each Create*).
 float TSThrowSlow(CBasePlayer *pPlayer);
+// A bot that ts_matchmode keeps off TS's powerups (tsm_bot_powerups 0 while its match mode is on): the awards a kill brings
+// (the held slow motion, the Specialist's kung fu and super jump) and the kill's slow-motion bubble and blur are not for it.
+bool TSBotKeptOffPowerups(const entvars_t *pev);
+bool TSBotKeptOffPowerups(const CBasePlayer *pPlayer);
 
 // Kill-flavor globals (original .data @0x104480/81/82) — melee/coldcock/headshot kill blow
 // markers driving the death-notice weapon string + #TS_Coldcock HUD broadcast. ts_player.cpp.

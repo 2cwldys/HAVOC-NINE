@@ -1,0 +1,95 @@
+PROPOSAL -- NOT APPLIED, NOT BUILT, NOT RUN.
+reTS (game DLL and client DLL) change that makes TS's own cash the loadout rework's money, so the
+equipment menu itself enforces the budget instead of the plugin refusing an apply after the fact.
+
+Why it is a proposal. The rework needs none of this: the plugin reads the menu's commands, prices them
+with the menu's own price table, refuses what does not fit and hands the weapons over, so with the
+plugin alone a player can build a loadout the menu offers and the plugin then turns down (the menu's
+money bar is a constant 30000), and the cash in his wallet is a display the plugin sets. This change
+removes both oddities. It touches the game's economy for every server that loads the DLL, so it is gated
+on the usecash cvar the match mode already sets (tsm_nocash 1 sets usecash 1), which is OFF in the game
+as it ships.
+
+What the source says today (all verified by reading, nothing run):
+ - dlls/ts_buy.cpp: CashBased() is "return false" ("hard-OFF in the shipped game"); BuyWeapon,
+   BuyAmmo and CTSGroundWeapon::GetWeapon carry their cost branches behind it, dead.
+ - cl_dll/ts_buymenu.cpp: TS_BUDGET is the constant 30000 ("FUN_10036640 (CashBased off)"); the menu's
+   affordability tests and its auto-ammo pass spend that, not the wallet.
+ - The wallet is CBasePlayer::m_iCash, sent to the client as TSCash and drawn when usecash is on.
+
+Proposed (the plugin's own pricing in ts_matchmode.sma stays as the backstop either way):
+
+--- a/dlls/ts_buy.cpp
++++ b/dlls/ts_buy.cpp
+@@ bool CashBased()
+-// @ CashBased__Fv -- the shipped binary returns 0 unconditionally (cash charging disabled).
+-bool CashBased()
+-{
+-	return false;
+-}
++// @ CashBased__Fv -- the shipped binary returns 0 unconditionally (cash charging disabled); here it follows
++// the usecash cvar (m_iSrvUseCash in the rules, the cached cvar), which no server sets but a match mode.
++bool CashBased()
++{
++	return CVAR_GET_FLOAT("usecash") != 0.0f;
++}
+
+@@ bool CBasePlayer::BuyWeapon(int type, int iAttach)
+-	// Free in the shipped game (CashBased() == false). If a cash economy is ever turned
+-	// on, this is where the price (get_weapon_info(type)->price, s_weapon_info+0xd8) would
+-	// be checked against m_iCash and deducted.
++	// Priced when the economy is on: the weapon, its attachments (900 / 800 / 500 / 1800) -- refused
++	// when m_iCash does not cover it, charged once the pickup succeeds.
++	int price = 0;
++	if (CashBased())
++	{
++		const s_weapon_info *wi = get_weapon_info((tsweapon_t)type);
++		price = wi->iPrice;
++		if (iAttach & 1) price += 900;
++		if (iAttach & 2) price += 800;
++		if (iAttach & 4) price += 500;
++		if (iAttach & 8) price += 1800;
++		if (m_iCash < price)
++			return false;
++	}
+ 	// @0x846ca: the buy path selects the purchase AND records the buyer (the sole
+ 	// bRecordOwner caller -- item+0x30). iAttach = the tkw token's attach mask.
+-	return PickUpWeapon(type, NULL, iAttach, true, true);
++	if (!PickUpWeapon(type, NULL, iAttach, true, true))
++		return false;
++	GiveCash(-price);
++	return true;
+
+--- a/cl_dll/ts_buymenu.cpp
++++ b/cl_dll/ts_buymenu.cpp
+@@
+-static const int TS_BUDGET = 30000; // FUN_10036640 (CashBased off)
++// FUN_10036640: the menu's money. 30000 with the economy off (the game as it ships); the wallet when the
++// server runs one (SrvSett id 1, g_iTSUseCash), which is what the money bar and every "can I afford it"
++// test then measure.
++extern int g_iTSUseCash;                       // ts_status.cpp
++static int TsBudget()
++{
++	return g_iTSUseCash ? gHUD.m_TSStatus.m_iCash : 30000;
++}
+
+and every use of TS_BUDGET in that file (lines 405, 442, 472, 584, 965, 1095, 1154, 1179, 1193, 1199,
+1205, 1228, 1233, 1257 at the time of writing) becomes TsBudget(). m_iCash is private to CHudTSStatus
+today; a one-line public accessor is needed.
+
+What the plugin side does once this is built.
+ - The plugin keeps pricing the apply (lr_cart_*), because a client is not trusted; with the DLL
+   charging as well, a purchase is charged twice unless the plugin stops showing the remaining budget
+   as the wallet and shows the allowance instead. Concretely: lr_wallet() would return the class's full
+   allowance (lr_budget) rather than allowance minus the set's cost, and lr_regive() would not be the
+   thing that gives the weapons -- the respawn the arm already does (task_arm_respawn / task_revive_arm
+   -> spawn()) would apply the queue through BuyArmament, with weaponrestriction 0. That is a larger
+   rework of the arm path than this proposal covers; the plugin-only version was chosen first for that
+   reason.
+ - The deny list and the 81-slot rule would move into the DLL's IsRestrictedWeapon mask.
+ - kevlar: AddItem(0x10) -> TakeArmor(100) already works in the DLL (it is the reason the plugin's
+   set_user_armor stand-in is a stand-in); with the DLL as the buyer the plugin stops granting it.
+
+Risks if it is built: every non-H9 map with usecash 1 starts charging; a server that never ran cash
+meets a menu whose money bar is its (empty) wallet; ts_wingiver victorycash / defeatcash keyvalues in
+maps become real money. Gate the DLL change on tsm_enabled as ts_powerup.cpp does if that matters.

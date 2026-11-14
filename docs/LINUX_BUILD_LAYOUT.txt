@@ -1,0 +1,297 @@
+===============================================================================
+ H9XASH-LINUX -- what the folder is, what is in it, and how it stays in step
+ with H9XASH
+===============================================================================
+
+ Read this with docs\LINUX_SUPPORT.txt (the plan and the status of the Linux
+ support) and docs\BUILDING.txt (how every build is started). This file is the
+ map of the folders and ZIPs, and the rules that keep them consistent.
+
+ CONTENTS
+    1. The short version
+    2. The trees and who writes what
+    3. What is in H9XASH-linux, file by file
+    4. How the three ZIPs are made
+    5. How H9XASH-linux stays in step with H9XASH (tools\linux-sync.mjs)
+    6. The order of a sync
+    7. What a change needs from the Linux build
+    8. Testing it
+    9. Known gaps
+   10. Troubleshooting
+   11. Files
+
+
+ 1. THE SHORT VERSION
+ --------------------
+   * H9XASH is the game as players get it on Windows: the engine, the game
+     folder (ts\), the maps, models, sounds, plugins and configs. It is the
+     single source of truth for CONTENT, and it is shared by every platform.
+   * H9XASH-linux is NOT a second copy of the game. It is the Linux build's
+     OUTPUT FOLDER: only the files that cannot be shared with Windows (the
+     native Linux libraries, the Linux dedicated engine, the Linux launcher)
+     plus the three small files that are derived from H9XASH's own for Linux.
+     It is made by build-linux.cmd (in the WSL2 distro h9build), it is
+     git-ignored, and export.bat copies it to the git copy so that
+     stage-h9xash can pack it.
+   * A player's package is H9XASH (content) laid under H9XASH-linux (platform
+     files), which is what stage-h9xash.ps1 does when it writes the ZIPs.
+   * "In step" therefore means three things, and tools\linux-sync.mjs checks
+     all three: the files derived from H9XASH are current, every Linux
+     counterpart the server configuration asks for is there, and every
+     library was built from the sources as they are now.
+   * There is NO native Linux client yet. dist\H9XASH-linux.zip is the
+     Wine/Proton package (the Windows game and the launcher h9xash.sh) until a
+     native client build exists; dist\H9XASH-linux-server.zip is the native
+     Linux server. docs\LINUX_SUPPORT.txt section 0 says what blocks the client.
+
+
+ 2. THE TREES AND WHO WRITES WHAT
+ --------------------------------
+   TSM\H9XASH               the game, built and kept by build.bat, xash.bat,
+                            export.bat (copies into it) and by hand. Never
+                            edited by the Linux build.
+   TSM\H9XASH-linux         the Linux build's output. Written ONLY by
+                            build-linux.cmd. Do not edit it by hand: the next
+                            build replaces it (the step assemble wipes and
+                            re-lays it out).
+   TSM\linux\               the Linux build's scripts (build-linux.sh,
+                            h9build-setup.sh, h9xash_server.sh, the AMX Mod X
+                            helper) and the licenses of what it installs.
+   <repo>\H9XASH            export.bat's copy of H9XASH (the git mirror).
+   <repo>\H9XASH-linux      export.bat's copy of the output folder (git-ignored).
+   <repo>\dist\             stage-h9xash.ps1's output: the ZIPs and a report.
+   WSL: /root/lclient and the distro's work dirs hold the build trees; nothing
+   in them is a master.
+
+   The mirror's copy of H9XASH-linux is brought up to date by export.bat and,
+   for a staging run on its own, by build-linux.cmd -Stage (it copies the
+   folder it just built into the mirror before it packs).
+
+
+ 3. WHAT IS IN H9XASH-LINUX, FILE BY FILE
+ ----------------------------------------
+   BUILT by a step of linux\build-linux.sh (each has a <name>.patch note beside
+   it that says what it is, how it was built and its SHA-256, and BUILDINFO.txt
+   lists them all with their glibc floor):
+
+     step rets       ts\dlls\ts_i386.so              reTS's game library
+     step metamod    ts\addons\metamod\dlls\metamod.so   Metamod-R, installed
+                     under that name because FWGS strips _i386 from a game
+                     library's file name
+     step engine     xashds, filesystem_stdio.so     the dedicated engine from
+                     the patched Xash3D FWGS tree (xash3d-h9-patches\patches)
+     step amxx       ts\addons\amxmodx\dlls\amxmodx_mm_i386.so and the
+                     modules (engine, fakemeta, fun, geoip, hamsandwich, json,
+                     nvault, regex, sockets, sqlite, tsfun, tsx) as
+                     *_amxx_i386.so: AMX Mod X with reTSX, through AMBuild
+     step rcbot      rcbot\dlls\rcbot_mm.so          RCBot with H9's patches
+     (install)       ts\addons\amxmodx\modules\easy_http_amxx_i386.so, its CA
+                     bundle data\amxx_easy_http_cacert.pem and its license
+                     easy_http_LICENSE.txt: AmxxEasyHttp 1.4.0 as its authors
+                     released it (MIT), checked against the SHA-256 pinned in
+                     linux\build-linux.sh; it has no .patch note, it is not
+                     changed
+
+   DERIVED from H9XASH's own files by the step assemble (they exist in both
+   trees; the Linux copy equals H9XASH's except for its Linux lines):
+
+     ts\gameinfo.txt                    adds gamedll_linux "addons/metamod/dlls/metamod.so"
+     ts\liblist.gam                     points gamedll_linux at Metamod
+     ts\addons\metamod\plugins.ini      adds the linux lines (AMX Mod X, RCBot)
+
+   COPIED from linux\ by assemble:
+
+     h9xash_server.sh                   the dedicated server's launcher
+
+   WRITTEN by the build:
+
+     BUILDINFO.txt                      date, SHA-256, glibc floor and size of every
+                                        library (glibc floor 2.34: Ubuntu 22.04)
+     INPUTS.json                        what each step was built from (section 5)
+
+   NOT in it, by design: the maps, models, sounds, textures, plugins (.amxx
+   are platform-independent), configs, resource files -- all of H9XASH's
+   content. The Windows libraries are not in it either.
+
+
+ 4. HOW THE THREE ZIPS ARE MADE
+ ------------------------------
+   stage-h9xash.ps1 (in the repository root; stage-h9xash.sh and
+   stage_h9xash.py are the Linux ports, tools\stage_h9xash_test.py compares
+   them) packs from the mirror's H9XASH and H9XASH-linux. It leaves out what a
+   player's package must not hold (logs, personal files, secrets, the other
+   platform's binaries), scrubs config files, scans the result, and writes
+   dist\H9XASH.report.txt.
+
+     H9XASH.zip              the Windows package: H9XASH without any Linux-only
+                             file (h9xash.sh, h9_userid.sh, README_LINUX.txt,
+                             *.so).
+     H9XASH-linux.zip        the package Linux players download:
+                              - with no native client (today): the Wine/Proton
+                                package: the Windows game, the launcher
+                                h9xash.sh and h9_userid.sh, README_LINUX.txt;
+                              - with a native client (H9XASH-linux\xash3d
+                                present): the native build laid over H9XASH.
+     H9XASH-linux-server.zip the native Linux dedicated server: H9XASH's
+                             content with H9XASH-linux laid over it (xashds,
+                             the .so libraries, h9xash_server.sh). Written when
+                             H9XASH-linux holds xashds.
+   Unix modes (0755 on .sh files and executables) need Python 3 (py -3 or
+   python); without it the Wine package keeps no modes and no native package
+   is made.
+   build-linux.cmd -Stage packs while the build lock is held.
+
+
+ 5. HOW H9XASH-LINUX STAYS IN STEP WITH H9XASH
+ ---------------------------------------------
+   node tools\linux-sync.mjs               check; exit 0 in step, 1 stale
+   node tools\linux-sync.mjs --quiet       only what is not in step
+   node tools\linux-sync.mjs --json        the same as JSON
+   node tools\linux-sync.mjs --baseline    first record (steps whose sources are
+                                           not newer than their libraries)
+   node tools\linux-sync.mjs --record [steps]   what build-linux.ps1 runs after
+                                                a successful build
+   node tools\linux-sync.mjs --dist <dir>  where the ZIPs are (default: dist\
+                                           here, else the repository named by
+                                           export.bat's REPO line)
+
+   What it checks:
+     1. libraries    every library BUILDINFO.txt lists is in the folder with the
+                     SHA-256 it records (a half-finished build or a copied file
+                     shows here)
+     2. derived      ts\gameinfo.txt, ts\liblist.gam and ts\addons\metamod\
+                     plugins.ini equal H9XASH's once the Linux-only lines
+                     (gamedll_linux, linux) are taken out of both. H9XASH's own
+                     changed since the last assemble => STALE, run
+                     build-linux.cmd -Steps assemble
+     3. counterparts every module AMX Mod X's modules.ini loads has its
+                     <name>_amxx_i386.so; every linux line of Metamod's
+                     plugins.ini names a file that exists. A new module added
+                     for Windows without a Linux build => FAIL
+     4. steps        each step's inputs, as a fingerprint of the SOURCE files
+                     (path and content, not times), against INPUTS.json:
+                       rets      reTS: CMakeLists.txt, cmake, dlls, game_shared,
+                                 pm_shared, common, public, engine
+                       metamod   metamod-r
+                       engine    xash3d-h9-patches\patches and the commit of
+                                 the xash3d-fwgs clone
+                       amxx      AMXMODX and linux\dedupe-engine-types.py
+                       rcbot     rcbot-patch\src and the two rcbot patches
+                       assemble  H9XASH's gameinfo.txt, liblist.gam, metamod
+                                 plugins.ini, linux\h9xash_server.sh,
+                                 build-linux.sh, the easy_http license
+                     A step whose sources changed since it was built is STALE.
+                     Touching a file without changing it does not count.
+     5. ZIPs         H9XASH-linux-server.zip and H9XASH-linux.zip are in dist\,
+                     staged after the build, and the server ZIP holds every
+                     library of BUILDINFO.txt with the recorded size; the
+                     report says whether H9XASH-linux.zip is the Wine/Proton
+                     package or a native client package.
+
+   INPUTS.json is {"<step>": {"fingerprint", "files", "recorded", "how"}}.
+   build-linux.ps1 refreshes the entries of the steps it ran. The first record
+   (2026-11-09) was taken with --baseline.
+
+   What it cannot see: a change in H9XASH's CONTENT (a plugin, a map, a model)
+   does not make any library stale and is not supposed to: the Linux package
+   takes content from H9XASH when it is staged, so after such a change the
+   only Linux work is the re-stage (section 7). The check does not look inside
+   the ZIPs for content; the stage report (dist\H9XASH.report.txt) is the
+   record of what went in.
+
+
+ 6. THE ORDER OF A SYNC
+ ----------------------
+   One heavy job at a time: build-linux.cmd and tools\webclient-sync.mjs each
+   take D:\temp\HEAVY-JOB.lock and refuse while it exists.
+     1. build.bat / xash.bat / the reTS build   (the Windows side, as usual)
+     2. export.bat                              (H9XASH, sources and the
+                                                 Linux folder into the mirror)
+     3. node tools\webclient-sync.mjs           (the web client)
+     4. build-linux.cmd -Steps <stale steps>,assemble -Stage   (or all steps)
+     5. node tools\linux-sync.mjs               (must say "in step")
+   The Linux sync follows the web sync (CLAUDE.md, "The Linux build moves with
+   the web client"). Step 4's -Stage copies H9XASH-linux into the mirror and
+   runs the mirror's stage-h9xash.ps1, so run export.bat first: it packs the
+   mirror's H9XASH as it stands.
+
+
+ 7. WHAT A CHANGE NEEDS FROM THE LINUX BUILD
+ -------------------------------------------
+   a plugin (.sma/.amxx), a config, a map, a model, a sound, a preset
+                          re-stage only: build-linux.cmd -Steps assemble -Stage
+   reTS dlls\ (the game library)
+                          -Steps rets,assemble -Stage
+   an engine patch, the xash3d-fwgs clone
+                          -Steps engine,assemble -Stage
+                          (also for a patch that only touches ref\gl, the
+                          renderer, which the dedicated server does not
+                          contain: h9_upscale changes no byte of xashds, but
+                          linux-sync.mjs hashes the whole patch folder and clone)
+   AMXMODX modules, linux\dedupe-engine-types.py
+                          -Steps amxx,assemble -Stage
+   rcbot-patch            -Steps rcbot,assemble -Stage
+   H9XASH's gameinfo.txt, liblist.gam or Metamod plugins.ini, linux\h9xash_server.sh
+                          -Steps assemble -Stage
+   client-only code (reTS cl_dll, the panels, TTS, WebView2, Discord)
+                          no Linux library: there is no native client. The Wine
+                          package carries the Windows client as it is, so only
+                          the re-stage matters.
+   Not sure: run every step (about 30 minutes) and re-stage.
+
+
+ 8. TESTING IT
+ -------------
+   The native server is tested headless in the distro: unpack
+   dist\H9XASH-linux-server.zip into /root/srvtest, run
+   ./h9xash_server.sh -port 27099 +set tsm_logging 1 +map h9_te_neuropolis
+   +maxplayers 16 +rcon_password <p>, then read the engine log and AMX Mod X's
+   logs: the engine, Metamod, AMX Mod X, RCBot and ts_i386.so load, the plugins
+   report running (40 of 53 on a map that is not a roleplay one: the Apollo RP
+   plugins pause), and easy_http's HTTP and HTTPS requests succeed. rcon over UDP
+   (a script) reads cvars and runs commands. No client has joined a native
+   Linux server from a Linux client yet; a Windows or web client has.
+
+
+ 9. KNOWN GAPS
+ -------------
+   * No native Linux client (docs\LINUX_SUPPORT.txt section 0: the VGUI font
+     backend, 32-bit SDL2 and libraries, FFmpeg for the menu video).
+   * Text to speech: compiled for Windows (SAPI) and the browser only.
+   * Discord presence and the WebView2 MOTD page are Windows/Wine only.
+   * At load AMX Mod X logs "Unable to load library engine (gameconf
+     common.games)" five times: xashds is a PIE executable that glibc will not
+     dlopen, so two engine-signature natives (cvar-change hooks, SV_DropClient)
+     are unavailable; they are unavailable on Windows with this engine too.
+   * glibc floor 2.34 (built on Ubuntu 22.04): older distributions cannot run
+     the libraries. easy_http's own .so needs only 2.17.
+
+
+ 10. TROUBLESHOOTING
+ -------------------
+   "<lock> exists: another heavy job is running"   wait, or remove a STALE lock
+        only with the owner's say-so; build-linux.cmd never takes it over.
+   "Cannot convert value System.String to SwitchParameter" in -Stage   fixed
+        2026-11-09 (a local named $stage shadowed the switch); an old copy of
+        build-linux.ps1 has it.
+   "No stage-h9xash.ps1": the packer lives in the mirror, not in TSM; -Stage
+        finds it through export.bat's REPO line.
+   wsl.exe one-liners fail with "(x86)" in the PATH: the scripts set a short
+        PATH inside the distro; run script files, not bash -c "...".
+   linux-sync says STALE for a step: build that step and assemble; for the ZIPs:
+        build-linux.cmd -Stage after export.bat.
+   linux-sync says "no INPUTS.json": node tools\linux-sync.mjs --baseline.
+
+
+ 11. FILES
+ ---------
+   build-linux.cmd, build-linux.ps1       the Windows entry (steps, -Stage, the lock)
+   linux\build-linux.sh                   the steps (runs in the distro)
+   linux\h9build-setup.sh                 installs the build tools in the distro
+   linux\h9xash_server.sh                 the dedicated server's launcher
+   linux\dedupe-engine-types.py           AMX Mod X header shim helper
+   linux\README.txt, linux\LICENSE-*.txt  the folder's notes and licenses
+   wsl_install.bat / .ps1                 makes the distro
+   stage-h9xash.ps1/.sh, stage_h9xash.py  the packers (repository root)
+   tools\linux-sync.mjs                   this document's check
+   docs\LINUX_SUPPORT.txt, docs\BUILDING.txt, H9XASH\README_LINUX.txt

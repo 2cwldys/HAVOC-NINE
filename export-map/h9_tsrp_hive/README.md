@@ -3,7 +3,7 @@
 Three decompiled city maps merged into one `.map` and joined by travel zones. Built with SMAK 0.25's
 map model; the kit itself is only read.
 
-- `out/h9_tsrp_hive.map` — the merged map, 14.17 MB, 18,234 world brushes, 1,706 entities.
+- `out/h9_tsrp_hive.map` — the merged map, 14.18 MB, 18,244 world brushes, 1,716 entities.
 - `out/h9_tsrp_hive.bsp` — the compiled map (BSP2, Xash limits).
 - `out/tsm_spawns_h9_tsrp_hive.cfg` — 64 spawns for `ts_matchmode`: 32 per team, each team in its home city
   (team 1 Paradise City, team 2 Xenon City).
@@ -113,6 +113,8 @@ With 4.9 MB free on C: hlcsg ended in `Error: File write failure`; point `TEMP`/
 - 9 sub-unit sliver brushes, 7 no-volume brushes, 3 open brushes whose polygons ran to ±1048576 → pruned.
 - 10 brushes with near-duplicate planes → duplicate face removed.
 - 29 empty Alexandria brush entities dropped.
+- Alexandria's six func_ladder volumes (clip volumes with no faces in the compiled original, so the decompile left empty entities and no ladder of the city could be climbed, though the
+  picture of each stands) put back as func_ladder boxes read from the compiled original's models (bsp_ent.mjs on alexandria_msr_b4v3.bsp: ALEXANDRIA_LADDERS in merge.mjs).
 - All face plane points re-pointed within 32 units of their brush (same plane, winding and texture axes),
   so hlcsg's bounds stay sane.
 - Per-city name prefixes `pc_` / `al_` / `xe_` on `targetname`, `target`, `master`, `killtarget`,
@@ -132,6 +134,16 @@ With 4.9 MB free on C: hlcsg ended in `Error: File write failure`; point `TEMP`/
   of the shaft, one in the room beside it. A `func_wall_toggle` gate, `lift_gate`, closes the shaft's top
   whenever the floor is not up there: each button shuts it, then sends the floor half a second later, and the
   floor opens it as it arrives at the top. A light hangs in the shaft.
+- Xenon's four underground blast doors (`ug_pub_1`, `ug_pub_2`, `ug_com_1`, `ug_com_2`: 216 x 177 doors that rise 171 into the lintel at speed 50, closing again after a
+  4-second wait) were named, took no touch, carried no Use flag and were fired by nothing, so no player could open one. They get the Use flag (256); their travel and their
+  wait stay. Each is checked against its box in the city's own coordinates, so a changed source stops the build. The dead-end plug at the east end of the corridor beside them
+  (a 572-deep world brush wearing the same `cyberdoor` texture, with solid rock behind it for 960 units) is decoration and stays world geometry.
+- Alexandria's clandestine armory is shut by a vent grille in an alley wall, `clandesarmory`: a func_door of 8 x 40 x 48 (texture `{gratestep3`) that carries the Specialists'
+  door-breaking keys (maxdamage 50, doormaterial 2) and a master, `allms`, which a puzzle of switches turns on. Apollo RP makes every func_door unbreakable (`arp_goddoors 1` in
+  arp.cfg sets takedamage 0 on every func_door and func_door_rotating), so as a door the grille could never be shot; a func_breakable stays breakable (`arp_godwindows 0`). It is made a
+  func_breakable of metal with 50 health, so a shot or a blow breaks it as it breaks every other vent of the city; the puzzle's manager (`whenallmm`) still fires it by name, which breaks it too, and the siren it fires as it
+  opens sounds as it breaks. Checked against its box in the city's own coordinates. A dumpster (a func_pushable) stands in the alley's corner in front of the hole.
+- The worldspawn carries `message`, the map's title (`Hive City -- Roleplay`), as the deployed map has it.
 - Alexandria's four jail cages (`cell1` to `cell4`) were cut from 320 to 192 tall by the decompiles, so their
   lip of 192 left them no travel; a lip of 64 gives them their 128 again, up to the ceiling.
 - Alexandria's lab dial (the `momentary_rot_button` that slides `lab_radio_bed` into the scanner) is a NULL

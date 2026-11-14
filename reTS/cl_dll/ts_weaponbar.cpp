@@ -28,6 +28,7 @@
 #include "parsemsg.h"
 #include "ts_hud.h"
 #include "demo_api.h"
+#include "h9_buywindow.h" // H9BuyWindow_KeepsMenu
 #include "../dlls/ts_weapon_info.h" // get_weapon_info: names, clip sizes, carry caps
 
 #include <stdio.h>
@@ -49,7 +50,7 @@ static const int s_weaponColumn[] = {
 	/*28 ruger     */ 2, /*29 flag      */ 1, /*30 fnh_ak    */ 5, /*31 bull      */ 2,
 	/*32 m60       */ 4, /*33 sawedoff  */ 4, /*34 katana    */ 1, /*35 sealknife */ 1,
 	/*36 contender */ 2, /*37 skorpion_ak*/5, /*38 none      */ 0, /*39 ppsh41    */ 3,
-	/*40 laserrifle*/ 4,
+	/*40 laserrifle*/ 4, /*41 mechrocket*/ 4,
 };
 
 // Per-tsweapon_t select-grid row (0..16), each weapon's s_weapon_info +0x85 byte, read from every
@@ -67,7 +68,7 @@ static const int s_weaponRow[] = {
 	/*28 ruger     */ 6, /*29 flag      */ 5, /*30 fnh_ak    */ 5, /*31 bull      */ 7,
 	/*32 m60       */ 9, /*33 sawedoff  */ 10, /*34 katana    */ 2, /*35 sealknife */ 4,
 	/*36 contender */ 8, /*37 skorpion_ak*/6, /*38 none      */ 0, /*39 ppsh41    */ 7,
-	/*40 laserrifle*/ 12,
+	/*40 laserrifle*/ 12, /*41 mechrocket*/ 13,
 };
 
 // Per-tsweapon_t icon sprite base name → sprites/weapons/<name>.spr (the files the
@@ -77,7 +78,7 @@ static const char* const s_spriteName[] = {
 	"mk23", "mk23_akimbo", "usas12", "desert", "ak47", "fnh", "aug", "uzi_akimbo",
 	"skorpion", "m82", "pdw", "spas12", "gold", "glock22", "ump", "m61", "knife",
 	"mossberg", "m16", "ruger", "", "fnh_akimbo", "bull", "m60", "sawedoff", "katana",
-	"sealknife", "contender", "skorpion_akimbo", "", "ppsh41", "laserrifle",
+	"sealknife", "contender", "skorpion_akimbo", "", "ppsh41", "laserrifle", "m82", // 41 mechrocket: the Barrett's picture
 };
 static const int TSW_COUNT_LOCAL = sizeof(s_weaponColumn) / sizeof(s_weaponColumn[0]);
 // every table above is indexed by weapon id: a weapon the tables do not reach has no cell, no picture and no row, and
@@ -471,9 +472,14 @@ bool CHudTSWeaponBar::Draw(float flTime)
 	if (TSHud_NoHud() || TSHud_PlayerPartsHidden())
 		return true;
 	// Alive and playing with the buy menu up anywhere but its change team level, the weapon bar Draw
-	// closes it (0x1004d42f).
+	// closes it (0x1004d42f). A menu a buy window put up (h9_buywindow.cpp) stays while the window is open, and has the top of the
+	// screen: the bar is not drawn over its loadout columns.
 	if (gHUD.m_TSBuyMenu.IsUp() && !gHUD.m_TSBuyMenu.AtChangeTeam())
+	{
+		if (H9BuyWindow_KeepsMenu())
+			return true;
 		gHUD.m_TSBuyMenu.Close();
+	}
 	DrawBar(!m_selecting || 0 != gEngfuncs.pDemoAPI->IsPlayingback());
 	return true;
 }
@@ -590,4 +596,50 @@ void CHudTSWeaponBar::DrawBar(bool passive)
 			y += 0x30;
 		}
 	}
+}
+
+// Where the bar's drawing ends, for what stands under it (h9_arphud.cpp): the y just below the lowest cell of the columns that touch
+// x0 to x1, 0 when the bar draws nothing now. The tests are those of Draw: nothing with the weapons HUD hidden, with nohud, while dead
+// or spectating, or with a buy window's menu up; and passively (the select shut) nothing unless cl_showequipment is 1, 2 or 3. A
+// column holds a 0x30 cell from y 0x1c for each cell DrawBar finds in it (CellType), kung fu's included although the passive bar
+// leaves its picture out (DrawBar still gives it its place in the stack), so the answer is the same with the select open and shut,
+// and what stands under the bar does not jump when it opens. With the select open every column has its header (y 8 to 0x1c) whatever
+// it holds, and the cursor's name and count are in the rows of its own column.
+int CHudTSWeaponBar::DrawnBottom(int x0, int x1) const
+{
+	if (gHUD.m_iHideHUDDisplay & (HIDEHUD_WEAPONS | HIDEHUD_ALL))
+		return 0;
+	if (TSHud_NoHud() || TSHud_PlayerPartsHidden())
+		return 0;
+	if (gHUD.m_TSBuyMenu.IsUp() && !gHUD.m_TSBuyMenu.AtChangeTeam() && H9BuyWindow_KeepsMenu())
+		return 0;
+	const bool passive = !m_selecting || 0 != gEngfuncs.pDemoAPI->IsPlayingback();
+	if (passive)
+	{
+		static cvar_t* s_showequip = nullptr;
+		if (s_showequip == nullptr)
+			s_showequip = gEngfuncs.pfnGetCvarPointer("cl_showequipment");
+		const int mode = s_showequip != nullptr ? (int)s_showequip->value : 1;
+		if (mode < 1 || mode > 3)
+			return 0;
+	}
+
+	int bottom = 0;
+	for (int col = 1; col <= 5; col++)
+	{
+		const int x = col * 0x80 - 0x78;
+		if (x + 0x80 <= x0 || x >= x1)
+			continue;
+		if (!passive && bottom < 0x1c)
+			bottom = 0x1c;
+		int cells = 0;
+		for (int row = 0; row < 17; row++)
+		{
+			if (CellType(row, col) >= 0)
+				cells++;
+		}
+		if (cells > 0 && bottom < 0x1c + 0x30 * cells)
+			bottom = 0x1c + 0x30 * cells;
+	}
+	return bottom;
 }

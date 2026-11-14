@@ -12,6 +12,9 @@ native ARP_AddChat(const param[] = "",const handler[])
 
 native ARP_AddTeamChat(const param[] = "",const handler[])
 
+// H9: gag != 0 keeps what a player says aloud from being heard (the voice talk area of ARP_TalkArea, arp_voice 1); 0 lets him be heard again. Taped mouths use it.
+native ARP_H9Gag(id,gag)
+
 stock ARP_RegisterChat(const param[] = "",const handler[],const description[])
 {
 	new Command[128]
@@ -94,7 +97,8 @@ stock _ARP_SendChat(from,to,const message[])
 		write_string(message)
 		message_end()
 	}
-	else client_print(to,print_chat,"%s",message)
+	// H9: what players type is not Apollo RP's to change: no credit sign (ApolloRP_Credits.inc)
+	else arp_print_plain(to,print_chat,message)
 	
 	return SUCCEEDED
 }

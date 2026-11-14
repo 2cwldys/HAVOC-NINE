@@ -97,6 +97,23 @@
 //                       players only and its address is never shown; pend_listen marks such an
 //                       enrollment while it waits for the proof; owner_id is the account that proved it
 
+// v14 (chat and shared data for proven players, community.js, H9_COMMUNITIES.txt section 2):
+//   presence_communities.chat_proof, data_proof   1 unless the community's owner switched it off: a line
+//                       relayed from a game, and a value read or written for a player, need a game that
+//                       proved the player id (an announced h9_clientid can be copied by any player on the
+//                       server). The columns hold 0 or 1 and nothing else, so they cannot tell a community
+//                       whose owner chose 0 from one that never chose; every community that exists when
+//                       this runs gets 1, and an owner who wants the announced id accepted switches the
+//                       setting off on the community's page again. A new community is made with 1 and 1
+//                       (community.js); the columns' own DEFAULT stays 0, as SQLite changes a default
+//                       only by rebuilding the table, and dropping a table that others point at ON DELETE CASCADE deletes their rows
+
+// v15 (the official preset per game mode, preset.js, H9_PRESENCE.txt section 4d):
+//   presence_preset.game_mode   '*' for an entry every game mode accepts (every row that exists when this
+//                       runs), else the preset tag of one mode (Assault, Siege, TeamElimination), compared
+//                       without regard to case. The key is kind, file, sha256 and game_mode
+//   presence_servers.preset     the preset tag the server's last report named, NULL when it named none
+
 export const MIGRATIONS = [
   {
     version: 1,
@@ -726,6 +743,39 @@ export const MIGRATIONS = [
       db.exec(`
         CREATE INDEX compete_deltas_account ON compete_deltas(account_id, scope);
         CREATE INDEX compete_matches_started ON compete_matches(started_at);
+      `);
+    },
+  },
+  {
+    version: 14,
+    description: "presence: community chat and shared data need proven players unless the owner switches that off (community.js)",
+    up(db) {
+      db.exec("UPDATE presence_communities SET chat_proof = 1, data_proof = 1");
+    },
+  },
+  {
+    version: 15,
+    description: "presence: the official preset per game mode (preset.js)",
+    up(db) {
+      // presence_preset's key gains a column, which SQLite does by a new table; nothing points at this one
+      db.exec(`
+        CREATE TABLE presence_preset_v15 (
+          kind TEXT NOT NULL CHECK (kind IN ('amxx', 'module', 'meta')),
+          file TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          game_mode TEXT NOT NULL DEFAULT '*' COLLATE NOCASE,
+          version TEXT,
+          optional INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0, 1)),
+          note TEXT,
+          added_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          added_at INTEGER NOT NULL,
+          PRIMARY KEY (kind, file, sha256, game_mode)
+        );
+        INSERT INTO presence_preset_v15 (kind, file, sha256, game_mode, version, optional, note, added_by, added_at)
+          SELECT kind, file, sha256, '*', version, optional, note, added_by, added_at FROM presence_preset;
+        DROP TABLE presence_preset;
+        ALTER TABLE presence_preset_v15 RENAME TO presence_preset;
+        ALTER TABLE presence_servers ADD COLUMN preset TEXT;
       `);
     },
   },

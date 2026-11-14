@@ -95,7 +95,12 @@ The body is JSON, in one of two kinds:
 
       curl -X POST https://havoc9.org/serverlist/v1/heartbeat -H "Content-Type: application/json" -d "{\"port\":27015}"
 
-  `open_heartbeats = 0` in `serverlist.ini` refuses these.
+  `open_heartbeats = 0` in `serverlist.ini` refuses these. They are held to limits, so that one machine cannot fill
+  the list with servers it makes up: `heartbeats_per_minute` for an address (60; more is answered 429 with a
+  Retry-After), `max_per_address` servers from one address (8) and `max_open_servers` in all (100). A server that is
+  already on the list is always refreshed. More servers on one address than that need the heartbeat key, which is not
+  held to any of them. At most four of these heartbeats are queried at once; the rest are answered 422 and send
+  again two minutes later.
 
   Who a request "comes from" is decided by `proxy_header` in the `[http]` section of `serverlist.ini`: `x-real-ip` (the default:
   nginx sets it in every location and the list believes it only from this machine), `cf-connecting-ip` (behind a Cloudflare
@@ -110,8 +115,10 @@ that name's address is the same entry, not a second one.
 
 Answers: 200 when the server answered its query, 401 for a wrong key (or no key while
 `open_heartbeats` is 0), 403 for a keyless heartbeat that names another address, 400 for a bad
-address or port or a body that is not JSON, and 422 when no server answered at that address
-(its UDP port is shut, say), or the server runs another game folder.
+address or port or a body that is not JSON, 422 when no server answered at that address
+(its UDP port is shut, say), the server runs another game folder, or a limit above is reached (the
+answer's `error` says which), and 429 for a keyless heartbeat past `heartbeats_per_minute` or an
+address that has sent too many wrong keys.
 
 ## For a website: the JSON list
 

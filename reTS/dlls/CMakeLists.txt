@@ -80,6 +80,7 @@ target_sources(hl PRIVATE
 	ts_emitter.cpp
 	ts_func_break.cpp
 	ts_gun.cpp
+	ts_mechrocket.cpp
 	ts_deadcorpse.cpp
 	TS_combat.cpp
 	TS_entities.cpp

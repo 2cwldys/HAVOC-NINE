@@ -15,6 +15,7 @@
 #include "pm_shared.h"
 #include "Exports.h"
 #include "ts_motionblur.h" // TS_UpdateMotionBlur (the TSMBlur ghost spawner)
+#include "h9_chatbubble.h" // H9ChatBubble_HideEntity, H9ChatBubble_NoteEntity (the typing sprite over a player writing)
 
 #include "particleman.h"
 extern IParticleMan* g_pParticleMan;
@@ -34,6 +35,12 @@ HUD_AddEntity
 int DLLEXPORT HUD_AddEntity(int type, struct cl_entity_s* ent, const char* modelname)
 {
 	//	RecClAddEntity(type, ent, modelname);
+
+	// H9: the typing sprite ts_floatchat puts over a player writing, hidden while cl_h9_chatbubble_typing is 0; where the ones that
+	// show are is noted for the box over its owner's words.
+	if (H9ChatBubble_HideEntity(modelname))
+		return 0;
+	H9ChatBubble_NoteEntity(ent, modelname);
 
 	switch (type)
 	{

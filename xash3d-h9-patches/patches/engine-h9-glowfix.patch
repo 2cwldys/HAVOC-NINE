@@ -1,0 +1,15 @@
+diff --git a/ref/gl/gl_draw.c b/ref/gl/gl_draw.c
+index 3ecdbb5..0f7ec67 100644
+--- a/ref/gl/gl_draw.c
++++ b/ref/gl/gl_draw.c
+@@ -131,6 +131,10 @@ void R_Set2DMode( qboolean enable )
+ 		if( glState.in2DMode )
+ 			return;
+ 
++		// the bloom compose in GL_BindScreenTarget weights each blur tap by its vertex colour, which only a modulated texture
++		// honours; the studio renderer leaves GL_REPLACE bound after the viewmodel, and every tap would be added whole
++		pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
++
+ 		GL_BindScreenTarget();
+ 
+ 		matrix4x4 projection_matrix;

@@ -1,0 +1,240 @@
+BOT OBJECTIVES -- how the bots play Assault, the Uplink and Capture the Flag, and TS's own capture game, and what the plugins publish for them
+================================================================================================================================================
+
+rcbot_mm.dll (rcbot-patch, CHANGE 11) plays the objectives of a mode while the mode's plugin runs, the round is live and
+tsm_bot_objectives is 1. It reads what ts_assault, ts_uplink and ts_ctf write on their own entities: no message, no cvar
+per value, no extra entity. This file is the contract. include\tsm_botobj.inc holds the helpers the three plugins share.
+TS's own capture game (the briefcase, on the ctb_ and ctf_ maps) has no plugin: rcbot reads what the game gives out
+itself (section 5).
+
+
+1. THE SWITCH
+-------------
+
+  tsm_bot_objectives   1 (the default): the bots play the objectives of the claimed mode. 0: they only fight.
+                       Registered by ts_assault, ts_uplink and ts_ctf (a cvar that exists keeps its value) and read by
+                       rcbot once a second. A server whose plugins do not register it, or whose rcbot is the stock one,
+                       has bots that fight. The value line stays commented out in ts_matchmode.cfg, like tsm_bot_powerups:
+                       that file runs on every map load.
+  tsm_enabled          rcbot plays nothing while the match mode is off.
+  tsm_pres_mode        "assault", "uplink" or "ctf": which mode's fields the entities named tsm_cap carry (Assault points and
+                       Uplink zones share the classname). The core sets it once a second.
+  tsm_bot_stockobjectives   1 (the default): the bots play TS's own capture game where no match mode runs the map
+                            (section 5). Registered by ts_matchmode, read by rcbot once a second; tsm_bot_objectives
+                            and tsm_enabled do not enter into it, but tsm_enabled above 0 means a match mode runs the
+                            map and the game is not played.
+
+  With 0 the bots take no part: a bot that stands in an Assault point still counts there, as it always did; ts_uplink
+  does not let a bot pick the uplink up; ts_ctf lets a bot take and return flags only while tsm_cf_bots is 1.
+  A bot that carries something when the switch goes to 0 keeps it until it dies: a fake client sends no client
+  command, so nothing can make it drop the uplink or a flag.
+  Wave Survival, Mech Warrior, Siege and the maps TS plays as it ships publish nothing, and nothing changes there.
+
+
+2. THE FIELDS
+-------------
+
+Sides are 1 and 2 (pev->team of a player is his side); 0 is nobody. A float of -1.0 means none. Nothing is written on a
+player, and none of these fields reaches a client (reTS AddToFullPack copies no iuser, fuser, vuser or team).
+
+  2.1 A capture point of Assault and a control zone of the Uplink: the ring, classname tsm_cap
+      Exists for the map when the ring sprites are there (tsm_zone_ring_*.spr); without them there is no ring to read.
+
+      team      the holder: 0, 1 or 2                                     (existing)
+      fuser1    the radius across the floor, units                        (existing)
+      iuser1    the point's or zone's number                              (existing)
+      origin    the ring's middle, 2 units above the floor                (existing)
+      iuser2    state. Assault: 0 quiet, 1 being taken, 2 contested (both sides inside, nothing moves).
+                Uplink: 0 quiet, 1 the carrier is inside and his timer runs, 2 the carrier is inside with a living enemy
+                of his side there (no timer). Both: 3 not in play (warmup, freeze, round end, match end).
+      iuser3    the side taking it while iuser2 is 1; in the Uplink also the carrier's side while it is 2; else 0
+      fuser2    progress. Assault: -1 to +1, side 1 holding it in full at +1, side 2 at -1, 0 neutral; it stays as it is
+                when nobody is inside. Uplink: the share of tsm_cap_time the carrier has stood in it, 0 to 1
+      fuser3    how far above or below the ring's floor a player still counts as in it: 128 (Assault), 96 (Uplink)
+      vuser1    x: players of side 1 in play inside, y: players of side 2, z: 0. The numbers the capture uses (Assault:
+                the nearest point takes a player who stands in several; Uplink: the first zone that holds him). Bots
+                count like anyone.
+
+  2.2 The uplink, classname tsm_uplink
+      Exists only while a round is live.
+
+      aiment    the carrier while it is carried, else 0 (authoritative; owner is the same)           (existing)
+      origin    where it is                                                                          (existing)
+      iuser2    1 at its post, never carried this round; 2 carried; 3 dropped where a carrier lost it
+      iuser3    carried: the carrier's side. Dropped: the side whose carrier lost it. At its post: 0
+      fuser2    dropped: the seconds before it flies home (tsm_uplink_return less the seconds it has lain); -1 when it is
+                not dropped, or when tsm_uplink_return is 0
+      vuser1    its post
+
+      Only the carrier takes a zone: tsm_cap_time seconds inside, the whole time with no living enemy inside. Every zone
+      whose team is not the carrier's side can be taken.
+
+  2.3 A flag of Capture the Flag, classname tsm_flag
+      One for each side; exists only while a round is live.
+
+      team      whose flag it is (the side whose pad it stands on)                                    (existing)
+      iuser1    0 at its pad, 1 carried, 2 dropped                                                    (existing)
+      aiment, owner   the carrier while it is carried, else 0                                         (existing)
+      origin    where it is: at its pad, or where it lies (its foot, the floor)                       (existing)
+      iuser2    while it is carried: 1 if its carrier would score by reaching his pad now (his own flag at its pad, or
+                tsm_cf_needhome 0), else 0. Always 0 in the other states
+      fuser2    dropped: the seconds before it flies home (tsm_cf_return less the seconds it has lain); -1 otherwise, or
+                when tsm_cf_return is 0
+      vuser1    its pad: the floor where it stands and where its carrier turns the enemy's flag in
+
+      The carrier of side f's flag is of side 3-f and scores at his own pad, within tsm_cf_pad_radius across the floor and
+      72 units up or down of its floor. A flag is taken or returned by the nearest player within 48 units across the floor.
+
+  2.4 Written when and how often
+      The ring's state changes are written at once (every repaint), its counts every tick: Assault every 0.25 s, the
+      Uplink every 0.1 s with the counts every 0.2 s. The uplink's fields are written at the instant it changes hands and
+      every tick; the flags' every tick (0.1 s) and at the instant they change hands. A reader sees the last write; the
+      server is single-threaded.
+      The uplink and the flags are made and removed every round, and the engine reuses a freed edict: a reader looks them
+      up by classname about once a second, and checks the classname before it trusts an index.
+
+
+3. WHAT RCBOT DOES WITH THEM
+----------------------------
+
+Once a second rcbot reads the entities above and gives each bot a post (bot_objective.h; unit tests in rcbot-patch\test).
+A quarter of each side, and any bot without a post, fights and roams as it always did. Bots that follow an Officer, the
+citizens of a roleplay map and a bot held by the plugin play no objective.
+
+  Assault   Two bots for a neutral point and three for the other side's (one more while an enemy stands in it); the bots
+            already inside count, and so do the players who are no bot of the plan. A point nearly taken (a quarter of its
+            bar left, nobody against) draws no more. A point of its side that the other side wears down or stands in is
+            retaken before a neutral one, the sooner the further it is worn. A quiet point of its side is guarded only at
+            the front.
+  Uplink    The uplink lying at its post or dropped: the two nearest bots of each side walk onto it, unless it is about to
+            fly home. The side that carries it: the carrier walks to the cheapest zone its side does not hold (the walk, a
+            fixed cost for each enemy inside, more while the plugin says it is denied there) and stands in it; three bots
+            escort it, a person's carrier as well, and one goes to the zone it is heading for and clears it. The other
+            side: three bots hunt the carrier.
+  Flag      The enemy flag at its pad or dropped: the two nearest bots fetch it. A carrier walks to its own pad and stands
+            on it; two bots escort it. The side's own flag at its pad is guarded by two bots; dropped, the nearest bot
+            returns it; carried by the other side, three bots hunt the carrier.
+
+A carrier on its way to its zone or pad looks for no fight and follows no enemy until it is hurt (1.5 seconds) or has
+arrived. A bot that gets nowhere in 5 seconds gives its post up for 25. rcbot paths by waypoint: a post with no waypoint
+within 400 units is not given to anyone, and a ring with none inside is reached by the nearest and the last stretch walked
+straight.
+
+
+4. TESTING IT
+-------------
+
+  amx_tsm_assault, amx_tsm_uplink, amx_tsm_ctf   print the switch and each point's, zone's or flag's published fields
+  server log                                     "[RCBOT OBJ]" lines: objective play on and off, and the first posts
+  tsm_bot_objectives 0                           the bots fight as before
+
+
+5. TS'S OWN CAPTURE GAME (the ctb_ and ctf_ maps)
+-------------------------------------------------
+
+TS plays a capture game of its own, the briefcase (docs\CAPTURE_THE_FLAG.txt, section 7): two ts_briefcase bases, one for each of two
+teams, and a flag, the briefcase, that a team takes from the other's base and carries to its own. The match mode stays out of those
+maps (tsm_enabled 0) and no plugin publishes anything: the game keeps a flag's state in its own private members. rcbot_mm.dll
+(CHANGE 12) reads what the game does give out, and plays it with the posts of section 3's flags.
+
+  5.1 What it reads
+      ts_briefcase  the base: a brush, invisible. Its box says where it is. Its team is the map's key ownerteam (1 or 2, 0 neutral),
+                    which rcbot takes from the map as it loads: nothing of it is on the entity afterwards
+      ts_flag       a flag that lies loose (at its base, dropped, in flight); it exists only then. rendercolor is its team's glow:
+                    125 165 210 the first team, 200 90 70 the second. A flag that is carried is no entity
+      TSFlag        user message to everyone, four bytes: 0 a base seeded its flag / 1 it was taken / 2 it was dropped; the flag's id;
+                    its team number; the carrier's edict index. A capture and a return send none of their own: the base seeds the
+                    flag again, 0.25 s after a capture and 1 s after a return or an expiry, and that says 0
+      ScoreInfo     user message to everyone, a player's score and his team number: the index of his team in the map's team list, plus
+                    one. It is the only thing that says which side a player is on, since nothing stamps pev->team in this game
+  Team numbers are 1 and 2 for a map of two teams; they are the sides of section 3. A player's side is what ScoreInfo gave him, and
+  while the game is played a bot takes another player for an enemy when the numbers differ.
+
+  5.2 When it plays
+      The map has exactly two ts_briefcase entities, one with ownerteam 1 and one with ownerteam 2; tsm_enabled is 0 (or the cvar does
+      not exist); tsm_bot_stockobjectives is not 0 (a server without ts_matchmode has no such cvar, which plays); no roleplay
+      citizens walk. A neutral base, two for a team, or a third team is not played (the server log says so once), and a map run by the
+      match mode (tsm_enabled 1) is read as section 2 says.
+
+  5.3 What the bots do
+      The posts and the restraint are section 3's (Flag): the two nearest bots of a side FETCH the other team's briefcase where it lies
+      at its base or dropped; the bot that has it CARRIES it onto the middle of its own base and stands there; two bots ESCORT the
+      carrier, a person's as well; two GUARD their own briefcase at its base; the nearest bot RETURNs it when dropped; three HUNT the
+      carrier of it. A dropped briefcase lies 20 seconds (counted from its message) and one about to go home is not walked to. The
+      brush scores by touch, and only while the carrier's own briefcase lies at its base (CTSBriefcase::CaptureTouch): with it away
+      the carrier waits at the base, and the return and the hunt get it back.
+      A bot is sent to take a briefcase only if it can: TS lets a player take one only with 20 free inventory slots, and sets his
+      speed by the slots he has left (210 + 120 * free / 81, cut to a whole number), so a bot with a maxspeed of 200 to 238 is too
+      heavy and is never sent for one. It may still return, escort and guard. A bot cannot drop a briefcase (a fake client sends no
+      client command); it lets go by dying, or when a player of its side presses the use key on it (tsm_handoff 1): the game's drop_0 is
+      sent for the bot, which gives up a flag only when it carries one, and the bot's touch of a loose flag is refused for tsm_handoff_secs
+      (8) seconds, so that the player can take it.
+      Check (the hand-off). Capture the Uplink with bots: when a bot of your side carries the uplink, press E on it from within about 96
+      units: it drops where it stands (the chat says "handed over the uplink"), stays off it for 8 s, and you walk up and take it. The same
+      with a flag in Capture the Flag, and with the briefcase on a ctb_ or ctf_ map (no chat line there: TS's own "dropped_briefcase" is in
+      the server log). E on a bot that carries nothing, or on an enemy bot: nothing. tsm_handoff 0: nothing happens at all.
+
+  5.4 Testing it
+      server log   "[RCBOT BRIEF] capture game: base of team 1 at ... of team 2 at ..." and "[RCBOT OBJ] objective play is on: TS's
+                   capture game, 2 flag(s) read" when the game is on; the first 40 TSFlag and ScoreInfo messages the bots saw
+                   ("[RCBOT BRIEF] TSFlag: action 1, flag 3, team 2, carrier 5"); "[RCBOT BRIEF] N briefcase(s), owners ...: only one
+                   base for each of two teams is played" for a map that is not played; "[RCBOT BRIEF] side 1: 3 of 4 bots carry too
+                   much to take a flag ..." when half of a side is too heavy to be sent for one; and the "[RCBOT OBJ]" lines of
+                   section 4
+      the game's    triggered "aquired_briefcase", "dropped_briefcase" and "captured_briefcase" with the player, in TS's own log
+      tsm_bot_stockobjectives 0   the bots are stock rcbot again, which on these maps takes every player for an enemy
+
+
+6. WAYPOINTS
+------------
+
+rcbot walks only along a map's waypoints: rcbot\waypoints\ts\<map>.rcw. The visibility table beside it,
+rcbot\visibility\ts\<map>.rcv2, is worked out by rcbot itself the first time the map loads, and again whenever the
+waypoint count changes (a table of another size is ignored). A post where no waypoint stands is played badly or not
+at all. What objective play (CHANGE 11, bot.cpp ObjAddRing, ObjAddUplink, ObjAddFlag) asks of them:
+
+  ring        An Assault point or an Uplink zone: goal waypoints within 0.6 of its radius across the floor and within
+              72 of its floor + 36 (no ladder, lift, jump, crouch, teleport, stunt or other special one). The bots
+              walk to one and stand there; the 12 nearest the middle are kept. One is enough to play it, 3 to 6 let
+              the up to 4 bots of a post spread. With none inside, the bots walk to the nearest waypoint within 400
+              (one in sight first) and the last stretch straight, which fails at a corner; with none within 400 the
+              post is given to nobody.
+  uplink,     The nearest waypoint within 400 of the mark, one in sight first. A bot within 160 across the floor of
+  flag, pad   its mark walks straight to it, so a waypoint within about 60 with a clear line is as good as a path.
+  spawns      A bot that spawns makes for its nearest waypoint within 400: every spawn set (Assault: each tier)
+              needs one.
+  all         They must be on the bots' graph both ways: reached along the paths from the base spawns, and back.
+
+HOW COVERAGE IS CHECKED. tools\waypoints\coverage.mjs measures each objective map as rcbot meets it. The objectives
+come from what the plugins read (configs\tsm_assault_<map>.cfg, tsm_uplink_<map>.cfg, tsm_ctf_<map>.cfg, then the
+map's own tsm_as_N, tsm_cap_N, tsm_uplink and tsm_flag_N entities), the waypoints from H9XASH\rcbot\waypoints\ts
+(or --rcw-dir):
+
+    node tools\waypoints\coverage.mjs [map ...]     one row an objective: waypoints inside, nearest one, reach, status
+
+  OK      enough inside, reached from both bases       THIN   fewer than a ring wants
+  OUTSIDE none inside, the last stretch walked straight    NONE   no waypoint within 400
+  UNREACHED not reached from a base, or no way back    FAR    an item with no waypoint near it or in sight
+
+HOW A MAP MAKER ADDS THEM. The map needs a .rcw first (SMAK's walker, export-map\waypoints.mjs); these tools add to
+one that exists.
+  1. node tools\waypoints\coverage.mjs <map>                        what is short
+  2. node tools\waypoints\lay.mjs <map> --out <dir>                 writes <dir>\rcbot\waypoints\ts\<map>.rcw (never
+     over the original) and <dir>\_added\<map>.txt: waypoints on walkable floor in each short ring, on each mark and
+     beside far spawns, joined both ways along lines a player walks with room beside them, through no door and over
+     no drop (a chain of waypoints where no short line reaches the graph). Nothing old is moved, removed or
+     reflagged: the new waypoints are appended.
+  3. node tools\waypoints\check.mjs <map> <file> --reach            each new waypoint and path checked on its own,
+     and against SMAK's own walk of the map
+  4. node tools\waypoints\coverage.mjs <map> --rcw-dir <dir>\rcbot\waypoints\ts       the table after
+  5. Copy the .rcw to Half-Life\rcbot\waypoints\ts\ (build.bat deploys it to H9XASH, export.bat to export\) and
+     delete the map's old H9XASH\rcbot\visibility\ts\<map>.rcv2. tools\waypoints\show.mjs <map> <objective> draws
+     the floor and the waypoints around one objective.
+  By hand, rcbot's waypoint editor (rcbot\rcbot_waypoints.txt) does the same: plain waypoints, 36 over the floor,
+  joined both ways.
+
+A ROOM ONLY A DOOR OPENS. A bot never opens a +USE door (spawnflag 256). h9_as_neuropolis's two tsm_eng_door doors
+(Combat Engineer) seal Assault points 1 and 6 and their spawn sets. lay.mjs waypoints such a room inside and leaves
+it unjoined, and coverage says UNREACHED (the post is tried, fails at once and is given up for 25 s).
+lay.mjs --through-doors joins the room through the door instead: the bots then walk to the door, get nowhere and give
+the post up, unless a person opens it.

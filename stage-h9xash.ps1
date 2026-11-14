@@ -12,6 +12,12 @@
     - a player's own files: config.cfg (any folder), video.cfg, opengl.cfg, the console
       history, the server history and favorites, saves, screenshots, demos, downloads,
       the font cache, the spray cache, AMXX stats and vaults, RCBot's player-name list;
+    - databases: Apollo RP's SQLite database (ts\addons\amxmodx\data\sqlite3\arp.sq3: a server's accounts,
+      wallets and inventories) and any other *.sq3, *.sqlite or *.db file, with its -journal, -wal and
+      -shm files. The sqlite3 folder goes in empty, so a new install makes its own database on its first
+      Apollo RP map and loads that map's SQL file into it. The SQL files themselves
+      (ts\addons\amxmodx\configs\arp\maps\<map>\<map>.sql: the default jobs, properties and doors)
+      are game data and stay in;
     - logs, process ids, backups (*.bak*), temporary and junk files.
   A new player then starts from the stock files a fresh install would have:
     - ts\config.cfg from TS 3.0: H9XASH\ts\config.stock.cfg, or reTS\game\ts or ts3.0\ts
@@ -25,15 +31,27 @@
   private key anywhere in it stops the run before a ZIP is written.
   H9XASH itself is only read, never changed.
 
-  Unless -NoLinux is given, the same staged tree also goes out for Linux players, as
-  dist\H9XASH-linux.zip with one H9XASH\ folder in it. It holds h9xash.sh, h9_userid.sh
-  and README_LINUX.txt (from xash3d-h9-patches\overlay when H9XASH has none yet), the .sh
-  files with LF line ends and Unix mode 0755, which unzip and Linux archive managers give
-  back. Python's zipfile writes it, through the py launcher; without Python the .zip keeps
-  no file modes, so its players start the game with "bash h9xash.sh". Left out of both
-  packages as well: a Wine prefix kept inside H9XASH (drive_c, dosdevices, its .reg
-  files), the MOTD web view's webview2\data and webview2\runtime folders, and
-  .gitattributes.
+  One run writes two packages, each in its own ZIP, from the same scrubbed stage:
+    - dist\H9XASH.zip for Windows players: every file of H9XASH except the Linux-only ones
+      (h9xash.sh, h9_userid.sh, README_LINUX.txt, *.so);
+    - dist\H9XASH-linux.zip for Linux players, with one H9XASH\ folder in it. Python's zipfile
+      (through the py launcher) writes it as a Unix ZIP: the .sh files and every ELF binary at
+      mode 0755, the .sh files with LF line ends, which unzip and Linux archive managers give
+      back.
+  What the Linux ZIP holds depends on whether a native Linux build exists. A native build is a
+  folder laid out like H9XASH, H9XASH-linux beside this script or the one -LinuxNative names,
+  with the xash3d client in it (xash3d, libxash.so, ts\dlls\ts_i386.so, h9xash.sh ...). Then
+  the ZIP is native: the game's data from H9XASH with the build's files laid over it, and no
+  .exe .dll .bat .cmd .ps1, no WebView2 folder and none of H9XASH's stock Linux .so files (the
+  build brings its own); the read-back refuses a Windows file in it. A build with only xashds
+  (the dedicated server) also gives dist\H9XASH-linux-server.zip the same way, and the players'
+  Linux ZIP stays the Wine/Proton package. With no native build the Linux ZIP is that Wine/Proton
+  package: the Windows game plus h9xash.sh, h9_userid.sh and README_LINUX.txt (from xash3d-h9-
+  patches\overlay when H9XASH has none yet), run under Wine or Proton; the run warns about it.
+  Without Python 3 the Wine package keeps no file modes (its players start it with "bash
+  h9xash.sh") and a native package is not made. Left out of every package: a Wine prefix kept
+  inside H9XASH (drive_c, dosdevices, its .reg files), the MOTD web view's webview2\data and
+  webview2\runtime folders, and .gitattributes.
 
   H9XASH.zip and H9XASH-linux.zip are the names havoc9.org's downloads page links to: both
   go in the site's downloads folder. The run warns when that page (havoc9.org\downloads\
@@ -48,6 +66,22 @@
   updater puts only where a player has none. Files neither this release nor the one before
   it names are removed. Copy the folder to the site's files/ (tools\updater\
   README_UPDATER.txt, section 3).
+
+  The same packages are built on Linux by stage-h9xash.sh, which starts stage_h9xash.py: a
+  Python 3.8 port of this script (standard library only; it runs on Windows too). It follows
+  the rules above in the same order and writes the same ZIPs, report and web files; its
+  options are the parameters below as --dry-run, --linux-native DIR and so on. A rule changed
+  here is changed there as well: stage_h9xash_test.py builds a small fake H9XASH, runs both
+  scripts on it and compares the ZIPs, the staged files, the report and the stop conditions.
+
+  Before anything is copied this script prepares the release, with tools\release-prepare.mjs of the
+  source tree (D:\Downloads\TSM, or -Tsm, or the folder H9_TSM names; docs\H9_RELEASE.txt, 5): when a
+  plugin or module differs from the ones of the package staged last (dist\.release-state.json), the
+  build (VERSION in ts_matchmode.sma) goes up by one, build.bat and export.bat run so the plugins carry
+  it, and the official presets (the AMX Mod X plugins' hashes) are written from what H9XASH holds; with
+  nothing changed the build stays. After the ZIPs are written the package's build and hashes are
+  recorded. A machine with no source tree, or no node, skips it with a warning and stages what is in
+  H9XASH. stage_h9xash.py does not do this step: it is for the machine that builds.
 
 .PARAMETER Source
   The H9XASH folder to pack. Default: H9XASH beside this script.
@@ -69,7 +103,7 @@
 
 .PARAMETER DryRun
   Stage and scrub, write the report, keep the staged folder, but make no ZIP and no
-  Linux package.
+  Linux package. The report lists what each package leaves out.
 
 .PARAMETER KeepStage
   Keep the staged folder after zipping, to test-play it first.
@@ -80,6 +114,11 @@
 .PARAMETER NoLinux
   Make the Windows ZIP only, no Linux package.
 
+.PARAMETER LinuxNative
+  The native Linux build: a folder laid out like H9XASH (see the description). Default:
+  H9XASH-linux beside this script. Missing, or without xash3d, the Linux ZIP is the
+  Wine/Proton package.
+
 .PARAMETER FilesDir
   Where the web files for H9XASH-Updater go. Default: dist\files beside this script (git
   ignores it).
@@ -87,12 +126,28 @@
 .PARAMETER NoWebFiles
   Publish no web files for H9XASH-Updater.
 
+.PARAMETER NoPrepare
+  Do not prepare the release first (no bump of the build, no rebuild, no preset hashes written, nothing
+  recorded): stage what H9XASH holds.
+
+.PARAMETER Tsm
+  The source tree that holds tools\release-prepare.mjs. Default: the folder H9_TSM names, else
+  D:\Downloads\TSM, else TSM beside the repository.
+
+.PARAMETER VersionedName
+  Name the ZIPs <Name>-<build> (H9XASH-1.61.zip, H9XASH-1.61-linux.zip) when -Name is not given. The
+  default names are the ones the downloads page links.
+
 .EXAMPLE
   .\stage-h9xash.ps1
   .\stage-h9xash.ps1 -DryRun
   .\stage-h9xash.ps1 -Source D:\Downloads\TSM\H9XASH -KeepStage
   .\stage-h9xash.ps1 -NoLinux
+  .\stage-h9xash.ps1 -LinuxNative D:\build\H9XASH-linux
   .\stage-h9xash.ps1 -NoWebFiles
+  .\stage-h9xash.ps1 -NoPrepare            (stage what is there: no new build number, no rebuild)
+  .\stage-h9xash.ps1 -VersionedName        (H9XASH-<build>.zip)
+  ./stage-h9xash.sh --dry-run        (Linux; the options are written --dry-run, --no-linux ...)
 #>
 [CmdletBinding()]
 param(
@@ -104,8 +159,12 @@ param(
     [switch]$DryRun,
     [switch]$KeepStage,
     [switch]$NoLinux,
+    [string]$LinuxNative,
     [string]$FilesDir,
     [switch]$NoWebFiles,
+    [switch]$NoPrepare,
+    [string]$Tsm,
+    [switch]$VersionedName,
     [ValidateSet('Optimal', 'Fastest')][string]$Compression = 'Optimal'
 )
 
@@ -118,6 +177,7 @@ if (-not $Source) { $Source = Join-Path $Here 'H9XASH' }
 if (-not $OutDir) { $OutDir = Join-Path $Here 'dist' }
 if (-not $StageDir) { $StageDir = Join-Path $OutDir '.stage' }
 if (-not $FilesDir) { $FilesDir = Join-Path $OutDir 'files' }
+if (-not $LinuxNative) { $LinuxNative = Join-Path $Here 'H9XASH-linux' }
 
 # ---- rules ----------------------------------------------------------------------------
 
@@ -126,8 +186,10 @@ $SkipDirNames = @('logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'do
     '.fontcache', 'userconfig.d', '__pycache__', '.venv', 'venv', '.git', 'node_modules')
 # Folders left out at this path under H9XASH. Each is made again, empty, when $RecreateDirs lists it.
 # webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own WebView2 runtime.
-$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'webview2\data', 'webview2\runtime')
-$RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\logs')
+# data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
+# its first roleplay map and loads that map's SQL file, which ships, into it.
+$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime')
+$RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'ts\addons\amxmodx\logs')
 
 # Files left out wherever they are (lower case).
 $SkipNames = @(
@@ -139,9 +201,10 @@ $SkipNames = @(
     'listip.cfg', 'banned.cfg', 'mail.env', 'accounts.json', 'networking.ini',
     'thumbs.db', 'desktop.ini', '.ds_store')
 $SkipExt = @('.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '.dem', '.env', '.key', '.sav')
-# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output.
+# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output, and any database file with its journal,
+# write-ahead log and shared-memory files (SQLite's .sq3, .sqlite, .sqlite3 or .db).
 $SkipPatterns = @('\.bak($|[._-])', '_resolved\.cfg$', '^user_id\.ini', '^device_id\.ini',
-    '^h9_presence.*\.(key|cfg\.bak.*)$', 'downloadstsm')
+    '^h9_presence.*\.(key|cfg\.bak.*)$', 'downloadstsm', '\.(sq3|sqlite3?|db)(-journal|-wal|-shm)?$')
 # A Wine prefix someone keeps inside H9XASH (its drive_c and dosdevices folders and its
 # registry files), and git's attribute file: never in a package.
 $SkipDirNames += @('drive_c', 'dosdevices')
@@ -168,6 +231,15 @@ $Essentials = @('HAVOC 9.exe', 'xash.dll', 'menu.dll', 'ref_gl.dll', 'SDL2.dll',
 $LinuxFiles = @('h9xash.sh', 'h9_userid.sh', 'README_LINUX.txt')
 $Essentials += $LinuxFiles
 
+# What only Windows runs and what only Linux runs, by path under H9XASH. The Windows ZIP leaves out the
+# second; a native Linux package leaves out both (the build brings its own Linux files); the Wine/Proton
+# package keeps both. A DLL's .patch note goes with the DLL, a .so's with the .so.
+$WindowsOnlyExt = @('.exe', '.dll', '.bat', '.cmd', '.ps1', '.pdb', '.lib', '.exp')
+$WindowsOnlyDirPaths = @('webview2')
+$WindowsOnlyPatterns = @('\.(exe|dll)\.patch$')
+$LinuxOnlyNames = @($LinuxFiles | ForEach-Object { $_.ToLowerInvariant() })
+$LinuxOnlyPatterns = @('\.so(\.\d+)*$', '\.so(\.\d+)*\.patch$')
+
 # Config-like files are scrubbed line by line; every text file is scanned for hard secrets.
 $ConfigExt = @('.cfg', '.ini', '.lst', '.rc', '.json')
 $TextExt = @('.cfg', '.ini', '.lst', '.rc', '.json', '.txt', '.md', '.htm', '.html', '.xml', '.yml', '.yaml',
@@ -191,17 +263,83 @@ $RxHard = @(
 $ExampleIps = @('123.45.67.89')
 
 # ---- helpers ---------------------------------------------------------------------------
-# The Linux package's writer, run through the py launcher: the staged H9XASH folder as one
-# H9XASH/ folder in a .zip made as a Unix one -- folders 0755, files 0644, .sh files 0755 with
-# LF line ends, in sorted order -- then read back and checked against those rules. unzip and
-# Linux archive managers give the .sh files their mode 0755 back.
+# The Linux packages' writer, run through the py launcher: the staged H9XASH folder (less a skip list,
+# plus an overlay folder when the build is native) as one H9XASH/ folder in a .zip made as a Unix one --
+# folders 0755, files 0644, .sh files and ELF binaries 0755, .sh files with LF line ends, in sorted order --
+# then read back and checked against those rules. unzip and Linux archive managers give the modes back.
 $LinuxZipPy = @'
 import os, shutil, stat, sys, time, zipfile
 
-stage, out = sys.argv[1], sys.argv[2]
+# usage: make_linux_zip.py STAGE OUT [--skip LISTFILE] [--overlay DIR] [--no-windows]
+#   STAGE      the staged H9XASH folder
+#   OUT        the .zip to write
+#   --skip     a text file of paths (relative to STAGE, with /) left out of the package
+#   --overlay  a folder laid out like H9XASH whose files go in on top of the staged ones
+#   --no-windows  the read-back refuses any .exe .dll .bat .cmd .ps1 in the package
+args = sys.argv[1:]
+stage, out = args[0], args[1]
+skip_file = None
+overlay = None
+no_windows = False
+i = 2
+while i < len(args):
+    if args[i] == '--skip':
+        skip_file = args[i + 1]
+        i += 2
+    elif args[i] == '--overlay':
+        overlay = args[i + 1]
+        i += 2
+    elif args[i] == '--no-windows':
+        no_windows = True
+        i += 1
+    else:
+        sys.exit('unknown argument ' + args[i])
+
 part = out + '.part'
 top = 'H9XASH'
-count = {'dirs': 0, 'files': 0, 'sh': 0}
+skip = set()
+if skip_file:
+    with open(skip_file, encoding='utf-8') as fh:
+        skip = set(line.rstrip('\r\n') for line in fh if line.strip())
+
+files = {}
+dirs = set([''])
+
+
+def add_dirs(rel):
+    parts = rel.split('/')[:-1]
+    for n in range(1, len(parts) + 1):
+        dirs.add('/'.join(parts[:n]))
+
+
+def walk(base, skipping):
+    for root, dnames, fnames in os.walk(base):
+        dnames.sort()
+        fnames.sort()
+        rel_root = os.path.relpath(root, base).replace(os.sep, '/')
+        if rel_root == '.':
+            rel_root = ''
+        if rel_root and not dnames and not fnames:
+            dirs.add(rel_root)
+        for f in fnames:
+            rel = rel_root + '/' + f if rel_root else f
+            if skipping and rel in skip:
+                continue
+            files[rel] = os.path.join(root, f)
+            add_dirs(rel)
+
+
+walk(stage, True)
+staged = len(files)
+over_added = 0
+over_replaced = 0
+if overlay:
+    before = dict(files)
+    walk(overlay, False)
+    over_replaced = sum(1 for r, p in before.items() if files[r] != p)
+    over_added = len(files) - len(before)
+
+now = time.time()
 
 
 def entry(name, mode, mtime):
@@ -218,29 +356,34 @@ def entry(name, mode, mtime):
     return zi
 
 
+count = {'dirs': 0, 'files': 0, 'sh': 0, 'elf': 0}
 with zipfile.ZipFile(part, 'w', zipfile.ZIP_DEFLATED, allowZip64=True, compresslevel=6) as zf:
-    for root, dirs, files in os.walk(stage):
-        dirs.sort()
-        files.sort()
-        rel = os.path.relpath(root, stage)
-        arc = top if rel == '.' else top + '/' + rel.replace(os.sep, '/')
-        zf.writestr(entry(arc + '/', stat.S_IFDIR | 0o755, os.stat(root).st_mtime), b'')
+    for d in sorted(dirs):
+        arc = top + '/' + d + '/' if d else top + '/'
+        zf.writestr(entry(arc, stat.S_IFDIR | 0o755, now), b'')
         count['dirs'] += 1
-        for f in files:
-            p = os.path.join(root, f)
-            st = os.stat(p)
-            if f.lower().endswith('.sh'):
-                with open(p, 'rb') as fh:
-                    data = fh.read().replace(b'\r\n', b'\n')
-                zf.writestr(entry(arc + '/' + f, stat.S_IFREG | 0o755, st.st_mtime), data)
-                count['sh'] += 1
-            else:
-                zi = entry(arc + '/' + f, stat.S_IFREG | 0o644, st.st_mtime)
-                with open(p, 'rb') as fh, zf.open(zi, 'w', force_zip64=st.st_size > 0x7fffffff) as dst:
-                    shutil.copyfileobj(fh, dst, 1 << 20)
-            count['files'] += 1
+    for rel in sorted(files):
+        p = files[rel]
+        st = os.stat(p)
+        arc = top + '/' + rel
+        with open(p, 'rb') as fh:
+            head = fh.read(4)
+        if rel.lower().endswith('.sh'):
+            with open(p, 'rb') as fh:
+                data = fh.read().replace(b'\r\n', b'\n')
+            zf.writestr(entry(arc, stat.S_IFREG | 0o755, st.st_mtime), data)
+            count['sh'] += 1
+        else:
+            elf = head == b'\x7fELF'
+            zi = entry(arc, stat.S_IFREG | (0o755 if elf else 0o644), st.st_mtime)
+            with open(p, 'rb') as fh, zf.open(zi, 'w', force_zip64=st.st_size > 0x7fffffff) as dst:
+                shutil.copyfileobj(fh, dst, 1 << 20)
+            if elf:
+                count['elf'] += 1
+        count['files'] += 1
 
 problems = []
+windows_ext = ('.exe', '.dll', '.bat', '.cmd', '.ps1')
 with zipfile.ZipFile(part) as zf:
     infos = zf.infolist()
     for zi in infos:
@@ -248,11 +391,21 @@ with zipfile.ZipFile(part) as zf:
             problems.append('outside H9XASH/: ' + zi.filename)
         if zi.create_system != 3:
             problems.append('not a Unix entry: ' + zi.filename)
-        if not zi.is_dir() and zi.filename.lower().endswith('.sh'):
-            if (zi.external_attr >> 16) & 0o777 != 0o755:
-                problems.append('mode %o: %s' % ((zi.external_attr >> 16) & 0o777, zi.filename))
+        if zi.is_dir():
+            continue
+        mode = (zi.external_attr >> 16) & 0o777
+        low = zi.filename.lower()
+        if low.endswith('.sh'):
+            if mode != 0o755:
+                problems.append('mode %o: %s' % (mode, zi.filename))
             if b'\r' in zf.read(zi):
                 problems.append('a CR in ' + zi.filename)
+        elif zi.file_size >= 4:
+            with zf.open(zi) as fh:
+                if fh.read(4) == b'\x7fELF' and mode != 0o755:
+                    problems.append('a binary at mode %o: %s' % (mode, zi.filename))
+        if no_windows and low.endswith(windows_ext):
+            problems.append('a Windows file in a native package: ' + zi.filename)
     bad = zf.testzip()
     if bad:
         problems.append('bad CRC: ' + bad)
@@ -263,8 +416,11 @@ if problems:
     os.remove(part)
     sys.exit(1)
 os.replace(part, out)
-print('%d files in %d folders, all under H9XASH/; %d .sh files at mode 0755 with LF line ends; read back and checked'
-      % (count['files'], count['dirs'], count['sh']))
+line = '%d files in %d folders, all under H9XASH/' % (count['files'], count['dirs'])
+if overlay:
+    line += '; %d from the native build folder, %d of them over staged files' % (over_added + over_replaced, over_replaced)
+line += '; %d .sh file(s) and %d binaries at mode 0755; read back and checked' % (count['sh'], count['elf'])
+print(line)
 '@
 
 
@@ -302,6 +458,22 @@ function Get-SkipReason([string]$rel, [bool]$isDir) {
     if ($SkipExt -contains $ext) { return "$ext file" }
     foreach ($rx in $SkipPatterns) { if ($leaf -match $rx) { return "matches $rx" } }
     return $null
+}
+
+# Whether a path under H9XASH belongs to one platform only (the rules above).
+function Test-WindowsOnly([string]$rel) {
+    $low = $rel.ToLowerInvariant()
+    foreach ($d in $WindowsOnlyDirPaths) { if ($low -eq $d -or $low.StartsWith($d + '\')) { return $true } }
+    $leaf = $low.Split('\')[-1]
+    if ($WindowsOnlyExt -contains [IO.Path]::GetExtension($leaf)) { return $true }
+    foreach ($rx in $WindowsOnlyPatterns) { if ($leaf -match $rx) { return $true } }
+    return $false
+}
+function Test-LinuxOnly([string]$rel) {
+    $leaf = $rel.ToLowerInvariant().Split('\')[-1]
+    if ($LinuxOnlyNames -contains $leaf) { return $true }
+    foreach ($rx in $LinuxOnlyPatterns) { if ($leaf -match $rx) { return $true } }
+    return $false
 }
 
 function Read-Text([string]$path) { return $Latin1.GetString([IO.File]::ReadAllBytes($path)) }
@@ -368,6 +540,27 @@ if (-not (Test-Path -LiteralPath $lfsCheck)) { throw "No $lfsCheck beside this s
 & $lfsCheck -Path $Source
 if ($LASTEXITCODE -ne 0) { throw 'H9XASH holds Git LFS pointers or cut-short game files (listed above); no ZIP was written.' }
 
+# ---- the release is prepared: the build number, the plugins' hashes (tools\release-prepare.mjs of the source tree) ------
+
+$prepareJs = $null
+$stateFile = Join-Path $OutDir '.release-state.json'
+if (-not $NoPrepare) {
+    foreach ($cand in @($Tsm, $env:H9_TSM, 'D:\Downloads\TSM', (Join-Path (Split-Path $Here -Parent) 'TSM'))) {
+        if ($cand -and (Test-Path -LiteralPath (Join-Path $cand 'tools\release-prepare.mjs'))) { $prepareJs = Join-Path $cand 'tools\release-prepare.mjs'; break }
+    }
+    $nodeExe = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $prepareJs -or -not $nodeExe) {
+        $prepareJs = $null
+        Write-Host '  [WARN] the release is not prepared: no source tree with tools\release-prepare.mjs (-Tsm, or H9_TSM) or no node; the build number and the presets are as the last build left them' -ForegroundColor Yellow
+    } else {
+        Write-Host "release-prepare: $prepareJs"
+        $prepArgs = @($prepareJs, '--auto', '--state', $stateFile, '--repo', $Root)
+        if ($DryRun) { $prepArgs += '--dry' }
+        & node @prepArgs
+        if ($LASTEXITCODE -ne 0) { throw "tools\release-prepare.mjs stopped (exit $LASTEXITCODE, above); no ZIP was written. -NoPrepare stages what H9XASH holds." }
+    }
+}
+
 $build = 'local'
 $versionFile = Join-Path $Root 'VERSION.txt'
 if (Test-Path -LiteralPath $versionFile) {
@@ -375,7 +568,7 @@ if (Test-Path -LiteralPath $versionFile) {
     if ($vm) { $build = $vm.Matches[0].Groups[1].Value }
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-if (-not $Name) { $Name = 'H9XASH' }
+if (-not $Name) { $Name = if ($VersionedName) { "H9XASH-$build" } else { 'H9XASH' } }
 $zipPath = Join-Path $OutDir "$Name.zip"
 $linuxZip = Join-Path $OutDir "$Name-linux.zip"
 $reportPath = Join-Path $OutDir "$Name.report.txt"
@@ -496,9 +689,9 @@ if (-not $NoLinux) {
         } catch { $PyVersion = $null }
     }
     if ($linuxOk -and $PyVersion) {
-        Say "  package: $linuxZip (Python $PyVersion's zipfile; Unix mode 0755 on the .sh files)"
+        Say "  the Linux packages are written by Python $PyVersion's zipfile (Unix mode 0755 on the .sh files and the binaries)"
     } elseif ($linuxOk) {
-        Say "  package: $linuxZip (no Python 3 through the py launcher: no file modes; players run bash h9xash.sh)"
+        Say "  no Python 3 through the py launcher: the Wine package keeps no file modes (players run bash h9xash.sh), a native package is not made"
     }
 }
 
@@ -565,6 +758,70 @@ if ($stops.Count -gt 0) {
 }
 Say "  clean: no tokens, webhooks or private keys; nothing left out came back; essentials present"
 
+# ---- what goes in which package --------------------------------------------------------
+
+Say ''
+Say '4b. the two packages'
+$stageRels = @($stageFiles | ForEach-Object { $_.FullName.Substring($stage.Length + 1) })
+$linuxOnlyRels = @($stageRels | Where-Object { Test-LinuxOnly $_ })
+$windowsOnlyRels = @($stageRels | Where-Object { Test-WindowsOnly $_ })
+
+# A native Linux build is a folder laid out like H9XASH (xash3d, libxash.so, ts\dlls\ts_i386.so, a launcher ...).
+$LinuxNative = [IO.Path]::GetFullPath($LinuxNative).TrimEnd('\')
+$nativeCount = 0
+$nativeClient = $false
+$nativeServer = $false
+if (Test-Path -LiteralPath $LinuxNative -PathType Container) {
+    $nativeCount = @(Get-ChildItem -LiteralPath $LinuxNative -Recurse -Force -File).Count
+    $nativeClient = Test-Path -LiteralPath (Join-Path $LinuxNative 'xash3d') -PathType Leaf
+    $nativeServer = Test-Path -LiteralPath (Join-Path $LinuxNative 'xashds') -PathType Leaf
+}
+$serverZip = Join-Path $OutDir "$Name-linux-server.zip"
+$makeServerZip = $linuxOk -and (-not $nativeClient) -and $nativeServer
+$linuxKind = if ($nativeClient) { 'native' } else { 'wine' }
+
+Say ("  Windows package {0}: {1} files, the {2} Linux-only files left out" -f "$Name.zip", ($stageRels.Count - $linuxOnlyRels.Count), $linuxOnlyRels.Count)
+if ($NoLinux) {
+    Say '  Linux package: none (-NoLinux)'
+} elseif (-not $linuxOk) {
+    Say '  Linux package: none (the Linux launcher files are missing, see 2b)'
+} elseif ($nativeClient) {
+    Say ("  Linux package {0}: native build from {1} ({2} files); the {3} Windows-only and {4} Linux-only files of H9XASH stay out, the build brings its own" -f "$Name-linux.zip", $LinuxNative, $nativeCount, $windowsOnlyRels.Count, $linuxOnlyRels.Count)
+} else {
+    if (Test-Path -LiteralPath $LinuxNative -PathType Container) {
+        Warn "$LinuxNative holds no xash3d client ($nativeCount files): $Name-linux.zip is the Wine/Proton package, the Windows game with h9xash.sh"
+    } else {
+        Warn "no native Linux build ($LinuxNative, -LinuxNative): $Name-linux.zip is the Wine/Proton package, the Windows game with h9xash.sh (docs\LINUX_SUPPORT.txt)"
+    }
+    Say "  Linux package $Name-linux.zip: Wine/Proton package, the Windows game with h9xash.sh"
+}
+if ($makeServerZip) {
+    Say ("  Linux dedicated server package {0}: native build from {1} (xashds, no client)" -f "$Name-linux-server.zip", $LinuxNative)
+} elseif ((Test-Path -LiteralPath $serverZip) -and -not $DryRun) {
+    Warn "an older $serverZip is in $OutDir; this run made no dedicated server package"
+}
+if ($nativeClient -or $makeServerZip) {
+    # what a native package needs from its build folder, since H9XASH's own Linux files are left out of it
+    if (-not (Get-ChildItem -LiteralPath (Join-Path $LinuxNative 'ts\dlls') -Filter '*.so' -ErrorAction SilentlyContinue)) {
+        Warn "the native build has no game library in $LinuxNative\ts\dlls (ts_i386.so), so its package cannot start a match"
+    }
+    $launcher = if ($nativeClient) { 'h9xash.sh' } else { 'h9xash_server.sh' }
+    if (-not (Test-Path -LiteralPath (Join-Path $LinuxNative $launcher) -PathType Leaf)) {
+        Warn "the native build has no $launcher launcher in $LinuxNative; its package has none"
+    }
+    foreach ($gf in 'gameinfo.txt', 'liblist.gam') {
+        if (-not (Test-Path -LiteralPath (Join-Path $LinuxNative "ts\$gf") -PathType Leaf)) {
+            Warn "the native build has no ts\$gf in ${LinuxNative}: the staged one names no Linux game library for Metamod (gamedll_linux), so the game would start without Metamod and AMX Mod X"
+        }
+    }
+}
+$Report.Add('  left out of the Windows package (Linux-only):')
+foreach ($r in $linuxOnlyRels) { $Report.Add("    $r") }
+if ($nativeClient -or $makeServerZip) {
+    $Report.Add('  left out of a native Linux package (Windows-only, and the stock Linux files the build replaces):')
+    foreach ($r in ($windowsOnlyRels + $linuxOnlyRels)) { $Report.Add("    $r") }
+}
+
 # ---- zip -------------------------------------------------------------------------------
 
 if ($DryRun) {
@@ -575,41 +832,79 @@ if ($DryRun) {
     exit 0
 }
 
-Say ''
-Say "5. zipping to $zipPath"
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $level = [IO.Compression.CompressionLevel]::$Compression
-[IO.Compression.ZipFile]::CreateFromDirectory($stage, $zipPath, $level, $true)
+
+Say ''
+Say "5. Windows package: $zipPath"
+if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+$leaveOut = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+foreach ($r in $linuxOnlyRels) { [void]$leaveOut.Add($r) }
+$winFiles = 0
+$fs = [IO.File]::Open($zipPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite)
+$za = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create, $false)
+try {
+    # the folders that are empty on purpose (the AMXX vault and logs) get an entry of their own
+    foreach ($d in (Get-ChildItem -LiteralPath $stage -Recurse -Force -Directory)) {
+        if (@(Get-ChildItem -LiteralPath $d.FullName -Force).Count -eq 0) {
+            [void]$za.CreateEntry('H9XASH/' + $d.FullName.Substring($stage.Length + 1).Replace('\', '/') + '/')
+        }
+    }
+    foreach ($f in $stageFiles) {
+        $rel = $f.FullName.Substring($stage.Length + 1)
+        if ($leaveOut.Contains($rel)) { continue }
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, $f.FullName, 'H9XASH/' + $rel.Replace('\', '/'), $level)
+        $winFiles++
+    }
+} finally {
+    $za.Dispose()
+    $fs.Dispose()
+}
 $zipInfo = Get-Item -LiteralPath $zipPath
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
-Say ("  {0:N0} MB, SHA-256 {1}" -f ($zipInfo.Length / 1MB), $hash)
+Say ("  {0:N0} files, {1:N0} MB, SHA-256 {2}" -f $winFiles, ($zipInfo.Length / 1MB), $hash)
 
-# ---- the Linux package -----------------------------------------------------------------
+# ---- the Linux packages ----------------------------------------------------------------
 
 if ($linuxOk) {
-    Say ''
-    $linuxFile = $null
-    if (Test-Path -LiteralPath $linuxZip) { Remove-Item -LiteralPath $linuxZip -Force }
-    if ($PyVersion) {
-        Say "6. Linux package: $linuxZip"
-        $pyScript = Join-Path $stageBase 'make_linux_zip.py'
-        [IO.File]::WriteAllText($pyScript, $LinuxZipPy, [Text.Encoding]::ASCII)
-        $pyOut = @(& py -3 -I $pyScript $stage $linuxZip)
-        $pyRc = $LASTEXITCODE
-        foreach ($l in $pyOut) { Say "  $l" }
-        if ($pyRc -eq 0 -and (Test-Path -LiteralPath $linuxZip)) { $linuxFile = $linuxZip }
-        else { Warn "the Linux package was not made (Python exit $pyRc); the Windows ZIP is done" }
-    } else {
-        Say "6. Linux package: $linuxZip (no Python, so no file modes: Linux players start it with bash h9xash.sh)"
-        [IO.Compression.ZipFile]::CreateFromDirectory($stage, $linuxZip, $level, $true)
-        $linuxFile = $linuxZip
-    }
-    if ($linuxFile) {
-        $linuxInfo = Get-Item -LiteralPath $linuxFile
-        $linuxHash = (Get-FileHash -LiteralPath $linuxFile -Algorithm SHA256).Hash
-        Say ("  {0:N0} MB, SHA-256 {1}" -f ($linuxInfo.Length / 1MB), $linuxHash)
+    $jobs = @(@{ Out = $linuxZip; Kind = $linuxKind; Label = if ($nativeClient) { 'Linux package (native)' } else { 'Linux package (Wine/Proton)' } })
+    if ($makeServerZip) { $jobs += @{ Out = $serverZip; Kind = 'native'; Label = 'Linux dedicated server package (native)' } }
+    $step = 6
+    foreach ($job in $jobs) {
+        Say ''
+        Say "$step. $($job.Label): $($job.Out)"
+        $step++
+        $outZip = $job.Out
+        if (Test-Path -LiteralPath $outZip) { Remove-Item -LiteralPath $outZip -Force }
+        $made = $null
+        if ($job.Kind -eq 'native' -and -not $PyVersion) {
+            Warn "no Python 3 through the py launcher: a native Linux package needs it for the file modes of its binaries, so $outZip was not made"
+        } elseif ($PyVersion) {
+            $pyScript = Join-Path $stageBase 'make_linux_zip.py'
+            [IO.File]::WriteAllText($pyScript, $LinuxZipPy, [Text.Encoding]::ASCII)
+            $pyArgs = @($stage, $outZip)
+            if ($job.Kind -eq 'native') {
+                $skipFile = Join-Path $stageBase 'native_skip.txt'
+                $skipLines = @(($windowsOnlyRels + $linuxOnlyRels) | ForEach-Object { $_.Replace('\', '/') })
+                [IO.File]::WriteAllLines($skipFile, [string[]]$skipLines, (New-Object Text.UTF8Encoding($false)))
+                $pyArgs += @('--skip', $skipFile, '--overlay', $LinuxNative, '--no-windows')
+            }
+            $pyOut = @(& py -3 -I $pyScript @pyArgs)
+            $pyRc = $LASTEXITCODE
+            foreach ($l in $pyOut) { Say "  $l" }
+            if ($pyRc -eq 0 -and (Test-Path -LiteralPath $outZip)) { $made = $outZip }
+            else { Warn "$outZip was not made (Python exit $pyRc); the Windows ZIP is done" }
+        } else {
+            Say '  (no Python 3, so no file modes: Linux players start it with bash h9xash.sh)'
+            [IO.Compression.ZipFile]::CreateFromDirectory($stage, $outZip, $level, $true)
+            $made = $outZip
+        }
+        if ($made) {
+            $info = Get-Item -LiteralPath $made
+            Say ("  {0:N0} MB, SHA-256 {1}" -f ($info.Length / 1MB), (Get-FileHash -LiteralPath $made -Algorithm SHA256).Hash)
+        }
     }
 }
 
@@ -652,6 +947,12 @@ if (Test-Path -LiteralPath $page) {
         if (-not $html.Contains($want)) { Warn "the downloads page ($page) has no $want" }
     }
     if (-not $html.Contains("Version $build<")) { Warn "the downloads page does not show Version $build; update its two download notes" }
+}
+
+# What this package holds is what the next one is compared with.
+if ($prepareJs -and -not $DryRun) {
+    & node $prepareJs --record --state $stateFile
+    if ($LASTEXITCODE -ne 0) { Warn "the package's build and hashes were not recorded in $stateFile (exit $LASTEXITCODE): the next stage will bump the build again" }
 }
 
 if ($KeepStage) { Say "  stage kept: $stage" }

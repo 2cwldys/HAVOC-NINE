@@ -11,9 +11,9 @@ client it was applied to.
 
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
-                (CMake, Win32, Release; target client)
-Size          : 863232 bytes
-SHA256        : 62DCA0BF7CCA465D54BD06E73C13DBC79CD377D2F709BECCD5DE0F5E11C1C45F
+                (CMake, Win32, Release; target client; the builds of 2026-11-09 09:03 and 13:45 are target client alone: the player's own lines spoken, and the voices to pick, item 28; the build of 2026-11-09 after that is target client alone too: the chat bubbles, item 29; and the next, the Apollo RP HUD as panels, item 30; and the build of 2026-11-09 in the evening, target client alone, the voices, the gas mask and the pan of the speech, item 28; and the build of 2026-11-09 at 21:32, target client alone, the float chat's own line and the lift of the box over the typing sprite, item 29; and the build of 2026-11-10 at 07:17, target client with the game library built beside it: the loadout rework's buy window, item 31, the mixed voices and the global speech, item 28, the float chat's linger, item 29, the needs panel and the weapon bar's clearance, item 30, and the Mech rocket launcher's salvo, item 32; and the build of 2026-11-10 at 17:31, target client alone: the aim plaque and the names of the aimed player, item 33, and Apollo RP's inventory and exchange windows, item 34; and the build of 2026-11-10 at 18:25, target client alone: the item pictures, the credit sign and no GIVE TO, item 34; and the build of 2026-11-10 at 19:11, target client alone: the picture above a dropped item's notice, item 34; and the build of 2026-11-10 at 19:42, target client alone: the first panel of Apollo RP's HUD smaller while the weapon select is open, item 30, and the colour of the panels, item 35; and the build of 2026-11-10 at 22:34, target client alone: the search of a handcuffed player, item 34; and the build of 2026-11-11 at 14:56, target client alone: the item pictures of the inventory window and CREDITS in its header, item 38; and the build of 2026-11-13 at 11:20, target client alone: the context menu of the use key on a player, item 42)
+Size          : 1171968 bytes
+SHA256        : AB5CDFF5C9A00971A52F4F45E77975F6C582D8AD006A20BAC561C6EC409B0D68
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
@@ -24,7 +24,7 @@ Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-2
                 (2026-11-04), and the level badge beside the name instead of before it (2026-11-04), and the
                 notices coming up (2026-11-04), and the laser rifle (2026-11-05), and the H9 panels a quarter
                 smaller with a side's reinforcements on the scoreboard (2026-11-05), and the capture points' marks through the walls (2026-11-05), and the row of marks kept in place by a panel
-                at the side (2026-11-05), and the marks' badges as wide as their labels with tsm_show_zones (2026-11-07)
+                at the side (2026-11-05), and the marks' badges as wide as their labels with tsm_show_zones (2026-11-07), and the Mech rocket launcher, the ammo box on kung fu, cl_h9_arpvgui and the text to speech (2026-11-09), and the buy window, the mixed voices, the chat bubbles' linger, the needs panel and the Mech rocket launcher's salvo (2026-11-10)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -345,11 +345,412 @@ What the source build contains, beyond the stock client
    cl_dll\h9_vgui.cpp's StoreNotice clears that slot instead of storing the notice while the cvar is 0. The client.dll this
    replaced is kept as client.dll.bak_prereinf in reTS\binaries\ts\cl_dlls\.
 
-25. Everything else reTS already had
+25. The Mech rocket launcher, weapon 41
+
+   cl_dll\ev_ts.cpp, ts_weaponbar.cpp, ts_buymenu.cpp, ts_buymenu.h and the shared dlls\ts_weapon_info.h, ts_weapon_info.cpp,
+   ts_gun.cpp: the client's half of the third weapon TS 3.0 does not have (TSW_MECHROCKET, 41; TSW_COUNT is 42; see mp.dll.patch,
+   change 12). The shared weapon table has its row, so the prediction runs CTSGun::MechRocketFire: it spends the round, plays
+   the fire event, kicks the view (vertical only, 6.0) and holds the fire timer at the table's 1.5 s; the rocket, its launch
+   sound and its blast are the server's. The server's clip, reserve and timers overwrite the prediction every frame, so a
+   server on another h9_mechrocket_rate or _clip only differs in the first frame of a shot.
+
+   EV_TSFire draws no brass and runs no fire core (no bullet trace, whizz, impact, decal or particle push) for this weapon and
+   plays no fire sound of its own (the table entry is empty: the server plays weapons\rocketfire1.wav at normal pitch, where
+   the gun fire sounds are recorded slow and played at 4x). The gun smoke and the dynamic light stay. The muzzle flash is the
+   large sprites\h9_rocket_flash.spr (scale 1.5, 0.06 s) found by name, so a server that does not precache it (the file is not
+   on its disk) has the ordinary muzzle sprite there, at the same scale.
+
+   Weapon bar: column 4, row 13, the Barrett's picture (sprites\weapons\m82.spr) until the launcher has its own. The buy
+   menu has no row for it (its caliber table and icon table grew to 42 so that they hold the id). The scope overlay, the hold
+   stance and the gunbash are not used by it.
+   The client.dll this replaced is kept as client.dll.bak_preweapon41 in reTS\binaries\ts\cl_dlls\.
+
+26. The ammo box starts on kung fu
+
+   CHudTSAmmo::VidInit and CHudTSAmmo::Reset (cl_dll\ts_ammo.cpp) set the weapon type and
+   g_iTSActiveWeapon to 0, as the original client does (client.dll 0x1004cc55 in VidInit, 0x1004cd7e
+   in the HUD Reset). Before, a round restart, a team change, a map change or a plugin strip + spawn
+   that left the player holding kung fu kept the last gun's text (for example M4A1 / 5.56 Nato /
+   Full Auto) in the ammo box, the cursor of the weapon bar, the dynamic crosshair and cl_attackswitch.
+   Pairs with mp.dll change 13.
+
+27. cl_h9_arpvgui: Apollo RP's menus as panels or as the text menu
+
+   cl_h9_arpvgui (1, saved) is the client cvar that chooses how Apollo RP's menus reach this screen: 1 as H9 panels, 0 as the
+   plain text menu. cl_dll\h9_vgui.cpp mirrors it into the private userinfo key _h9arpvgui ("1" or "0"), as it mirrors
+   cl_h9_vgui into _h9vgui, and the apollo-rp include ApolloRP_VGui.inc (arpvgui_wanted) reads that key on the server; a
+   client without the cvar sends no key and gets panels. The client.dll this replaced is kept as client.dll.bak_preweapon41
+   in reTS\binaries\ts\cl_dlls\.
+
+28. Text to speech: what players near you say in chat, spoken (H9Tts, cl_h9_tts, cl_h9_tts_volume, _h9tts)
+
+   A server with h9_texttospeech 1 (h9_tts.amxx; docs\TEXT_TO_SPEECH.txt) sends each player near a speaker the H9Tts user message:
+   byte slot, byte voice (0 man, 1 woman, 2 Mech, 3 bot), byte volume 0 to 100 (from the distance), byte flags (bit 0, a gas mask
+   muffles the voice), string words. cl_dll\h9_tts.cpp hooks it in CHud::Init (H9Tts_Init, after H9Vgui_Init in hud.cpp) and checks
+   it against its own limits whatever the message says: a line is cleaned and cut to 160 bytes, at most 8 lines a second are read,
+   no speaker's lines come closer than 0.3 s; whom a line is sent to is the server's say (the speaker too while h9_tts_self is 1).
+   cl_h9_tts (1, saved) is 0 for silence;
+   cl_h9_tts_volume (1, saved, 0 to 2) scales the voices. The game says it can speak with the userinfo key _h9tts, as it says it
+   draws H9 VGUI with _h9vgui: "1" while cl_h9_tts is not 0 and the machine has a voice, else "0"; a game that does not say "1" is
+   sent nothing. HUD_Shutdown (input.cpp) calls H9Tts_Shutdown, which stops the speech thread.
+   VOICES TO PICK (13:45): cl_h9_tts_voice_man, _woman, _mech and _bot (saved, 0) hold a place, from 1, in the list cl_h9_tts_voices prints of the
+   voices installed (SAPI's on Windows, listed once by the worker thread; the browser's in the web client); 0 leaves the choice to the game, and a Mech
+   or a bot with no pick of its own speaks in the man's. cl_h9_tts_test <man|woman|mech|bot> [muffled] <words> speaks a line in that voice with the
+   picks in force (speaker 255). cl_h9_tts_robot (saved, 1) puts a Mech's and a bot's voice through a ring modulator on Windows (a 38 Hz and a 62 Hz
+   hum, 65 percent of the line; the browser has no audio to filter, so there it keeps its pitch and rate). H9TtsPlat_Speak takes the pick and the robot
+   flag; H9TtsPlat_VoiceCount and H9TtsPlat_VoiceInfo list the voices. ts\ttsactors.cfg (exec ttsactors.cfg) lists them and explains the picks.
+
+   The speaking is the platform's, behind h9_tts_platform.h. Windows (h9_tts_win.cpp, which includes none of the client's headers):
+   one worker thread with its own COM apartment, so the render thread only queues a line. SAPI renders it to memory through an
+   ISpStream (22050 Hz, 16 bit, mono) with SPF_IS_NOT_XML, so nothing a player types is taken for markup; the voice is the first
+   installed one whose Gender is Male or Female (English US, then UK, then any); a Mech is resampled to 0.80 of the speed (slower and
+   lower), a bot to 1.22; a gas mask runs a low-pass biquad (1200 Hz, with 1.1 gain back) over the samples; the distance volume is
+   multiplied into the samples (a volume of 1 leaves 4 dB of headroom); waveOut plays them. At most 3 voices play together, a
+   speaker's newer line stops his older one, 8 lines wait at most. The build links ole32 and winmm (CMakeLists.txt) and not sapi.lib: the
+   wave-format GUID is defined in h9_tts_win.cpp and SAPI is reached through COM, so client.dll has no load-time dependency on
+   sapi.dll and a machine without SAPI says _h9tts 0. The web client (h9_tts_web.cpp, compiled when __EMSCRIPTEN__ is defined) calls
+   the page's speechSynthesis through one function installed with emscripten_run_script (EM_JS is not resolved in a side module,
+   as freevgui's font.cpp notes): a voice by name for a man or a woman, a queue of three spoken one at a time, a Mech at pitch 0.5
+   and rate 0.8, a bot at 1.7 and 1.25, a gas mask approximated by 0.7 of the volume, 0.9 of the pitch and 0.95 of the rate. Any
+   other platform compiles to a no-op. The client.dll this replaced is kept as client.dll.bak_pretts in reTS\binaries\ts\cl_dlls\.
+
+   VOICES, MASK AND EARS (2026-11-09, evening; replaces the voice choice, the 1200 Hz low-pass and the mono output described above). The
+   H9Tts message has a tail after the words: byte variant (0 none, 1 to 99), char depth (-10 to 10), char pan (-100 his voice in the left ear to 100); the
+   server (h9_tts.amxx) fills it from the speaker's h9_ttsvoice and from where he is in the listener's view, and the client reads it only when the message is
+   long enough for it. A message with slot 0 and flag bit 1 is the server asking this game for its picks: the game then sends the server command
+   "h9_ttsvoice <cl_h9_tts_myvoice> <cl_h9_tts_mydepth>" (not through the userinfo, which is full), and again whenever either cvar changes
+   (CHudH9Tts::Think; VidInit forgets that it has been asked, so each map starts over). New client cvars, all saved: cl_h9_tts_myvoice (0 to 99, 0: each
+   listener's game chooses), cl_h9_tts_mydepth (-10 to 10), cl_h9_tts_muffle (0 to 2, 1), cl_h9_tts_pan (1), cl_h9_tts_maxvoices (1 to 3, 2),
+   cl_h9_tts_individual (1: a speaker who asked for no voice gets one, and a small step off its pitch, from his slot). H9TtsPlat_Speak takes an
+   H9TtsLine now. Windows: the default voice is the best listed one of its gender (a Natural or Neural voice ahead of a plain one, a voice without
+   "Desktop" ahead of one with, English of the US, then the UK, ahead of other tongues) and variant n is the n-th of those, wrapping round (a listener's own
+   pick still wins); a speaker's depth resamples by 1.025 for each step on top of the kind's speed; the gas mask is two low-passes (a fourth-order
+   Butterworth at 1800 Hz / (1 + cl_h9_tts_muffle), 900 Hz by default) and a +4 dB resonance at 700 Hz, then scaled back to 85 percent of the RMS the
+   line had, so the mask is heard as dullness and not as distance; the output is stereo (waveOut, 2 channels) with a constant-power pan, 0.85 of the way
+   into one ear at most; when as many voices as cl_h9_tts_maxvoices are playing, a line louder than the quietest by a fifth takes its place and a quieter one
+   is not spoken. The browser: the n-th voice (a Natural or Neural one ahead), the pitch x (1 + 0.05 for each step of depth), the gas mask scaled by
+   cl_h9_tts_muffle; no pan, one voice at a time. The client.dll this replaced is kept as client.dll.bak_pretts2 in reTS\binaries\ts\cl_dlls\.
+
+   MIXED VOICES AND GLOBAL SPEECH (2026-11-10; replaces the playback of the evening batch above: one waveOut device for each voice, one thread that both rendered and
+   played, and the rule that a louder line takes the quietest voice's place and a quieter one is not spoken). cl_dll\h9_tts_mix.h (new, no platform code, listed in
+   cl_dll\CMakeLists.txt) is the mixer: voices of different speakers play together, up to cl_h9_tts_maxvoices (now 1 to 8, default 4; was 1 to 3, default 2), summed
+   and passed through a soft limiter (exact below 26000, never past full scale), each fading in and out over 5 ms. A line that arrives when that many play WAITS for a
+   voice (4 lines, none longer than 8 seconds after it arrived; a full list lets the quietest go, the oldest of equals) and no playing line is cut off; a speaker's
+   lines follow one another (a newer line of his replaces his waiting one). h9_tts_win.cpp has two threads now: the speech thread (COM MTA; SAPI renders, the samples
+   are resampled, robot-filtered and masked, then handed to the mixer; 8 lines wait for it, the quietest dropped, and a line older than 8 seconds or overtaken by a
+   Stop is not spoken) and an audio thread that owns ONE waveOut device (22050 Hz stereo, 4 blocks of 40 ms, CALLBACK_EVENT; opened for the first line, let go of after
+   2.5 seconds of silence, tried again after 1 second when it will not open). The volume and the constant-power pan are multiplied in by the mixer; a shaped line is
+   scaled to a peak of 32000 instead of clipping. H9Tts flags bit 2 (value 4) marks a global line (the server's h9_tts_global 1: sent to everyone, volume 100, pan 0):
+   the client plays it from no direction, and a client that does not know the bit plays it as a full-volume line from the middle. cl_h9_tts 0 now stops what plays and
+   what waits (H9TtsPlat_Stop). The browser (h9_tts_web.cpp) cannot overlap voices: its queue is 4 lines and 8 seconds, the quietest goes, a speaker's newer line
+   replaces his waiting one and no longer cancels the one being spoken, the utterance is kept referenced until it ends, and cl_h9_tts 0 cancels. A saved
+   cl_h9_tts_maxvoices keeps its value.
+
+29. Chat bubbles: what players say, drawn over the head of the player aimed at (H9Say, cl_h9_chatbubble_*, _h9chatbubble)
+
+   A server with ts_floatchat.amxx (docs\CHAT_BUBBLES.txt) sends a game that says it draws the words itself the H9Say user message, once
+   for each line: byte slot, byte flags (bit 0, a team line), short ttl in tenths of a second (0 takes the speaker's line down; slot 0
+   takes every line down), short range in units, byte head top standing, byte head top ducking, string words. cl_dll\h9_chatbubble.cpp
+   hooks it in CHud::Init (H9ChatBubble_Init, after H9Tts_Init in hud.cpp), checks it against its own limits whatever it says (24
+   messages a second, 160 bytes of words, 30 seconds, a slot in the player range) and keeps each speaker's latest line. A HUD element
+   (every frame, in Draw, so the boxes are placed in the frame they paint in) picks the speaker whose body the crosshair is on, or is
+   near to cl_h9_chatbubble_aim percent of the screen height (or every speaker in view, with cl_h9_chatbubble_aimed 0), needs him in
+   this frame's packet, drawn and not spectating, within the line's range and in sight (EV_PlayerTrace from TS_AimEye to the point 6
+   units over his head, glass and players ignored), projects that point with pTriAPI->WorldToScreen and puts a box there: the banner
+   art of the H9 panels (CH9Surface, in three widths so that few of the panels' 64 art bitmaps are made), the H9 Text fonts, the lit
+   purple heading and rule of the menus, a pointer in the lit purple or the speaker's team colour; kept beneath the top stack
+   (H9Vgui_StackBottom), above the bottom band, off the crosshair and off the other boxes, faded in and out. Nothing in it is Windows
+   only, so the web client compiles the same file.
+   The switches, all saved: cl_h9_chatbubble (1, the master), _aimed 1, _aim 4, _range 0, _box 1, _name 0, _teamcolor 1, _pointer 1,
+   _fade 1, _lines 3, _hold 0, _scale 1, _team 1, _own 0, _typing 1; cl_h9_chatbubble_list prints them and cl_h9_chatbubble_test
+   <words> tries the look. The game says what it does in the value of the userinfo key _h9chatbubble ("0" while cl_h9_chatbubble is 0,
+   "1" while it is not, "1s" when cl_h9_chatbubble_own also asks for the player's own line); a game whose value does not start with "1"
+   is sent the hudmessage. entity.cpp's HUD_AddEntity leaves the typing sprite
+   (sprites/tsm_typing.spr) out of the frame while cl_h9_chatbubble_typing is 0. Files: h9_chatbubble.cpp and .h (new), hud.cpp,
+   entity.cpp, CMakeLists.txt. The client.dll this replaced is kept as client.dll.bak_prechatbubble in reTS\binaries\ts\cl_dlls\.
+   The player's own line and the typing sprite: seeing one's own line is the player's choice. cl_h9_chatbubble_own (0 by default, saved)
+   puts an "s" after the 1 of _h9chatbubble, one byte more only for a player who asks, and ts_floatchat sends that player his own line as
+   H9Say; the server's fc_self 1 sends it to everyone, and the client shows the own line it is sent, in the box near the top of the
+   screen. An older ts_floatchat tests the first character only and reads "1s" as "1". The key is written at most once in 2 seconds,
+   with the switches' latest values, because the server ignores a userinfo update that follows another within 0.6 s and reads the key
+   again only at its next resend. The cvar starts at 0 for every player. While a speaker's typing sprite
+   shows, his box rests 6 units over the sprite's top instead of over his head (TypingSpriteTop: the sprite is the entity whose owner is the
+   speaker, in this frame's packet and not EF_NODRAW; HUD_AddEntity notes each one it lets through, H9ChatBubble_NoteEntity), by at most
+   64 units; the line of sight and the aim still go to the point over the head, and with no sprite showing the box does not move.
+
+   LINGER (2026-11-10). cl_dll\h9_chatbubble.cpp: a box that had shown for at least 0.15 s stays cl_h9_chatbubble_linger seconds (a saved cvar, 0.35) at the world point
+   where its speaker was when he stops qualifying (a missed packet, a wall, the crosshair drifting off him, past the range), then fades over 0.3 s; a box that is showing
+   keeps a 12 percent hysteresis on the range; Locate() reports a hard loss (hidden, cloaked, spectating, not a player) so those never linger. The plugin's fc_range
+   (ts_floatchat.sma) is 1100 by default, was 900. Nothing in it is platform specific.
+
+30. Apollo RP's HUD as panels (H9ArpHud, cl_h9_arphud and its switches, _h9arphud)
+
+   A server with Apollo RP (apollo-rp\; arp_hud_panel 1) sends a player whose userinfo key _h9arphud is 1 each of ARP's four HUDs as
+   lines of the user message H9ArpHud instead of a hudmessage: byte op (1 lines of one HUD, 2 one HUD down, 3 all down); op 1: byte hud
+   (0 to 3), byte the content's number, byte part (bits 0 to 3, bit 7 on the last), byte lines, in part 0 short x and short y (arp_hudN_x
+   and _y in thousandths, -1 centred), then each line: byte kind (HUDK_EXTRA 0, TITLE 1, WALLET 2, BANK 3, PAYDAY 4, SALARY 5, JOB 6,
+   STATUS 7), string text. cl_dll\h9_arphud.cpp (new; h9_arphud.h) hooks it in CHud::Init (H9ArpHud_Init, after H9Tts_Init in hud.cpp)
+   and holds the limits whatever a message says: 192 bytes a message, 48 messages a second, 24 lines a HUD, 48 rows a panel, a notice
+   3 seconds, a HUD dropped after 150 seconds with no message, a content changed only when its last part has come (a lost part leaves
+   the HUD as it was), every character below 32 but the line break dropped, the bytes above 127 through as they are. It draws
+   CH9ArpHudPanel (a CH9Surface, so on the H9 panel art as the menus and notices are): HUDs 1 to 3 on the "#panel" art at 0.40 x the
+   screen height / 480 x cl_h9_vgui_scale, HUD 4 on the "#banner" art at 0.45, nine-sliced and cached by H9ArtBitmap, in the "H9 Text"
+   font ladder through H9Font, the text in the scheme's Primary Button Text colour, the first line of a HUD a heading in 182 145 234
+   with a 133 98 178 rail under it (a menu's title), a "label: value" line with its label in 166 154 192; sized to the rows (wrapped
+   at 24% of the width, the notice 40%, at most 55% of the height, the width kept from shrinking and quantised to 16 px so few sizes
+   of art are made); placed in H9Vgui_SafeArea by the server's place (nearest of three columns and rows; the top left from 32 px, the top
+   right from 104 px, the top middle under H9Vgui_StackBottom, panels of a column stacking, the crosshair box kept clear); drawn only
+   while the HUD is (the same test as h9_vgui.cpp's panels), not under the scoreboard, with nohud, over the buy menu, or, at the left
+   from a quarter of the height down, while a menu is open. Cvars (all 1, saved): cl_h9_arphud (the master: 0 is the text HUD),
+   cl_h9_arphud_left, _top, _side, _notice (the four panels), _title, _wallet, _bank, _payday, _salary, _job, _status, _extra (the kinds
+   of line in the first panel); command cl_h9_arphud_list prints them with the key the game sends, the messages read and, for each
+   HUD, what it holds and why it is shown or not. The game says it can with the userinfo key _h9arphud ("1" while cl_h9_arphud and
+   cl_h9_vgui are not 0, else "0"), kept in step every frame by the HUD element's Think as _h9vgui is. The key costs 12 bytes of
+   the 256 a client's userinfo has (docs\CUSTOM_XASH_USERID.txt); a game that cannot set it is sent the text HUD. The code is shared
+   with the web client (CMakeLists.txt's one source list; no platform file). Hooks: hud.cpp (the include and H9ArpHud_Init) and
+   cl_dll\CMakeLists.txt (h9_arphud.cpp, h9_arphud.h); input.cpp is not touched, nothing here needs shutting down.
+
+   THE NEEDS PANEL AND THE WEAPON BAR'S CLEARANCE (2026-11-10). cl_dll\h9_arphud.cpp draws a line of kind 8 (KIND_NEED, the text <label>: <0 to 100>%) as a row of its
+   panel, anywhere but the notice: the label, a bar that is green at 0 through yellow to red from 75 with a mark at 75 and at 90, and the number; a panel whose first line is
+   a need is headed Needs; a status line in the second or third HUD is a red row; cl_h9_arphud_needs (a saved cvar, 1) at 0 takes away a second or third HUD that holds
+   a need, and a need is not drawn while the player is dead or spectating. A line kind the client does not know is still drawn as extra text. The same file keeps the left
+   column's panels under TS's weapon select bar: ts_weaponbar.cpp, CHudTSWeaponBar::DrawnBottom(x0, x1) gives the bottom of what the bar draws in its select layout (0 when
+   nothing is drawn: cl_showequipment 0 and not selecting, the weapons HUD hidden, nohud), a panel at the left starts at the larger of 32, the safe area's top and that
+   bottom plus 8, and the push eases (barPush) so that the panels do not jump when the select opens. Files: h9_arphud.cpp and .h, ts_weaponbar.cpp and .h.
+
+   THE FIRST PANEL SMALLER WHILE THE WEAPON SELECT IS OPEN (2026-11-10 at 19:42). While CHudTSWeaponBar::IsSelecting() is true and DrawnBottom() says the bar is drawn, the panel at
+   the top of the left column (the one the bar's clearance moves; not the notice) is laid out again in a smaller size: CH9ArpHudPanel::Setup(..., shrunk) starts the
+   "H9 Text" ladder at step 2 (SHRINK_FONT_STEP) and takes 0.75 (SHRINK_ART) of the art's scale, and when the select shuts it is laid out in its own size again; each
+   size keeps its own widest width (HudSlot::stickyWide[2]) so the art needs few sizes. cl_h9_arphud_shrink (saved, 1) at 0 leaves the panel as it was; cl_h9_arphud_list
+   prints it. Files: h9_arphud.cpp, h9_arphud.h.
+
+   THE LOOK-AT PLAQUE (2026-11-11). cl_dll\h9_arphud.cpp draws the notice HUD (HUD 4) as a plaque when one of its lines has a kind from 10 to 16 (KIND_PLQ_HEAD 10 the heading,
+   _ROW 11 "<Label>: <value>", _TAG 12 the affiliation, _OPEN 13 and _SEALED 14 the status, _WARN 15 a restriction, _HINT 16 a hint; the server's HUDK_PLAQUE*): CH9ArpHudPanel::SetupPlaque
+   and PaintPlaque lay out and paint one plate on the "#panel" art at 0.45, of one width for the screen (26 percent of it, 200 px to 45 percent, in steps of 16 so the art has few sizes),
+   heading, labels and values in upper case (the credit sign byte passes through), the heading in 182 145 234 with a 133 98 178 rail under it, labels in 166 154 192, the affiliation and
+   the status as a framed wash (purple, dim for CIVILIAN, green 96 200 120 for OPEN, yellow 236 204 84 for SEALED; the words OPEN and SEALED come from the kind), a restriction in red
+   236 96 96, hints dim, in the "H9 Text" ladder stepped down while the rows or the labels do not fit. It stays 2.5 seconds after the last message (PLAQUE_HOLD), is placed at the
+   notice's place (PlacePanel) and is hidden with the scoreboard, a menu, the buy menu, nohud and while the player is dead or spectating. cl_h9_arphud_plaque (saved, 1) at 0 draws the
+   same lines as the plain notice; cl_h9_arphud_list prints it. No new message, no userinfo key, H9V_PROTOCOL unchanged; a client without it draws the lines as extra text.
+   Files: h9_arphud.cpp and .h. Harness: D:\temp\wf\arpplaque\test (231,359 checks, no game).
+
+31. The buy window: the loadout rework's equipment menu in the freeze (H9Buy, cl_h9_buyauto, cl_h9_buywindow, _h9vgui 4)
+
+   The equipment menu (ts_buymenu.cpp) opened only on the edge of the local player entering the spectate state, the buy key (ts_commands.cpp,
+   TS_Buy) opened it only while spectating, and the weapon bar's Draw (ts_weaponbar.cpp, client.dll 0x1004d42f) closed it as soon as a player
+   who is alive and playing had it up. The loadout rework (docs\LOADOUT_REWORK.txt) holds its players alive in the freeze, so they could not
+   use it there. A server with the rework now sends a game that says it reads the message (the userinfo key _h9vgui, which says 4: H9V_PROTOCOL in
+   h9_vgui.h) the user message H9Buy: byte op (1 a buy window is open, or its time is stated again; 2 it is over), short seconds, byte flags (bit 0:
+   put the menu up now). cl_dll\h9_buywindow.cpp (new; h9_buywindow.h) hooks it in CHud::Init (H9BuyWindow_Init, after H9ChatBubble_Init in
+   hud.cpp), keeps the window, and checks it against its own limits whatever a message says: at least 4 bytes, 8 messages a second, 900
+   seconds at most, a window runs out 5 seconds after the time given (a close that is lost cannot leave the menu or the cursor up), a
+   request for the menu taken once in 3 seconds. While a window is open: the buy key puts the menu up for a player who is alive and playing
+   (TS_Buy); a menu the window put up stays up when the weapon bar draws, and the bar is not drawn over its columns (CHudTSWeaponBar::Draw);
+   a respawn's ResetHUD leaves it alone (CHudTSBuyMenu::Reset: the freeze's force spawn sends one that can arrive after the message); the menu
+   comes up by itself when the server asked and cl_h9_buyauto (a saved cvar, 1) is not 0, once the player is alive and playing, the HUD is
+   drawn, and no server text menu (the class menu) or VGUI window (the MOTD) is up. CHudTSBuyMenu::Open(bool forWindow): a window opens it
+   on the last config applied or an empty one, never on the random first loadout, and a mouse button already down is not a click when it
+   is let go (m_ignoreButtons, seeded from inputw32.cpp's mouse_oldbuttonstate, tested in HandleMouse); the rules of IN_MouseEvent are not
+   touched. CHudTSBuyMenu::Close tells the window (H9BuyWindow_MenuClosed). When the window is over, or runs out, the menu it put up goes
+   down through Close, which hands the cursor back to the game (UpdateCursorState). A menu the spectate wait put up is never the window's
+   and, with no window open, nothing here changes. cl_h9_buywindow prints the window, the menu and the last message read. Nothing in it is
+   platform specific, so the web client compiles the same files. Files: h9_buywindow.cpp and .h (new), ts_buymenu.cpp and .h,
+   ts_commands.cpp, ts_weaponbar.cpp, hud.cpp, h9_vgui.h, CMakeLists.txt.
+
+32. The Mech rocket launcher fires a salvo: Missile, and the server's numbers (SrvSett ids 5 to 9)
+
+   cl_dll\ts_ammo.cpp: the ammo box's caliber row reads Missile for the launcher (TS_IsRocketWeapon) in place of 7.62 x 51mm, the Contender's caliber that holds its
+   rockets (all sixteen calibers are taken); every other weapon keeps its caliber's name, and no other place of the client prints a caliber name. cl_dll\ts_status.cpp
+   (MsgFunc_SrvSett): ids 5 to 9 are the launcher's clip, shot rate, reload time, salvo and stagger (TS_ApplyMechRocketSetting, dlls\ts_weapon_info.cpp), which the
+   prediction of CTSGun::MechRocketFire, MechRocketShot and MechRocketSalvoStep (dlls\ts_gun.cpp, shared with the server) reads from the weapon table: a pull spends
+   a round for each rocket as it leaves, the clip counts 4, 3, 2, 1, 0, and the aim kick comes once after the last. The count of rockets still to leave rides
+   clientdata vuser2.x, as the burst's. The values are kept and put in the row again when the table is built for a new map. Nothing in it is platform specific.
+   Pairs with mp.dll change 17 (mp.dll.patch). Item 25 states the launcher as of its build. The client.dll this replaced is kept as client.dll.bak_prebatch in
+   reTS\binaries\ts\cl_dlls\.
+
+33. The aim names: a plaque for a teammate, no name at all on a roleplay map (H9Look, cl_h9_aimplaque, _h9vgui 5)
+
+   TS draws the name of the player the crosshair is on in the middle of the screen, red for anyone who is not a teammate and green for one (ts_reticle.cpp,
+   TS_AimNames, client.dll 0x1004acc0). A server now tells a game that says it reads H9Look (the userinfo key _h9vgui, 5 or more) which of those names to leave
+   out, in the user message H9Look (byte op 1, byte flags), once a second: bit 0, the teammate's name, because the server shows the teammate as a plaque of his
+   own (a notice in the slot "aim" over a bar of his health: his name, class, health and armour; ts_matchmode task_hover_info, tsm_hover_plaque); bit 1, every name,
+   on a roleplay map where Apollo RP says who anyone is (arp_h9_hidenames). cl_dll\h9_vgui.cpp (the message, the flags, H9Look_HideAimName) keeps the word for 15
+   seconds after the last and forgets it at a new map or when the panels are refused; TS_AimNames asks it and then leaves the name out, keeping the aim target the
+   crosshair's colour reads. cl_h9_aimplaque (a saved cvar, 1): 0 draws TS's names always and drops any notice in the slot "aim" (OpNotice). A game without H9Look,
+   and a server without the message, change nothing. Nothing in it is platform specific. Files: h9_vgui.cpp and .h, ts_reticle.cpp. docs\H9_VGUI.txt 4j.
+
+34. Apollo RP's inventory and exchange windows (H9Inv, H9Trade, cl_h9_arpinv, cl_h9_inventory, _h9vgui 6 and 7)
+
+   New: cl_dll\h9_arpinv.cpp and .h (the engine's part), h9_arpinv_model.h (the two messages decoded, the data), h9_arpinv_ui.h (the layout and the rules of the mouse and
+   the keys), h9_arpinv_draw.h (the drawing over a canvas) and tests\ (test_arpinv.cpp, render_arpinv.cpp, with tools\render_arpinv.py), in CMakeLists.txt. The server
+   (ARP_Inventory, apollo-rp) sends a game that says _h9vgui 6 the user messages H9Inv (open with the character's header, the catalog of item kinds, the cells, the
+   money, a description, a note, close, the cells an exchange holds) and H9Trade (an invitation, the window, the offers, the money, the seals, the end), and takes the
+   console command h9inv back (docs\ARP_INVENTORY.txt has the byte layouts). H9V_PROTOCOL is 7 (6 is the window without the credit sign; H9V_PROTOCOL_NO_INVENTORY 5 is what a game says when cl_h9_arpinv or
+   cl_h9_arpvgui is 0: SyncUserinfo in h9_vgui.cpp). The window is a HUD element drawn with FillRGBA and the HUD font (the web client compiles the same files) and takes the
+   cursor as the buy menu does: TeamFortressViewport::UpdateCursorState asks H9ArpInv_IsUp, IN_MouseEvent (inputw32.cpp) gives it the buttons while the cursor is up and no
+   VGUI window owns it (a click it takes is no shot; a button already down when it comes up is ignored until it is let go), TeamFortressViewport::KeyInput gives it ESC, the
+   wheel, the digits of its boxes and Enter first. The cursor stays until the X, ESC, the key bound to cl_h9_inventory (the stock config binds i), a death, a spectate, an
+   intermission or a new map closes the window. The client believes no count, index or string past its own limits (128 cells, 192 kinds, 192 bytes a message, 64 messages a
+   second), sends at most ten commands a second and never moves an item itself. Files: h9_arpinv*.cpp/.h (new), h9_vgui.cpp and .h, hud.cpp, inputw32.cpp,
+   vgui_TeamFortressViewport.cpp, CMakeLists.txt. The client.dll this replaced is kept as client.dll.bak_preinv in reTS\binaries\ts\cl_dlls\.
+
+   The pictures, the credit sign and no GIVE TO (the build of 2026-11-10 at 18:25). A tile draws its item's picture: a 32 x 32 frame of sprites/h9_arpicons.spr named in
+   sprites/h9_arpicons.txt, with SPR_DrawHoles (palette index 255 is transparent); the item has a monogram where there is none. modelling\arpicons makes both: the 31 weapons
+   rendered from their world models with SMAK, the other 61 items drawn (Apollo RP gives them all the one backpack as a model). The window no longer offers GIVE TO, as a
+   button or in the menu (goods change hands by an exchange; SHOW TO stays); the server still takes h9inv give. H9V_PROTOCOL is 7: a game that wants the window says 7,
+   and so says it draws the credit sign the server shows for money with arp_h9_credits (H9VGUI_CREDIT_PROTOCOL in include\h9_vgui.inc). TSHud_DrawString (ts_hud.cpp) draws
+   the byte 0xA2 as a "c" with the HUD font's own "|" through it, because the HUD font (creditsfont) has ASCII only, and TSHud_StringWidth counts it as a "c"; H9TextWide
+   (vgui_H9Panel.cpp) counts a byte above 127 as the width of an "o" (the VGUI font measures it as nothing though the surface draws it); the window's model keeps the byte
+   0xA2 of a server's text (any other byte above 127 is a "?") and words credits as "<sign> 1,250". Files: ts_hud.cpp and .h, vgui_H9Panel.cpp, h9_arpinv*.cpp/.h,
+   h9_vgui.h, tests\. The client.dll this replaced is kept as client.dll.bak_preicons.
+
+   The picture above a dropped item's notice (the build of 2026-11-10 at 19:11). Apollo RP's look-at line of an item on the floor is the notice HUD (the fourth, H9ArpHud); to a game
+   that says _h9vgui 7 the server adds a line of the new kind 9 (HUDK_ICON), "icon:<the item's name>". h9_arphud.cpp takes that line out of the rows (KIND_ICON; the kind
+   is validated up to 9) and draws, in a CH9PicturePanel (vgui_H9Panel.cpp, with H9ItemPicture), the frame sprites/h9_arpicons.spr has for the name (sprites/h9_arpicons.txt):
+   the frame's RGBA as a vgui::Bitmap at a whole number of times its 32 pixels (the screen height over 360, one to four), centred over the notice's box, below it when
+   the top of the screen leaves no room, fading with the notice. cl_h9_arphud_icon (archived, 1) switches it. The sheet now holds H9's PPSh-41 and laser rifle (frames 92 and 93).
+   Files: h9_arphud.cpp, vgui_H9Panel.cpp and .h. The client.dll this replaced is kept as client.dll.bak_prenoticeicon.
+
+   THE SEARCH OF A HANDCUFFED PLAYER (2026-11-10 at 22:34). H9V_PROTOCOL is 8 (h9_vgui.h): a game with the inventory window wanted says _h9vgui 8 and reads the user message H9Search
+   (h9_arpinv.cpp, __MsgFunc_H9Search; op 1 OPEN: byte flags, short cells, string name; 2 SLOTS: short first, byte count, count x {short kind, short n}; 3 CLOSE: byte reason
+   0 to 6; 4 NOTE: byte level, string text; docs\ARP_INVENTORY_WINDOW.txt, 3.4). h9_arpinv_model.h holds the search (Search: his cells, his name, over capacity; Model::OnSearch
+   decodes, refuses what is cut short, leaves out a cell beyond the client's 128 and cuts a count at 9999; an H9Inv CLOSE closes it with the window). h9_arpinv_ui.h builds a
+   second window beside the inventory (BuildLayout: the search takes the exchange's place, with columns, rows and a scroll of its own, three to six columns) and holds the
+   rules of the mouse and keys (select; a double click, a drag onto the inventory window, TAKE ONE and TAKE ALL, a right-click menu and a box for a number, all the command
+   h9inv s take <cell> <n>; CLOSE, the X and ESC: h9inv s close; ESC ends the search and leaves the inventory), h9_arpinv_draw.h draws it (DrawSearch) and h9_arpinv.cpp is the
+   engine's part (the hook, cl_h9_arpinv_state, the commands under the ten a second the other windows keep). Tests: tests\test_arpinv.cpp (3395 checks), tests\render_arpinv.cpp
+   (previews 15 to 23). Files: h9_arpinv.cpp and .h, h9_arpinv_model.h, h9_arpinv_ui.h, h9_arpinv_draw.h, h9_vgui.h.
+   Added 2026-11-11 (protocol 9; tests 3535 checks, previews 01 to 28): the windows are drawn with pfnFillRGBABlend (pfnFillRGBA is additive in this engine, so the dark boxes had darkened nothing and the
+   windows looked see-through); the title bar of the inventory, exchange and search windows drags the window (WinOffsets, Ui::TitleAt/MoveWindow; kept on the screen, kept while the game runs); the
+   painter now passes the search window's scroll (it was ignored); the search window takes money: H9Search op 5 MONEY (a long wallet) and a row of TAKE 10, TAKE 100 and TAKE ALL that send
+   h9inv s money <n>; H9V_PROTOCOL is 9 (8 still searches items only). h9_chatbubble.cpp: H9Say flag bit 1 is an action (Apollo RP's /me), its words drawn in red.
+
+35. The colour of the H9 panels (cl_h9_vgui_r, cl_h9_vgui_g, cl_h9_vgui_b, cl_h9_vgui_color)
+
+   The H9 panels (the menus, banners and notices, the match bar, Apollo RP's HUD, the chat bubbles and the inventory window) are purple, and three saved cvars give them
+   another colour: cl_h9_vgui_r, _g and _b (0 to 255), the colour of the highlight band, 138 66 196 as shipped, which changes nothing; cl_h9_vgui_color r g b, #rrggbb or
+   default sets the three and prints them with no argument. cl_dll\h9_theme_math.h (no engine; tests\test_theme.cpp builds it alone, 1363 checks) moves a purple of H9's (a hue
+   of 248 to 284 degrees that is not a grey) to the hue of the player's colour and scales its saturation by the player's over the shipped one's, at its own lightness, and
+   leaves every other colour as it is (a warning's red, a need's bar, a team's colour, a notice's white); a grey player's colour takes the colour out. cl_dll\h9_theme.h reads
+   the cvars through a settle time of 0.4 s (a colour typed as three commands is one change) and counts the colours applied (Generation). Every colour drawn through
+   CH9Surface::Text, Box and Frame (vgui_H9Panel.cpp: so every panel of the menus, notices, the match bar, Apollo RP's HUD and the chat bubbles) and the inventory window's
+   canvas (h9_arpinv.cpp, EngineCanvas::Fill and Text) goes through h9theme::Tint, and the art (sprites\tsm_panel.spr and tsm_banner.spr) is made in the colour when a size is
+   first drawn (CH9ArtBitmap): a new colour makes every size again (H9ArtBitmap drops the table; VGUI1 frees no texture, so the old ones stay with the engine, and no more than
+   12 colours do it in one game, then the art keeps its colour until the game is restarted). The pictures of items are not moved, and TS's own menus take their colours from
+   the text scheme files. h9_vgui.cpp makes the cvars (H9Vgui_Init, h9theme::Init). Files: h9_theme_math.h and h9_theme.h (new, header only: no CMake change), tests\test_theme.cpp
+   (new), vgui_H9Panel.cpp, h9_arpinv.cpp, h9_vgui.cpp. docs\H9_VGUI.txt, 4k.
+
+36. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
    work -- none of that is a patch on top of the stock DLL.
+
+37. Text to speech: the Kokoro neural voices (cl_h9_tts_engine, cl_h9_tts_threads, cl_h9_tts_state, cl_h9_tts_reload, the droid byte of H9Tts)
+
+   Windows only and off by default: cl_h9_tts_engine (saved, system) chooses the voices, system (SAPI, as before), auto (Kokoro when it can start the line in time, else the system voice at
+   once) or kokoro (Kokoro only). The Kokoro voices are a pack and a helper: cl_dll\h9_tts_kokoro.cpp asks ts\h9tts\lines\lines.h9pk first (1854 lines of the bots' chat made ahead of time, IMA
+   ADPCM, played at once) and then the helper, ts\h9tts\bin\h9kokoro64.exe, a 64-bit program (Kokoro-82M, 8-bit, on ONNX Runtime 1.31.1; client.dll stays 32-bit and links nothing new but
+   the Windows libraries it had). The helper is started by client.dll (h9_tts_kokoro_link.cpp) when the server's h9_tts plugin asks the game for its voice picks (or at the first line):
+   hidden, below normal priority, in a job object that ends it with the game and limits its memory to 1.5 GB, and talked to over a named pipe the client makes (random name, owner and system
+   only, no remote client, h9_tts_proto.h). Before it starts, the SHA-256 of bin\h9kokoro64.exe and bin\onnxruntime.dll is checked against ts\h9tts\manifest.txt; every frame it sends is
+   checked (size, line, sequence, rate). A line must start to sound within 3 s of its arrival (kStartBudgetMs): when the helper's first piece is not there in what is left, the line is
+   cancelled at the helper (it is not killed) and the system voice speaks it at once; a helper that is late with three lines in a row is left alone for a minute; one that misses a later
+   deadline (9 s) or does not answer a cancel is killed and started again after 4 s (doubling to 120 s; five failures in a row: until cl_h9_tts_reload). While the speech thread waits for
+   the helper it serves the lines queued behind (h9_tts_win.cpp ServeWaiting): a line of the pack at once, a line 2.3 s old by the system voice. A line made in pieces reaches the mixer as
+   an open voice (h9_tts_mix.h: Clip.stream/open, Mixer::Append). cl_h9_tts_threads (saved, 0) sets the helper's threads (0: the machine's logical processors up to 8, none under auto on a
+   machine with fewer than 4); the game's frame times are watched (h9_tts_framewatch.h) and the helper gets one thread fewer, never below 2, when they get longer while a line is made.
+   cl_h9_tts_state prints the state, the counters and the last line's times; cl_h9_tts_reload starts the helper again. cl_h9_tts_myvoice, _individual, _mydepth, _muffle and _robot apply
+   to the Kokoro voices as to the system voices (ts\h9tts\voices.txt and chains.txt define the variants, the depth and the chains); cl_h9_tts_voice_man and the other picks are places in the
+   system voices and do not apply. cl_h9_tts_test takes droid. H9Tts has one more byte after the pan: 1 when the bot voice is a droid's (h9_tts.sma 1.2; an older client ignores it).
+   A player who has never chosen a voice is given one, once (h9_tts.cpp AssignVoiceOnce, the first frame of the HUD element): cl_h9_tts_myvoice at random from 1 to 99 and, when he has set no depth,
+   cl_h9_tts_mydepth from -2 to 2, both saved with his config, remembered by cl_h9_tts_voice_set (saved, 0 until then), so the players of a server do not all sound alike; a pick he made is kept.
+   New files: h9_tts_kokoro.h/.cpp, h9_tts_kokoro_link.h/.cpp, h9_tts_proto.h, h9_tts_pack.h, h9_tts_sha256.h, h9_tts_framewatch.h, h9_tts_catalogue.h, h9_tts_chains.h, h9_tts_fx.h; changed:
+   h9_tts.cpp, h9_tts_win.cpp, h9_tts_mix.h, h9_tts_platform.h, CMakeLists.txt. The web client and any other platform are unchanged (the browser's voice, or none).
+   docs\TEXT_TO_SPEECH.txt, 3e.
+
+38. The item pictures of the inventory window, and CREDITS in its header (cl_h9_arpinv_state, cl_h9_arpinv_test)
+
+   Every tile of the inventory window was a monogram (two letters in a framed box) and never its picture, because the picture list and the sheet were never read: sprites\h9_arpicons.txt
+   and .spr are read by LoadIcons, which has one caller, CHudH9ArpInv::VidInit, and nothing called that. CHud::VidInit (hud.cpp) calls the VidInit of its members by name and does not
+   walk the list of HUD elements (Think, Draw and InitHUDData are walked), and the H9 elements register through AddHudElem and are not members. hud.cpp now calls
+   H9ArpInv_VidInit() (declared in h9_arpinv.h, defined in h9_arpinv.cpp) after m_TSObjectives.VidInit(), so the list and the sheet are read at every map start and every restart of the
+   video, as every client sprite is. The sheet is the HL sprite of 95 frames of 32 x 32 (type SPR_FWD_PARALLEL, alpha test, index 255 transparent) and loads in the engine as it is
+   (checked against xash3d-fwgs mod_sprite.c and cl_sprite.c); tests\check_arpicons.py checks that.
+   h9_arpinv_icons.h (new, header only: no CMake change) is the reading of the list (IconList: a name, a bar, a frame; a name whose frame the sheet does not have, counted by SPR_Frames,
+   is left out, so its tile is a monogram and not the sheet's last frame; the exact comparison is as before) and the look-up, with no engine in it, so that tests\test_arpinv.cpp reads
+   the very file the game ships.
+   The tile: h9_arpinv_draw.h keeps a 64 pixel tile as it was (the picture over a line with the name, 54 x 31 left for it with the engine's 19 pixel creditsfont), and a tile too small for
+   both, the 48 pixel tile of a screen under 700 pixels high or a font taller than 26 pixels, shows the picture alone (PictureLayout) where it showed a monogram and the name; the name is in
+   the panel of the selected item.
+   The header: the wallet is named CREDITS where the money is credits (the model's flag, arp_h9_credits 1: "CREDITS <credit sign> 500  BANK <credit sign> 1,250") and WALLET with the dollar
+   sign where it is not (stock Apollo RP), as the HUD's wallet line says it.
+   cl_h9_arpinv_state prints "pictures:" first: the sheet's sprite number, its frames and size, the list's size, the names kept and refused and how many times it was read since the game
+   started (0: VidInit has not run), NONE and why when the list or the sheet could not be had, the room a tile has for a picture at this screen and font, the items the server has named
+   that have no picture, the first tiles' frames, and for a name typed after it ("cl_h9_arpinv_state Flashlight") the frame or why it has none (the list spelling it in another case,
+   or not at all). cl_h9_arpinv_test [seconds] draws, for 12 seconds, a window of 16 tiles by the very painter the inventory uses, 15 items the sheet has and one it has not, with no
+   server and no item. Files: h9_arpinv.cpp, h9_arpinv.h, h9_arpinv_draw.h, hud.cpp (one line), h9_arpinv_icons.h (new), tests\test_arpinv.cpp (3661 checks: the header's words, the tile's
+   picture at the layouts the game has, the list's reading and the shipped list against the shipped sheet, a source check that CHud::VidInit calls H9ArpInv_VidInit),
+   tests\render_arpinv.cpp (scenes 29 to 32 at 1920 x 1080 and 800 x 600 with the game's own font), tests\check_arpicons.py (the sheet as the engine reads it, and every item the plugins
+   register on a Specialists server against the list: 95 of 95 have a picture) and tests\check_vidinit.py (lists the H9 elements whose VidInit nothing calls: the buy window's and the
+   text to speech's). docs\ARP_INVENTORY_WINDOW.txt, 1, 4, 5 and 6.
+   The client this build replaces, the build of 2026-11-11 with the voice assignment of the speech (1154048 bytes, SHA256
+   EE429BD8508289C0C2CE2CF1F7B895DAE9C87B4DBC55AC08143385185149B44E), is kept beside it as client.dll.bak_preitempictures.
+
+39. The inventory tile: bigger on bigger screens, the name in up to three centred lines, the other player's offer under the name the server sent
+
+   The name of a tile was one line of the engine's 19 pixel creditsfont (about 7 pixels a character) cut where it met the edge of a 64 pixel tile: 68 of the 101 names the game
+   ships were cut (Handcuffs showed Handcuf). The tile now grows with the screen (MetricsFor, h9_arpinv_ui.h): 96 pixels from a screen 1000 pixels high, 80 from 700, and the 48
+   pixel tile of a smaller screen holds the picture alone as it did. DrawTile (h9_arpinv_draw.h) gives the name every line the tile can spare under the picture while the picture
+   still fits (NameLines: three lines at 96 pixels, two at 80, none at 48), breaks it at spaces (WrapName, over Wrap), centres each line under the picture (NameRoom: the tile
+   less 3 pixels a side) and ends a line that is still too wide, or the last line of a name that needs more, in "...", so that nothing is cut off without a sign. With the game's
+   font all 101 names fit whole on the 96 pixel tile and 86 on the 80 pixel tile. The search window's tiles are the same tiles, and a monogram tile names its item in the same
+   lines. Windows that were 64 pixel tiles are larger: a screen 1920 x 1080 has an inventory window about 1125 pixels wide.
+   The other player's offer in an exchange (THEIR OFFER) is drawn under the name the server sent with it (Offer.name, DrawTile's sentName): it took the name from this player's
+   catalog, which holds only the kinds this player carries, so an item he did not carry was named ITEM and drawn as a monogram, never as its picture.
+   cl_h9_arpinv_state says how many lines of the name a tile has at this screen and font. Files: h9_arpinv_ui.h, h9_arpinv_draw.h, h9_arpinv.cpp, tests\test_arpinv.cpp (4230
+   checks: the tile at thirteen screens and fonts, every shipped name against the game's own font at four screens, the lines centred, the dots, the offer under its sent name),
+   docs\ARP_INVENTORY_WINDOW.txt, 1, 4 and 6, and ARP_INVENTORY_CHECKS.txt, C 1b.
+   The client this build replaces, the build of 2026-11-11 with the item pictures (1158656 bytes, SHA256
+   C523FC0966CCF631674A4107F3D855A96E14A2E34EF124EAB5750015BE248FD0), is kept beside it as client.dll.bak_preinvnames.
+
+40. The Mech rocket launcher's reserve, fire modes and ammo box (the weapon table shared with mp.dll change 19)
+
+   dlls\ts_weapon_info.h/.cpp, dlls\ts_gun.cpp (the code both libraries compile) and cl_dll\ts_ammo.cpp: the launcher's caliber is 8 (it was 13, the M60E3's belt), its fire modes are burst
+   (the volley, the default) and semi (one rocket a pull), and the client predicts the volley or the single rocket from the mode it holds (CTSGun::MechRocketFire, MechRocketShot, the
+   trigger gate and WeaponIdle). The ammo box names the two modes Volley and Single for this weapon and still names its reserve "Missile". A client of this build needs the server's mp.dll
+   change 19 and the other way round: the reserve the HUD shows is the one of the launcher's caliber.
+
+41. The plaque's affiliation word Proletarian
+
+   cl_dll\h9_arphud.cpp (the look-at plaque, KIND_PLQ_TAG): the affiliation of no letter is drawn as a plain outline when its text is CIVILIAN, and now also when it is PROLETARIAN, the
+   word ARP_Core sends while H9's team play runs (arp_teamplay 1 and TS reporting the three teams). Without team play the word stays Civilian and nothing else changes.
+
+42. The context menu of the use key on a player (cl_h9_ctxmenu, cl_h9_ctxmenu_state, cl_h9_ctxmenu_test; the user message H9Ctx; _h9vgui 10)
+
+   The use key on a living player offered an exchange of goods, or a search when he is handcuffed, and nothing else. The server's new plugin ARP_H9Ctx (apollo-rp\ORIGIN.txt item 50, docs\ARP_INVENTORY.txt, 10)
+   now sends, to a game that says _h9vgui 10, the user message H9Ctx: a list of what the player can do to him (Trade, Search, Cuff or Free, Tie or Untie, Tape mouth or Remove tape, Fine, Give money, Show license
+   or card, and what other plugins add), each row enabled or greyed with the reason, and takes the choice back as the client command "h9ctx pick <serial> <index>"; "h9ctx close <serial>" says the player closed it.
+   The menu stands just right of the crosshair at its height (left of it on a screen too narrow), the cursor is up and the look stops while it is up, like the inventory window's; a click on a row or its number
+   key chooses it (every number key is the menu's while it is up), a click on a greyed row says why under the rows for four seconds and sends nothing, ESC, a right click and a click outside close it. It is
+   drawn over the inventory window when both are up, and takes the mouse buttons and the keys before it. The colour is cl_h9_vgui_color's (h9theme::Tint), the margins and width follow cl_h9_vgui_scale, the text
+   is the engine's creditsfont (TSHud_DrawString), the boxes pfnFillRGBABlend. A server is untrusted: a message is at most 192 bytes, at most 64 are read a second, the rows are cut to 12, the strings to 23, 33,
+   35 and 71 characters, a key is 0 to 10, a ROWS message must continue where the last ended, every string needs its end; at most ten commands go out a second; the client closes a page that has been up for
+   90 seconds (and tells the server), and the menu is closed when the player is dead, a spectator, or at an intermission.
+   h9_arpctx_model.h (new, no engine in it) holds the list and reads H9Ctx; h9_arpctx_ui.h (new, no engine in it) is the geometry, the rules of the clicks and keys and the drawing over a canvas;
+   h9_arpctx.cpp (new) is the engine's part (the message, the canvas, the cursor, the mouse, the keys, the commands, the HUD element); h9_arpctx.h (new) is its outline. Hooks: hud.cpp (H9ArpCtx_Init after
+   H9ArpInv_Init in CHud::Init, H9ArpCtx_VidInit after H9ArpInv_VidInit in CHud::VidInit: the HUD elements are not members and CHud::VidInit does not walk their list), vgui_TeamFortressViewport.cpp
+   (UpdateCursorState asks H9ArpCtx_IsUp; KeyInput asks H9ArpCtx_KeyInput before every other rule), inputw32.cpp (IN_MouseEvent: the menu takes the buttons, and the inventory window is given none while it
+   is up), h9_vgui.cpp and h9_vgui.h (H9V_PROTOCOL is 10; a game with cl_h9_ctxmenu 0 says H9V_PROTOCOL_NO_CTXMENU, 9; the menu comes with the inventory window, so a game without it still says 5), h9_arpinv.cpp
+   and h9_arpinv.h (H9ArpInv_SyncMouse: the buttons as they are when the menu goes, so that one held then is no click on the window under it), CMakeLists.txt (the four new files).
+   cl_h9_ctxmenu 1|0 (archived) switches it for this player; cl_h9_ctxmenu_state prints whether a menu is up, the messages read and refused, the rows and the size and place of the panel;
+   cl_h9_ctxmenu_test [seconds] (20 by default, 2 to 120) draws a menu of 8 rows by the very painter the real one uses, with the cursor up, and sends nothing.
+   Tests, none of which needs the game: tests\test_arpctx.cpp 41018 checks, 0 failed (the messages decoded and refused, 20,000 random messages, the clicks and keys, the layout at eight screens and four scales,
+   the drawing, and a check of the source that the hooks are where they must be), tests\render_arpctx.cpp (12 pictures with the game's own font; the layout, not the glyphs); the master's test_arpinv.cpp
+   (4230 checks) and test_theme.cpp (1363) still pass on the tree with these files; tests\check_vidinit.py --strict lists this element as called (its two gaps, the buy window's and the text to speech's, are
+   not this item's). Built privately in an own tree with cmake (Visual Studio 18 2026, Win32, Release, --target client): 0 errors, no warning from the new files; the client.dll contains H9Ctx,
+   cl_h9_ctxmenu, cl_h9_ctxmenu_state, cl_h9_ctxmenu_test and the two commands. NOT RUN IN A GAME: the owner's checks are docs\ARP_INVENTORY_WINDOW.txt, 7. docs\ARP_INVENTORY_WINDOW.txt, 2, 3 and 7;
+   docs\H9_VGUI.txt, 3a, 4b and 8; COMMANDS.txt (cl_h9_ctxmenu rows).
 
 Building and deploying
 ----------------------

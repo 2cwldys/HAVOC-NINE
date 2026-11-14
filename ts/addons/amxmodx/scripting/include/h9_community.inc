@@ -22,11 +22,17 @@
 // WHO MAY READ AND WRITE. The data belongs to the community: a server reaches only its own
 // community's, and one in no community gets H9C_DENIED. Each call is signed with the server's
 // own key, and h9web takes the player's account from its h9_clientid and checks it against
-// h9_presence's own report: the player has to be in game on this server, now. The community's
-// owner can make a server read-only (writes get H9C_DENIED), ask for players whose game proves
-// its H9 id, see every write with the server that made it, and put any account's values, or
-// all of them, back as they were at any time in the last 30 days. Revoking a server's key on
-// havoc9.org stops all of it at once.
+// h9_presence's own report: the player has to be in game on this server, now, with a game that
+// proved the player id (h9p_account is not 0, a second or two after a join): a call about any
+// other player returns false, or gets H9C_DENIED. The community's owner can make a server
+// read-only (writes get H9C_DENIED), switch DATA NEEDS PROVEN PLAYERS off, see every write with
+// the server that made it, and put any account's values, or all of them, back as they were at
+// any time in the last 30 days. Revoking a server's key on havoc9.org stops all of it at once.
+//
+// THE ID IS NOT PROOF. h9c_ identifies the player by the h9_clientid the game announces, and every
+// player on the server can read and copy it. h9web ties it to the account for a proven game only;
+// with DATA NEEDS PROVEN PLAYERS switched off it does not, so a plugin that gives rights from a
+// value read here must not give them to a player h9p_account does not name.
 //
 // LIMITS (h9web's defaults, enforced by h9web):
 //   key        1 to 32 characters of a-z 0-9 _ . -
@@ -53,7 +59,8 @@
 #define H9C_NOT_FOUND   1   // h9c_get: the key is not there (value "", version 0); h9c_find: no such account
 #define H9C_CONFLICT    2   // the version given is not the one there: value and version are what is there now
 #define H9C_DENIED      3   // not allowed: no community, a read-only server, a banned account, or a
-                            // community that wants a game that proves the player's H9 id
+                            // community that wants a game that proves the player's H9 id and this
+                            // player's has not
 #define H9C_LIMIT       4   // over a limit: the value's size, the keys per account, the community's
                             // store, or the calls a minute
 #define H9C_ERROR       5   // havoc9.org did not answer, or not as expected: try again later
@@ -128,8 +135,9 @@ native h9c_community(out[], len);
  * else's now). status H9C_OK: value and version; H9C_NOT_FOUND: "" and 0.
  *
  * @return  true when the call went out (the callback will run), false when it could not: this
- *          server has no live key, id is not a player here with an h9_clientid, the key is not
- *          a valid name, the callback is "" or too many calls are in flight.
+ *          server has no live key, id is not a player here with an h9_clientid, the player's game
+ *          has not proven the player id (h9p_account) in a community that wants that, the key is
+ *          not a valid name, the callback is "" or too many calls are in flight.
  */
 native h9c_get(id, const key[], const callback[], data = 0);
 

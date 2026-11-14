@@ -1,2 +1,1 @@
-media/sierra.avi
-media/valve.avi
+media/ts_intro.avi

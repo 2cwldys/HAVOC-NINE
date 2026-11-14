@@ -1,0 +1,72 @@
+name: Release metadata
+
+# The official preset's hashes (docs/H9_PRESENCE.txt, 4d) and the build and release that the download page, the game folder and the
+# plugins state (docs/H9_RELEASE.txt). A plugin, module or preset-list change that reaches the repository without its hash, or a build
+# bumped in the plugin and not on the download page, fails here. Nothing here uses a secret, so it runs for pull requests from forks too.
+# Importing the hashes into the site stays an admin's step (tools/preset-check.mjs says what to send).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'H9XASH/ts/addons/amxmodx/plugins/**'
+      - 'H9XASH/ts/addons/amxmodx/modules/**'
+      - 'H9XASH/ts/addons/metamod/**'
+      - 'H9XASH/presets/**'
+      - 'H9XASH/ts/h9_release.txt'
+      - 'xash3d-h9-patches/overlay/ts/h9_release.txt'
+      - 'src/ts_matchmode.sma'
+      - 'src/include/h9_release.inc'
+      - 'havoc9.org/downloads/**'
+      - 'h9web/modules/presence/bin/preset-seed.js'
+      - 'tools/preset-check.mjs'
+      - 'tools/release-check.mjs'
+      - '.github/workflows/preset-hash.yml'
+  pull_request:
+    paths:
+      - 'H9XASH/ts/addons/amxmodx/plugins/**'
+      - 'H9XASH/ts/addons/amxmodx/modules/**'
+      - 'H9XASH/ts/addons/metamod/**'
+      - 'H9XASH/presets/**'
+      - 'H9XASH/ts/h9_release.txt'
+      - 'xash3d-h9-patches/overlay/ts/h9_release.txt'
+      - 'src/ts_matchmode.sma'
+      - 'src/include/h9_release.inc'
+      - 'havoc9.org/downloads/**'
+      - 'h9web/modules/presence/bin/preset-seed.js'
+      - 'tools/preset-check.mjs'
+      - 'tools/release-check.mjs'
+      - '.github/workflows/preset-hash.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  hashes:
+    name: preset hashes and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: the committed preset holds the hash of every plugin, module and Metamod plugin
+        id: preset
+        run: node tools/preset-check.mjs
+      - name: the build, the release and the download page agree
+        if: ${{ !cancelled() }}
+        run: node tools/release-check.mjs
+      # Nothing here edits the repository: a red mark says what is off (an annotation on the file, a table on the run's summary page,
+      # the commands to run), and the preset made from this commit is attached so it can be put in place by hand.
+      - name: the preset made from this commit
+        if: ${{ failure() && steps.preset.outcome == 'failure' }}
+        run: node tools/preset-check.mjs --write
+      - name: attach it to this run
+        if: ${{ failure() && steps.preset.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-preset
+          path: H9XASH/presets/official-preset*.json

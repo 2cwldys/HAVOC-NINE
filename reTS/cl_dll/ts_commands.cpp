@@ -23,6 +23,8 @@
 #include "hud.h"
 #include "cl_util.h"
 #include "kbutton.h"
+#include "ts_hud.h"          // TSHud_PlayerPartsHidden
+#include "h9_buywindow.h"  // H9BuyWindow_Open / _OpenMenu
 
 // +alt2 (coldcock) is a BUTTON, not a server command: the original client's +alt2 sets the
 // IN_CANCEL bit (0x40) in the usercmd, and the SERVER's base ItemPostFrame dispatches
@@ -54,7 +56,8 @@ static void IN_Alt2Up()
 }
 
 // `buy` (bound to `b` in the original) opens/closes the buy/config menu — the REAL HUD-drawn cascade
-// (CHudTSBuyMenu), driven by number keys. Only in the spectate-wait (buy) phase, so it can't be
+// (CHudTSBuyMenu), driven by number keys. Only in the spectate-wait (buy) phase, and inside a buy window the
+// server has opened (H9Buy, h9_buywindow.cpp) for a player who is alive and playing, so it can't be
 // opened during live play. (The server `buy` handler is a no-op; the menu is client-side, cont.69l.)
 static void TS_Buy()
 {
@@ -62,6 +65,8 @@ static void TS_Buy()
 		gHUD.m_TSBuyMenu.Close();
 	else if (gHUD.m_Spectate.IsActive())
 		gHUD.m_TSBuyMenu.Open();
+	else if (H9BuyWindow_Open() && !TSHud_PlayerPartsHidden())
+		H9BuyWindow_OpenMenu();
 }
 
 // togglebrowser: client.dll's (0x1001fec0 -> 0x10063590) shows or hides the SDK 2.3 in-game server

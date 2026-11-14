@@ -1,0 +1,3 @@
+; The address of the site whose accounts count, for auth.mode "h9web" in relay.config.json. Copy this file to relay.site.ini (it is never committed).
+; run.bat and run.sh put the line into the environment variable of the same name; a systemd unit reads it with EnvironmentFile=.
+H9RV_SITE_URL=https://havoc9.org

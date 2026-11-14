@@ -55,6 +55,8 @@
 #define RTV_TASK_END      73101
 #define RTV_TASK_CHANGE   73102
 #define RTV_TASK_AUTO     73103
+#define RTV_TASK_FAILED   73104   // the map change that did not happen
+#define RTV_CHANGE_GRACE  30.0    // seconds after the changelevel command it is given before the vote is called over
 #define RTV_TASK_SHOW     73200   // + player id: the vote menu, staggered
 
 #define RTV_MENU          "RTV Vote"
@@ -774,6 +776,23 @@ public task_vote_end()
 public task_change()
 {
 	server_cmd("changelevel %s", g_next);
+
+	// A changelevel that never happens (the engine refused it) must not leave the vote running for good: ts_matchmode's side
+	// menu waits for it. A map that does change unloads this plugin and the task with it.
+	remove_task(RTV_TASK_FAILED);
+	set_task(RTV_CHANGE_GRACE, "task_change_failed", RTV_TASK_FAILED);
+}
+
+public task_change_failed()
+{
+	if (!g_changing)
+	{
+		return;
+	}
+	log_amx("[RTV] The map did not change to %s within %d seconds: the vote is over and the map stays %s.", g_next, floatround(RTV_CHANGE_GRACE), g_mapname);
+	client_print(0, print_chat, "[RTV] The map did not change. The map stays %s.", g_mapname);
+	g_changing = false;
+	reset_rtv();
 }
 
 /// After a vote that changed nothing: every .rtv is spent, and it starts again from none.

@@ -1,0 +1,678 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Commands.sma b/base/addons/amxmodx/scripting/ARP_Commands.sma
+index 0d9541e..6a6b76e 100644
+--- a/base/addons/amxmodx/scripting/ARP_Commands.sma
++++ b/base/addons/amxmodx/scripting/ARP_Commands.sma
+@@ -2,6 +2,7 @@
+ #include <amxmisc>
+ #include <ApolloRP>
+ #include <ApolloRP_Chat>
++#include <ApolloRP_VGui>
+ 
+ new g_EmployMenu[] = "ARP_EmployMenu"
+ new g_FineMenu[] = "ARP_FineMenu"
+@@ -11,8 +12,14 @@ new g_Employer[MAX_PLAYERS + 1]
+ new g_JobID[MAX_PLAYERS + 1]
+ new g_Amount[MAX_PLAYERS + 1]
+ 
++public plugin_precache()
++{
++	arpvgui_precache()
++}
++
+ public plugin_init()
+ {	
++	arpvgui_init("arpcmd")
+ 	//register_clcmd("say","CmdSay")
+ 	//ARP_RegisterEvent("Player_Say","CmdSay")
+ 	ARP_AddChat(_,"CmdSay")
+@@ -981,7 +988,7 @@ public CmdSay(id,Mode,Args[])
+ 		new Tmp[256]
+ 		format(Tmp,255,"ARP Fine Menu^n^nAmount: $%d^n^n1. Pay^n2. Refuse",Amount)
+ 		
+-		show_menu(Index,(1<<0|1<<1),Tmp,-1,g_FineMenu)
++		arpvgui_show_menu(Index,(1<<0|1<<1),Tmp,-1,g_FineMenu,"arpcmd.fine")
+ 		
+ 		client_print(id,print_chat,"[ARP] You have sent a fine order.")
+ 		
+@@ -1388,7 +1395,7 @@ public CmdEmploy(id,level,cid)
+ 	g_JobID[Target] = JobID
+ 	g_Employer[Target] = id
+ 	
+-	show_menu(Target,MENU_KEY_1|MENU_KEY_2,Menu,-1,g_EmployMenu)
++	arpvgui_show_menu(Target,MENU_KEY_1|MENU_KEY_2,Menu,-1,g_EmployMenu,"arpcmd.employ")
+ 	
+ 	return PLUGIN_HANDLED
+ }
+diff --git a/base/addons/amxmodx/scripting/ARP_Config.sma b/base/addons/amxmodx/scripting/ARP_Config.sma
+index bc9f860..769c07a 100644
+--- a/base/addons/amxmodx/scripting/ARP_Config.sma
++++ b/base/addons/amxmodx/scripting/ARP_Config.sma
+@@ -3,6 +3,7 @@
+ #include <engine>
+ #include <ApolloRP>
+ #include <sqlx>
++#include <ApolloRP_VGui>
+ 
+ #define MENU_OPTIONS 3
+ #define DB_MENU_OPTIONS 4
+@@ -82,8 +83,14 @@ new g_BackupName[MAX_PLAYERS + 1]
+ new g_BackupQueries
+ new g_TotalBackupQueries
+ 
++public plugin_precache()
++{
++	arpvgui_precache()
++}
++
+ public plugin_init()
+ {	
++	arpvgui_init("arpcfg")
+ 	register_clcmd("arp_config","CmdConfig")
+ 	register_srvcmd("arp_delete","CmdDelete")
+ 	register_srvcmd("arp_query","CmdQuery")
+@@ -529,7 +536,7 @@ public CmdConfig(id)
+ 		Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"%i. %s^n",Count + 1,g_MenuOptions[Count])
+ 	Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"^n0. Exit")
+ 	
+-	show_menu(id,g_Keys,Menu,-1,g_MainMenu)
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_MainMenu,"arpcfg.main")
+ 	
+ 	return PLUGIN_HANDLED
+ }
+@@ -616,7 +623,7 @@ ChangeDatabase(id)
+ 	}
+ 	Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"^n0. Exit")
+ 	
+-	show_menu(id,g_Keys,Menu,-1,g_DbMenu)
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_DbMenu,"arpcfg.db")
+ 	
+ 	return PLUGIN_CONTINUE
+ }
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index 7cdbf2c..ec870b3 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -19,6 +19,8 @@
+ #include <ApolloRP>
+ #include <xs>
+ #include <tsfun>
++#define ARPVGUI_PAGED
++#include <ApolloRP_VGui>
+ #if defined ARRAYX
+ #include <arrayx_array>
+ #else
+@@ -233,6 +235,8 @@ public plugin_init()
+ {			
+ 	register_cvar("arp_version",g_Version,FCVAR_SERVER)
+ 	
++	arpvgui_init("arpcore")
++	
+ 	register_menucmd(register_menuid(g_ItemsMenu),g_Keys,"ItemsHandle")
+ 	register_menucmd(register_menuid(g_ItemsOptions),g_Keys,"ItemsOptions")
+ 	register_menucmd(register_menuid(g_ItemsDrop),g_Keys,"ItemsDrop")
+@@ -471,7 +475,7 @@ public CmdMenu(id)
+ 	}
+ 	DestroyTravTrieIterator(Iter)
+ 	
+-	menu_display(id,Menu,0)
++	arpvgui_menu_display(id,Menu,"arpcore.client","ARP Client Menu","ClientMenuHandle",0)
+ 	
+ 	return PLUGIN_HANDLED
+ }
+@@ -793,6 +797,8 @@ public plugin_precache()
+ 		return
+ 	}
+ 	
++	arpvgui_precache()
++	
+ 	new MapName[33],ConfigFile[128]
+ 	
+ 	get_configsdir(ConfigFile,127)
+@@ -1676,7 +1682,7 @@ ShowItems(id)
+ 		//	break
+ 	}
+ 	
+-	menu_display(id,Menu)
++	arpvgui_menu_display(id,Menu,"arpcore.items","ARP Items","ItemsHandle")
+ 	
+ 	return PLUGIN_HANDLED
+ }	
+@@ -1709,7 +1715,7 @@ public ItemsHandle(id,Menu,Item)
+ 	else if(UTIL_ARP_ValidItemId(ItemId))
+ 	{
+ 		format(g_Query,4095,"ARP Item Options^n^n1. Use^n2. Give^n3. Examine^n4. Show^n5. Drop^n^n0. Exit")
+-		show_menu(id,g_Keys,g_Query,-1,g_ItemsOptions)
++		arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsOptions,"arpcore.itemopt")
+ 	}
+ 	else
+ 		client_print(id,print_chat,"[ARP] This item is invalid. Please contact the administrator.")
+@@ -1744,7 +1750,7 @@ public ItemsOptions(id,Key)
+ 		case 1 :
+ 		{
+ 			format(g_Query,4095,"ARP Give Items^n^n1. Give 1^n2. Give 5^n3. Give 20^n4. Give 50^n5. Give 100^n6. Give All^n^n0. Exit")
+-			show_menu(id,g_Keys,g_Query,-1,g_ItemsGive)
++			arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsGive,"arpcore.itemgive")
+ 		}
+ 		
+ 		case 2 :
+@@ -1796,7 +1802,7 @@ public ItemsOptions(id,Key)
+ 		case 4 :
+ 		{
+ 			format(g_Query,4095,"ARP Drop Items^n^n1. Drop 1^n2. Drop 5^n3. Drop 20^n4. Drop 50^n5. Drop 100^n6. Drop All^n^n0. Exit")
+-			show_menu(id,g_Keys,g_Query,-1,g_ItemsDrop)
++			arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsDrop,"arpcore.itemdrop")
+ 		}
+ 	}
+ 
+diff --git a/base/addons/amxmodx/scripting/ARP_Items.sma b/base/addons/amxmodx/scripting/ARP_Items.sma
+index 1ffe827..601dc79 100644
+--- a/base/addons/amxmodx/scripting/ARP_Items.sma
++++ b/base/addons/amxmodx/scripting/ARP_Items.sma
+@@ -7,6 +7,7 @@
+ #include <fun>
+ #include <hamsandwich>
+ #include <xs>
++#include <ApolloRP_VGui>
+ 
+ #define ALCOHOL_MULTIPLE 10
+ 
+@@ -100,6 +101,7 @@ new MODS:g_Mod
+ 
+ public plugin_init()
+ {	
++	arpvgui_init("arpitems")
+ 	register_impulse(201,"SprayAttempt")
+ 	register_impulse(100,"FlashlightAttempt")
+ 	
+@@ -163,6 +165,8 @@ public client_disconnect(id)
+ 	
+ public plugin_precache()
+ {
++	arpvgui_precache()
++	
+ 	g_Smoke = precache_model("sprites/steam1.spr")
+ 	g_Lightning = precache_model("sprites/lgtning.spr")	// Lightning effect from Tazer
+ 	precache_sound(g_HeartSound)
+@@ -631,7 +635,7 @@ LockpickHandle(id,ItemId)
+ 	new Menu[512]
+ 	format(Menu,511,"ARP Lock Pick^n^n%s%s%s%s^n^n1. Up^n2. Down^n3. Left^n4. Right^n^n0. %s",g_Pick[id] & (1<<0) ? "-" : "|",g_Pick[id] & (1<<1) ? "-" : "|",g_Pick[id] & (1<<2) ? "-" : "|",g_Pick[id] & (1<<3) ? "-" : "|",g_Pick[id] & (1<<3) ? "Open Door" : "Exit")
+ 	
+-	show_menu(id,g_Keys,Menu,-1,g_LockMenu)
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_LockMenu,"arpitems.lock")
+ 	
+ 	// used as cache - name is decieving
+ 	g_Attachments[id] = ItemId
+diff --git a/base/addons/amxmodx/scripting/ARP_JailMod.sma b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+index 267b5c4..91c2cc6 100644
+--- a/base/addons/amxmodx/scripting/ARP_JailMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+@@ -4,6 +4,7 @@
+ #include <ApolloRP>
+ #include <ApolloRP_Chat>
+ #include <tsfun>
++#include <ApolloRP_VGui>
+ 
+ #define MAX_JAILS 20
+ #define ITEMS_PER_MENU 6
+@@ -51,8 +52,15 @@ new g_PluginEnd
+ new g_Cuffs
+ #endif
+ 
++public plugin_precache()
++{
++	arpvgui_precache()
++}
++
+ public plugin_init()
+ {
++	arpvgui_init("arpjail")
++	
+ 	ARP_RegisterEvent("HUD_Render","EventHudRender")
+ 	ARP_RegisterEvent("Player_Cuffed","EventCuffed")
+ 	
+@@ -536,7 +544,7 @@ public CmdJailMod(id)
+ 		
+ 	Pos += format(Menu[Pos],sizeof Menu - Pos - 1,"%s^n^n8. Last Page^n9. Next Page^n^n0. Exit",Mode == 2 ? "^n7. Free Target Player" : "")
+ 	
+-	show_menu(id,Keys,Menu,-1,g_Menu)
++	arpvgui_show_menu(id,Keys,Menu,-1,g_Menu,"arpjail.menu")
+ 	
+ 	return PLUGIN_HANDLED
+ }
+diff --git a/base/addons/amxmodx/scripting/ARP_NPCs.sma b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+index 929ab94..97792e0 100644
+--- a/base/addons/amxmodx/scripting/ARP_NPCs.sma
++++ b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+@@ -6,6 +6,8 @@
+ #include <engine>
+ #include <tsx>
+ #include <tsfun>
++#define ARPVGUI_PAGED
++#include <ApolloRP_VGui>
+ 
+ #define NPC_TYPES 5
+ #define GUNSHOP_MODES 3
+@@ -143,8 +145,15 @@ enum MODS
+ 
+ new MODS:g_Mod
+ 
++public plugin_precache()
++{
++	arpvgui_precache()
++}
++
+ public plugin_init()
+ {
++	arpvgui_init("arpnpc")
++	
+ 	register_menucmd(register_menuid(g_EdekaMenu),g_Keys,"EdekaMenuHandle")
+ 	register_menucmd(register_menuid(g_BankMenu),g_Keys,"BankMenuHandle")
+ 	register_menucmd(register_menuid(g_DoctorMenu),g_Keys,"DoctorMenuHandle")
+@@ -394,7 +403,7 @@ Edeka(id,Ent)
+ 		menu_additem(Menu,Command,ItemNum)
+ 	}
+ 	
+-	menu_display(id,Menu)
++	arpvgui_menu_display(id,Menu,"arpnpc.shop","ARP Shop","EdekaMenuHandle")
+ 	
+ 	/*
+ 	Pos += format(Menu[Pos],Len - Pos,"ARP Shop^n^n")
+@@ -485,7 +494,7 @@ public BankHandle(id,Ent)
+ 	g_CurNpcId[id] = Ent
+ 	
+ 	copy(Menu,Len,"ARP Bank^n^n1. Withdraw/Deposit^n2. Buy ATM Card ($10)^n3. Buy Debit Card ($100)^n4. Rob^n^n0. Exit")
+-	show_menu(id,g_Keys,Menu,-1,g_BankMenu)	
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_BankMenu,"arpnpc.bank")	
+ }
+ 
+ public BankMenuHandle(id,Key)
+@@ -714,7 +723,7 @@ Doctor(id,Ent)
+ 		menu_additem(Menu,Command,ItemNum)
+ 	}
+ 	
+-	menu_display(id,Menu)
++	arpvgui_menu_display(id,Menu,"arpnpc.doctor","ARP Doctor","DoctorMenuHandle")
+ }
+ 
+ public DoctorMenuHandle(id,Menu,Item)	
+@@ -854,7 +863,7 @@ public AtmHandle(id,Ent)
+ 	g_CurNpcId[id] = Ent
+ 	
+ 	copy(Menu,Len,"ARP ATM^n^n1. Withdraw^n2. Deposit^n^n0. Exit")
+-	show_menu(id,g_Keys,Menu,-1,g_AtmMenu)	
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmMenu,"arpnpc.atm")	
+ }
+ 
+ public AtmMenuHandle(id,Key)
+@@ -877,7 +886,7 @@ public AtmMenuHandle(id,Key)
+ 	
+ 	format(Menu,511,"ARP ATM %s^n^n1. %s $10^n2. %s $20^n3. %s $50^n4. %s $100^n5. %s $250^n6. %s $500^n7. %s $1000^n^n0. Exit",String,String,String,String,String,String,String,String)
+ 	
+-	show_menu(id,g_Keys,Menu,-1,g_AtmUse)
++	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmUse,"arpnpc.atmuse")
+ }
+ 
+ public AtmUseMenuHandle(id,Key)
+@@ -949,7 +958,7 @@ Gunshop(id,Ent)
+ 	}
+ 	Pos += format(Menu[Pos],Len - Pos,"^n0. Exit")
+ 	
+-	show_menu(id,Keys,Menu,-1,g_GunshopMenu)
++	arpvgui_show_menu(id,Keys,Menu,-1,g_GunshopMenu,"arpnpc.gunshop")
+ }
+ 
+ public GunshopMenuHandle(id,Key)
+@@ -1089,7 +1098,7 @@ GunshopMenuHandle2(id,Key)
+ 		menu_additem(Menu,Command,"")
+ 	}
+ 	
+-	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? menu_display(id,Menu) : client_print(id,print_chat,"[ARP] There are no items in this category.")
++	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? arpvgui_menu_display(id,Menu,"arpnpc.gunbuy","ARP Gunshop","GunshopUseMenuHandle") : client_print(id,print_chat,"[ARP] There are no items in this category.")
+ }
+ 
+ // getting a bit long
+diff --git a/base/addons/amxmodx/scripting/ARP_TS.sma b/base/addons/amxmodx/scripting/ARP_TS.sma
+index 662cc5c..8a6d792 100644
+--- a/base/addons/amxmodx/scripting/ARP_TS.sma
++++ b/base/addons/amxmodx/scripting/ARP_TS.sma
+@@ -6,6 +6,7 @@
+ #include <tsx>
+ #include <tsfun>
+ #include <sqlx>
++#include <ApolloRP_VGui>
+ 
+ new g_9Parabellum
+ new g_12Gauge
+@@ -175,6 +176,11 @@ new Handle:g_SqlHandle
+ 
+ new g_WeaponTable[] = "arp_weapons"
+ 
++public plugin_precache()
++{
++	arpvgui_precache()
++}
++
+ public plugin_init()
+ {
+ 	ARP_RegisterPlugin("TS Compatibility",ARP_VERSION,"The ApolloRP Team","Provides TS support for ARP")
+@@ -189,6 +195,7 @@ public plugin_init()
+ 	
+ 	ARP_RegisterCmd("arp_addgun","CmdAddGun","(ADMIN) <weaponid> <ammo> <extra> <save (0/1)> - adds gun to wall")
+ 	
++	arpvgui_init("arpts")
+ 	register_menucmd(register_menuid(g_AttachMenu),g_Keys,"AttachMenuHandle")
+ }
+ 
+@@ -473,7 +480,7 @@ public _Weapon(id,ItemId)
+ 	for(new Count;Count < Num;Count++)	
+ 		Keys |= (1<<Count)
+ 	
+-	show_menu(id,Keys,Menu,-1,g_AttachMenu)
++	arpvgui_show_menu(id,Keys,Menu,-1,g_AttachMenu,"arpts.attach")
+ }
+ 
+ public AttachMenuHandle(id,Key)
+diff --git a/base/addons/amxmodx/scripting/ARP_TalkArea.sma b/base/addons/amxmodx/scripting/ARP_TalkArea.sma
+index 5c338a3..f3f23ad 100644
+--- a/base/addons/amxmodx/scripting/ARP_TalkArea.sma
++++ b/base/addons/amxmodx/scripting/ARP_TalkArea.sma
+@@ -3,6 +3,8 @@
+ #include <ApolloRP>
+ #include <ApolloRP_Chat>
+ #include <fakemeta>
++#define ARPVGUI_PAGED
++#include <ApolloRP_VGui>
+ 
+ #define BASE_DISTANCE 300.0
+ 
+@@ -99,6 +101,8 @@ new TravTrie:g_SayTeamTrie
+ 
+ public plugin_init()
+ {	
++	arpvgui_init("arptalk")
++	
+ 	register_clcmd("say","CmdSay")
+ 	register_clcmd("say_team","CmdSay")
+ 	
+@@ -230,6 +234,8 @@ public ARP_Error(const Reason[])
+ 
+ public plugin_precache()
+ {
++	arpvgui_precache()
++	
+ 	precache_sound(g_RingSound)
+ 	precache_sound(g_SmsSound)
+ 	precache_sound(g_ScanSound)
+@@ -343,7 +349,7 @@ public StatusHandle(id,Key)
+ 				menu_additem(Menu,Name,Command)
+ 			}
+ 			
+-			menu_display(id,Menu)
++			arpvgui_menu_display(id,Menu,"arptalk.book","ARP Phonebook","CallHandle")
+ 		}
+ 	}
+ }
+@@ -404,7 +410,7 @@ public CallHandle(id,Menu,Item)
+ 	if(g_Phone[Selection][RING] < 2)
+ 		set_task(2.0,"Ring",Selection + PHONE_RING_OFFSET,"a",_,_,6)
+ 	
+-	show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu)
++	arpvgui_show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu,"arptalk.answer")
+ 	
+ 	return PLUGIN_CONTINUE
+ }
+@@ -454,7 +460,7 @@ public _Phone(id,ItemId)
+ 	formatex(Menu[Pos],255 - Pos,"^n0. Exit")
+ 	
+ 	g_ItemId[id] = ItemId
+-	show_menu(id,Keys,Menu,-1,g_StatusMenu)
++	arpvgui_show_menu(id,Keys,Menu,-1,g_StatusMenu,"arptalk.status")
+ }
+ 
+ public _Subscription(id,ItemId)
+diff --git a/b/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc b/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc
+new file mode 100644
+index 0000000..2f15891
+--- /dev/null
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc
+@@ -0,0 +1,240 @@
++/*
++ * ApolloRP_VGui.inc -- H9: Apollo RP's menus on an H9 player's screen.
++ *
++ * Apollo RP's menus are AMX Mod X menus, the classic TS text menu. A player whose game draws H9 VGUI
++ * (include\h9_vgui.inc, docs\H9_VGUI.txt) gets each of them as a framed panel in H9's purple art, with
++ * the same rows, the same number keys and the same handler behind it; every other player, and every
++ * server without the H9 client, gets the text menu exactly as before.
++ *
++ * Two kinds of menu are in Apollo RP, and each has one call:
++ *
++ *   A text menu, built with format() and shown with show_menu(): arpvgui_show_menu() takes its place.
++ *   It reads the panel's title and rows out of the same text and sends the text menu as well, so the
++ *   register_menucmd() handler answers both and nothing else changes.
++ *
++ *   A menu made with menu_create() and menu_additem(), paged by AMX Mod X: arpvgui_menu_display()
++ *   takes the place of menu_display(). For a player without H9 VGUI it IS menu_display(). For an H9
++ *   player it pages the same items itself, the way AMX Mod X does (seven to a page, 8 Back, 9 More,
++ *   0 Exit), as a text menu with a panel for its twin, and calls the same handler with the same
++ *   (id, menu, item): item is the number of the item in the whole menu, or MENU_EXIT. The menu stays
++ *   an AMX Mod X menu that the handler reads (menu_item_getinfo) and destroys as ever; it is only not
++ *   shown by AMX Mod X. A plugin that uses it defines ARPVGUI_PAGED before it includes this file.
++ *
++ * A plugin calls arpvgui_precache() in plugin_precache and arpvgui_init("<ns>") in plugin_init. Its
++ * panels are "<ns>.<name>": 23 characters at most, a-z 0-9 . _ -.
++ *
++ * In a paged menu an item named "<name> - $<price>" or "<name> x <count>" is drawn as the name with
++ * "$<price>" or "x <count>" after it, in the smaller font; a name is cut to 31 characters on the panel.
++ */
++
++#if defined _ApolloRP_VGui_included
++	#endinput
++#endif
++
++#define _ApolloRP_VGui_included
++
++#include <amxmodx>
++#include <fakemeta>
++#include <h9_vgui>
++
++#if defined ARPVGUI_PAGED
++
++#define ARPVGUI_PER_PAGE 7
++
++stock g_av_menuname[40];                  // the text menu a paged menu is shown as
++stock bool:g_av_on[MAX_PLAYERS + 1];      // whether the player has a paged menu of this plugin up
++stock g_av_menu[MAX_PLAYERS + 1];         // its AMX Mod X menu
++stock g_av_page[MAX_PLAYERS + 1];
++stock g_av_panel[MAX_PLAYERS + 1][24];
++stock g_av_title[MAX_PLAYERS + 1][40];
++stock g_av_handler[MAX_PLAYERS + 1][32];  // the menu's handler, called with (id, menu, item)
++
++#endif
++
++/// In plugin_precache: registers H9Vgui, so every game learns it at connect.
++stock arpvgui_precache()
++{
++	h9vgui_precache();
++}
++
++/// In plugin_init: this plugin's panels are "<ns>.*".
++stock arpvgui_init(const ns[])
++{
++	h9vgui_init(ns);
++#if defined ARPVGUI_PAGED
++	formatex(g_av_menuname, charsmax(g_av_menuname), "ARP_Paged_%s", ns);
++	register_menucmd(register_menuid(g_av_menuname), 1023, "__arpvgui_paged_key");
++#endif
++}
++
++/// In place of show_menu(): the same text menu to everyone, and to an H9 player the panel drawn from it.
++stock arpvgui_show_menu(id, keys, const text[], time, const amx[], const panel[], const title[] = "")
++{
++	h9vgui_show_menu(id, keys, text, time, amx, panel, title);
++}
++
++#if defined ARPVGUI_PAGED
++
++/// In place of menu_display(id, menu, page): `handler` is the name of the menu's handler (the one menu_create() was given).
++stock arpvgui_menu_display(id, menu, const panel[], const title[], const handler[], page = 0)
++{
++	if (!g_av_menuname[0] || !h9vgui_supported(id))
++	{
++		return menu_display(id, menu, page);
++	}
++	g_av_on[id] = true;
++	g_av_menu[id] = menu;
++	g_av_page[id] = page;
++	copy(g_av_panel[id], charsmax(g_av_panel[]), panel);
++	copy(g_av_title[id], charsmax(g_av_title[]), title);
++	copy(g_av_handler[id], charsmax(g_av_handler[]), handler);
++	__arpvgui_page(id);
++	return 1;
++}
++
++/// A menu item's name as the panel's row: the name, and "$<price>" or "x <count>" as its detail.
++stock __arpvgui_split(const name[], label[], labellen, detail[], detaillen)
++{
++	new cut = -1, skip = 0;
++	for (new i = strlen(name) - 4; i > 0; i--)
++	{
++		if (name[i] != ' ')
++		{
++			continue;
++		}
++		if (name[i + 1] == '-' && name[i + 2] == ' ' && name[i + 3] == '$')
++		{
++			cut = i;
++			skip = 3;
++			break;
++		}
++		if (name[i + 1] == 'x' && name[i + 2] == ' ' && name[i + 3] >= '0' && name[i + 3] <= '9')
++		{
++			cut = i;
++			skip = 1;
++			break;
++		}
++	}
++	if (cut > 0)
++	{
++		copy(label, min(labellen, cut), name);
++		copy(detail, detaillen, name[cut + skip]);
++	}
++	else
++	{
++		copy(label, labellen, name);
++		detail[0] = EOS;
++	}
++	trim(label);
++	trim(detail);
++}
++
++/// The player's current page of his paged menu: its panel's rows and the text menu that stands for them.
++stock __arpvgui_page(id)
++{
++	new menu = g_av_menu[id];
++	new count = menu_items(menu);
++	new pages = max(1, (count + ARPVGUI_PER_PAGE - 1) / ARPVGUI_PER_PAGE);
++	g_av_page[id] = clamp(g_av_page[id], 0, pages - 1);
++	new page = g_av_page[id];
++	new first = page * ARPVGUI_PER_PAGE;
++
++	new title[56];
++	if (pages > 1)
++	{
++		formatex(title, charsmax(title), "%s %d/%d", g_av_title[id], page + 1, pages);
++	}
++	else
++	{
++		copy(title, charsmax(title), g_av_title[id]);
++	}
++
++	h9vgui_menu_begin(g_av_panel[id], title);
++	new text[640];
++	new pos = formatex(text, charsmax(text), "\y%s^n^n", title);
++	new keys = MENU_KEY_0;
++	for (new k = 0; k < ARPVGUI_PER_PAGE && first + k < count; k++)
++	{
++		new access, callback, info[2], name[64], label[32], detail[32];
++		menu_item_getinfo(menu, first + k, access, info, charsmax(info), name, charsmax(name), callback);
++		__arpvgui_split(name, label, charsmax(label), detail, charsmax(detail));
++		h9vgui_menu_row(k + 1, 0, label, detail);
++		if (detail[0])
++		{
++			pos += formatex(text[pos], charsmax(text) - pos, "\y%d. \w%s  \d%s^n", k + 1, label, detail);
++		}
++		else
++		{
++			pos += formatex(text[pos], charsmax(text) - pos, "\y%d. \w%s^n", k + 1, label);
++		}
++		keys |= (1 << k);
++	}
++	new flags = H9V_GAP;
++	pos += formatex(text[pos], charsmax(text) - pos, "^n");
++	if (page > 0)
++	{
++		h9vgui_menu_row(8, flags, "Back");
++		flags = 0;
++		pos += formatex(text[pos], charsmax(text) - pos, "\y8. \wBack^n");
++		keys |= MENU_KEY_8;
++	}
++	if (page < pages - 1)
++	{
++		h9vgui_menu_row(9, flags, "More");
++		flags = 0;
++		pos += formatex(text[pos], charsmax(text) - pos, "\y9. \wMore^n");
++		keys |= MENU_KEY_9;
++	}
++	h9vgui_menu_row(10, flags, "Exit");
++	formatex(text[pos], charsmax(text) - pos, "\y0. \wExit");
++	h9vgui_menu_send(id, keys, text, -1, g_av_menuname);
++}
++
++/// A key of a paged menu, 0-based: 0-6 the page's items, 7 back, 8 more, 9 exit.
++public __arpvgui_paged_key(id, key)
++{
++	if (id < 1 || id > MAX_PLAYERS || !g_av_on[id])
++	{
++		return PLUGIN_HANDLED;
++	}
++	new count = menu_items(g_av_menu[id]);
++	new pages = max(1, (count + ARPVGUI_PER_PAGE - 1) / ARPVGUI_PER_PAGE);
++	new page = g_av_page[id];
++	if (key == 9)
++	{
++		__arpvgui_pick(id, MENU_EXIT);
++	}
++	else if (key == 7 && page > 0)
++	{
++		g_av_page[id] = page - 1;
++		__arpvgui_page(id);
++	}
++	else if (key == 8 && page < pages - 1)
++	{
++		g_av_page[id] = page + 1;
++		__arpvgui_page(id);
++	}
++	else if (key < ARPVGUI_PER_PAGE && page * ARPVGUI_PER_PAGE + key < count)
++	{
++		__arpvgui_pick(id, page * ARPVGUI_PER_PAGE + key);
++	}
++	return PLUGIN_HANDLED;
++}
++
++/// The menu's handler, as AMX Mod X calls it: (id, menu, item) with item the menu's item, or MENU_EXIT.
++stock __arpvgui_pick(id, item)
++{
++	new menu = g_av_menu[id];
++	new handler[32];
++	copy(handler, charsmax(handler), g_av_handler[id]);
++	g_av_on[id] = false;
++	if (callfunc_begin(handler) == 1)
++	{
++		callfunc_push_int(id);
++		callfunc_push_int(menu);
++		callfunc_push_int(item);
++		callfunc_end();
++	}
++}
++
++#endif

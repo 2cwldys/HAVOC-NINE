@@ -16,12 +16,20 @@
 #                                         h9web starts; DIR holds secrets.json and data.key
 #                                         unless the backup was made --with-keys
 #   sudo bash setup.sh --check            only show what is installed and running
+#   sudo bash setup.sh --file-index       only the downloads' file index: after new files go
+#                                         into downloads/, its links, their check and its
+#                                         SHA256SUMS.txt (README-VPS.txt step 13)
 #
 # DOMAIN (havoc9.org), ALIASES ("www.havoc9.org") and EMAIL go to the certificate and nginx
 # scripts in havoc9.org/deploy/. GAME_PORTS ("27015/udp", space separated ufw rules) are the game
 # servers' ports this VPS opens; without it, H9XASH_DIR (the H9XASH folder a game server here runs
 # from) gives the port its networking.ini names (port= under [server], the one its launchers use),
 # and 27015 stands for the rest. UFW=0 leaves the firewall alone; HARDEN_SSH=0 leaves SSH alone.
+#
+# The P2P relay (docs/P2P_HOSTING.txt, README-VPS.txt step 16) is off unless asked for, and then nothing else changes:
+#   sudo P2P=module bash setup.sh        the relay's code in /opt/p2p for h9web's p2p module, and its UDP port in the firewall
+#   sudo P2P=standalone bash setup.sh    the relay as a service of its own (h9-p2p), its settings in /etc/h9-p2p, the same firewall rule
+# P2P_PORT (27248) is the relay's UDP port: the one in its settings (publicUdp.port and bind.udp.port).
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-havoc9.org}"
@@ -53,6 +61,10 @@ LIST_HOME=/opt/h9-serverlist
 LIST_DATA=/var/lib/h9-serverlist
 SITE_ROOT="/var/www/$DOMAIN"
 NODE=/usr/bin/node
+P2P="${P2P:-0}"
+P2P_PORT="${P2P_PORT:-27248}"
+P2P_HOME=/opt/p2p
+P2P_ETC=/etc/h9-p2p
 
 say()  { printf '\n== %s\n' "$*"; }
 note() { printf '  %s\n' "$*"; }
@@ -60,9 +72,9 @@ warn() { printf '  [WARN] %s\n' "$*"; WARNINGS+=("$*"); }
 die()  { printf '\n[FAIL] %s\n' "$*" >&2; exit 1; }
 WARNINGS=()
 
-usage() { sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
-RESTORE=""; KEYS=""; PASSFILE=""; NO_TLS=0; CHECK=0
+RESTORE=""; KEYS=""; PASSFILE=""; NO_TLS=0; CHECK=0; FILE_INDEX=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --restore) RESTORE="${2:-}"; shift 2 || die "--restore needs a file";;
@@ -70,10 +82,15 @@ while [ $# -gt 0 ]; do
     --passphrase-file) PASSFILE="${2:-}"; shift 2 || die "--passphrase-file needs a file";;
     --no-tls) NO_TLS=1; shift;;
     --check) CHECK=1; shift;;
+    --file-index) FILE_INDEX=1; shift;;
     -h|--help) usage; exit 0;;
     *) usage; die "unknown option $1";;
   esac
 done
+
+case "$P2P" in 0|module|standalone) ;; *) die "P2P must be 0, module or standalone, not $P2P";; esac
+case "$P2P_PORT" in ''|*[!0-9]*) die "P2P_PORT must be a port number, not $P2P_PORT";; esac
+[ "$P2P_PORT" -ge 1 ] && [ "$P2P_PORT" -le 65535 ] || die "P2P_PORT must be 1 to 65535, not $P2P_PORT"
 
 [ "$(id -u)" -eq 0 ] || die "run it as root: sudo bash $0"
 . /etc/os-release 2>/dev/null || die "no /etc/os-release: this is for Debian or Ubuntu"
@@ -91,10 +108,101 @@ backup_cli() { as_h9web "$NODE" "$H9WEB_HOME/bin/h9web-backup.js" --config "$H9W
 active() { systemctl is-active --quiet "$1" && echo "running" || echo "NOT running"; }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
 
+# The downloads' file index, downloads/files/ (README-VPS.txt step 13). The three files the
+# DOWNLOADS page's buttons fetch from downloads/ are symbolic links there (../<name>), so the disk
+# holds one copy and a link always opens the file downloads/ holds now, whatever replaced it.
+# Each link is made again at every run (under a dot name, then moved into place), then checked:
+# its SHA-256 must be that of the file in downloads/. A button file not there yet is skipped (an
+# old link to it goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves.
+file_index() {
+  local dl="$SITE_ROOT/downloads" idx="$SITE_ROOT/downloads/files" f a b n=0
+  local -A sums=()
+  mkdir -p "$idx"
+  for f in H9XASH.zip H9XASH-linux.zip H9XASH-Updater.exe; do
+    if [ ! -f "$dl/$f" ]; then
+      if [ -L "$idx/$f" ]; then rm -f "$idx/$f"; fi
+      note "downloads/files/$f: skipped, there is no $dl/$f yet"
+      continue
+    fi
+    if ! { ln -sfn "../$f" "$idx/.$f.new" && mv -Tf "$idx/.$f.new" "$idx/$f"; }; then
+      warn "could not link downloads/files/$f to ../$f"
+    fi
+    [ -e "$idx/$f" ] || continue
+    a="$(sha256sum < "$dl/$f" | cut -d' ' -f1)"
+    b="$(sha256sum < "$idx/$f" | cut -d' ' -f1)"
+    if [ "$a" = "$b" ]; then
+      note "downloads/files/$f is downloads/$f (SHA-256 $a)"
+      sums[$f]="$a"
+    else
+      warn "downloads/files/$f IS NOT THE SAME FILE as downloads/$f (SHA-256 $b, not $a): look at $idx"
+    fi
+  done
+  : > "$idx/.SHA256SUMS.txt.new"
+  local LC_ALL=C p
+  for p in "$idx"/*; do
+    f="${p##*/}"
+    case "$f" in SHA256SUMS.txt) continue;; *.zip|*.exe|*.txt) ;; *) continue;; esac
+    [ -f "$idx/$f" ] || continue
+    printf '%s  %s\n' "${sums[$f]:-$(sha256sum < "$idx/$f" | cut -d' ' -f1)}" "$f" >> "$idx/.SHA256SUMS.txt.new"
+    n=$((n + 1))
+  done
+  chmod 644 "$idx/.SHA256SUMS.txt.new"
+  mv -f "$idx/.SHA256SUMS.txt.new" "$idx/SHA256SUMS.txt"
+  note "downloads/files/SHA256SUMS.txt: $n files"
+}
+
+# The P2P relay (docs/P2P_HOSTING.txt): its code by name (never a real config or hosts file from a clone); for standalone also its
+# user, its settings in /etc/h9-p2p (made from the examples when there are none, never overwritten) and its service, which starts
+# only when `h9rv --check` finds the settings finished.
+p2p_install() {
+  local f out port
+  for f in lib/service.js lib/auth.js bin/h9rv.js relay.config.example.json hosts.example.json h9-p2p.service.example; do
+    [ -e "$SRC/p2p/$f" ] || die "P2P=$P2P: $SRC/p2p/$f is missing: run this from the unpacked package"
+  done
+  install -d -m 755 -o root -g root "$P2P_HOME"
+  rsync -a --prune-empty-dirs \
+    --include='/lib/' --include='/lib/service.js' --include='/lib/wire.js' --include='/lib/codes.js' --include='/lib/limits.js' \
+    --include='/lib/auth.js' --include='/lib/config.js' --include='/bin/' --include='/bin/h9rv.js' --include='/package.json' \
+    --include='/README.txt' --include='/relay.config.example.json' --include='/hosts.example.json' --include='/relay.site.ini.example' --include='/run.sh' \
+    --include='/h9-p2p.service.example' --exclude='*' "$SRC/p2p/" "$P2P_HOME/"
+  chown -R root:root "$P2P_HOME"
+  chmod -R u=rwX,go=rX "$P2P_HOME"
+  note "the relay's code: $P2P_HOME"
+  if [ "$P2P" = module ]; then
+    note "h9web's p2p module finds it there. Switch the module on in $H9WEB_ETC/config.json (README-VPS.txt step 16), then: systemctl restart h9web"
+    return 0
+  fi
+  id -u h9p2p >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin h9p2p
+  install -d -m 750 -o root -g h9p2p "$P2P_ETC"
+  for f in relay.config hosts; do
+    if [ ! -f "$P2P_ETC/$f.json" ]; then
+      install -m 640 -o root -g h9p2p "$SRC/p2p/$f.example.json" "$P2P_ETC/$f.json"
+      note "made $P2P_ETC/$f.json from its example"
+    else
+      note "$P2P_ETC/$f.json is kept as it is"
+    fi
+  done
+  install -m 644 "$SRC/p2p/h9-p2p.service.example" /etc/systemd/system/h9-p2p.service
+  systemctl daemon-reload
+  systemctl enable --quiet h9-p2p
+  if out="$(runuser -u h9p2p -- "$NODE" "$P2P_HOME/bin/h9rv.js" --config "$P2P_ETC/relay.config.json" --check 2>&1)"; then
+    port="$(runuser -u h9p2p -- "$NODE" -e 'const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const b = c.bind && c.bind.udp; console.log(b && b.port || 27248)' "$P2P_ETC/relay.config.json" 2>/dev/null || true)"
+    if [ -n "$port" ] && [ "$port" != "$P2P_PORT" ]; then warn "the relay's settings bind UDP $port but the firewall rule is for $P2P_PORT: run this again with P2P_PORT=$port"; fi
+    systemctl restart h9-p2p
+    note "h9-p2p $(active h9-p2p): $(printf '%s\n' "$out" | sed -n 's/^ *who may host: *//p')"
+  else
+    systemctl stop h9-p2p 2>/dev/null || true
+    printf '%s\n' "$out" | sed 's/^/    /'
+    warn "the P2P relay is installed but not started: finish $P2P_ETC/relay.config.json (publicUdp.host) and make a host token (sudo $NODE $P2P_HOME/bin/h9rv.js token <name> --hosts $P2P_ETC/hosts.json), then: systemctl restart h9-p2p"
+  fi
+}
+
 if [ "$CHECK" = 1 ]; then
   say "what is here"
   note "node        $(command -v node >/dev/null && node --version || echo none)"
   for u in h9web h9-serverlist nginx h9web-backup.timer h9web-backup-offsite.timer; do note "$(printf '%-27s %s' "$u" "$(active "$u")")"; done
+  if [ -e /etc/systemd/system/h9-p2p.service ]; then note "$(printf '%-27s %s' h9-p2p "$(active h9-p2p)")"; fi
+  if [ -d "$P2P_HOME" ]; then note "p2p         HTTP $(code http://127.0.0.1:8090/api/p2p/v1/health) from h9web's module (200 = on, 404 = off), code in $P2P_HOME"; fi
   note "h9web       $(curl -s --max-time 5 http://127.0.0.1:8090/api/me || echo 'no answer') (127.0.0.1:8090)"
   note "list        HTTP $(code http://127.0.0.1:8081/v1/servers/ts) (127.0.0.1:8081)"
   note "site        HTTP $(code "https://$DOMAIN/") (https://$DOMAIN/)"
@@ -102,6 +210,15 @@ if [ "$CHECK" = 1 ]; then
   if [ -f "$H9WEB_HOME/bin/h9web-backup.js" ] && [ -d "$H9WEB_DATA/backups" ]; then
     backup_cli list --out "$H9WEB_DATA/backups" | tail -n 3 || true
   fi
+  exit 0
+fi
+
+# --file-index: after new files went into downloads/, only their links, the check and SHA256SUMS.txt
+if [ "$FILE_INDEX" = 1 ]; then
+  say "the downloads' file index ($SITE_ROOT/downloads/files)"
+  [ -d "$SITE_ROOT/downloads" ] || die "no $SITE_ROOT/downloads yet: run sudo bash $0 first"
+  file_index
+  for w in "${WARNINGS[@]}"; do printf '  [WARN] %s\n' "$w"; done
   exit 0
 fi
 
@@ -179,14 +296,23 @@ fi
 chown -R h9list:h9list "$LIST_DATA"
 find "$LIST_DATA" -type f -exec chmod 600 {} +
 
+if [ "$P2P" != 0 ]; then
+  say "5b. the P2P relay (P2P=$P2P)"
+  p2p_install
+fi
+
 say "6. the site"
 rsync -a --delete --exclude='/deploy/' --exclude='/files/' --exclude='/webclient/engine/' --exclude='/webclient/manifest.json' \
   --exclude='/webclient/preload.json' --exclude='/webclient/DEPLOY.txt' --exclude='*.bak*' --exclude='.*' \
   --exclude='*.zip' --exclude='*.orig' --exclude='*~' --exclude='README.md' --exclude='HAVOC_NINE_MASTER_SERVER.txt' \
+  --exclude='/downloads/H9XASH-Updater.exe' --exclude='/downloads/files/' \
   "$SRC/havoc9.org/" "$SITE_ROOT/"
+# the downloads' file index (README-VPS.txt step 13): its folder is kept; its links and
+# SHA256SUMS.txt are made again
+file_index
 chown -R root:root "$SITE_ROOT"
 find "$SITE_ROOT" -type d -exec chmod 755 {} + ; find "$SITE_ROOT" -type f -exec chmod 644 {} +
-note "$SITE_ROOT (the downloads' ZIPs, H9XASH-Updater's files/ and the web client's files there are kept)"
+note "$SITE_ROOT (the downloads there, the downloads' file index, H9XASH-Updater's files/ and the web client's files are kept)"
 
 if [ -n "$KEYS" ] || [ -n "$RESTORE" ]; then
   say "7. the keys and the restore"
@@ -283,6 +409,7 @@ if [ "$UFW" = 1 ]; then
   for p in ${ports:-22}; do ufw allow "$p/tcp" >/dev/null; note "allowed $p/tcp (SSH)"; done
   ufw allow "Nginx Full" >/dev/null; note "allowed 80/tcp and 443/tcp (nginx)"
   for g in $GAME_PORTS; do ufw allow "$g" >/dev/null; note "allowed $g (game servers)"; done
+  if [ "$P2P" != 0 ]; then ufw allow "$P2P_PORT/udp" >/dev/null; note "allowed $P2P_PORT/udp (the P2P relay: it answers only packets that carry a valid tag)"; fi
   ufw status | grep -q "Status: active" || ufw --force enable >/dev/null
   note "ufw is on: everything else is closed from outside (h9web and the list listen on 127.0.0.1 only)"
 fi

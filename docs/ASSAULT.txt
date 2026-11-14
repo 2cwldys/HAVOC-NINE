@@ -81,8 +81,9 @@ h9_assault_rounds 1 plays rounds like the other modes: best of tsm_rounds (first
 to 5); every round starts with every point neutral and every set shut. The cvar is read within a second, so it
 can be changed during a match (a match whose rounds were already counted is then decided by that tally).
 
-Bots fight but do not play the objective: nothing tells them where the points are yet. A bot that happens to
-stand in a circle still counts as a capturer or a contester.
+Bots play the points while tsm_bot_objectives is 1 (the default): rcbot reads each point's holder, state,
+progress and who stands in it from the point's entity (docs\BOT_OBJECTIVES.txt). With 0 they only fight; a bot that
+happens to stand in a circle still counts as a capturer or a contester either way.
 
 
 3. THE NUMBERS YOU CAN CHANGE

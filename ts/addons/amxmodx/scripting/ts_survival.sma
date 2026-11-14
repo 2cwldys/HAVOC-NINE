@@ -3,7 +3,8 @@
  *
  * Side 1 is the people: the class menu, their class lives, ready-up as always. Side 2 is the
  * enemy wave, bots only -- a person picking it is made a spectator -- and it never runs out:
- * every mutant that falls comes back with the next wave.
+ * every mutant that falls comes back with the next wave. tsm_ws_human_side 2 swaps them: the
+ * people play side 2 and the mutants are side 1's bots.
  *
  * A WAVE IS A WHOLE SET OF MUTANTS. The next one does not come until every mutant of the one
  * before is dead. Clearing a wave starts a breather, tsm_ws_wave seconds counted down on
@@ -12,17 +13,28 @@
  * lives are set to their class's count again. Each wave is a new round for the once-a-round
  * abilities too: the stim, .ammo, the class abilities and the Mech's rockets are all ready
  * again. There is no round clock and no sudden death:
- * the run goes on until side 1 is wiped out -- nobody standing, no lives left, nobody waiting
+ * the run goes on until the people's side is wiped out -- nobody standing, no lives left, nobody waiting
  * -- and then the match is over, chat says how far they got, and it is back to warmup.
+ *
+ * LATE JOINERS AND CLASS CHANGES. The claim asks ts_matchmode for both, which is what tsm_latejoin 2 and tsm_classchange 2
+ * mean (their default, 1, gives every mode both): a person who arrives while a run is going takes the people's side from the side menu, waits
+ * as a ghost like a fallen survivor and comes in with the next respawn wave of the people's side, the one that
+ * comes with each cleared wave of mutants included. A player may type .class at any time for another class,
+ * which he has on when he next comes back from a death. A late joiner is not counted as standing or waiting, so
+ * he never keeps a lost run open.
  *
  * THE WAVES GROW. Each mutant spawns with its class's health plus tsm_ws_hp_per_wave percent
  * for every wave after the first, and rolls a gun or a blade by tsm_ws_gun_odds: 40% armed
  * at first, 60% from wave 16, every one of them from wave 25. After wave tsm_ws_kungfu_after
- * (30) each comes back with the kung fu powerup as well.
+ * (30) each comes back with the kung fu powerup as well. From wave tsm_ws_mech_after (25) a
+ * growing share of them play the Mech class instead.
+ *
+ * OVERTIME. A wave that runs past tsm_ws_overtime seconds (225) starts costing the mutants
+ * tsm_ws_overtime_hp health a second each, in the sudden-death fog, until the wave is cleared.
  *
  * WHICH MAPS. Any map whose name starts h9_ws_, while tsm_mutants_mode is 1. A map with
  * siege objectives stays a siege map (ts_matchmode refuses the claim), and the first mode to
- * claim a map keeps it. Side 2 needs bots: tsm_bots in ts_matchmode.cfg.
+ * claim a map keeps it. The bots' side needs bots: tsm_bots in ts_matchmode.cfg.
  *
  * BOTS. While the mode runs rcbot is told to hand out none of its own weapons and to pick none
  * up (rcbot config ts_kungfu 1, ts_dont_pickup_weapons 1), so a melee mutant stays a melee
@@ -53,9 +65,11 @@
 #define WS_STING       "xom_laugh.wav"
 #define WS_STING_FILE  "sound/xom_laugh.wav"
 #define WS_PREFIX      "h9_ws_"
+#define WS_MAXP        (MAX_PLAYERS + 1)   // player slots, 1-based
 
 new g_cv_mode, g_cv_breather, g_cv_class, g_cv_odds, g_cv_guns, g_cv_melee, g_cv_hp, g_cv_kungfu;
 new g_cv_sound, g_cv_stall, g_cv_desc;
+new g_cv_hside, g_cv_ot, g_cv_ot_hp, g_cv_ot_fog, g_cv_mech_after, g_cv_mech_per;
 
 new bool:g_have_core = true;   // cleared by the native filter when ts_matchmode is not loaded
 new bool:g_active = false;     // this map is claimed for survival
@@ -68,6 +82,16 @@ new Float:g_breather_until;    // the next wave's arrival while one is being wai
 new g_last_count;              // mutants in play at the last tick, for the stall check
 new Float:g_last_change;       // when that count last moved
 new bool:g_told_respawns;      // the tsm_respawns 0 warning, once a map
+
+new g_bside = 2;               // the mutants' side this map: the other one is the people's
+
+new Float:g_wave_began;        // when the wave being fought started
+new bool:g_ot_on;              // overtime is running
+new bool:g_ot_fog;             // overtime turned the fog on
+new Float:g_ot_next;           // the next second of the drain
+
+new bool:g_mech[WS_MAXP];      // this mutant's roll for the wave: it plays the Mech class
+new g_mech_wave[WS_MAXP];      // the wave that roll was made for
 
 public plugin_natives()
 {
@@ -118,9 +142,36 @@ public plugin_init()
 	g_cv_sound    = register_cvar("tsm_ws_wave_sound",     WS_STING);
 	g_cv_stall    = register_cvar("tsm_ws_stall",          "120");
 	g_cv_desc     = register_cvar("tsm_gamedesc_survival", "Wave Survival");
+	g_cv_hside    = register_cvar("tsm_ws_human_side",     "1");
+	g_cv_ot       = register_cvar("tsm_ws_overtime",       "225");
+	g_cv_ot_hp    = register_cvar("tsm_ws_overtime_hp",    "2");
+	g_cv_ot_fog   = register_cvar("tsm_ws_overtime_fog",   "1");
+	g_cv_mech_after = register_cvar("tsm_ws_mech_after",   "25");
+	g_cv_mech_per = register_cvar("tsm_ws_mech_per_wave",  "1");
 
 	register_concmd("amx_tsm_ws",      "cmd_ws_dump", ADMIN_CFG, " - the survival mode's whole state");
 	register_concmd("amx_tsm_ws_wave", "cmd_ws_wave", ADMIN_CFG, " <n> - set the wave count, to test how the waves grow");
+	register_concmd("amx_tsm_ws_mechs", "cmd_ws_mechs", ADMIN_CFG, " - how many mutants play the Mech class");
+}
+
+public plugin_end()
+{
+	overtime_end();
+}
+
+public client_putinserver(id)
+{
+	mech_forget(id);
+}
+
+/// Clears one slot's Mech roll, so a bot that takes over the slot is rolled afresh.
+mech_forget(id)
+{
+	if (id >= 1 && id < WS_MAXP)
+	{
+		g_mech[id] = false;
+		g_mech_wave[id] = 0;
+	}
 }
 
 public plugin_cfg()
@@ -156,8 +207,16 @@ public task_claim()
 		{
 			copy(desc, charsmax(desc), "Wave Survival");
 		}
+		// The mutants' side is set before the claim, which reads it; a core without the native keeps side 2.
+		tsm_set_bot_side((get_pcvar_num(g_cv_hside) == 2) ? 1 : 2);
+		g_bside = (tsm_bot_side() == 1) ? 1 : 2;
+		if (get_pcvar_num(g_cv_hside) == 2 && g_bside != 1)
+		{
+			log_amx("[SURVIVAL] tsm_ws_human_side 2 is set but the core did not move the bots to side 1 (core too old?): the people play side 1.");
+		}
 		if (tsm_mode_claim("survival", desc,
-			TSM_MODE_NO_SUDDEN | TSM_MODE_NO_CLOCK | TSM_MODE_SIDE2_BOTS | TSM_MODE_SIDE2_ENDLESS | TSM_MODE_ONE_RUN))
+			TSM_MODE_NO_SUDDEN | TSM_MODE_NO_CLOCK | TSM_MODE_SIDE2_BOTS | TSM_MODE_SIDE2_ENDLESS | TSM_MODE_ONE_RUN | TSM_MODE_NO_REINFORCE | TSM_MODE_NO_ROUNDS
+			| TSM_MODE_LATE_JOIN | TSM_MODE_CLASS_CHANGE))
 		{
 			g_active = true;
 		}
@@ -170,6 +229,11 @@ public task_claim()
 
 	if (!g_active)
 	{
+		if (want)
+		{
+			tsm_set_bot_side(2);
+		}
+		g_bside = 2;
 		// A survival map before this one left rcbot arming nobody: put that back.
 		new was[4];
 		get_localinfo("tsm_ws_rcbot", was, charsmax(was));
@@ -182,8 +246,8 @@ public task_claim()
 		return;
 	}
 
-	// Side 2's waves are this plugin's to bring: no timer, the dead wait for the clear.
-	tsm_wave_seconds(2, -1.0);
+	// The mutants' waves are this plugin's to bring: no timer, the dead wait for the clear.
+	tsm_wave_seconds(g_bside, -1.0);
 
 	// The mutants' weapons are this plugin's alone: rcbot hands out none and picks none up.
 	server_cmd("rcbot config ts_kungfu 1");
@@ -192,7 +256,7 @@ public task_claim()
 
 	if (!get_cvar_num("tsm_bots"))
 	{
-		log_amx("[SURVIVAL] %s is a survival map but tsm_bots is 0 -- side 2 is bots only, so nothing will attack.", g_mapname);
+		log_amx("[SURVIVAL] %s is a survival map but tsm_bots is 0 -- side %d is bots only, so nothing will attack.", g_mapname, g_bside);
 	}
 
 	g_wave = 1;
@@ -214,6 +278,7 @@ public task_tick()
 	if (tsm_state() != TSM_ST_LIVE)
 	{
 		g_breather_until = 0.0;
+		overtime_end();
 		return;
 	}
 
@@ -258,6 +323,8 @@ public task_tick()
 
 	if (count > 0)
 	{
+		overtime_step(now);
+
 		/*
 		 * THE STALL. A wave is only over when its last mutant is dead, and a bot that has
 		 * wedged itself somewhere nobody can reach would hold the run forever. After
@@ -273,9 +340,10 @@ public task_tick()
 		return;
 	}
 
-	// Every mutant of this wave is down (and side 2 has members at all): the breather begins.
-	if (tsm_side_alive(2) > 0)
+	// Every mutant of this wave is down (and the mutants' side has members at all): the breather begins.
+	if (tsm_side_alive(g_bside) > 0)
 	{
+		overtime_end();
 		new Float:wait = get_pcvar_float(g_cv_breather);
 		if (wait < 0.0)
 		{
@@ -293,7 +361,7 @@ public task_tick()
 		get_players(pl, pn, "");
 		for (new i = 0; i < pn; i++)
 		{
-			if (tsm_side_of(pl[i]) == 1 && tsm_in_play(pl[i]))
+			if (tsm_side_of(pl[i]) == 3 - g_bside && tsm_in_play(pl[i]))
 			{
 				tsm_points_award(pl[i], TSM_POINTS_WAVE);
 			}
@@ -301,14 +369,14 @@ public task_tick()
 	}
 }
 
-/// How many mutants are on their feet right now: side 2, alive and in play.
+/// How many mutants are on their feet right now: the mutants' side, alive and in play.
 mutants_in_play()
 {
 	new players[MAX_PLAYERS], pnum, n = 0;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
 	{
-		if (tsm_side_of(players[i]) == 2 && tsm_in_play(players[i]))
+		if (tsm_side_of(players[i]) == g_bside && tsm_in_play(players[i]))
 		{
 			n++;
 		}
@@ -323,7 +391,7 @@ slay_stragglers()
 	for (new i = 0; i < pnum; i++)
 	{
 		new id = players[i];
-		if (tsm_side_of(id) == 2 && tsm_in_play(id))
+		if (tsm_side_of(id) == g_bside && tsm_in_play(id))
 		{
 			user_kill(id, 1);
 		}
@@ -331,11 +399,13 @@ slay_stragglers()
 	g_last_change = get_gametime();
 }
 
-/// Every mutant plays tsm_ws_class: its model and its base health. Bots only, side 2 only.
+/// Every mutant plays tsm_ws_class (its model and its base health), or the Mech where its roll for the wave says so. Bots only,
+/// the mutants' side only.
 keep_mutant_classes()
 {
 	new cls = get_pcvar_num(g_cv_class);
-	if (cls < 1)
+	new mech = tsm_class_of_perk(TSM_PERK_MECH);
+	if (cls < 1 && !mech)
 	{
 		return;
 	}
@@ -344,11 +414,140 @@ keep_mutant_classes()
 	for (new i = 0; i < pnum; i++)
 	{
 		new id = players[i];
-		if (is_user_bot(id) && tsm_side_of(id) == 2)
+		if (is_user_bot(id) && tsm_side_of(id) == g_bside)
 		{
-			tsm_set_class(id, cls);
+			// A mutant that came in since the wave's roll, still waiting to be armed, is rolled now.
+			if (g_mech_wave[id] != g_wave && !is_user_alive(id))
+			{
+				roll_mech(id);
+			}
+			if (mech && g_mech[id])
+			{
+				tsm_set_class(id, mech);
+			}
+			else if (cls >= 1)
+			{
+				tsm_set_class(id, cls);
+			}
 		}
 	}
+}
+
+/// The chance, in percent, that a mutant of this wave plays the Mech: tsm_ws_mech_per_wave for each wave from tsm_ws_mech_after on, 100 at most.
+mech_chance(wave)
+{
+	new per = get_pcvar_num(g_cv_mech_per);
+	new after = get_pcvar_num(g_cv_mech_after);
+	if (after < 1)
+	{
+		after = 1;
+	}
+	if (per <= 0 || wave < after)
+	{
+		return 0;
+	}
+	return clamp((wave - after + 1) * per, 0, 100);
+}
+
+/// One mutant's roll for the wave being fought: kept until the next wave rolls again.
+roll_mech(id)
+{
+	g_mech_wave[id] = g_wave;
+	g_mech[id] = false;
+	new pct = mech_chance(g_wave);
+	if (pct > 0 && tsm_class_of_perk(TSM_PERK_MECH) > 0 && random_num(1, 100) <= pct)
+	{
+		g_mech[id] = true;
+	}
+}
+
+/// Every mutant rolled for the wave about to come. standing: leave a mutant that is on its feet alone, as its class cannot change under it.
+roll_mechs(bool:standing)
+{
+	new players[MAX_PLAYERS], pnum;
+	get_players(players, pnum, "");
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (!is_user_bot(id) || tsm_side_of(id) != g_bside)
+		{
+			continue;
+		}
+		if (standing && is_user_alive(id) && tsm_in_play(id))
+		{
+			continue;
+		}
+		roll_mech(id);
+	}
+}
+
+/* ---- overtime ------------------------------------------------------------------------------ */
+
+/// Past tsm_ws_overtime seconds of a wave, the mutants lose tsm_ws_overtime_hp health a second each until the wave is cleared.
+overtime_step(Float:now)
+{
+	new limit = get_pcvar_num(g_cv_ot);
+	if (limit <= 0)
+	{
+		overtime_end();
+		return;
+	}
+
+	if (!g_ot_on)
+	{
+		if (now - g_wave_began < float(limit))
+		{
+			return;
+		}
+		g_ot_on = true;
+		g_ot_next = now;
+		if (get_pcvar_num(g_cv_ot_fog) != 0 && tsm_fog(true))
+		{
+			g_ot_fog = true;
+		}
+
+		set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.1, 0.5, 4);
+		h9vgui_alert(0, "sur.overtime", H9V_NOTICE_FLASH, "OVERTIME^nThe mutants are weakening", 255, 80, 60, 0.36, 3.0, 0.5);
+		mode_chat(0, "[MATCH] OVERTIME. The mutants lose health every second until the wave is cleared.");
+	}
+
+	new step = get_pcvar_num(g_cv_ot_hp);
+	if (step < 1 || now + 0.05 < g_ot_next)
+	{
+		return;
+	}
+	g_ot_next = (now - g_ot_next > 2.0) ? now + 1.0 : g_ot_next + 1.0;
+
+	new players[MAX_PLAYERS], pnum;
+	get_players(players, pnum, "a");
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (!is_user_bot(id) || tsm_side_of(id) != g_bside || !tsm_in_play(id))
+		{
+			continue;
+		}
+		new hp = get_user_health(id);
+		if (hp > step)
+		{
+			set_user_health(id, hp - step);
+		}
+		else
+		{
+			user_kill(id);
+		}
+	}
+}
+
+/// Overtime over: the drain stops and the fog it brought is lifted.
+overtime_end()
+{
+	if (g_ot_fog)
+	{
+		tsm_fog(false);
+	}
+	g_ot_fog = false;
+	g_ot_on = false;
 }
 
 /*
@@ -361,19 +560,25 @@ next_wave()
 	g_wave++;
 	g_last_count = 0;
 	g_last_change = get_gametime();
+	g_wave_began = g_last_change;
+	overtime_end();
+
+	// The mutants' roll for the Mech, and the class it gives, before they are brought back.
+	roll_mechs(true);
+	keep_mutant_classes();
 
 	// Every survivor's lives set to their class's again, the fallen among them back now.
-	new restored = tsm_reward_lives(1);
+	new restored = tsm_reward_lives(3 - g_bside);
 	if (restored < 0 && !g_told_respawns)
 	{
 		g_told_respawns = true;
 		log_amx("[SURVIVAL] tsm_respawns is 0, so the survivors cannot be brought back between waves -- set it to 1 for %s.",
 			g_mapname);
 	}
-	tsm_fire_wave(1);
+	tsm_fire_wave(3 - g_bside);
 
 	// And the mutants, every one of them, armed for this wave as they arrive (tsm_loadout).
-	tsm_fire_wave(2);
+	tsm_fire_wave(g_bside);
 
 	// A wave is a new round for what can be used once a round: the stim, .ammo, the class
 	// abilities, the Mech's rockets.
@@ -521,11 +726,11 @@ pick_from(cvar, out[], len)
 /*
  * A mutant is about to be armed: a gun or a blade, rolled by this wave's odds. The answer goes
  * back to ts_matchmode as a weapon list ("13:3", "34:0", or "" for bare hands), which it hands
- * over exactly as it would a class line. Side 1 is left to its classes.
+ * over exactly as it would a class line. The people are left to their classes, and so is a Mech.
  */
 public tsm_loadout(id, spec[], len)
 {
-	if (!g_active || tsm_side_of(id) != 2)
+	if (!g_active || id < 1 || id >= WS_MAXP || tsm_side_of(id) != g_bside || g_mech[id])
 	{
 		return PLUGIN_CONTINUE;
 	}
@@ -552,10 +757,10 @@ public tsm_loadout(id, spec[], len)
 	return PLUGIN_HANDLED;
 }
 
-/// The mutant is armed: this wave's health, and the kung fu powerup once the waves are past it.
+/// The mutant is armed: this wave's health, and the kung fu powerup once the waves are past it. A Mech keeps its class's health and kit.
 public tsm_armed(id)
 {
-	if (!g_active || tsm_side_of(id) != 2 || !is_user_alive(id))
+	if (!g_active || id < 1 || id >= WS_MAXP || tsm_side_of(id) != g_bside || !is_user_alive(id) || g_mech[id])
 	{
 		return;
 	}
@@ -591,6 +796,12 @@ public tsm_round_start(round)
 	g_breather_until = 0.0;
 	g_last_count = 0;
 	g_last_change = get_gametime();
+	overtime_end();
+	for (new i = 1; i < WS_MAXP; i++)
+	{
+		mech_forget(i);
+	}
+	roll_mechs(false);
 	keep_mutant_classes();
 	refresh_hud();
 }
@@ -603,6 +814,7 @@ public tsm_round_live(round)
 		return;
 	}
 	g_last_change = get_gametime();
+	g_wave_began = g_last_change;
 	sting();
 	if (get_cvar_num("tsm_respawns"))
 	{
@@ -617,11 +829,11 @@ public tsm_round_live(round)
 /*
  * A survivor is down, said plainly. The core's own line, "1 life left -- back in the next wave",
  * reads here as if the mutants' next WAVE were meant, when it is the side's own respawn: this mode
- * has two kinds of wave, so it says which. Nothing is said for a mutant (side 2 never runs out).
+ * has two kinds of wave, so it says which. Nothing is said for a mutant (their side never runs out).
  */
 public tsm_life_lost(id, left)
 {
-	if (!g_active || tsm_side_of(id) != 1)
+	if (!g_active || tsm_side_of(id) != 3 - g_bside)
 	{
 		return PLUGIN_CONTINUE;
 	}
@@ -637,6 +849,20 @@ public tsm_life_lost(id, left)
 	return PLUGIN_HANDLED;
 }
 
+/*
+ * A person has taken the people's side while the run goes on. He comes in with the next respawn wave of his side, which is the
+ * side's own countdown (on his screen) or the wave that follows when every mutant of this one has fallen, whichever is first.
+ */
+public tsm_late_wait(id)
+{
+	if (!g_active)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	mode_chat(id, "[MATCH] You are in the run. You come in at your side's next respawn (the countdown on your screen) or when this wave of mutants is cleared. Pick your class with .class.");
+	return PLUGIN_HANDLED;
+}
+
 /// The run is over: how far the survivors got, and the best on this map since it loaded.
 public tsm_round_end(winner)
 {
@@ -645,8 +871,9 @@ public tsm_round_end(winner)
 		return;
 	}
 	g_breather_until = 0.0;
+	overtime_end();
 
-	if (winner == 2)
+	if (winner == g_bside)
 	{
 		mode_chat(0, "[MATCH] The survivors held out to wave %d -- %d wave(s) cleared.", g_wave, g_wave - 1);
 	}
@@ -679,8 +906,10 @@ public cmd_ws_dump(id, level, cid)
 	}
 	console_print(id, "[SURVIVAL] build %s  active=%d core=%d mode=%d  map=%s", WS_BUILD,
 		g_active ? 1 : 0, g_have_core ? 1 : 0, get_pcvar_num(g_cv_mode), g_mapname);
-	console_print(id, "[SURVIVAL] wave %d (best %d), gun odds %d%%, mutants up %d, side 2 in the round %d",
-		g_wave, g_best, gun_odds(g_wave), mutants_in_play(), tsm_side_alive(2));
+	console_print(id, "[SURVIVAL] wave %d (best %d), gun odds %d%%, mutants up %d, side %d (the mutants) in the round %d",
+		g_wave, g_best, gun_odds(g_wave), mutants_in_play(), g_bside, tsm_side_alive(g_bside));
+	console_print(id, "[SURVIVAL] Mech chance %d%%, overtime %s (%.0fs into the wave)",
+		mech_chance(g_wave), g_ot_on ? "running" : "off", get_gametime() - g_wave_began);
 	console_print(id, "[SURVIVAL] breather %s, %.0fs since a mutant last fell, sting %s",
 		(g_breather_until > 0.0) ? "running" : "off", get_gametime() - g_last_change, g_sting_ok ? "precached" : "MISSING");
 	return PLUGIN_HANDLED;
@@ -704,6 +933,36 @@ public cmd_ws_wave(id, level, cid)
 	refresh_hud();
 	console_print(id, "[SURVIVAL] Wave count set to %d: gun odds %d%%, mutants at +%d%% health from their next arming.",
 		g_wave, gun_odds(g_wave), get_pcvar_num(g_cv_hp) * (g_wave - 1));
+	return PLUGIN_HANDLED;
+}
+
+public cmd_ws_mechs(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	new players[MAX_PLAYERS], pnum, bots = 0, mechs = 0, up = 0;
+	get_players(players, pnum, "");
+	for (new i = 0; i < pnum; i++)
+	{
+		new bot = players[i];
+		if (!is_user_bot(bot) || tsm_side_of(bot) != g_bside)
+		{
+			continue;
+		}
+		bots++;
+		if (g_mech[bot])
+		{
+			mechs++;
+			if (is_user_alive(bot))
+			{
+				up++;
+			}
+		}
+	}
+	console_print(id, "[SURVIVAL] %d of %d mutants play the Mech class (%d on their feet); wave %d, Mech chance %d%%.",
+		mechs, bots, up, g_wave, mech_chance(g_wave));
 	return PLUGIN_HANDLED;
 }
 

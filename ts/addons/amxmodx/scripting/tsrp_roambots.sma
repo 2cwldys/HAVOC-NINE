@@ -43,6 +43,23 @@
  * moment it is back on its feet it is moved far off to another district with a new face from the
  * model list, so nobody sees the same citizen stand up again.
  *
+ * HOSTILITY ENDS WITH THE LIFE. A citizen RCBot sees hurt by a player (the player behind pev
+ * dmg_inflictor when its health falls: TS fires no damage hook) holds him for its attacker, and
+ * lets him go when he dies, leaves, or has not hurt it for tsrp_roambots_defend_time seconds. All
+ * of that is RCBot's, and needs an rcbot_mm.dll built from the rcbot-patch source of CHANGE 8 with
+ * the defend_time rule (no tsrp_roambots_defend_time string in the DLL: an older build, which holds
+ * the attacker for the rest of the citizen's life, so the citizens go for him again at his next
+ * life). This plugin keeps a record of the same thing, one row per citizen and player
+ * (amx_roamhostile prints it, inferred from the same health fall and inflictor, so it can differ
+ * from RCBot's own), and ends a row when the player is back on his feet after a death, leaves, or
+ * (where something writes pev team or pev playerclass, which the roleplay maps as shipped do not)
+ * changes team or class. tsrp_rb_forgive_seconds above 0 sets tsrp_roambots_defend_time to that:
+ * seconds after his last blow, RCBot lets him go. tsrp_rb_forget_cmd adds an action when a row
+ * ends: 1 sends "rcbot roamforget <player>" (a build that has the command; any other prints that
+ * the command does not exist), 2 sends away each citizen that was hostile to him once no player
+ * can see it go, and keep_count brings in a fresh one (for an RCBot build that holds the attacker
+ * for the whole life: a kick is the one thing that makes such a citizen forget).
+ *
  * GETTING STUCK. RCBot judges a citizen by how far it gets, not how fast it moves: after about 5
  * seconds without getting anywhere it gives its goal up for another, and after about 12 it asks
  * this plugin to move it (the server command tsrp_roambots_unstick). The plugin then does what it
@@ -67,7 +84,9 @@
  * the insurgent version of its face (tsrp_roambots_insurgent_models, "civilian:insurgent" pairs)
  * and the weapons of tsrp_roambots_insurgent_weapons, and RCBot sets the citizens on the players
  * (tsrp_roambots_insurgency): every player who is not a bot, or, with tsrp_roambots_insurgent_team
- * set, only the players of that team -- the guards, once RP teamplay runs, never the civilians.
+ * set, only the players of that team; with team play running (TEAMS, below) every player and every
+ * bot that is not on the Insurrection team (a guard of the Republic is one, FACTIONS below), and
+ * never one of the Insurrection team, whatever that says.
  * They take up arms one at a time, RB_PACE_STEP apart, as ts_matchmode arms its players, and the
  * first weapon listed is given last and held: RCBot fights with the weapon in hand. A citizen
  * killed in the insurgency comes back an insurgent. TS throws a dying player's whole arsenal to
@@ -75,6 +94,30 @@
  * nothing). .civilians puts the insurgents down the same way, one at a time, leaving nothing on
  * the ground, and they come back as citizens. A mapconfig can start its map in an insurgency
  * (tsrp_roambots_insurgency 1) or switch both commands off (tsrp_roambots_commands 0).
+ *
+ * TEAMS. With Apollo RP's team play running -- arp_teamplay 1 and TS running its list of three teams, the server
+ * cvar arp_teamplay_on, which ARP_TS sets -- a citizen is on the Proletarians' team (team 3) and, while an
+ * insurgency lasts, on the Insurrection team (2), in its team field (what RCBot compares) and in TS. A bot joins
+ * onto the team with the fewest players (TS's rule for a join, mp_defaultteam 0), so this plugin moves each
+ * citizen to its team as soon as it sees it, before it has spawned; TS then keeps it there through every respawn.
+ * The look-at plaque of Apollo RP reads Civilian and Insurgency from that team field, and an insurgent
+ * citizen takes every player and every bot that is not on the Insurrection team for an enemy and never one of it
+ * (rcbot-patch CHANGE 14). .insurgency puts every citizen's team field on 2 at once, and moves each citizen to
+ * team 2 in TS as it takes up arms; .civilians moves them back to team 3 as it puts them down. TS takes a bot
+ * that changes team out of play for its respawn time (5 seconds in server.cfg) and RCBot respawns it, so it
+ * comes back as after a death: in another district, with the new team's face and arms, and with nothing of its
+ * old arms on the ground. The plugin holds no team's name: the numbers are the places of the teams in TS's list
+ * (the TeamNames message), which Apollo RP writes. Without team play none of this runs, and the citizens are as
+ * they were.
+ *
+ * FACTIONS. Every bot this plugin runs has a faction, g_faction[]: a citizen (the roaming civilians above) or a
+ * guard (a bot of the Middle Sea Republic, team 1, which sides with the citizens and the Republic against
+ * insurgent players and insurgent citizens, and which .insurgency and .civilians leave alone). No bot is a guard
+ * yet: new_faction() makes every bot a citizen. new_faction() is the one place that says which kind a new bot
+ * is, rb_team_of() the one place that says which team each kind is on, and the insurgency (its pace, its faces,
+ * its arms) acts on citizens only, so a guard is added by teaching new_faction() to tell one, and in rcbot-patch
+ * by giving RoamIsEnemy the guard's own enemies (CHANGE 14 says where). The insurgent citizens already take a
+ * guard for an enemy: it is a bot on a team that is not theirs.
  *
  * NAMES MATCH FACES. Each model in tsrp_roambots_models carries its gender, ":f" or ":m" after the
  * name ("prole_fem:f"); a model without one is neither. A citizen's name is drawn from the list for
@@ -105,6 +148,10 @@
  *   tsrp_roambots_defend   0|1   1: a citizen someone hurts fights that one back (read by RCBot)
  *   tsrp_roambots_defend_time 30  seconds it goes on without being hurt again before it lets him
  *                                be (read by RCBot)
+ *   tsrp_rb_forgive_seconds 0    0: tsrp_roambots_defend_time is left as it is; N: it is set to N
+ *   tsrp_rb_forget_cmd     0|1|2 0: nothing more than RCBot's own rules; 1: "rcbot roamforget <player>"
+ *                                when a hostility ends (needs a build that has it); 2: the citizens
+ *                                that were hostile to him are sent away and replaced
  *   tsrp_roambots_talk     40    percent chance that two citizens who meet stop to talk
  *   tsrp_roambots_talk_range 150 how close two citizens are when they stop to talk
  *   tsrp_roambots_insurgency 0|1 1: the citizens are insurgents (.insurgency and .civilians set it;
@@ -112,8 +159,10 @@
  *   tsrp_roambots_insurgent_models  "proletarian_healthy:ins_prole_helm;proletarian:ins_proletarian;
  *                                prole_fem:ins_prole_fem;prole_bfem:ins_prole_bfem" (one line)
  *   tsrp_roambots_insurgent_weapons "13:3,22:2"   TS weapon id:spare magazines, as the class lines
- *   tsrp_roambots_insurgent_team 0  0: insurgents are set on every player who is not a bot; a team
- *                                number: only on that team's players (read by RCBot)
+ *   tsrp_roambots_insurgent_team 0  0: insurgents are set on every player who is not a bot; with team play
+ *                                on every player and every bot that is not on their own team; a team
+ *                                number: only on that team's players (and bots), 1 the Middle Sea
+ *                                Republic's (read by RCBot)
  *   tsrp_roambots_insurgent_drop 1  1: a dying insurgent leaves the gun in its hands; 0: nothing
  *   tsrp_roambots_admin_flag "h" the admin flags .insurgency and .civilians need; empty: anyone
  *   tsrp_roambots_commands 0|1   0: .insurgency and .civilians do nothing on this map
@@ -122,6 +171,7 @@
  *   tsrp_roambots_active   (set by this plugin, read by RCBot: 1 while citizens run)
  *
  * amx_roambots (server console or an admin with ADMIN_CFG): what it is doing and every counter.
+ * amx_roamhostile (the same): which citizen is hostile to which player, and when it ends.
  * .insurgency and .civilians (chat, an admin with tsrp_roambots_admin_flag): INSURGENCY, above.
  * tsrp_roambots_unstick <entity index> (server command, sent by RCBot): GETTING STUCK, above.
  *
@@ -137,7 +187,7 @@
 #pragma dynamic 16384
 
 #define PLUGIN  "TSRP Roaming Citizens"
-#define VERSION "1.3"
+#define VERSION "1.5"
 #define AUTHOR  "h9"
 
 // Player-slot arrays are indexed 1..MAX_PLAYERS (AMX Mod X's own limit); the server's real slot count,
@@ -146,6 +196,9 @@
 
 #define RB_TASK_TICK 73100
 #define RB_TASK_PACE 73101
+
+// tsrp_roambots_defend_time when it is not above 0: RCBot's own default.
+#define RB_DEFEND_TIME_DEFAULT 30.0
 
 // The first citizen joins this long after the map starts: ts_matchmode zeroes RCBot's quota and
 // sends every bot away on its first tick (a second in) on a map it does not play, so ours come after.
@@ -206,6 +259,22 @@
 #define RB_FL_FROZEN (1<<12)
 #define RB_IN_USE (1<<5)
 
+// Team play (TEAMS, above): the numbers of include\ApolloRP_H9Teams.inc, which this plugin does not include (it is built before Apollo RP's includes are in place). They are the
+// places of the teams in TS's list (Middle Sea Republic;Insurrection;Proletarians), which Apollo RP writes and TS's TeamNames message says it runs: the plugin holds no team's
+// name, it reads the list. A move that did not take is asked again after RB_TEAM_RETRY seconds, RB_TEAM_TRIES times.
+#define RB_TEAM_MSR 1
+#define RB_TEAM_INSURRECTION 2
+#define RB_TEAM_PROLETARIAN 3
+#define RB_TEAM_RETRY 2.0
+#define RB_TEAM_TRIES 3
+#define RB_TEAMS 8
+#define RB_TEAM_NAME_LEN 40
+
+// The kinds of bot (FACTIONS, above)
+#define RB_FACTION_NONE 0
+#define RB_FACTION_CITIZEN 1
+#define RB_FACTION_GUARD 2
+
 new const RB_DEFAULT_MODELS[] = "proletarian_healthy:m;proletarian:m;prole_fem:f;prole_bfem:f";
 new const RB_DEFAULT_INS_MODELS[] = "proletarian_healthy:ins_prole_helm;proletarian:ins_proletarian;prole_fem:ins_prole_fem;prole_bfem:ins_prole_bfem";
 new const RB_DEFAULT_INS_WEAPONS[] = "13:3,22:2";
@@ -256,12 +325,43 @@ new g_cv_defend, g_cv_talk, g_cv_talk_range, g_cv_insurgency, g_cv_ins_models, g
 	g_cv_ins_team, g_cv_admin_flag, g_cv_commands, g_cv_use, g_cv_use_cooldown, g_cv_defend_time,
 	g_cv_ins_drop;
 
+// Hostility (HOSTILITY ENDS WITH THE LIFE, above): when a player last hurt a citizen in this life of
+// both (0.0: he has not), a citizen's health at its last frame (0.0: not alive), what is known of
+// each real player (seen, alive, team, class), and tsrp_roambots_defend_time as it was before
+// tsrp_rb_forgive_seconds took it over.
+new Float:g_host_hurt[RB_SLOTS][RB_SLOTS];
+new Float:g_c_health[RB_SLOTS];
+new bool:g_p_seen[RB_SLOTS];
+new bool:g_p_alive[RB_SLOTS];
+new g_p_team[RB_SLOTS];
+new g_p_class[RB_SLOTS];
+new bool:g_replace_due[RB_SLOTS];
+new bool:g_df_set;
+new Float:g_df_saved;
+new g_cv_forgive, g_cv_forget_cmd;
+new g_n_host_set, g_n_host_ended, g_n_forget_cmds, g_n_replaced;
+
 new bool:g_active;
 new Float:g_next_join;
 new bool:g_said_standdown;
 
-// Citizens, by slot.
+// Citizens, by slot: g_citizen is a bot this plugin runs, g_faction which kind of bot it is (FACTIONS, above).
 new bool:g_citizen[RB_SLOTS];
+new g_faction[RB_SLOTS];
+
+// Team play: arp_teamplay_on (Apollo RP's), TS's list of teams as its TeamNames message gave it, the team TS reports for each player (TeamInfo: its name, and its place in the
+// list, 1 to 3, 0 none yet), when a move for a bot may be asked again and how many did not take, and whether this plugin wrote the bot's team field (it is taken back when
+// team play ends or the bot goes).
+new g_cv_teams_on;
+new g_msg_teamnames;
+new g_team_count;
+new g_team_names[RB_TEAMS][RB_TEAM_NAME_LEN];
+new g_ts_name[RB_SLOTS][RB_TEAM_NAME_LEN];
+new g_ts_team[RB_SLOTS];
+new Float:g_team_try_at[RB_SLOTS];
+new g_team_tries[RB_SLOTS];
+new bool:g_team_wrote[RB_SLOTS];
+new g_n_team_moved, g_n_team_failed;
 new bool:g_was_alive[RB_SLOTS];
 new Float:g_place_at[RB_SLOTS];
 new bool:g_godded[RB_SLOTS];
@@ -408,13 +508,19 @@ public plugin_init()
 	g_cv_commands    = register_cvar("tsrp_roambots_commands",    "1");
 	g_cv_use         = register_cvar("tsrp_roambots_use",         "1");
 	g_cv_use_cooldown = register_cvar("tsrp_roambots_use_cooldown", "8");
+	g_cv_forgive     = register_cvar("tsrp_rb_forgive_seconds",   "0");
+	g_cv_forget_cmd  = register_cvar("tsrp_rb_forget_cmd",        "0");
 	// Ours to set, RCBot's to read. FCVAR_SPONLY: no client changes it.
 	g_cv_active  = register_cvar("tsrp_roambots_active",  "0", FCVAR_SPONLY);
 
 	// It survives a map change; RCBot must not see it on a map that runs no citizens.
 	set_pcvar_num(g_cv_active, 0);
 
+	// Apollo RP's word that its team play runs (ARP_Core registers it in its precache; none on a server without Apollo RP).
+	g_cv_teams_on = get_cvar_pointer("arp_teamplay_on");
+
 	register_concmd("amx_roambots", "cmd_status", ADMIN_CFG, "- roaming citizens: what they are doing, and every counter");
+	register_concmd("amx_roamhostile", "cmd_hostile", ADMIN_CFG, "- roaming citizens: which is hostile to which player");
 	// RCBot's, for a citizen that has got nowhere (rcbot-patch CHANGE 8): GETTING STUCK, above.
 	register_srvcmd("tsrp_roambots_unstick", "cmd_unstick");
 
@@ -427,6 +533,13 @@ public plugin_init()
 	// admins' .insurgency and .civilians.
 	register_forward(FM_PlayerPostThink, "fw_postthink_post", 1);
 	register_forward(FM_Touch, "fw_touch");
+	register_forward(FM_ClientDisconnect, "fw_client_disconnect");
+	new msg_team = get_user_msgid("TeamInfo");
+	if (msg_team)
+	{
+		register_message(msg_team, "msg_teaminfo");
+	}
+	hook_teamnames();
 	register_clcmd("say", "hook_say");
 	register_clcmd("say_team", "hook_say");
 	set_task(1.0, "task_tick", RB_TASK_TICK, "", 0, "b");
@@ -465,6 +578,10 @@ public plugin_cfg()
 	set_pcvar_num(g_cv_commands, 1);
 	set_pcvar_num(g_cv_use, 1);
 	set_pcvar_num(g_cv_use_cooldown, 8);
+	set_pcvar_num(g_cv_forgive, 0);
+	set_pcvar_num(g_cv_forget_cmd, 0);
+	g_df_set = false;
+	hostile_reset();
 
 	// The server's own defaults, if it has any.
 	new cfgdir[64], path[128];
@@ -493,7 +610,8 @@ public plugin_cfg()
 
 public plugin_end()
 {
-	// The cvar outlives the map; nothing of ours does.
+	// The cvar outlives the map; nothing of ours does, and defend_time is put back.
+	forgive_restore();
 	set_pcvar_num(g_cv_active, 0);
 }
 
@@ -517,7 +635,7 @@ apply_cfg_lines(const path[])
 		key[0] = 0;
 		value[0] = 0;
 		parse(line, key, charsmax(key), value, charsmax(value));
-		if (!equali(key, "tsrp_roambots", 13) || equali(key, "tsrp_roambots_active"))
+		if ((!equali(key, "tsrp_roambots", 13) && !equali(key, "tsrp_rb_", 8)) || equali(key, "tsrp_roambots_active"))
 		{
 			continue;
 		}
@@ -645,6 +763,7 @@ bool:want_citizens()
 public task_tick()
 {
 	g_n_ticks++;
+	hook_teamnames();
 
 	new bool:want = want_citizens();
 	if (want && !g_active && get_gametime() >= RB_WARMUP)
@@ -664,6 +783,9 @@ public task_tick()
 		keep_count();
 		look_after();
 		pair_talkers();
+		forgive_sync();
+		hostile_expire();
+		replace_flush();
 	}
 	else
 	{
@@ -696,6 +818,8 @@ stop_citizens()
 	g_active = false;
 	set_pcvar_num(g_cv_active, 0);
 	remove_task(RB_TASK_PACE);
+	forgive_restore();
+	hostile_reset();
 
 	for (new id = 1; id <= g_maxplayers; id++)
 	{
@@ -756,6 +880,15 @@ forget(id)
 	g_insurgent[id] = false;
 	g_talk_ready[id] = 0.0;
 	g_citizen[id] = false;
+	g_faction[id] = RB_FACTION_NONE;
+	g_team_tries[id] = 0;
+	g_team_try_at[id] = 0.0;
+	if (g_team_wrote[id] && is_user_connected(id))
+	{
+		// the slot may be a player's next: it carries nothing of a citizen's team
+		set_pev(id, pev_team, 0);
+	}
+	g_team_wrote[id] = false;
 	g_was_alive[id] = false;
 	g_place_at[id] = 0.0;
 	g_godded[id] = false;
@@ -763,11 +896,15 @@ forget(id)
 	g_gender[id] = RB_NEUTRAL;
 	g_dismissed[id] = false;
 	g_held[id][0] = 0;
+	hostile_citizen_gone(id);
 }
 
 adopt(id)
 {
 	g_citizen[id] = true;
+	g_faction[id] = new_faction(id);
+	g_team_tries[id] = 0;
+	g_team_try_at[id] = 0.0;
 	g_was_alive[id] = false;
 	g_place_at[id] = 0.0;
 	g_godded[id] = false;
@@ -911,9 +1048,10 @@ pick_model(id, bool:same_gender)
 }
 
 /*
- * On a map TS plays as deathmatch (every roleplay map) TS keeps a model key it is given unless
+ * On a map TS plays as deathmatch (every roleplay map without team play) TS keeps a model key it is given unless
  * mp_defaultteam is 1 or the name is a stock Half-Life one (CHalfLifeMultiplay::
- * ClientUserInfoChanged). Written only when it differs, and checked once a second.
+ * ClientUserInfoChanged); with Apollo RP's team play it never writes a model key, mp_teammodels_force being 0.
+ * Written only when it differs, and checked once a second.
  */
 write_model(id)
 {
@@ -1114,6 +1252,7 @@ look_after()
 			continue;
 		}
 		write_model(id);
+		team_upkeep(id);
 
 		if (!unarmed || !is_user_alive(id) || g_insurgent[id])
 		{
@@ -1197,9 +1336,11 @@ public fw_postthink_post(id)
 	}
 	if (!g_citizen[id])
 	{
-		// a real player: his +use on a citizen (A WORD TO A PLAYER)
+		// a real player: his +use on a citizen (A WORD TO A PLAYER), and his lives for the
+		// citizens that hold him an enemy (HOSTILITY ENDS WITH THE LIFE)
 		if (g_active)
 		{
+			hostile_player_frame(id);
 			use_check(id);
 		}
 		return FMRES_IGNORED;
@@ -1214,6 +1355,7 @@ public fw_postthink_post(id)
 		// a new life starts as a citizen; the insurgency, while it lasts, dresses it again
 		g_insurgent[id] = false;
 		g_dismissed[id] = false;
+		hostile_new_life(id);
 	}
 	else if (!alive && g_was_alive[id] && g_insurgent[id])
 	{
@@ -1230,8 +1372,11 @@ public fw_postthink_post(id)
 	}
 	if (!alive)
 	{
+		g_c_health[id] = 0.0;
 		return FMRES_IGNORED;
 	}
+
+	hostile_citizen_frame(id);
 
 	if (g_insurgent[id])
 	{
@@ -1483,7 +1628,7 @@ move_to(id, const Float:spot[3])
 dress(id)
 {
 	pick_model(id, true);
-	if (insurgency())
+	if (insurgency() && is_citizen(id))
 	{
 		make_insurgent(id);
 	}
@@ -1838,16 +1983,40 @@ bool:insurgency()
 	return get_pcvar_num(g_cv_insurgency) > 0;
 }
 
-/// A living, placed citizen that is not an insurgent yet: one to arm while the insurgency is on.
-bool:may_rise(id)
+/// A citizen: a bot of this plugin whose faction is the roaming civilians, the one kind the insurgency changes (FACTIONS, above).
+bool:is_citizen(id)
 {
-	return g_citizen[id] && !g_insurgent[id] && is_user_alive(id) && g_place_at[id] <= 0.0;
+	return g_citizen[id] && g_faction[id] == RB_FACTION_CITIZEN;
 }
 
-/// A living insurgent .civilians has not put down yet: one to put down once the insurgency is off.
+/// A living, placed citizen that is not an insurgent yet: one to arm while the insurgency is on. With team play, one that TS does not
+/// have on the Insurrection team yet (and that has not refused its move RB_TEAM_TRIES times).
+bool:may_rise(id)
+{
+	if (!is_citizen(id) || !is_user_alive(id) || g_place_at[id] > 0.0)
+	{
+		return false;
+	}
+	if (teams_on())
+	{
+		return g_ts_team[id] && g_ts_team[id] != RB_TEAM_INSURRECTION && move_due(id);
+	}
+	return !g_insurgent[id];
+}
+
+/// A living insurgent .civilians has not put down yet: one to put down once the insurgency is off. With team play, a citizen that TS
+/// does not have on the Proletarians' team yet.
 bool:may_stand_down(id)
 {
-	return g_citizen[id] && g_insurgent[id] && !g_dismissed[id] && is_user_alive(id);
+	if (!is_citizen(id) || !is_user_alive(id))
+	{
+		return false;
+	}
+	if (teams_on())
+	{
+		return g_ts_team[id] && g_ts_team[id] != RB_TEAM_PROLETARIAN && move_due(id);
+	}
+	return g_insurgent[id] && !g_dismissed[id];
 }
 
 /// How many citizens the insurgency still has to change: to arm while it is on, to put down once it is off.
@@ -1908,18 +2077,249 @@ rise_up(id)
 	{
 		end_heed(id);
 	}
+	if (teams_on())
+	{
+		// it changes sides first: TS takes it out of play, and it comes back armed, as the Insurrection's (dress)
+		move_bot(id, RB_TEAM_INSURRECTION);
+		return;
+	}
 	make_insurgent(id);
 }
 
 /*
  * An insurgent put down by .civilians: TS's own suicide, which TS carries out a second later, and
- * a death that leaves nothing on the ground (insurgent_down). It comes back a citizen.
+ * a death that leaves nothing on the ground (insurgent_down). It comes back a citizen. With team play it
+ * changes sides instead: TS takes it out of play with its arms taken from it (nothing is thrown down),
+ * and it comes back a citizen of the Proletarians' team.
  */
 stand_down(id)
 {
+	if (teams_on())
+	{
+		if (move_bot(id, RB_TEAM_PROLETARIAN))
+		{
+			g_dismissed[id] = true;
+			g_n_disarmed++;
+		}
+		return;
+	}
 	g_dismissed[id] = true;
 	user_kill(id, 1);
 	g_n_disarmed++;
+}
+
+/*
+ * TEAM PLAY (TEAMS, above). Whether it runs: arp_teamplay_on, which ARP_TS sets once TS reports Apollo RP's three teams.
+ */
+bool:teams_on()
+{
+	return g_cv_teams_on && get_pcvar_num(g_cv_teams_on) > 0;
+}
+
+/// The kind of bot a new bot is (FACTIONS, above): every bot this plugin runs is a citizen.
+new_faction(id)
+{
+	#pragma unused id
+	return RB_FACTION_CITIZEN;
+}
+
+/// The team a bot of this faction is on at this moment, while team play runs: a citizen is a Proletarian, and of the Insurrection while an insurgency
+/// lasts; a guard is the Middle Sea Republic's. 0 for a bot that is none of ours.
+rb_team_of(id)
+{
+	switch (g_faction[id])
+	{
+		case RB_FACTION_CITIZEN:
+		{
+			return insurgency() ? RB_TEAM_INSURRECTION : RB_TEAM_PROLETARIAN;
+		}
+		case RB_FACTION_GUARD:
+		{
+			return RB_TEAM_MSR;
+		}
+	}
+	return 0;
+}
+
+/// The TeamNames message of TS (its list of teams, sent to a joining player and to everybody after every team change), hooked once the game has registered it.
+hook_teamnames()
+{
+	if (!g_msg_teamnames)
+	{
+		g_msg_teamnames = get_user_msgid("TeamNames");
+		if (g_msg_teamnames)
+		{
+			register_message(g_msg_teamnames, "msg_teamnames");
+		}
+	}
+}
+
+/// The number of a team from its name in TS's list: its place there (1 the first), 0 for a name that is not in it, an empty one, or while the list is not known.
+team_by_name(const name[])
+{
+	if (!name[0])
+	{
+		return 0;
+	}
+	for (new i = 0; i < g_team_count; i++)
+	{
+		if (equali(name, g_team_names[i]))
+		{
+			return i + 1;
+		}
+	}
+	return 0;
+}
+
+/// TS's list of teams as the status line shows it: the names in the order of the numbers, or that it is not known yet.
+teams_text(out[], len)
+{
+	out[0] = 0;
+	for (new i = 0; i < g_team_count; i++)
+	{
+		if (i)
+		{
+			add(out, len, ";");
+		}
+		add(out, len, g_team_names[i]);
+	}
+	if (!out[0])
+	{
+		copy(out, len, "not known yet");
+	}
+}
+
+/// TS's list of teams, in the order of their numbers: the teams the slots are in are read against it again.
+public msg_teamnames(msgid, dest, ent)
+{
+	new count = get_msg_arg_int(1);
+	if (count > RB_TEAMS)
+	{
+		count = RB_TEAMS;
+	}
+	g_team_count = count;
+	for (new i = 0; i < count; i++)
+	{
+		get_msg_arg_string(2 + i, g_team_names[i], RB_TEAM_NAME_LEN - 1);
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		g_ts_team[id] = team_by_name(g_ts_name[id]);
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/// What TS says of a player's team (TeamInfo, sent at a join and at every change): the place of the team's name in TS's list, 0 for a name that is not in it.
+public msg_teaminfo(msgid, dest, ent)
+{
+	new who = get_msg_arg_int(1);
+	if (who < 1 || who > g_maxplayers)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	get_msg_arg_string(2, g_ts_name[who], RB_TEAM_NAME_LEN - 1);
+	g_ts_team[who] = team_by_name(g_ts_name[who]);
+	return PLUGIN_CONTINUE;
+}
+
+/// A bot's team field (what RCBot compares) set to the team of its faction: the team, or 0 for a bot that is none of ours.
+team_field(id)
+{
+	new want = rb_team_of(id);
+	if (want && pev(id, pev_team) != want)
+	{
+		set_pev(id, pev_team, want);
+		g_team_wrote[id] = true;
+	}
+	return want;
+}
+
+/// A bot's team, once a second: its team field kept on the team of its faction and its team in TS moved to that team. A bot that has just
+/// joined is out of play (TS holds it in spectate until its respawn time is up) on whatever team TS gave it by the count of players, and is
+/// moved at no cost. A living citizen that is on the team of the citizens or of the insurgents is moved by the insurgency's pace (rise_up,
+/// stand_down); a living bot on any other team spawned before it was seen, and is moved now at the cost of its respawn. With team play
+/// off, a team field this plugin wrote is taken back.
+team_upkeep(id)
+{
+	if (!teams_on())
+	{
+		if (g_team_wrote[id])
+		{
+			set_pev(id, pev_team, 0);
+			g_team_wrote[id] = false;
+		}
+		return;
+	}
+	new want = team_field(id);
+	if (!want || !g_ts_team[id] || g_ts_team[id] == want)
+	{
+		return;
+	}
+	if (is_user_alive(id))
+	{
+		if (is_citizen(id) && (g_ts_team[id] == RB_TEAM_INSURRECTION || g_ts_team[id] == RB_TEAM_PROLETARIAN))
+		{
+			return;
+		}
+	}
+	else if (pev(id, pev_iuser1) == 0)
+	{
+		// a body TS still holds
+		return;
+	}
+	move_bot(id, want);
+}
+
+/// Every citizen's team field set at once (.insurgency, .civilians): RCBot reads it at every look at a player, so no citizen is ever set on
+/// a player of the team it is now on, however long the pace takes to move them all.
+teams_sync_now()
+{
+	if (!teams_on())
+	{
+		return;
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (g_citizen[id] && is_user_connected(id))
+		{
+			team_field(id);
+		}
+	}
+}
+
+/// Whether a move for this bot may be asked now: not within RB_TEAM_RETRY of the last, and not after RB_TEAM_TRIES that did not take.
+bool:move_due(id)
+{
+	return g_team_tries[id] < RB_TEAM_TRIES && get_gametime() >= g_team_try_at[id];
+}
+
+/*
+ * jointeam for a bot, as TS's own client sends it. It runs in the game at once and TS's TeamInfo comes back before it returns. TS takes
+ * the bot out of play for its respawn time and RCBot respawns it; it comes back as the new team's (dress). True when TS has it on the
+ * team; a move that did not take is asked again (move_due).
+ */
+bool:move_bot(id, team)
+{
+	if (!move_due(id))
+	{
+		return false;
+	}
+	g_team_try_at[id] = get_gametime() + RB_TEAM_RETRY;
+	new idx[4];
+	num_to_str(team, idx, charsmax(idx));
+	engclient_cmd(id, "jointeam", idx);
+	if (g_ts_team[id] != team)
+	{
+		g_n_team_failed++;
+		if (++g_team_tries[id] == RB_TEAM_TRIES)
+		{
+			log_amx("[ROAMBOTS] jointeam %d did not take for citizen %d (TS says team %d): it stays there.", team, id, g_ts_team[id]);
+		}
+		return false;
+	}
+	g_team_tries[id] = 0;
+	g_n_team_moved++;
+	return true;
 }
 
 /*
@@ -2156,6 +2556,7 @@ cmd_insurgency(id, bool:rise)
 			return;
 		}
 		set_pcvar_num(g_cv_insurgency, 1);
+		teams_sync_now();
 		new n = insurgency_due();
 		pace_insurgency();
 		log_amx("[ROAMBOTS] %s started an insurgency on %s: %d citizens take up arms, one every %.2f seconds.",
@@ -2170,12 +2571,375 @@ cmd_insurgency(id, bool:rise)
 			return;
 		}
 		set_pcvar_num(g_cv_insurgency, 0);
+		teams_sync_now();
 		new n = insurgency_due();
 		pace_insurgency();
 		log_amx("[ROAMBOTS] %s ended the insurgency on %s: %d insurgents put down, one every %.2f seconds, to come back as citizens.",
 			name, g_mapname, n, RB_PACE_STEP);
 		client_print(0, print_chat, "[CITY] The insurgency is over: the citizens lay down their arms.");
 	}
+}
+
+/*
+ * HOSTILITY (HOSTILITY ENDS WITH THE LIFE, above). g_host_hurt[citizen][player] is when that player
+ * last hurt that citizen, 0.0 when he has not in this life of both. It mirrors what RCBot holds for
+ * the citizens, which is the player behind pev dmg_inflictor when a citizen's health falls.
+ */
+hostile_reset()
+{
+	for (new c = 0; c < RB_SLOTS; c++)
+	{
+		for (new p = 0; p < RB_SLOTS; p++)
+		{
+			g_host_hurt[c][p] = 0.0;
+		}
+		g_c_health[c] = 0.0;
+		g_replace_due[c] = false;
+		g_p_seen[c] = false;
+		g_p_alive[c] = false;
+		g_p_team[c] = 0;
+		g_p_class[c] = 0;
+	}
+}
+
+/// The real player behind what hurt a citizen -- the entity itself, or whoever owns it (a grenade, a
+/// thrown blade) -- or 0: the world, a bot, nobody alive.
+hostile_attacker(ent)
+{
+	if (ent < 1 || !pev_valid(ent))
+	{
+		return 0;
+	}
+	new who = ent;
+	if (who > g_maxplayers)
+	{
+		who = pev(ent, pev_owner);
+	}
+	if (who < 1 || who > g_maxplayers || !is_user_connected(who) || is_user_bot(who) || !is_user_alive(who))
+	{
+		return 0;
+	}
+	return who;
+}
+
+/// A living citizen, every frame: a fall in its health is the last damage's player (when there is one) hurting it.
+hostile_citizen_frame(id)
+{
+	new Float:hp = Float:pev(id, pev_health);
+	new Float:was = g_c_health[id];
+	g_c_health[id] = hp;
+	if (was <= 0.0 || hp >= was || get_pcvar_num(g_cv_defend) <= 0)
+	{
+		return;
+	}
+	new who = hostile_attacker(pev(id, pev_dmg_inflictor));
+	if (!who)
+	{
+		return;
+	}
+	if (g_host_hurt[id][who] <= 0.0)
+	{
+		g_n_host_set++;
+		if (get_pcvar_num(g_cv_debug))
+		{
+			new cname[RB_NAME_LEN], pname[RB_NAME_LEN];
+			get_user_name(id, cname, charsmax(cname));
+			get_user_name(who, pname, charsmax(pname));
+			log_amx("[ROAMBOTS] citizen %d (%s) is hostile to player %d (%s): he hurt it.", id, cname, who, pname);
+		}
+	}
+	g_host_hurt[id][who] = get_gametime();
+}
+
+/// A citizen back on its feet: nobody has hurt this life.
+hostile_new_life(id)
+{
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		if (g_host_hurt[id][p] > 0.0)
+		{
+			g_host_hurt[id][p] = 0.0;
+			g_n_host_ended++;
+		}
+	}
+	g_replace_due[id] = false;
+	g_c_health[id] = Float:pev(id, pev_health);
+}
+
+/// A citizen that is no longer one (kicked, or a real player now).
+hostile_citizen_gone(id)
+{
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		g_host_hurt[id][p] = 0.0;
+	}
+	g_replace_due[id] = false;
+	g_c_health[id] = 0.0;
+}
+
+/// A real player, every frame: a new life, a new team or a new class ends the hostility of the citizens against him
+/// (pev team and pev playerclass change only where something writes them).
+hostile_player_frame(id)
+{
+	new bool:alive = is_user_alive(id) != 0;
+	new team = pev(id, pev_team);
+	new pclass = pev(id, pev_playerclass);
+	if (!g_p_seen[id])
+	{
+		g_p_seen[id] = true;
+		g_p_alive[id] = alive;
+		g_p_team[id] = team;
+		g_p_class[id] = pclass;
+		return;
+	}
+	if (team != g_p_team[id] || pclass != g_p_class[id])
+	{
+		g_p_team[id] = team;
+		g_p_class[id] = pclass;
+		hostile_end(id, "changed team or class", true);
+	}
+	if (alive && !g_p_alive[id])
+	{
+		hostile_end(id, "is back on his feet", true);
+	}
+	g_p_alive[id] = alive;
+}
+
+/// A slot is being emptied (FM_ClientDisconnect: AMXX's own disconnect forward does not run on every engine).
+public fw_client_disconnect(id)
+{
+	if (id < 1 || id > g_maxplayers)
+	{
+		return FMRES_IGNORED;
+	}
+	hostile_end(id, "left the server", false);
+	hostile_citizen_gone(id);
+	g_p_seen[id] = false;
+	g_p_alive[id] = false;
+	g_ts_team[id] = 0;
+	g_ts_name[id][0] = 0;
+	return FMRES_IGNORED;
+}
+
+/*
+ * Ends every citizen's hostility toward a player and, with act and tsrp_rb_forget_cmd, tells RCBot
+ * (1) or replaces each citizen that was hostile to him (2). Returns how many citizens were hostile.
+ */
+hostile_end(player, const why[], bool:act)
+{
+	new n = 0;
+	new bool:replace = act && g_active && get_pcvar_num(g_cv_forget_cmd) == 2;
+	for (new c = 1; c <= g_maxplayers; c++)
+	{
+		if (g_host_hurt[c][player] > 0.0)
+		{
+			g_host_hurt[c][player] = 0.0;
+			n++;
+			if (replace && g_citizen[c] && is_user_connected(c))
+			{
+				replace_citizen(c);
+			}
+		}
+	}
+	if (!n)
+	{
+		return 0;
+	}
+	g_n_host_ended += n;
+	if (get_pcvar_num(g_cv_debug))
+	{
+		new pname[RB_NAME_LEN];
+		get_user_name(player, pname, charsmax(pname));
+		log_amx("[ROAMBOTS] player %d (%s) %s: %d citizen(s) hostile to him in the record ended%s.", player, pname, why, n,
+			act ? "" : " (nothing to tell RCBot)");
+	}
+	if (act)
+	{
+		forget_player(player);
+	}
+	return n;
+}
+
+/// Once a second: a record row older than tsrp_roambots_defend_time since the last blow is over (RCBot has let him go by then).
+hostile_expire()
+{
+	new Float:limit = get_pcvar_float(g_cv_defend_time);
+	if (limit <= 0.0)
+	{
+		limit = RB_DEFEND_TIME_DEFAULT;
+	}
+	new bool:forgive = get_pcvar_num(g_cv_forgive) > 0;
+	new bool:replace = forgive && get_pcvar_num(g_cv_forget_cmd) == 2;
+	new Float:now = get_gametime();
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		new bool:ended = false;
+		for (new c = 1; c <= g_maxplayers; c++)
+		{
+			if (g_host_hurt[c][p] > 0.0 && now - g_host_hurt[c][p] > limit)
+			{
+				g_host_hurt[c][p] = 0.0;
+				g_n_host_ended++;
+				ended = true;
+				if (replace && g_citizen[c] && is_user_connected(c))
+				{
+					replace_citizen(c);
+				}
+			}
+		}
+		if (ended)
+		{
+			if (get_pcvar_num(g_cv_debug))
+			{
+				log_amx("[ROAMBOTS] player %d: a citizen was not hurt by him for %.0f seconds, so its record of him ended.", p, limit);
+			}
+			if (forgive)
+			{
+				forget_player(p);
+			}
+		}
+	}
+}
+
+/// "rcbot roamforget <player>" (tsrp_rb_forget_cmd 1): every citizen that holds him for its attacker drops him. An RCBot
+/// build without the command prints that it does not exist.
+forget_player(player)
+{
+	if (!g_active || get_pcvar_num(g_cv_forget_cmd) != 1)
+	{
+		return;
+	}
+	server_cmd("rcbot roamforget %d", player);
+	g_n_forget_cmds++;
+}
+
+/// tsrp_rb_forget_cmd 2: a citizen that was hostile to a player is to leave (replace_flush sends it away).
+replace_citizen(c)
+{
+	g_replace_due[c] = true;
+}
+
+/// Once a second: each citizen due to leave goes when no real player has it in sight (as cmd_unstick waits); keep_count brings in another.
+replace_flush()
+{
+	for (new c = 1; c <= g_maxplayers; c++)
+	{
+		if (!g_replace_due[c])
+		{
+			continue;
+		}
+		if (!g_citizen[c] || !is_user_connected(c))
+		{
+			g_replace_due[c] = false;
+			continue;
+		}
+		if (is_user_alive(c) && seen_by_person(c))
+		{
+			continue;
+		}
+		g_replace_due[c] = false;
+		g_n_replaced++;
+		if (get_pcvar_num(g_cv_debug))
+		{
+			log_amx("[ROAMBOTS] citizen %d is sent away and replaced.", c);
+		}
+		server_cmd("kick #%d", get_user_userid(c));
+		forget(c);
+	}
+}
+
+/// tsrp_rb_forgive_seconds above 0 is tsrp_roambots_defend_time (RCBot reads it once a second); at 0 the setting is what it was.
+forgive_sync()
+{
+	new secs = get_pcvar_num(g_cv_forgive);
+	if (secs <= 0)
+	{
+		forgive_restore();
+		return;
+	}
+	if (!g_df_set)
+	{
+		g_df_set = true;
+		g_df_saved = get_pcvar_float(g_cv_defend_time);
+	}
+	if (get_pcvar_float(g_cv_defend_time) != float(secs))
+	{
+		set_pcvar_float(g_cv_defend_time, float(secs));
+	}
+}
+
+/// tsrp_roambots_defend_time as it was before tsrp_rb_forgive_seconds.
+forgive_restore()
+{
+	if (!g_df_set)
+	{
+		return;
+	}
+	g_df_set = false;
+	set_pcvar_float(g_cv_defend_time, g_df_saved);
+}
+
+/// amx_roamhostile: the plugin's record of which citizen is hostile to which player, and when it ends.
+public cmd_hostile(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	console_print(id, "[ROAMBOTS] %s %s: hostility on %s.", PLUGIN, VERSION, g_mapname);
+	if (!g_rp_map)
+	{
+		console_print(id, "  not a roleplay map (the plugin does nothing here)");
+		return PLUGIN_HANDLED;
+	}
+
+	new Float:limit = get_pcvar_float(g_cv_defend_time);
+	if (limit <= 0.0)
+	{
+		limit = RB_DEFEND_TIME_DEFAULT;
+	}
+	new how[40];
+	switch (get_pcvar_num(g_cv_forget_cmd))
+	{
+		case 1: copy(how, charsmax(how), "rcbot roamforget");
+		case 2: copy(how, charsmax(how), "the citizen is replaced");
+		default: copy(how, charsmax(how), "nothing beyond RCBot's own rules");
+	}
+	console_print(id, "  the plugin's record, inferred from a citizen's health and the inflictor of its last damage; RCBot's own is not readable from here");
+	console_print(id, "  RCBot ends it itself at the player's death and after defend_time only in an rcbot_mm.dll built from the CHANGE 8 source with tsrp_roambots_defend_time");
+	console_print(id, "  defend %d  defend_time %.0f s  forgive %d s  insurgency %d (team %d: while it lasts every such player is hostile to every citizen)  at a new life: %s",
+		get_pcvar_num(g_cv_defend), limit, get_pcvar_num(g_cv_forgive), get_pcvar_num(g_cv_insurgency),
+		get_pcvar_num(g_cv_ins_team), how);
+
+	new cname[RB_NAME_LEN], pname[RB_NAME_LEN], rows = 0;
+	new Float:now = get_gametime();
+	for (new c = 1; c <= g_maxplayers; c++)
+	{
+		if (!g_citizen[c] || !is_user_connected(c))
+		{
+			continue;
+		}
+		for (new p = 1; p <= g_maxplayers; p++)
+		{
+			if (g_host_hurt[c][p] <= 0.0 || !is_user_connected(p))
+			{
+				continue;
+			}
+			get_user_name(c, cname, charsmax(cname));
+			get_user_name(p, pname, charsmax(pname));
+			new Float:ago = now - g_host_hurt[c][p];
+			new Float:remain = limit - ago;
+			console_print(id, "  citizen #%2d %-20s -> player #%2d %-20s  last hurt %.1f s ago, %s  ends at his next life, or in %.0f s",
+				c, cname, p, pname, ago, is_user_alive(p) ? "alive" : "dead", remain < 0.0 ? 0.0 : remain);
+			rows++;
+		}
+	}
+	if (!rows)
+	{
+		console_print(id, "  no citizen is hostile to any player.");
+	}
+	return PLUGIN_HANDLED;
 }
 
 /// amx_roambots: what the plugin is doing on this map, and how often each part has run.
@@ -2207,7 +2971,7 @@ public cmd_status(id, level, cid)
 		g_n_spawns, g_n_placed, g_n_place_failed, g_n_touch_refused, g_n_dropped, g_n_swept, g_n_model_writes);
 	new flag[8];
 	get_pcvar_string(g_cv_admin_flag, flag, charsmax(flag));
-	console_print(id, "  defend %d (%d s)  talk %d%% within %d  murmurs %d installed  insurgency %d (team %d, drop %d)  commands %d (flag %s)",
+	console_print(id, "  defend %d (%d s)  talk %d pct within %d  murmurs %d installed  insurgency %d (team %d, drop %d)  commands %d (flag %s)",
 		get_pcvar_num(g_cv_defend), get_pcvar_num(g_cv_defend_time), get_pcvar_num(g_cv_talk),
 		get_pcvar_num(g_cv_talk_range), g_murmur_count, get_pcvar_num(g_cv_insurgency), get_pcvar_num(g_cv_ins_team),
 		get_pcvar_num(g_cv_ins_drop), get_pcvar_num(g_cv_commands), flag[0] ? flag : "none");
@@ -2215,8 +2979,14 @@ public cmd_status(id, level, cid)
 		g_n_unstick_asked, g_n_unstick_seen, g_n_unstuck, g_n_talks, g_n_murmurs, g_n_armed, g_n_disarmed,
 		task_exists(RB_TASK_PACE) ? "  (the insurgency's pace is running)" : "");
 	console_print(id, "  thrown guns left on the ground because TS had slowed them %d", g_n_left_slowed);
+	new tlist[256];
+	teams_text(tlist, charsmax(tlist));
+	console_print(id, "  team play: %s (arp_teamplay_on %d), TS's teams %s, citizens moved between teams %d, moves that did not take %d",
+		teams_on() ? "on" : "off", g_cv_teams_on ? get_pcvar_num(g_cv_teams_on) : 0, tlist, g_n_team_moved, g_n_team_failed);
 	console_print(id, "  +use: %s, cooldown %d s, murmured to players %d",
 		get_pcvar_num(g_cv_use) > 0 ? "on" : "off", get_pcvar_num(g_cv_use_cooldown), g_n_heeds);
+	console_print(id, "  hostility: marked %d  ended %d  roamforget sent %d  citizens replaced %d  (amx_roamhostile)",
+		g_n_host_set, g_n_host_ended, g_n_forget_cmds, g_n_replaced);
 
 	new name[RB_NAME_LEN], Float:at[3], live[RB_NAME_LEN];
 	for (new c = 1; c <= g_maxplayers; c++)
@@ -2231,9 +3001,10 @@ public cmd_status(id, level, cid)
 		new buf = engfunc(EngFunc_GetInfoKeyBuffer, c);
 		live[0] = 0;
 		engfunc(EngFunc_InfoKeyValue, buf, "model", live, charsmax(live));
-		console_print(id, "  #%2d %-20s %-20s %-6s %-12s %5d %5d %5d  speed %d%s%s", c, name, live,
+		console_print(id, "  #%2d %-20s %-20s %-6s %-12s %5d %5d %5d  speed %d  faction %d team %d (TS %d)%s%s", c, name, live,
 			is_user_alive(c) ? "alive" : "dead", d >= 0 ? g_district[d] : "-",
 			floatround(at[0]), floatround(at[1]), floatround(at[2]), floatround(vector_speed(c)),
+			g_faction[c], pev(c, pev_team), g_ts_team[c],
 			g_insurgent[c] ? "  insurgent" : "", g_talk_with[c] ? "  talking" : (g_heed_with[c] ? "  facing a player" : ""));
 	}
 	return PLUGIN_HANDLED;
