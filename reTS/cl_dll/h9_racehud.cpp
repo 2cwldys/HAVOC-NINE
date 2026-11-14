@@ -61,7 +61,7 @@ void NameOf(int index, char* out, size_t room)
 }
 
 // byte state, byte flags, byte lap, byte laps, byte place, byte racers, short speed, byte slip, short top speed, float now,
-// float the green light, float the lap's start, float the limit's end, long best lap, long total
+// float the green light, float the lap's start, float the limit's end, long best lap, long total, float the limit's length
 int MsgStat(const char* pszName, int iSize, void* pbuf)
 {
 	if (iSize != RACE_MSG_STAT_SIZE)
@@ -82,6 +82,7 @@ int MsgStat(const char* pszName, int iSize, void* pbuf)
 	s_m.limitEnd = READ_FLOAT();
 	s_m.bestCs = READ_LONG();
 	s_m.totalCs = READ_LONG();
+	s_m.limitLen = READ_FLOAT();
 	TakeClock(serverNow);
 	if (!IsRacing(s_m, gEngfuncs.GetClientTime()))
 		s_m.gauge = s_m.speed; // he has just got in: the gauge does not sweep up from nothing

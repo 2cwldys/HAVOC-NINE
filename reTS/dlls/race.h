@@ -108,7 +108,7 @@ enum
 	RACE_HUD_POS_RACERS = 23,  // racers in one H9RPos (2 + 23 * 8)
 	RACE_HUD_RES_ROWS = 15,    // rows in one H9RRes (4 + 15 * 12)
 
-	RACE_MSG_STAT_SIZE = 35,
+	RACE_MSG_STAT_SIZE = 39,
 	RACE_MSG_STATE_SIZE = 14,
 	RACE_MSG_NOTE_SIZE = 12,
 

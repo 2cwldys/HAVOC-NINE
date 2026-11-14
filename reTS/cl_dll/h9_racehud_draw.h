@@ -111,7 +111,7 @@ struct Model
 	float speed = 0, slip = 0, topSpeed = TOP_SPEED;
 	float speedUnits = SPEED_UNITS, speedFloor = 0; // the readout's divisor, and the reading under which it shows 0 (rally mode changes both)
 	float gauge = 0; // the speed the gauge shows: it follows `speed` smoothly
-	float raceStart = 0, lapStart = 0, limitEnd = 0;
+	float raceStart = 0, lapStart = 0, limitEnd = 0, limitLen = 0; // limitLen: the allowance, known before the start
 	int bestCs = 0, totalCs = 0;
 
 	// the last note (H9RNote)

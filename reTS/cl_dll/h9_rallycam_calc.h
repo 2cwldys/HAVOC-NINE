@@ -520,6 +520,30 @@ inline float ChaseZoomDistance(int& step)
 	return v;
 }
 
+// HL Rally's `+camdistance` (in_camera.cpp CAM_Think, CAM_StartDistance): while the key is held, the mouse's pixel offset from the window's centre
+// (the cursor is put back to it each frame, so it is the frame's movement) moves the camera: down is away, up is in, by CAM_DIST_DELTA 1.0 times
+// half the offset (integer division), kept between c_mindistance 20 and c_maxdistance 2500 (autoexec.cfg).
+const float kZoomMouseMin = 20.0f;
+const float kZoomMouseMax = 2500.0f;
+inline float ChaseZoomMouse(float dist, int dy)
+{
+	if (dy > 0)
+	{
+		if (dist < kZoomMouseMax)
+			dist += (float)(dy / 2);
+		if (dist > kZoomMouseMax)
+			dist = kZoomMouseMax;
+	}
+	else if (dy < 0)
+	{
+		if (dist > kZoomMouseMin)
+			dist -= (float)((-dy) / 2);
+		if (dist < kZoomMouseMin)
+			dist = kZoomMouseMin;
+	}
+	return dist;
+}
+
 // ---- the interior (HL Rally's models/interior.mdl, a view model) ----
 //
 // The eye is the player's view height less what V_CalcViewRoll takes: VEC_VIEW 28, viewheight 28 - 16 (view.cpp:416, :544-545) = 12 over the

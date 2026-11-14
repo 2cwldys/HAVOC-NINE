@@ -613,6 +613,8 @@ struct RallyPainter : Painter
 			Edged([&] { Time(l.leftX, l.leftY, TimeOf(m.t0 - sv), RH_RED); });
 		else if (m.limitEnd > 0 && started)
 			Edged([&] { Time(l.leftX, l.leftY, TimeOf(m.limitEnd - sv), RH_RED); });
+		else if (m.limitLen > 0 && !started && (m.state == RACE_WAITING || m.state == RACE_COUNTDOWN))
+			Edged([&] { Time(l.leftX, l.leftY, TimeOf(m.limitLen), RH_RED); }); // :1176-1177 before the start the whole allowance, still
 	}
 
 	// rally_hud_radar.cpp:190-345 the squares over the map's picture (the picture is the game's, drawn before this).

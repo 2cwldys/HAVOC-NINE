@@ -446,6 +446,18 @@ void Cmd_Zoom()
 	gEngfuncs.Con_Printf("h9_rallycam_zoom: %.0f units behind the car\n", next);
 }
 
+// +h9_camdistance, -h9_camdistance: HL Rally's +camdistance (its `i` key): held, the mouse moves the camera in and out and does not steer. HL Rally
+// starts it only in a third-person view (every view but the interior); the key's release always ends it.
+bool s_zoomHeld = false;
+void Cmd_ZoomStart()
+{
+	s_zoomHeld = H9RallyCam_LocalIsCar() && rallycam::ViewShowsCar(ViewInForce());
+}
+void Cmd_ZoomEnd()
+{
+	s_zoomHeld = false;
+}
+
 // h9_gearup, h9_geardown: HL Rally's gearup and geardown (input.cpp:471-486), which only do anything in the manual box (up to 6, down to -1).
 void Cmd_GearUp()
 {
@@ -489,6 +501,8 @@ void H9RallyCam_Init()
 	gEngfuncs.pfnAddCommand("h9_geardown", Cmd_GearDown);
 	gEngfuncs.pfnAddCommand("h9_rallycam", Cmd_View);
 	gEngfuncs.pfnAddCommand("h9_rallycam_zoom", Cmd_Zoom);
+	gEngfuncs.pfnAddCommand("+h9_camdistance", Cmd_ZoomStart);
+	gEngfuncs.pfnAddCommand("-h9_camdistance", Cmd_ZoomEnd);
 }
 
 void H9RallyCam_VidInit()
@@ -537,6 +551,19 @@ bool H9RallyCar_IsCarEntity(const cl_entity_t* ent)
 bool H9RallyCam_LocalIsCar()
 {
 	return LocalRallyClass() > 0 && g_iAlive && 0 == g_iUser1 && 0 == gEngfuncs.IsSpectateOnly();
+}
+
+bool H9RallyCam_ZoomHeld()
+{
+	return s_zoomHeld && H9RallyCam_ChaseActive();
+}
+
+void H9RallyCam_ZoomMouse(int dy)
+{
+	const float now = CvF(s_cvBack, 40.0f);
+	const float next = rallycam::ChaseZoomMouse(now, dy);
+	if (next != now)
+		gEngfuncs.Cvar_SetValue("cl_h9_rallycam_dist", next);
 }
 
 bool H9RallyCam_ChaseActive()
@@ -675,7 +702,7 @@ bool H9RallyCam_Apply(ref_params_s* pp, cl_entity_t* view)
 	{
 		s_int.init = false;
 		ChaseParams cp;
-		cp.back = Clamp(CvF(s_cvBack, 40.0f), 20.0f, 400.0f);
+		cp.back = Clamp(CvF(s_cvBack, 40.0f), rallycam::kZoomMouseMin, rallycam::kZoomMouseMax);
 		cp.up = Clamp(CvF(s_cvPivot, 10.0f), 0.0f, 200.0f);
 		cp.wishPitch = Clamp(CvF(s_cvPitch, 15.0f), -60.0f, 80.0f);
 		const ChaseAim aim = ChaseAimOf(s_chase, heading, vel, dt, cp);

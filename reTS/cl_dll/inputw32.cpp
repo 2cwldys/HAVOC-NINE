@@ -653,6 +653,16 @@ void IN_MouseMove(float frametime, usercmd_t* cmd)
 		mx_accum = 0;
 		my_accum = 0;
 
+		// H9 rally mode, HL Rally's +camdistance: the mouse moves the camera's distance and nothing else (its iMouseInUse)
+		if (H9RallyCam_ZoomHeld())
+		{
+			H9RallyCam_ZoomMouse(pos.y);
+			pos.x = 0;
+			pos.y = 0;
+			old_mouse_x = 0;
+			old_mouse_y = 0;
+		}
+
 		// H9 rally mode: the mouse is an input to the car's steering, averaged with the last frame's as HL Rally's m_filter 1 does
 		const bool rallyMouse = H9RallySteer_MouseActive();
 		if ((m_filter && 0 != m_filter->value) || rallyMouse)

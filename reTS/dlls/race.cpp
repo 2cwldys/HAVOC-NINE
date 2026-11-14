@@ -1581,6 +1581,7 @@ void CRaceRules::HudSendStatus(int index, CBasePlayer* pPlayer)
 	WRITE_FLOAT(limit);
 	WRITE_LONG(running && racer->bestLap > 0 ? RaceHundredths(racer->bestLap) : 0);
 	WRITE_LONG(running && racer->finished ? RaceHundredths(racer->total) : 0);
+	WRITE_FLOAT(m_flMaxTime > 0 ? m_flMaxTime : 0); // the allowance, for the rally HUD's clock before the green light (HL Rally's TimeExtension)
 	MESSAGE_END();
 }
 

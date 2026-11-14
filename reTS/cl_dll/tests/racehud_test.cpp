@@ -696,7 +696,7 @@ static void CheckProtocol()
 	CHECK(6 + RACE_HUD_LINE_POINTS * 4 <= 192);
 	CHECK(2 + RACE_HUD_POS_RACERS * 8 <= 192);
 	CHECK(4 + RACE_HUD_RES_ROWS * 12 <= 192);
-	CHECK(RACE_MSG_STAT_SIZE == 6 + 2 + 1 + 2 + 4 * 4 + 2 * 4);
+	CHECK(RACE_MSG_STAT_SIZE == 6 + 2 + 1 + 2 + 4 * 4 + 2 * 4 + 4);
 	CHECK(RACE_MSG_STATE_SIZE == 4 + 4 + 4 + 2);
 	CHECK(RACE_MSG_NOTE_SIZE == 4 + 4 + 4);
 	CHECK(MAX_DOTS >= 32 && MAX_ROWS >= 32 && (RACE_PP_PLACE & 32) != 0);
@@ -1204,6 +1204,18 @@ static void CheckRallyContent(const MapData& map)
 		Rec r3(W, H);
 		RallyPainter(r3, j, a, now).TimeLeft();
 		CHECK(r3.Count(RH_RED) > 0);
+		// before the green light, with an allowance: the whole of it (:1176-1177); with none, nothing
+		Model w = m;
+		w.state = RACE_COUNTDOWN;
+		w.raceStart = 0;
+		w.limitEnd = 0;
+		w.limitLen = 90;
+		Rec r4(W, H), r5(W, H);
+		RallyPainter(r4, w, a, now).TimeLeft();
+		CHECK(r4.Count(RH_RED) > 0);
+		w.limitLen = 0;
+		RallyPainter(r5, w, a, now).TimeLeft();
+		CHECK(r5.Count(RH_RED) == 0);
 	}
 	// the radar's squares over the map's picture (:204-345): the others red 8 x 8 at pos/2 + 22, the player green
 	{

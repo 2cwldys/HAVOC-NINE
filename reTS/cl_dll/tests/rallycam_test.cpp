@@ -428,6 +428,11 @@ int main()
 		CHECK(Near(ChaseZoomDistance(step), 35.0f, 1e-6f) && Near(ChaseZoomDistance(step), 70.0f, 1e-6f));
 	}
 
+	// +camdistance: half the frame's pixels, down is away, 20 to 2500 (integer halves: 5 pixels is 2)
+	CHECK(Near(ChaseZoomMouse(40.0f, 10), 45.0f, 1e-6f) && Near(ChaseZoomMouse(40.0f, -10), 35.0f, 1e-6f));
+	CHECK(Near(ChaseZoomMouse(40.0f, 5), 42.0f, 1e-6f) && Near(ChaseZoomMouse(40.0f, -5), 38.0f, 1e-6f) && Near(ChaseZoomMouse(40.0f, 1), 40.0f, 1e-6f));
+	CHECK(Near(ChaseZoomMouse(30.0f, -100), 20.0f, 1e-6f) && Near(ChaseZoomMouse(2495.0f, 100), 2500.0f, 1e-6f) && Near(ChaseZoomMouse(40.0f, 0), 40.0f, 1e-6f));
+
 	// ---- the terrain probes' points give the tilt, as the diagonals do ----
 	{
 		PlaneGround g = {0.21f, -0.33f, 7};

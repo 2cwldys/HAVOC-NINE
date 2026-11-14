@@ -106,6 +106,10 @@ float H9RallySteer_End(float viewYaw, const H9RallyKeys& keys);
 void H9RallySteer_NoteView(const float simorg[3], const float simvel[3], bool onGround, float time);
 // The local car's speed for the HUD: the full velocity's length, and the part along the nose. False when the local player is not a car.
 bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose);
+// HL Rally's +camdistance held (+h9_camdistance) in a view from outside: IN_MouseMove gives the frame's vertical mouse movement to the camera's
+// distance (H9RallyCam_ZoomMouse) and the mouse does not steer.
+bool H9RallyCam_ZoomHeld();
+void H9RallyCam_ZoomMouse(int dy);
 // The FOV the car's view wants (HL Rally's 90), or 0 for the player's own.
 float H9RallyCam_Fov();
 
