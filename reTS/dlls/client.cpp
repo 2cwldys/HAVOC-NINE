@@ -43,6 +43,7 @@
 #include "ts_utils.h"     // TSPlayerDisconnect (ClientDisconnected)
 #include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
 #include "h9_rally_car.h" // H9RallyCarPrecache
+#include "h9_rally_snd.h" // H9RallySoundStop
 #include "game.h"
 #include "customentity.h"
 #include "weapons.h"
@@ -150,6 +151,9 @@ void ClientDisconnect(edict_t* pEntity)
 			pLeaver->m_pTank = NULL;
 		}
 	}
+
+	// H9: a rally car's engine and skid loops stop with him
+	H9RallySoundStop(static_cast<CBasePlayer*>(CBaseEntity::Instance(pEntity)));
 
 	// since the edict doesn't get deleted, fix it so it doesn't interfere.
 	pEntity->v.takedamage = DAMAGE_NO; // don't attract autoaim
@@ -1031,7 +1035,7 @@ void StartFrame()
 
 void ClientPrecache()
 {
-	H9RallyCarPrecache(); // H9 rally mode: the car's model for the clients (h9_rally_car.cpp); nothing while h9_rally is 0
+	H9RallyCarPrecache(); // H9 rally mode: the car's model for the clients (h9_rally_car.cpp); the car model and the rally sounds, whatever the map
 	// setup precaches always needed
 	PRECACHE_SOUND("player/sprayer.wav"); // spray paint sound for PreAlpha
 

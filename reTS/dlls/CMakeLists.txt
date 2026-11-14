@@ -85,6 +85,7 @@ target_sources(hl PRIVATE
 	race.cpp
 	h9_rally_srv.cpp
 	h9_rally_car.cpp
+	h9_rally_snd.cpp
 	race.h
 	race_book.cpp
 	race_book.h
@@ -210,6 +211,7 @@ target_sources(hl PRIVATE
 	../pm_shared/pm_shared.h
 	../pm_shared/h9_rally.h
 	h9_rally_srv.h
+	h9_rally_snd.h
 
 	../public/interface.h)
 
@@ -228,4 +230,6 @@ add_executable(race_test EXCLUDE_FROM_ALL
 #   cmake --build <dir> --target rally_test --config Release, then run rally_test
 add_executable(rally_test EXCLUDE_FROM_ALL
 	tests/rally_test.cpp
+	h9_rally_snd.h
+	race_rally.h
 	../pm_shared/h9_rally.h)

@@ -12,6 +12,7 @@
 ***/
 #define H9RALLY_MATHS_ONLY
 #include "../../pm_shared/h9_rally.h"
+#include "../h9_rally_snd.h"
 
 #include <cmath>
 #include <cstdio>
@@ -482,6 +483,100 @@ int main()
 	{
 		Check(fabsf(H9RallyCrashKeep(-1.0f) - 1.0f / 3.0f) < 1e-5f, "a head-on crash keeps a third of the speed");
 		Check(fabsf(H9RallyCrashKeep(1.0f) - 1.0f) < 1e-5f, "grazing a wall keeps all of it");
+	}
+
+	// --- sounds: the gearbox, the skid, the hit and the landing (dlls/h9_rally_snd.h) -----------------------------
+	{
+		const float top = RaceRallyTopSpeed(1);
+		Check(fabsf(top - 680.0f) < 1.0f, "sound: the Xsara's road top speed, the gearbox's range, is 680");
+		float f = 0;
+		Check(RallySndGear(0, top, &f) == 0 && f == 0, "sound: at a standstill, first gear, no way through it");
+		Check(RallySndGear(top, top, &f) == 5 && f > 0.999f, "sound: at the road's top speed, sixth gear, at its end");
+		Check(RallySndGear(top * 2, top, &f) == 5 && f == 1.0f, "sound: past the range stays in sixth");
+		Check(RallySndGear(-100, top, &f) == RallySndGear(100, top, &f), "sound: reversing is the same gears");
+		bool mono = true;
+		int last = 0;
+		for (float v = 0; v <= top; v += 1.0f)
+		{
+			const int g = RallySndGear(v, top, 0);
+			mono = mono && g >= last;
+			last = g;
+		}
+		Check(mono, "sound: the gear never goes down as the speed rises");
+		// every gear is visited, and the revs rise within a gear and fall at each shift
+		int visited = 0, shifts = 0, risesInGear = 0, wrong = 0;
+		float prev = RallySndRevs(30, top, true);
+		int prevGear = 0;
+		for (float v = 30.5f; v <= top; v += 0.5f)
+		{
+			const int g = RallySndGear(v, top, 0);
+			const float r = RallySndRevs(v, top, true);
+			if (g != prevGear)
+			{
+				shifts++;
+				visited |= 1 << g;
+				if (r >= prev - 0.2f)
+					wrong++; // a shift must drop by a good part
+			}
+			else if (r > prev)
+				risesInGear++;
+			else if (r < prev - 1e-6f)
+				wrong++;
+			prev = r;
+			prevGear = g;
+		}
+		Check(shifts == 5 && (visited | 1) == 63, "sound: six gears over the speed range, five shifts");
+		Check(wrong == 0 && risesInGear > 100, "sound: the revs rise within a gear and drop at each shift");
+		Check(RallySndRevs(top, top, true) > 0.99f && RallySndRevs(0, top, false) == 0.0f, "sound: flat out at the top, idle standing");
+		bool coast = true;
+		for (float v = 0; v <= top; v += 10.0f)
+			coast = coast && RallySndRevs(v, top, true) >= RallySndRevs(v, top, false);
+		Check(coast, "sound: the revs are higher with the throttle down than coasting");
+		Check(RallySndRevs(0, top, true) > 0.3f, "sound: the throttle at a standstill revs the engine");
+		Check(RallySndVolume(0.5f, false) < RallySndVolume(0.5f, true), "sound: a little quieter coasting");
+		Check(RallySndPitch(0) == 60 && RallySndPitch(1) == 200 && RallySndPitch(5) == 200, "sound: pitch runs 60 to 200");
+		// the speed range's own meaning: sand and snow reach gear 4, neutral gear 5
+		const float sandTop = H9R_ACCELERATE * H9RallyWish(g_h9RallyCars[0]) / (H9R_FRICTION + 0.05f);
+		const float neutralTop = H9R_ACCELERATE * H9RallyWish(g_h9RallyCars[0]) / H9R_FRICTION;
+		Check(fabsf(sandTop - 340) < 1 && RallySndGear(sandTop, top, 0) == 3, "sound: flat out on sand (340) is fourth gear");
+		Check(fabsf(neutralTop - 408) < 1 && RallySndGear(neutralTop, top, 0) == 4, "sound: flat out on neutral ground (408) is fifth gear");
+		// the smoothing
+		float r = 0;
+		for (int i = 0; i < 10; i++)
+			r = RallySndApproach(1.0f, r, 0.05f);
+		Check(r > 0.9f && r <= 1.0f, "sound: the smoothed revs reach the target in about a second");
+		Check(RallySndApproach(0.0f, 1.0f, 0.05f) < 0.75f, "sound: and a shift's drop is heard within a few frames");
+		// the skid
+		Check(RallySndSkid(false, true, 300, 0.4f, false), "sound: a slide at speed starts the skid");
+		Check(!RallySndSkid(false, true, 300, 0.1f, false), "sound: no slide, no skid");
+		Check(!RallySndSkid(false, true, 60, 0.9f, false), "sound: too slow for a slide skid");
+		Check(!RallySndSkid(false, false, 300, 0.9f, false), "sound: no skid in the air");
+		Check(RallySndSkid(false, true, 100, 0.0f, true) && !RallySndSkid(false, true, 50, 0.0f, true), "sound: the handbrake skids above a small speed");
+		Check(RallySndSkid(true, true, 200, 0.2f, false) && !RallySndSkid(false, true, 200, 0.2f, false),
+			"sound: the skid holds down to a lower slip than it starts at");
+		Check(!RallySndSkid(true, true, 40, 0.5f, false), "sound: and ends when the speed is gone");
+		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_ROAD, false)) == 0 && RallySndSkidKind(RaceSurfaceByte(H9RS_CONCRETE, false)) == 0 &&
+				  RallySndSkidKind(RaceSurfaceByte(H9RS_NEUTRAL, false)) == 0,
+			"sound: hard ground has the tarmac loop");
+		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_SAND, false)) == 1 && RallySndSkidKind(RaceSurfaceByte(H9RS_DIRT, false)) == 1 &&
+				  RallySndSkidKind(RaceSurfaceByte(H9RS_GRAVEL, false)) == 1 && RallySndSkidKind(RaceSurfaceByte(H9RS_GRASS, false)) == 1,
+			"sound: sand, dirt, gravel and grass have the loose-ground loop");
+		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_SNOW, false)) == 2 && RallySndSkidKind(RaceSurfaceByte(H9RS_ICE, false)) == 2,
+			"sound: snow and ice have the snow loop");
+		{
+			const RaceRallyDrive d = RaceRallyDriveOf(300, 300, 0, false, false, false, 0); // 45 degrees of slide
+			Check(RallySndSkid(false, true, 424, d.slip, false), "sound: a 45 degree slide from the race's own slip number is a skid");
+		}
+		Check(RallySndSkidVolume(0.5f, 400, false) > RallySndSkidVolume(0.2f, 400, false), "sound: a bigger slide skids louder");
+		// walls and landings
+		Check(RallySndHitVolume(600, 400) > 0.8f && RallySndHitVolume(300, 150) > 0.4f, "sound: a crash takes speed in one frame and sounds");
+		Check(RallySndHitVolume(680, 3) == 0 && RallySndHitVolume(680, 100 - 1) == 0, "sound: drag, brakes and a lift do not sound as a wall");
+		Check(RallySndHitVolume(1000, 150) == 0, "sound: a loss under a fifth of the speed is not a wall");
+		Check(RallySndLandVolume(200) == 0 && RallySndLandVolume(300) > 0.45f && RallySndLandVolume(2000) == 1.0f, "sound: only a hard landing thumps");
+		// the message limit: 10 a second is RSND_GAP
+		Check(fabsf(1.0f / RSND_GAP - 10.0f) < 0.01f, "sound: at most ten sound-change messages a second a player");
+		Check(!RallySndWorthSending(100, 101, 0.5f, 0.51f, 2, 0.04f) && RallySndWorthSending(100, 103, 0.5f, 0.5f, 2, 0.04f),
+			"sound: a change too small to hear is not sent");
 	}
 
 	// --- numbers for the report -------------------------------------------------------------------------------------

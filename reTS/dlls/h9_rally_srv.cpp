@@ -14,6 +14,7 @@
 #include "cbase.h"
 #include "player.h"
 #include "h9_rally_srv.h"
+#include "h9_rally_snd.h"
 #include "race.h"
 
 #include <stdlib.h>
@@ -54,7 +55,10 @@ void H9RallyServerThink(CBasePlayer* pl)
 	const int cur = CurrentClass(pl->edict());
 
 	if (want == cur && want == 0)
+	{
+		H9RallySoundStop(pl); // cheap when nothing plays
 		return;
+	}
 
 	entvars_t* pev = pl->pev;
 	if (want != cur)
@@ -73,6 +77,7 @@ void H9RallyServerThink(CBasePlayer* pl)
 			UTIL_SetSize(pev, VEC_HULL_MIN, VEC_HULL_MAX);
 			UTIL_SetOrigin(pev, pev->origin + Vector(0, 0, 36));
 			pev->view_ofs = VEC_VIEW;
+			H9RallySoundStop(pl); // the mode went off (the cvar to 0, or the race's vehicle changed): no loop is left
 			return;
 		}
 	}
@@ -84,4 +89,7 @@ void H9RallyServerThink(CBasePlayer* pl)
 	pev->weaponmodel = 0;
 	if (pev->maxs.z != 16.0f || pev->maxs.x != 16.0f || pev->mins.z != 0.0f)
 		UTIL_SetSize(pev, Vector(-16, -16, 0), Vector(16, 16, 16));
+
+	// his sounds: the engine by gear, skids, landings, walls, the horn (h9_rally_snd.cpp)
+	H9RallySoundThink(pl, want);
 }
