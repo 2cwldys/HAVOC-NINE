@@ -469,7 +469,8 @@ void CBasePlayer::TraceAttack(entvars_t* pevAttacker, float flDamage, Vector vec
 
 bool CBasePlayer::TakeDamage(entvars_t* pevInflictor, entvars_t* pevAttacker, float flDamage, int bitsDamageType)
 {
-	if (RaceActive()) // H9: nobody is hurt in a race map (race.cpp)
+	// H9: nobody is hurt in a race map (race.cpp); a rally car never is (HL Rally's CBasePlayer::TakeDamage returns 0 first thing)
+	if (RaceActive() || H9RallyIsCar(edict()))
 		return false;
 	// have suit diagnose the problem - ie: report damage type
 	int bitsDamage = bitsDamageType;
@@ -1760,6 +1761,11 @@ void CBasePlayer::Jump()
 	Vector vecWallCheckDir; // direction we're tracing a line to find a wall when walljumping
 	Vector vecAdjustedVelocity;
 	Vector vecSpot;
+
+	// H9 rally mode: the jump button is the car's handbrake (pm_shared/h9_rally.cpp); no jump, no stunt (TS's double-tap wheel
+	// would set stunt bits that stop the throttle)
+	if (H9RallyIsCar(edict()))
+		return;
 	TraceResult tr;
 
 	if (FBitSet(pev->flags, FL_WATERJUMP))
@@ -2027,7 +2033,8 @@ void CBasePlayer::PreThink()
 	// dive/prone hull + low view + dive/wall launch velocity — which the DLL alone could never
 	// make stick (the predictor recomputed the hull every frame). +alt1 = dive / bullet-time,
 	// double-jump into a wall = wall-climb / wall-jump.
-	m_TSStunt.Play(); // @0x80b32
+	if (!H9RallyIsCar(edict())) // H9 rally mode: a car does no stunts (HL Rally has none)
+		m_TSStunt.Play(); // @0x80b32
 
 	m_TSAnim.UpdateTimers(this); // TS: decay the gait aim/leg/grenade hold timers (@0x80b42)
 

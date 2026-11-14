@@ -17,3 +17,6 @@ void H9RallyClientData(const edict_t* ent, struct clientdata_s* cd);
 
 // The cvar h9_rally as a class: 0 off, 1 to 10 (race.cpp lets it force rally mode in a map with race_rules).
 int H9RallyCvarClass();
+
+// True when this player is a rally car now (his physinfo's rally class).
+bool H9RallyIsCar(edict_t* ent);

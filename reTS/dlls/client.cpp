@@ -44,7 +44,8 @@
 #include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
 #include "h9_rally_car.h" // H9RallyCarPrecache
 #include "h9_rally_snd.h" // H9RallySoundStop
-#include "h9_rally_srv.h" // H9RallyClientData
+#include "h9_rally_srv.h" // H9RallyClientData, H9RallyIsCar
+#include "race.h" // RaceRallyAskPut
 #include "game.h"
 #include "customentity.h"
 #include "weapons.h"
@@ -209,6 +210,10 @@ void ClientKill(edict_t* pEntity)
 	// after the kill: Spawn's TSInit clears the timer (@0x82ef3), and PreThink never reaches it
 	// for a dead player or a spectator.
 	if (pev->iuser1 != 0)
+		return;
+
+	// H9 rally mode: HL Rally's `kill` puts the car back on the road (its client.cpp ClientKill), it does not kill
+	if (H9RallyIsCar(pEntity) && RaceRallyAskPut(ENTINDEX(pEntity)))
 		return;
 
 	if (pl->m_fNextSuicideTime > 0.001f)

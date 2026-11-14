@@ -19,6 +19,8 @@ enum RaceState
 
 // True in a map with a race_rules entity (and checkpoints that make a lap).
 bool RaceActive();
+// HL Rally's `kill` is the put-back: asks for one for this racer in rally mode. False when there is no rally race to put him back in.
+bool RaceRallyAskPut(int index);
 RaceState RaceGetState();
 // Goes up by one each time a countdown begins (0 until the first): a car that sees it change goes to its
 // driver's grid slot. The warm-up before it is free driving.

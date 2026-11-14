@@ -1319,6 +1319,15 @@ void CRaceRules::RallyRoster()
 	}
 }
 
+// HL Rally's `kill` (its put-back): RaceRallyAskPut sets it, the racer's next rally frame takes it as a press of the put-back key.
+static bool s_putAsked[RACE_MAX_PLAYERS + 1];
+static bool TakePutAsked(int index)
+{
+	const bool asked = s_putAsked[index];
+	s_putAsked[index] = false;
+	return asked;
+}
+
 // Each racer's frame in rally mode: held or not, his livery, the two state bytes for other clients, the reset key, and
 // the watch for the world's edge and deep water.
 void CRaceRules::RallyFrame(float dt)
@@ -1337,7 +1346,7 @@ void CRaceRules::RallyFrame(float dt)
 		// the put-back key (HL Rally's `k`, ClientKill): at once on the press, a second's rest after one; the respawn of the
 		// last checkpoint passed, one unit up, at rest. There is no automatic put-back: a car that falls out of the world or
 		// into water stays there, as in HL Rally.
-		if (seat.putKey.Press((pev->button & IN_RELOAD) != 0, gpGlobals->time))
+		if (seat.putKey.Press((pev->button & IN_RELOAD) != 0 || TakePutAsked(index), gpGlobals->time))
 		{
 			Vector origin, angles;
 			if (RespawnPoint(pPlayer, origin, angles))
@@ -1704,6 +1713,14 @@ void CRaceRules::HudNote(int index, CBasePlayer* pPlayer, int kind, int a, int b
 }
 
 // ── the face (race.h) ──
+
+bool RaceRallyAskPut(int index)
+{
+	if (!RaceActive() || index < 1 || index > RACE_MAX_PLAYERS)
+		return false;
+	s_putAsked[index] = true;
+	return true;
+}
 
 bool RaceActive()
 {

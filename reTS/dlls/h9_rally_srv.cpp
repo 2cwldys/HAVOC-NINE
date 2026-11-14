@@ -108,6 +108,11 @@ static int CurrentClass(edict_t* ent)
 	return PhysInt(ent, "rally");
 }
 
+bool H9RallyIsCar(edict_t* ent)
+{
+	return ent != nullptr && CurrentClass(ent) > 0;
+}
+
 void H9RallyClientData(const edict_t* ent, struct clientdata_s* cd)
 {
 	if (ent == nullptr || cd == nullptr || CurrentClass(const_cast<edict_t*>(ent)) <= 0)
