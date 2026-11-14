@@ -187,6 +187,7 @@ target_sources(client PRIVATE
 	h9_rallycar.cpp
 	h9_rallysnd.cpp
 	h9_racehud.cpp
+	h9_rallyhud.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
 	h9_tts_kokoro.cpp
@@ -310,6 +311,8 @@ target_sources(client PRIVATE
 	h9_racefx_calc.h
 	h9_racehud.h
 	h9_racehud_draw.h
+	h9_rallyhud.h
+	h9_rallyhud_draw.h
 	h9_chatbubble.h
 	h9_tts.h
 	h9_tts_catalogue.h
@@ -420,6 +423,7 @@ target_sources(client PRIVATE
 add_executable(racehud_test EXCLUDE_FROM_ALL
 	tests/racehud_test.cpp
 	h9_racehud_draw.h
+	h9_rallyhud_draw.h
 	../dlls/race.h)
 target_include_directories(racehud_test PRIVATE ../dlls)
 

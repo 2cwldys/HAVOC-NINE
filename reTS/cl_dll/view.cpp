@@ -22,6 +22,7 @@
 
 int CL_IsThirdPerson();
 #include "h9_rallycar.h" // H9RallyCam_Apply: rally mode's two cameras
+#include "h9_rallyhud.h" // H9RallyHud_NoteView: the camera for the countdown's numerals
 void CL_CameraOffset(float* ofs);
 
 void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams);
@@ -1193,6 +1194,7 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 
 	// H9 rally mode: the chase or the driver's camera in place of everything above (origin, angles, no weapon)
 	H9RallyCam_Apply(pparams, view); // (does nothing, and gives the weapon's model back, when the player is not a car)
+	H9RallyHud_NoteView(pparams);    // H9 rally HUD: where the camera is now, for the countdown's numerals (h9_rallyhud.cpp)
 
 	// Store off v_angles before munging for third person
 	v_angles = pparams->viewangles;

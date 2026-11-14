@@ -16,6 +16,8 @@
 #include "h9_theme.h"
 #include "h9_racehud.h"
 #include "h9_racehud_draw.h"
+#include "h9_rallyhud_draw.h" // HL Rally's HUD while the local player is a rally car
+#include "h9_rallyhud.h"      // its sprites and the countdown's numerals
 #include "h9_rallycar.h" // H9RallyCar_LocalSpeed
 #include "h9_rallysnd.h" // H9RallySnd_RaceState, H9RallySnd_RaceNote
 
@@ -29,6 +31,7 @@ using namespace racehud;
 #define H9RACE_MAX_MSG 192 // bytes a message may have
 
 Model s_m;
+RallyModel s_rm; // what HL Rally's HUD keeps (checkpoint counter, last lap, the radar's smoothing), for a rally car
 cvar_t* s_cvOn;   // cl_h9_racehud
 cvar_t* s_cvInfo; // _h9race: the userinfo key the server reads
 bool s_bInited;
@@ -93,6 +96,7 @@ int MsgState(const char* pszName, int iSize, void* pbuf)
 	if (iSize != RACE_MSG_STATE_SIZE)
 		return 1;
 	BEGIN_READ(pbuf, iSize);
+	const int prevState = s_m.state;
 	s_m.state = ClampI(READ_BYTE(), RACE_WAITING, RACE_FINISHED);
 	s_m.resultsUp = READ_BYTE() != 0;
 	s_m.laps = READ_BYTE();
@@ -102,6 +106,14 @@ int MsgState(const char* pszName, int iSize, void* pbuf)
 	s_m.countdown = READ_SHORT() / 10.0f;
 	TakeClock(serverNow);
 	s_m.haveState = true;
+	// rally mode (rallyhud.cpp:176-207, a new countdown): the lap, the checkpoint and the last lap start again, and the numerals come
+	if (s_m.state == RACE_WAITING || s_m.state == RACE_COUNTDOWN)
+	{
+		s_rm.cpCur = 1;
+		s_rm.lastLapCs = -1;
+	}
+	if (s_m.state == RACE_COUNTDOWN && prevState != RACE_COUNTDOWN && H9RallyCam_LocalIsCar() && s_m.t0 - serverNow >= s_m.countdown - 1.0f)
+		H9RallyHud_CountdownStart((s_m.t0 - s_m.countdown) - s_m.clock); // the countdown's start on the client's clock
 	H9RallySnd_RaceState(s_m.state, s_m.t0, serverNow, s_m.countdown); // the race voices (rally mode)
 	if (!s_m.resultsUp)
 		s_m.rowCount = s_m.rowTotal = 0; // the table goes when the server says the race goes on (or waits again)
@@ -123,6 +135,24 @@ int MsgNote(const char* pszName, int iSize, void* pbuf)
 	s_m.noteTime = READ_LONG();
 	s_m.noteDiff = READ_LONG();
 	s_m.noteAt = gEngfuncs.GetClientTime();
+	// rally mode keeps what HL Rally's counters count from the notes (rallyhud.cpp:377 a checkpoint, :421-433 a lap, :511 the finish); the
+	// notes themselves are not drawn there
+	switch (s_m.noteKind)
+	{
+	case RACE_NOTE_CHECKPOINT:
+		s_rm.cpCur = s_m.noteA + 1;
+		s_rm.cpTotalNote = s_m.noteB + 1;
+		break;
+	case RACE_NOTE_LAP:
+		s_rm.cpCur = 1;
+		s_rm.lastLapCs = s_m.noteTime;
+		break;
+	case RACE_NOTE_FINISH:
+		s_rm.cpCur = 1;
+		break;
+	default:
+		break;
+	}
 	H9RallySnd_RaceNote(s_m.noteKind, s_m.noteA, s_m.noteB); // the race voices, and the engine muted at his finish (rally mode)
 	return 1;
 }
@@ -284,11 +314,20 @@ public:
 		m_iFlags |= HUD_ACTIVE;
 		return true;
 	}
-	bool VidInit() override { return true; }
+	bool VidInit() override
+	{
+		H9RallyHud_Reset(); // sprite handles do not survive a video restart or a map
+		return true;
+	}
 	bool Draw(float flTime) override
 	{
 		if (!Enabled())
 			return true;
+		if (H9RallyCam_LocalIsCar())
+		{
+			DrawRally(flTime);
+			return true;
+		}
 		// rally mode: the player is the car, and the speed is HL Rally's own reading, |velocity| / 3 from his predicted velocity (not what the
 		// h9_car says, the server's number along the nose, which the old maps keep); negative while the nose goes backwards, so REVERSE shows
 		float v3d = 0, along = 0;
@@ -313,9 +352,44 @@ public:
 		painter.Paint();
 		return true;
 	}
+	// The local player is a rally car: HL Rally's HUD (h9_rallyhud_draw.h), its dial and map behind it and its needle over it, and the
+	// countdown's numerals; none of the race HUD's own pieces (lamps, notes, wrong way, the speed gauge) is drawn.
+	void DrawRally(float flTime)
+	{
+		H9RallyDriveNote n;
+		const bool have = H9RallyCar_DriveNote(n) && n.valid;
+		float v3d = 0, along = 0;
+		H9RallyCar_LocalSpeed(v3d, along);
+		s_rm.third = H9RallyCam_ChaseActive();
+		s_rm.speed3d = v3d;
+		s_rm.haveOrg = have;
+		s_rm.gear = have ? n.gear : 0;
+		float rpm = 15.0f;
+		if (have)
+		{
+			rpm = n.rpm;
+			s_rm.org[0] = n.org[0];
+			s_rm.org[1] = n.org[1];
+			s_rm.org[2] = n.org[2];
+			s_rm.reversing = RallyReversing(s_rm.reversing, n.onGround, n.throttle, n.brake, sqrtf(n.vel[0] * n.vel[0] + n.vel[1] * n.vel[1]));
+		}
+		else
+			s_rm.reversing = false;
+		cl_entity_t* player = gEngfuncs.GetLocalPlayer();
+		s_m.local = player ? player->index : 0;
+		H9RallyHud_CountdownThink();
+		s_rm.mapSprite = H9RallyHud_DrawBack(s_rm.third);
+		h9theme::Refresh();
+		RallyPainter painter(s_Canvas, s_m, s_rm, flTime);
+		painter.Paint();
+		if (s_rm.third)
+			H9RallyHud_DrawNeedle(rpm);
+	}
 	void Think() override { SyncUserinfo(); }
 	void InitHUDData() override
 	{
+		s_rm = RallyModel(); // a new map: the counters begin again (rallyhud.cpp:201-203, 215-218)
+		H9RallyHud_Reset();
 		// A new map, or a new server: what moves is forgotten (its times are on a clock that has begun again). The lap's line
 		// is kept: the server sends it once to a player, and a new map's first part takes the old one away.
 		s_m.haveState = s_m.haveStat = s_m.haveDots = s_m.haveClock = false;
@@ -336,6 +410,8 @@ bool H9RaceHud_Driving()
 
 int H9RaceHud_ChatLeft()
 {
+	if (H9RallyCam_LocalIsCar() && s_rm.mapSprite)
+		return racehud::RadarMapX() + 128 + 10; // HL Rally's map picture (128 wide) stands there
 	if (!H9RaceHud_Driving() || !racehud::MapShown(s_m))
 		return 10;
 	return racehud::MapRight(ScreenWidth, ScreenHeight) + 10;

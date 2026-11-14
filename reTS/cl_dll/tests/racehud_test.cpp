@@ -6,6 +6,7 @@
 //   racehud_test [<folder for the pictures> [<a .map with race_waypoint and race_checkpoint entities>]]
 // With no map the pictures have a made-up oval for a lap.
 #include "../h9_racehud_draw.h"
+#include "../h9_rallyhud_draw.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -757,6 +758,513 @@ static long Area(const Bounds& b)
 	return b.Empty() ? 0 : (long)(b.x1 - b.x0) * (b.y1 - b.y0);
 }
 
+// ---- rally mode: HL Rally's HUD (h9_rallyhud_draw.h). Every expected number comes from the HL Rally line cited beside it (the 1.1 source,
+// cl_dll/rallyhud.cpp, tri.cpp, rally_hud_radar.cpp, rally_vguifx.cpp, hud_redraw.cpp; and the game's anim.txt). ---------------------------
+
+// Every fill, with its colour: what the HUD drew, to ask where a colour went.
+struct Rec : Canvas
+{
+	struct F
+	{
+		int x, y, w, h, r, g, b;
+	};
+	int w, h;
+	std::vector<F> f;
+	Rec(int W, int H) : w(W), h(H) {}
+	void Fill(int x, int y, int fw, int fh, int r, int g, int b, int) override { f.push_back({x, y, fw, fh, r, g, b}); }
+	int Width() override { return w; }
+	int Height() override { return h; }
+	bool Covers(const Col& c, int px, int py) const
+	{
+		for (const F& q : f)
+			if (q.r == c.r && q.g == c.g && q.b == c.b && px >= q.x && px < q.x + q.w && py >= q.y && py < q.y + q.h)
+				return true;
+		return false;
+	}
+	int Count(const Col& c) const
+	{
+		int n = 0;
+		for (const F& q : f)
+			n += (q.r == c.r && q.g == c.g && q.b == c.b);
+		return n;
+	}
+};
+
+static void RallyModelOn(Model& m, RallyModel& rm, const MapData& map, float now)
+{
+	BaseModel(m, map, now);
+	m.local = 3;
+	rm = RallyModel();
+	rm.third = true;
+	rm.speed3d = 680;
+	rm.gear = 4;
+	rm.cpCur = 2;
+	rm.cpTotalNote = 0;
+	rm.haveOrg = true;
+	rm.org[0] = 3200;
+	rm.org[1] = -1600;
+}
+
+static void CheckRallyNumbers()
+{
+	char c[9];
+	// hud_redraw.cpp:327-410 DrawHudNumber2
+	NumberCells(0, RH_3DIGITS | RH_DRAWZERO, c); // :395-409: both blanks, then the 0
+	CHECK(Same(c, "  0"));
+	NumberCells(5, RH_3DIGITS | RH_DRAWZERO, c); // :356-362, :371-376
+	CHECK(Same(c, "  5"));
+	NumberCells(45, RH_3DIGITS | RH_DRAWZERO, c);
+	CHECK(Same(c, " 45"));
+	NumberCells(227, RH_3DIGITS | RH_DRAWZERO, c);
+	CHECK(Same(c, "227"));
+	NumberCells(7, RH_2DIGITS | RH_DRAWZERO, c);
+	CHECK(Same(c, " 7"));
+	NumberCells(0, RH_DRAWZERO, c); // gear 0 with no letter, a lone 0
+	CHECK(Same(c, "0"));
+	NumberCells(0, 0, c); // no DRAWZERO: nothing
+	CHECK(Same(c, ""));
+	NumberCells(12, RH_DRAWZERO, c); // the checkpoint counter at 10 and over
+	CHECK(Same(c, "12"));
+	NumberCells(3, RH_DRAWZERO, c);
+	CHECK(Same(c, "3"));
+
+	// rallyhud.cpp:961-987: Length(velocity) / 3, under 9 is 0, an int parameter: truncated
+	CHECK(RallySpeedShown(680) == 226);    // 226.67 -> 226 (ours rounded: 227)
+	CHECK(RallySpeedShown(301.8f) == 100); // 100.6 -> 100, as the audit's example
+	CHECK(RallySpeedShown(26) == 0);       // 8.67 < 9
+	CHECK(RallySpeedShown(27) == 9);       // 9.0 is not under 9
+	CHECK(RallySpeedShown(0) == 0);
+	CHECK(RallySpeedShown(-680) == 0);     // Length is never negative; no sign reaches here, and no REVERSE word exists in HL Rally
+	CHECK(RallySpeedShown(1e9f) == 999);
+
+	// rallyhud.cpp:673-691 DrawTime (float): minutes, seconds, hundredths cut; :603-636 their cells; -1 is none (:640-669)
+	char t[9];
+	TimeCells(TimeOf(83.5f), t);
+	CHECK(Same(t, " 1:23:50")); // minutes under ten: a BLANK tens (DHN_2DIGITS, no 0 appended: :606-607), seconds and hundredths with a 0
+	TimeCells(TimeOf(5.0f), t);
+	CHECK(Same(t, " 0:05:00")); // :618-621, :631-634
+	TimeCells(TimeOf(600.25f), t);
+	CHECK(Same(t, "10:00:25"));
+	TimeCells(TimeOf(3725.5f), t);
+	CHECK(Same(t, "62:05:50"));
+	TimeCells(TimeOf(-1), t);
+	CHECK(Same(t, " -:--:--")); // hyphens at x + 16, 48, 64, 96, 112 and colons at 32, 80 (:644-668): cells 1, 3, 4, 6, 7 and 2, 5
+	CHECK(t[1] == '-' && t[2] == ':' && t[3] == '-' && t[4] == '-' && t[5] == ':' && t[6] == '-' && t[7] == '-' && t[0] == ' ');
+	TimeCells(TimeOf(-3.5f), t); // a negative time draws zeros (DrawHudNumber2 draws 0 for a number that is not above 0)
+	CHECK(Same(t, " 0:00:00"));
+	TimeCells(TimeOfCs(4211), t);
+	CHECK(Same(t, " 0:42:11"));
+	TimeCells(TimeOfCs(0), t);
+	CHECK(Same(t, " 0:00:00"));
+	TimeCells(TimeOfCs(6000 * 12 + 345), t);
+	CHECK(Same(t, "12:03:45"));
+	TimeCells(TimeOfCs(-1), t);
+	CHECK(Same(t, " -:--:--"));
+
+	// rallyhud.cpp:1117-1126: the lap's time stays for 4 s after the lap's start, blinking: lit while frac < 0.4 or frac > 0.8
+	CHECK(LastLapShown(3.9f, 4100));
+	CHECK(!LastLapShown(4.0f, 4100));
+	CHECK(!LastLapShown(1.0f, -1)); // fLastLap == -1: no
+	CHECK(LastLapLit(10.0f));
+	CHECK(LastLapLit(10.2f));
+	CHECK(!LastLapLit(10.5f));
+	CHECK(!LastLapLit(10.7f));
+	CHECK(LastLapLit(10.85f));
+	CHECK(LastLapLit(10.95f));
+
+	// input.cpp:869-875, 942-945: g_reversing
+	CHECK(RallyReversing(false, true, false, true, 10));   // back key under 40 u/s, forward key up
+	CHECK(!RallyReversing(true, true, false, true, 50));   // 40 and over: no
+	CHECK(!RallyReversing(true, true, true, true, 10));    // the forward key up is what makes it reverse
+	CHECK(!RallyReversing(false, true, false, false, 0));  // no back key
+	CHECK(RallyReversing(true, false, false, false, 100)); // in the air it stays as it was
+	CHECK(!RallyReversing(false, false, false, true, 0));
+}
+
+static void CheckRallyLayout()
+{
+	// the offsets from the screen's edges, rallyhud.cpp, tri.cpp, rally_hud_radar.cpp: the same at every size, from the same edge
+	static const int sizes[][2] = {{640, 480}, {800, 600}, {1280, 720}, {1920, 1080}, {1024, 768}};
+	for (const auto& s : sizes)
+	{
+		const int W = s[0], H = s[1];
+		const RallyLayout l = RallyLayoutFor(W, H);
+		CHECK(l.dialsX == W - 224 && l.dialsY == H - 232); // :974-975
+		CHECK(l.speedX == W - 52 && l.speedY == H - 32);   // :980-981
+		CHECK(l.gearX == W - 152 && l.gearY == H - 32);    // :1182-1183
+		CHECK(l.needleX == W - 78 && l.needleY == H - 79); // tri.cpp:113-114
+		CHECK(l.timeX == W - 176);                          // :1098
+		CHECK(l.totalLabelY == 16 && l.totalY == 36 && l.lapLabelY == 60 && l.lapY == 80 && l.bestLabelY == 104 && l.bestY == 124); // :1101-1141
+		CHECK(l.leftX == 8 && l.leftY == H - 32);           // :1158
+		CHECK(l.mapX == 20 && l.mapY == H - 173);           // rally_hud_radar.cpp:152-153
+	}
+	// the place: ScreenWidth / 2 - 24, or - 32 from 10 (:1063-1078), the suffix 16 / 32 on
+	PlaceDraw p = PlaceLayout(640, 3);
+	CHECK(p.cells == 1 && p.x == 296 && p.suffixX == 312 && p.suffix == 2 && p.digit[0] == '3');
+	p = PlaceLayout(1920, 1);
+	CHECK(p.x == 936 && p.suffixX == 952 && p.suffix == 0);
+	p = PlaceLayout(1280, 12);
+	CHECK(p.cells == 2 && p.x == 608 && p.suffixX == 640 && p.suffix == 3 && p.digit[0] == '1' && p.digit[1] == '2');
+	// :1080 `(leftover > 0) && (leftover < 4) && (tens != 1)`
+	CHECK(PlaceLayout(640, 21).suffix == 0);
+	CHECK(PlaceLayout(640, 22).suffix == 1);
+	CHECK(PlaceLayout(640, 23).suffix == 2);
+	CHECK(PlaceLayout(640, 11).suffix == 3);
+	CHECK(PlaceLayout(640, 12).suffix == 3);
+	CHECK(PlaceLayout(640, 13).suffix == 3);
+	CHECK(PlaceLayout(640, 4).suffix == 3);
+	CHECK(PlaceLayout(640, 9).suffix == 3);
+	CHECK(PlaceLayout(640, 10).suffix == 3);
+	// the checkpoint counter (:1034-1054): x 16, +8, then 16 a cell (32 for two digits)
+	CpDraw d = CpLayout(1, 3);
+	CHECK(d.leftX == 16 && d.curX == 24 && d.slashX == 40 && d.totalX == 56 && d.rightX == 72 && d.curCells == 1);
+	d = CpLayout(10, 12);
+	CHECK(d.curX == 24 && d.curCells == 2 && d.slashX == 56 && d.totalX == 72 && d.rightX == 104);
+	d = CpLayout(3, 12);
+	CHECK(d.slashX == 40 && d.totalX == 56 && d.rightX == 88);
+	d = CpLayout(12, 9);
+	CHECK(d.slashX == 56 && d.totalX == 72 && d.rightX == 88);
+
+	// tri.cpp:113-135 the needle: centre (W - 78, H - 79), hyp = 75 * sqrt 2, D = 0.0174532
+	float q[4][2];
+	NeedleQuad(640, 480, 45.0f, q); // at 45 degrees the square stands as drawn: 150 across, the corners 75 from the centre
+	CHECK(fabsf(q[0][0] - 487) < 0.05f && fabsf(q[0][1] - 476) < 0.05f);
+	CHECK(fabsf(q[1][0] - 487) < 0.05f && fabsf(q[1][1] - 326) < 0.05f);
+	CHECK(fabsf(q[2][0] - 637) < 0.05f && fabsf(q[2][1] - 326) < 0.05f);
+	CHECK(fabsf(q[3][0] - 637) < 0.05f && fabsf(q[3][1] - 476) < 0.05f);
+	NeedleQuad(640, 480, 15.0f, q); // the lowest rpm: OfsX = sin 15 * 106.066 = 27.45, OfsY = cos 15 * 106.066 = 102.45
+	CHECK(fabsf(q[0][0] - (562 - 27.45f)) < 0.1f && fabsf(q[0][1] - (401 + 102.45f)) < 0.1f);
+	CHECK(fabsf(q[1][0] - (562 - 102.45f)) < 0.1f && fabsf(q[1][1] - (401 - 27.45f)) < 0.1f);
+	CHECK(fabsf(q[2][0] - (562 + 27.45f)) < 0.1f && fabsf(q[2][1] - (401 - 102.45f)) < 0.1f);
+	CHECK(fabsf(q[3][0] - (562 + 102.45f)) < 0.1f && fabsf(q[3][1] - (401 + 27.45f)) < 0.1f);
+	NeedleQuad(1280, 720, 250.0f, q); // the highest: anchored to the bottom right whatever the width
+	CHECK(fabsf(q[0][0] - (1202 - sinf(250 * 0.0174532f) * 106.066f)) < 0.1f);
+	CHECK(fabsf(q[2][1] - (641 - cosf(250 * 0.0174532f) * 106.066f)) < 0.1f);
+	// the square's diagonal is 2 * 106.066 and its centre fixed, whatever the angle
+	for (float rpm = 15; rpm <= 250; rpm += 17.5f)
+	{
+		NeedleQuad(800, 600, rpm, q);
+		const float ex = q[2][0] - q[0][0], ey = q[2][1] - q[0][1];
+		CHECK(fabsf(sqrtf(ex * ex + ey * ey) - 2 * 106.066f) < 0.2f);
+		CHECK(fabsf((q[0][0] + q[2][0]) / 2 - 722) < 0.05f && fabsf((q[0][1] + q[2][1]) / 2 - 521) < 0.05f);
+	}
+
+	// rally_hud_radar.cpp: the server's byte (player.cpp:2591-2592 int(origin / 32) + 128, as a byte), the smoothing, the squares
+	CHECK(RadarByte(0) == 128);
+	CHECK(RadarByte(400) == 228);  // world 3200
+	CHECK(RadarByte(-400) == 28);  // world -3200
+	CHECK(RadarByte(1024) == 128); // world 8192: 256 + 128 wraps as a byte
+	CHECK(fabsf(RadarSmooth(0, 100) - 100.0f / 7) < 1e-4f); // :193-194 ((g * 6) + m) / 7
+	CHECK(fabsf(RadarSmooth(50, 100) - (300 + 100) / 7.0f) < 1e-4f);
+	int x, y;
+	RadarOther(480, 100, 50, x, y); // :258-259 pos / 2 + 22, (H - 45) + pos / -2
+	CHECK(x == 72 && y == 410);
+	RadarOther(1080, 255, 255, x, y);
+	CHECK(x == 149 && y == 907);
+	RadarSelf(480, 3200, -1600, x, y); // :314-319 origin / 32 + 128, then / 2 + 22 and (H - 45) - /2
+	CHECK(x == 136 && y == 396);
+	CHECK(RadarMapX() == 20 && RadarMapY(480) == 307);
+}
+
+static void CheckRallyCountdown()
+{
+	// rally_vguifx.cpp:612-662: one model per call at most, the n-th at n - 1 seconds, nothing after 4 s
+	CountSeq s = {10.0f, 0};
+	CHECK(CountNext(s, 10.0f) == 1); // three at 0 s
+	CHECK(CountNext(s, 10.0f) == 0);
+	CHECK(CountNext(s, 10.99f) == 0);
+	CHECK(CountNext(s, 11.0f) == 2); // two at 1 s
+	CHECK(CountNext(s, 11.5f) == 0);
+	CHECK(CountNext(s, 12.0f) == 3); // one at 2 s
+	CHECK(CountNext(s, 12.99f) == 0);
+	CHECK(CountNext(s, 13.0f) == 4); // go at 3 s
+	CHECK(CountNext(s, 13.5f) == 0);
+	CHECK(CountNext(s, 20.0f) == 0); // done == 4
+	CountSeq late = {10.0f, 0};
+	CHECK(CountNext(late, 12.5f) == 1 && CountNext(late, 12.5f) == 2 && CountNext(late, 12.5f) == 3 && CountNext(late, 12.5f) == 0); // one a call, 2.5 s in
+	CountSeq gone = {10.0f, 0};
+	CHECK(CountNext(gone, 14.01f) == 0); // (start + 4) < now: not at all
+	CHECK(Same(CountModelName(1), "three") && Same(CountModelName(2), "two") && Same(CountModelName(3), "one") && Same(CountModelName(4), "go"));
+
+	// anim.txt [Numbers]: Origin=90, 5, 0; Scale=4.0; Length=1.0; nodes Position / Angle / Time
+	CHECK(COUNT_AHEAD == 90 && COUNT_UP == 5 && COUNT_RIGHT == 0 && COUNT_SCALE == 4.0f && COUNT_LENGTH == 1.0f && COUNT_LIGHT == 40);
+	CHECK(COUNT_NODES[0].time == 0.0f && COUNT_NODES[1].time == 0.2f && COUNT_NODES[2].time == 0.4f && COUNT_NODES[3].time == 0.6f);
+	CHECK(COUNT_NODES[1].ang[0] == -180 && COUNT_NODES[2].ang[0] == -90 && COUNT_NODES[2].ang[2] == -90 && COUNT_NODES[3].ang[1] == 180);
+
+	// looking down +x (angles 0 0 0): forward +x, right -y, up +z (AngleVectors). The camera at (100, 200, 50).
+	const float cam[3] = {100, 200, 50}, ang0[3] = {0, 0, 0};
+	float start[3], org[3], ang[3];
+	CountStart(cam, ang0, start); // 90 ahead, 5 up
+	CHECK(fabsf(start[0] - 190) < 1e-3f && fabsf(start[1] - 200) < 1e-3f && fabsf(start[2] - 55) < 1e-3f);
+	// the callback's path: positions are right, up, forward times the scale (:728-729: position[0] right, [1] up, [2] forward)
+	CountPose(0.0f, start, ang0, ang0, org, ang); // node 0: up 20 * 4 = 80, forward 15 * 4 = 60
+	CHECK(fabsf(org[0] - 250) < 1e-3f && fabsf(org[1] - 200) < 1e-3f && fabsf(org[2] - 135) < 1e-3f);
+	CHECK(fabsf(ang[0]) < 1e-3f && fabsf(ang[1]) < 1e-3f && fabsf(ang[2]) < 1e-3f);
+	CountPose(0.1f, start, ang0, ang0, org, ang); // half way to node 1 (up 12, forward -20): angles the short way from 0 to -180: -90
+	CHECK(fabsf(org[0] - 210) < 1e-2f && fabsf(org[2] - 101) < 1e-2f);
+	CHECK(fabsf(ang[0] + 90) < 1e-2f && fabsf(ang[1] + 90) < 1e-2f && fabsf(ang[2] + 90) < 1e-2f);
+	CountPose(0.3f, start, ang0, ang0, org, ang); // half way from node 1 (-180 -180 -180) to node 2 (-90 0 -90): pitch -135, yaw -90 (a 180 step), roll -135
+	CHECK(fabsf(ang[0] + 135) < 1e-2f && fabsf(ang[1] + 90) < 1e-2f && fabsf(ang[2] + 135) < 1e-2f);
+	CountPose(0.5f, start, ang0, ang0, org, ang); // node 2 (-90 0 -90) to node 3 (0 180 0): -45, 90, -45
+	CHECK(fabsf(ang[0] + 45) < 1e-2f && fabsf(ang[1] - 90) < 1e-2f && fabsf(ang[2] + 45) < 1e-2f);
+	CountPose(0.6f, start, ang0, ang0, org, ang); // the end of the path: node 3, up 4, forward -60, angles 0 180 0, and it stays
+	CHECK(fabsf(org[0] - 130) < 1e-3f && fabsf(org[1] - 200) < 1e-3f && fabsf(org[2] - 59) < 1e-3f);
+	CHECK(fabsf(ang[0]) < 1e-3f && fabsf(ang[1] - 180) < 1e-3f && fabsf(ang[2]) < 1e-3f);
+	CountPose(0.9f, start, ang0, ang0, org, ang);
+	CHECK(fabsf(org[0] - 130) < 1e-3f && fabsf(org[2] - 59) < 1e-3f);
+	// the numeral follows the view: the start stays, the path turns with the camera (now looking down +y: forward +y)
+	const float ang90[3] = {0, 90, 0};
+	CountPose(0.6f, start, ang0, ang90, org, ang);
+	CHECK(fabsf(org[0] - 190) < 1e-3f && fabsf(org[1] - 140) < 1e-3f && fabsf(org[2] - 59) < 1e-3f); // forward -60 is now -y
+	// a start in a view looking down +y is 90 along +y
+	CountStart(cam, ang90, start);
+	CHECK(fabsf(start[0] - 100) < 1e-3f && fabsf(start[1] - 290) < 1e-3f && fabsf(start[2] - 55) < 1e-3f);
+}
+
+// A number that tells two drawings apart.
+static long Sig(const Rec& r)
+{
+	long h = 0;
+	for (const Rec::F& q : r.f)
+		h = h * 31 + q.x * 7 + q.y * 13 + q.w * 3 + q.h;
+	return h;
+}
+
+static bool InTop(const Rec& r, int W, int H)
+{
+	bool middle = false;
+	for (const Rec::F& q : r.f)
+		if (q.x < W / 2 + 60 && q.x + q.w > W / 2 - 60 && q.y + q.h > 60 && q.y < H - 60)
+			middle = true;
+	return middle;
+}
+
+// A rally scene at many sizes: every piece in the place HL Rally gives it, nothing off the screen, nothing in the middle of the road.
+static void CheckRallyPaint(const MapData& map)
+{
+	static const int sizes[][2] = {{640, 480}, {800, 600}, {1280, 720}, {1920, 1080}, {1024, 768}, {1366, 768}, {2560, 1440}};
+	const float now = 500;
+	for (const auto& sz : sizes)
+	{
+		const int W = sz[0], H = sz[1];
+		for (int third = 0; third < 2; third++)
+		{
+			Model m;
+			RallyModel rm;
+			RallyModelOn(m, rm, map, now);
+			rm.third = third != 0;
+			m.state = RACE_RACING;
+			m.t0 = m.raceStart = now - 83.5f;
+			m.lapStart = now - 41.25f;
+			Rec rec(W, H);
+			{
+				RallyModel a = rm;
+				RallyPainter(rec, m, a, now).Paint();
+			}
+			CHECK(!rec.f.empty());
+			bool outside = false;
+			for (const Rec::F& q : rec.f)
+				outside |= q.x < 0 || q.y < 0 || q.x + q.w > W || q.y + q.h > H;
+			CHECK(!outside);
+			CHECK(!InTop(rec, W, H));
+
+			Bounds speed(W, H), lap(W, H), cp(W, H), place(W, H), clocks(W, H);
+			RallyModel a = rm;
+			RallyPainter(speed, m, a, now).Speed3(); // the speed from W - 52 (:980-981) and the gear from W - 152 (:1182)
+			CHECK(!speed.Empty() && speed.x0 >= W - 152 - 1 && speed.x1 <= W - 4 + 1);
+			CHECK(speed.y0 >= H - 32 - 1 && speed.y1 <= H - 32 + 19 + 1);
+			RallyPainter(lap, m, a, now).Lap();
+			RallyPainter(cp, m, a, now).Checkpoints();
+			RallyPainter(place, m, a, now).PlaceDigits();
+			RallyPainter(clocks, m, a, now).Clocks3();
+			CHECK(!lap.Empty() && lap.x0 >= 20 - 1 && lap.y0 >= 16 - 1 && lap.x1 <= 56 + 16 + 1 + 40 && lap.y1 <= 56 + 44 + 1);                    // :1001-1018
+			CHECK(!cp.Empty() && cp.x0 >= 16 - 1 && cp.y0 >= 106 - 1 && cp.y1 <= 106 + 19 + 1);                                                 // :1034-1054
+			CHECK(!place.Empty() && place.y0 >= 16 - 1 && place.y1 <= 16 + 37 + 1 && place.x0 >= W / 2 - 24 - 1 && place.x1 <= W / 2 + 24 + 36); // :1063-1088
+			CHECK(!clocks.Empty() && clocks.x0 >= W - 176 - 1 && clocks.x1 <= W - 176 + 16 * 8 + 4 && clocks.y0 >= 16 - 1 && clocks.y1 <= 124 + 19 + 1); // :1098-1141
+
+			// :1062 the place only in the views that show the car: Paint draws it when third, and not otherwise
+			bool placeUp = false;
+			for (const Rec::F& q : rec.f)
+				placeUp |= q.y >= 16 - 1 && q.y + q.h <= 16 + 38 && q.x >= W / 2 - 25 && q.x + q.w <= W / 2 + 60;
+			CHECK(placeUp == (third != 0));
+		}
+	}
+}
+
+static void CheckRallyContent(const MapData& map)
+{
+	const int W = 1280, H = 720;
+	const float now = 500;
+	Model m;
+	RallyModel rm;
+	RallyModelOn(m, rm, map, now);
+	m.state = RACE_RACING;
+	m.t0 = m.raceStart = now - 83.5f;
+	m.lapStart = now - 41.25f;
+
+	// what ours drew and HL Rally does not is gone: a note, wrong way, the countdown's lamps, the REVERSE word, the gauge
+	Rec base(W, H);
+	{
+		RallyModel a = rm;
+		RallyPainter(base, m, a, now).Paint();
+	}
+	Model n = m;
+	n.noteKind = RACE_NOTE_CHECKPOINT;
+	n.noteA = 3;
+	n.noteB = 7;
+	n.noteTime = 2317;
+	n.noteAt = now - 1;
+	n.flags |= RACE_SF_WRONGWAY;
+	Rec withNote(W, H);
+	{
+		RallyModel a = rm;
+		RallyPainter(withNote, n, a, now).Paint();
+	}
+	CHECK(withNote.f.size() == base.f.size()); // no note and no WRONG WAY in rally mode
+	Model cd = m;
+	cd.state = RACE_COUNTDOWN;
+	cd.t0 = now + 2.6f;
+	cd.raceStart = cd.t0;
+	Rec lamps(W, H);
+	{
+		RallyModel a = rm;
+		RallyPainter(lamps, cd, a, now).Paint();
+		CHECK(lamps.Count(LAMP_RED) == 0 && lamps.Count(LAMP_GREEN) == 0 && lamps.Count(LAMP_OFF) == 0); // no lamps
+	}
+	Model wu = m;
+	wu.state = RACE_WAITING;
+	wu.t0 = now + 6.4f;
+	Rec warm(W, H);
+	{
+		RallyModel a = rm;
+		a.third = false; // the place is not up in the interior: the top's middle is then empty
+		RallyPainter(warm, wu, a, now).Paint();
+		bool topMiddle = false;
+		for (const Rec::F& q : warm.f)
+			topMiddle |= q.y < 40 && q.x < W / 2 + 100 && q.x + q.w > W / 2 - 100;
+		CHECK(!topMiddle); // no "RACE STARTS IN" there
+	}
+	// reverse is the letter R in the gear box, not a word (:1196-1201); N at gear 0 (:1203-1207), the digit otherwise (:1208)
+	{
+		Rec rev(W, H), neu(W, H), g3(W, H);
+		RallyModel a = rm, b = rm, c = rm;
+		a.reversing = true;
+		a.gear = 0;
+		b.gear = 0;
+		c.gear = 3;
+		RallyPainter(rev, m, a, now).Speed3();
+		RallyPainter(neu, m, b, now).Speed3();
+		RallyPainter(g3, m, c, now).Speed3();
+		CHECK(Sig(rev) != Sig(neu)); // R and N are different letters
+		CHECK(Sig(g3) != Sig(neu));
+		CHECK(Sig(g3) != Sig(rev));
+	}
+	// the colours: the lap and the place white, the rest orange 255 75 14
+	CHECK(base.Count(RH_ORANGE) > 0 && base.Count(RH_WHITE) > 0);
+	// the finished lap's time: grey while it blinks, for 4 s from the lap's start (:1117-1126)
+	{
+		RallyModel a = rm;
+		a.lastLapCs = 4100;
+		Model k = m;
+		k.lapStart = now - 2.0f;
+		Rec lit(W, H), off(W, H);
+		RallyPainter(lit, k, a, 500.0f).Clocks3();
+		RallyPainter(off, k, a, 500.5f).Clocks3();
+		CHECK(lit.Count(RH_GREY) > 0);  // frac 0.0: lit
+		CHECK(off.Count(RH_GREY) == 0); // frac 0.5: off, and nothing in orange in its place on that row
+		const RallyLayout l = RallyLayoutFor(W, H);
+		bool lapRowOff = true;
+		for (const Rec::F& q : off.f)
+			lapRowOff &= !(q.y >= l.lapY && q.y < l.lapY + 19 && q.x >= l.timeX && q.x < l.timeX + 128 && q.r == 255 && q.g == 75 && q.b == 14);
+		CHECK(lapRowOff);
+		Rec after(W, H);
+		k.lapStart = now - 4.5f; // over: the lap's running time, orange
+		RallyPainter(after, k, a, 500.0f).Clocks3();
+		CHECK(after.Count(RH_GREY) == 0);
+	}
+	// the time left: red at (8, H - 32) in the last 30 s once the first has finished, or in the time-extension mode (:1150-1180)
+	{
+		Model k = m;
+		k.state = RACE_FINISHED;
+		k.t0 = now + 20.0f;
+		RallyModel a = rm;
+		Rec r(W, H);
+		RallyPainter(r, k, a, now).TimeLeft();
+		CHECK(r.Count(RH_RED) > 0);
+		bool placed = true;
+		for (const Rec::F& q : r.f)
+			placed &= q.x >= 8 - 1 && q.y >= H - 32 - 1 && q.x + q.w <= 8 + 16 * 8 + 1;
+		CHECK(placed);
+		k.t0 = now + 45.0f; // more than 30 s to go: not shown
+		Rec r2(W, H);
+		RallyPainter(r2, k, a, now).TimeLeft();
+		CHECK(r2.Count(RH_RED) == 0);
+		Model j = m;
+		j.limitEnd = now + 100;
+		Rec r3(W, H);
+		RallyPainter(r3, j, a, now).TimeLeft();
+		CHECK(r3.Count(RH_RED) > 0);
+	}
+	// the radar's squares over the map's picture (:204-345): the others red 8 x 8 at pos/2 + 22, the player green
+	{
+		RallyModel a = rm;
+		a.mapSprite = true;
+		Model k = m;
+		k.dotCount = 2;
+		k.dots[0].index = 3; // the player's own, not drawn from the list
+		k.dots[0].x = 0;
+		k.dots[0].y = 0;
+		k.dots[1].index = 5;
+		k.dots[1].x = 400; // world 3200 -> byte 228
+		k.dots[1].y = 200; // world 1600 -> byte 178
+		float gx = 0, gy = 0;
+		for (int frame = 0; frame < 3; frame++)
+		{
+			Rec fr(W, H);
+			RallyPainter(fr, k, a, now).RadarSquares();
+			gx = RadarSmooth(gx, 228);
+			gy = RadarSmooth(gy, 178);
+			CHECK(fabsf(a.radarX[0] - gx) < 1e-3f && fabsf(a.radarY[0] - gy) < 1e-3f); // smoothed from 0, a seventh a frame
+			if (frame == 2)
+			{
+				int x, y;
+				RadarOther(H, gx, gy, x, y);
+				CHECK(fr.Covers(RH_RADAR_OTHER, x, y) && !fr.Covers(RH_RADAR_OTHER, x - 4, y - 4)); // the corner is cut
+				CHECK(fr.Covers(RH_RADAR_OTHER, x - 4, y) && fr.Covers(RH_RADAR_OTHER, x + 3, y) && !fr.Covers(RH_RADAR_OTHER, x + 4, y));
+				RadarSelf(H, 3200, -1600, x, y);
+				CHECK(fr.Covers(RH_RADAR_SELF, x, y));
+				CHECK(fr.Count(RH_RADAR_SELF) == 2 && fr.Count(RH_RADAR_OTHER) == 2);
+			}
+		}
+		// no picture: no squares, and our lap line is drawn as before
+		RallyModel nb = rm;
+		Rec no(W, H);
+		RallyPainter(no, k, nb, now).RadarSquares();
+		CHECK(no.Count(RH_RADAR_SELF) == 0 && no.Count(RH_RADAR_OTHER) == 0);
+		Rec line(W, H), picture(W, H);
+		RallyModel l1 = rm, l2 = rm;
+		l2.mapSprite = true;
+		Model k2 = m;
+		RallyPainter(line, k2, l1, now).Paint();
+		RallyPainter(picture, k2, l2, now).Paint();
+		CHECK(line.f.size() > picture.f.size()); // the lap line stands in for the picture
+	}
+	// before the green light the clocks are --:--:-- (rallyhud.cpp:1105-1110: fRaceStart is -1 until SetTimer)
+	{
+		Model k = m;
+		k.state = RACE_COUNTDOWN;
+		k.raceStart = now + 3.0f;
+		k.lapStart = now + 3.0f;
+		RallyModel a = rm;
+		Rec r(W, H);
+		RallyPainter(r, k, a, now).Clocks3();
+		const RallyLayout l = RallyLayoutFor(W, H);
+		CHECK(r.Covers(RH_ORANGE, l.timeX + 16 + 6, l.totalY + 9));  // the hyphen's bar in the second cell (x + 16)
+		CHECK(!r.Covers(RH_ORANGE, l.timeX + 16 + 6, l.totalY + 2)); // and no digit's top stroke over it
+		CHECK(!r.Covers(RH_ORANGE, l.timeX + 6, l.totalY + 9));      // the first cell is blank
+	}
+}
+
 // Every scene at every size: nothing leaves the screen, no part stands on another, and while the race runs the HUD is four small
 // pieces in the corners: nothing in the middle of the screen, and little of the screen taken.
 static void CheckLayout(const MapData& map)
@@ -898,6 +1406,11 @@ int main(int argc, char** argv)
 	CheckProtocol();
 	CheckLife();
 	CheckLayout(map);
+	CheckRallyNumbers();
+	CheckRallyLayout();
+	CheckRallyCountdown();
+	CheckRallyPaint(map);
+	CheckRallyContent(map);
 
 	if (argc > 1)
 	{
@@ -915,6 +1428,57 @@ int main(int argc, char** argv)
 				painter.Paint();
 				char name[160];
 				snprintf(name, sizeof(name), "%s/racehud-%s%s-%dx%d.png", argv[1], snow ? "snow-" : "", scene, size[0], size[1]);
+				if (!WritePng(name, pic))
+				{
+					printf("FAILED: cannot write %s\n", name);
+					g_failed++;
+				}
+				else
+					printf("%s  (%d rectangles)\n", name, painter.rects);
+			}
+		}
+	}
+
+	if (argc > 1)
+	{
+		// rally mode: HL Rally's HUD, with a stand-in for each sprite (a grey box where the game draws the dial, the map's picture and the needle)
+		static const int sizes[][2] = {{640, 480}, {1280, 720}, {1920, 1080}};
+		const float now = 500;
+		for (const auto& size : sizes)
+		{
+			for (int variant = 0; variant < 4; variant++)
+			{
+				Model m;
+				RallyModel rm;
+				RallyModelOn(m, rm, map, now);
+				m.state = RACE_RACING;
+				m.t0 = m.raceStart = now - 83.45f;
+				m.lapStart = now - 41.2f;
+				if (variant == 3)
+				{
+					m.lapStart = now - 2.0f;
+					rm.lastLapCs = 4100;
+				}
+				rm.third = variant != 1;
+				rm.mapSprite = variant == 2 || variant == 3;
+				rm.speed3d = 3 * 142.0f;
+				rm.gear = 3;
+				Picture pic(size[0], size[1], false);
+				const RallyLayout l = RallyLayoutFor(size[0], size[1]);
+				pic.Fill(l.dialsX, l.dialsY, 225, 233, 120, 120, 130, 90); // the dial's sprite
+				if (rm.mapSprite)
+					pic.Fill(l.mapX, l.mapY, 128, 128, 60, 110, 60, 140); // the map's picture
+				RallyModel keep = rm;
+				RallyPainter painter(pic, m, keep, now);
+				painter.Paint();
+				if (rm.third)
+				{
+					float q[4][2];
+					NeedleQuad(size[0], size[1], 140.0f, q); // the needle: from the centre to the middle of the quad's left edge
+					painter.Line(l.needleX, l.needleY, (int)((q[0][0] + q[1][0]) / 2), (int)((q[0][1] + q[1][1]) / 2), 2, RH_RED, 255);
+				}
+				char name[160];
+				snprintf(name, sizeof(name), "%s/racehud-rally-%s-%dx%d.png", argv[1], variant == 0 ? "chase" : (variant == 1 ? "interior" : (variant == 2 ? "map" : "lastlap")), size[0], size[1]);
 				if (!WritePng(name, pic))
 				{
 					printf("FAILED: cannot write %s\n", name);
