@@ -255,6 +255,23 @@ int main()
 		Check(!k.Press(false, 11.5f) && !k.Press(true, 11.9f), "put-back: the refused press at 10.99 did not push the next one back");
 	}
 
+	// the put-back's counter (HL Rally's ClientKill, S:dlls/client.cpp:404-405): back one when no respawn was found
+	{
+		RaceBook b;
+		b.Configure(4, 2);
+		b.Add(1);
+		b.Start(0);
+		b.Enter(1, 0, 1); // off the grid
+		b.Enter(1, 1, 2);
+		b.Enter(1, 2, 3);
+		Check(b.Find(1)->next == 3 && b.Find(1)->last == 2 && b.Find(1)->passed == 2, "put-back: after checkpoints 1 and 2 the next is 3");
+		Check(b.RollBack(1) && b.Find(1)->next == 2 && b.Find(1)->last == 1 && b.Find(1)->passed == 1, "put-back: the counter goes back one, he must pass 2 again");
+		Check(b.Enter(1, 2, 4) == RACE_EV_CHECKPOINT && b.Find(1)->next == 3, "put-back: passing 2 again counts and goes on");
+		b.RollBack(1);
+		b.RollBack(1);
+		Check(b.Find(1)->next == 1 && b.Find(1)->last == -1 && !b.RollBack(1), "put-back: back to the first checkpoint, and no further (HL Rally's increment at 0 is not copied)");
+	}
+
 	// the car menu's money (HL Rally: S:dlls/player.cpp:314-382, S:dlls/rally_checkpoint.cpp:180-207, 355)
 	{
 		RallyShop p;

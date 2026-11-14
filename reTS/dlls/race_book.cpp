@@ -172,6 +172,20 @@ void RaceBook::Placed(int id)
 	racer->hasDistance = false;
 }
 
+bool RaceBook::RollBack(int id)
+{
+	RaceRacer* racer = Slot(id);
+	if (!m_running || !racer || racer->finished || racer->retired || racer->last < 1 || racer->passed < 1)
+		return false;
+	racer->next = racer->last;
+	racer->last = racer->last == 1 ? -1 : racer->last - 1;
+	racer->passed--;
+	racer->away = 0;
+	racer->wrongWay = false;
+	racer->hasDistance = false;
+	return true;
+}
+
 void RaceBook::Retire(int id)
 {
 	RaceRacer* racer = Slot(id);

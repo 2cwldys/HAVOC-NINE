@@ -224,6 +224,7 @@ public:
 	void PutOnSlot(CBasePlayer* pPlayer);
 	int SlotOf(CBasePlayer* pPlayer);
 	bool RespawnPoint(CBasePlayer* pPlayer, Vector& origin, Vector& angles);
+	void PutBack(CBasePlayer* pPlayer);
 	void Placed(CBasePlayer* pPlayer);
 
 private:
@@ -1229,6 +1230,43 @@ bool CRaceRules::RespawnPoint(CBasePlayer* pPlayer, Vector& origin, Vector& angl
 	return RaceGridSlot(SlotOf(pPlayer), origin, angles);
 }
 
+// HL Rally's ClientKill (S:dlls/client.cpp:340-417), parity with it:
+//   which respawn     the checkpoint passed last (its iuser4 - 1, iuser4 being the next one: :355-359); before the first, the
+//                     line's (iuser4 0 wraps to the last checkpoint, which is the line there: :362-365). Exactly that one
+//                     (:375): no search among earlier ones.
+//   where             its origin + 1 up, at rest, facing its angles (:377-383)
+//   no such respawn   a normal spawn point (our grid slot: :392-398) and the counter goes back one (:404-405); with a
+//                     respawn found it is left as it is (:384 returns before that)
+//   not copied        HL Rally's `else if (iuser4 < total - 1) iuser4++` at counter 0 (:406-407): it skips a checkpoint.
+void CRaceRules::PutBack(CBasePlayer* pPlayer)
+{
+	const int index = pPlayer ? pPlayer->entindex() : 0;
+	if (index < 1 || index > RACE_MAX_PLAYERS)
+		return;
+	Vector origin, angles;
+	const RaceRacer* racer = m_book.Find(index);
+	if (racer && m_book.Running())
+	{
+		const int number = racer->last >= 0 ? racer->last : 0;
+		CBaseEntity* pEntity = NULL;
+		while ((pEntity = UTIL_FindEntityByClassname(pEntity, "race_respawn")) != NULL)
+		{
+			if (static_cast<CRaceRespawn*>(pEntity)->m_iCheckpoint == number)
+			{
+				RallyPut(pPlayer, pEntity->pev->origin + Vector(0, 0, 1), pEntity->pev->angles);
+				Placed(pPlayer);
+				return;
+			}
+		}
+		m_book.RollBack(index);
+	}
+	if (RaceGridSlot(SlotOf(pPlayer), origin, angles))
+	{
+		RallyPut(pPlayer, origin + Vector(0, 0, 1), angles);
+		Placed(pPlayer);
+	}
+}
+
 void CRaceRules::Placed(CBasePlayer* pPlayer)
 {
 	const int index = pPlayer ? pPlayer->entindex() : 0;
@@ -1391,16 +1429,11 @@ void CRaceRules::RallyFrame(float dt)
 		pev->skin = RaceRallySkin(seat.slot);
 
 		// the put-back key (HL Rally's `k`, ClientKill): at once on the press, a second's rest after one; the respawn of the
-		// last checkpoint passed, one unit up, at rest. There is no automatic put-back: a car that falls out of the world or
+		// last checkpoint passed (PutBack lists how it matches HL Rally's), one unit up, at rest. There is no automatic put-back: a car that falls out of the world or
 		// into water stays there, as in HL Rally.
 		if (seat.putKey.Press((pev->button & IN_RELOAD) != 0 || TakePutAsked(index), gpGlobals->time))
 		{
-			Vector origin, angles;
-			if (RespawnPoint(pPlayer, origin, angles))
-			{
-				RallyPut(pPlayer, origin + Vector(0, 0, 1), angles);
-				Placed(pPlayer);
-			}
+			PutBack(pPlayer);
 		}
 
 		// the state bytes: what he stands on is read twice a second, down from his origin

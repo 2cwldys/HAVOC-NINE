@@ -79,6 +79,10 @@ public:
 	void Progress(int id, float distance, float dt);
 	// A racer put back on the track (a respawn): the wrong-way watch begins again.
 	void Placed(int id);
+	// HL Rally's `kill` when the car is put on a normal spawn point (no respawn entity for its checkpoint): the counter goes
+	// back one, S:dlls/client.cpp:404-405. He must pass the last checkpoint again. False (nothing changed) when there is
+	// nothing to take back: no checkpoint passed in this lap, the line itself, a finished or retired racer.
+	bool RollBack(int id);
 	// Out of time: he races no further and is placed after those who finish.
 	void Retire(int id);
 	// Works out every racer's place: the finished in their order, then by laps, checkpoints, and distance left.

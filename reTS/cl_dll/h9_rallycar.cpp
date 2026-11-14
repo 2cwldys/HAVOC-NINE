@@ -573,7 +573,7 @@ void H9RallyLog_Frame(const struct usercmd_s* cmd, float frametime)
 
 void H9RallyCam_Init()
 {
-	s_cvLog = CVAR_CREATE("cl_h9_rally_log", "1", FCVAR_ARCHIVE); // 1: the input model's frames to rallylog/cl_<map>_<date-time>.txt
+	s_cvLog = CVAR_CREATE("cl_h9_rally_log", "0", FCVAR_ARCHIVE); // 0 (the default): no log; 1 (the command `cl_h9_rally_log 1`): the input model's frames to rallylog/cl_<map>_<date-time>.txt
 	s_cvView = CVAR_CREATE("cl_h9_rallyview", "4", 0); // 0 chase, 2 bonnet, 3 side, 4 interior; a new map sets it to 4 (HL Rally: chase)
 	s_cvBack = CVAR_CREATE("cl_h9_rallycam_dist", "40", FCVAR_ARCHIVE); // HL Rally's cam_wishdist
 	s_cvPivot = CVAR_CREATE("cl_h9_rallycam_pivot", "10", FCVAR_ARCHIVE); // the chase camera's pivot above the car's origin (26 - 16 in HL Rally)

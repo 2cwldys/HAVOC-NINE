@@ -43,9 +43,9 @@ static cvar_t h9_rally = {"h9_rally", "0", FCVAR_SERVER};
 // 1: each rally player's movement prints one line every half second to the server console (pm_shared/h9_rally.cpp, DebugLine).
 // pmove reaches no cvar of ours, so the flag goes to it in the physinfo key "rdbg", as "rally" does.
 static cvar_t h9_rally_debug = {"h9_rally_debug", "0", 0};
-// 1 (the default): every rally car's pmove command is written as a CSV line to <gamedir>/rallylog/srv_<map>_<date-time>.txt
-// (pm_shared/h9_rallylog.h has the columns). 0: no file.
-static cvar_t h9_rally_log = {"h9_rally_log", "1", FCVAR_ARCHIVE};
+// 0 (the default): no log. 1 (set by the command `h9_rally_log 1`): every rally car's pmove command is written as a CSV line to <gamedir>/rallylog/srv_<map>_<date-time>.txt
+// (pm_shared/h9_rallylog.h has the columns).
+static cvar_t h9_rally_log = {"h9_rally_log", "0", FCVAR_ARCHIVE};
 
 // What a car is told its speed limit is: nothing of The Specialists' loadout (SetPlayerSpeed: 0..330) may clamp it. Rally's own
 // movement does not read maxspeed (the wish speed is the car's stat), but PM_CheckParamters scales the command by it first.
