@@ -72,6 +72,7 @@ struct Dyn
 	float wheel; // HL Rally's steer_wheel_angle, positive to the right, +-10
 };
 Dyn s_dyn = {false, 0, false, false, 0};
+H9RallyKeys s_lastKeys = {0, 0, 0, false, false, false}; // the keys of the last CL_CreateMove (the sounds read them: h9_rallysnd.cpp)
 
 // The local car's predicted state, from the refdef of the last frame (what CL_CreateMove of the next one reads).
 struct Note
@@ -597,6 +598,7 @@ float H9RallySteer_End(float viewYaw, const H9RallyKeys& k)
 	s_dyn.braking = k.brake || k.handbrake;
 	s_dyn.throttle = k.throttle;
 	s_dyn.wheel = s_steer.wheel;
+	s_lastKeys = k;
 	return out.heading;
 }
 
@@ -614,4 +616,32 @@ float H9RallyCam_Fov()
 {
 	const float f = CvF(s_cvFov, 90.0f);
 	return H9RallyCam_LocalIsCar() && f > 1.0f ? f : 0.0f;
+}
+
+// What the sounds (h9_rallysnd.cpp) read of the local car: the steering's gearbox and the predicted state, and the keys of the last command.
+bool H9RallyCar_DriveNote(H9RallyDriveNote& o)
+{
+	memset(&o, 0, sizeof(o));
+	if (!H9RallyCam_LocalIsCar() || !s_steer.init)
+		return false;
+	o.rpm = s_steer.box.rpm;
+	o.gear = s_steer.box.gear;
+	o.tractionLoss = s_steer.tractionLoss;
+	o.valid = FreshNote();
+	o.onGround = !o.valid || s_note.onGround;
+	if (o.valid)
+	{
+		o.vel[0] = s_note.vel.x;
+		o.vel[1] = s_note.vel.y;
+		o.vel[2] = s_note.vel.z;
+		o.org[0] = s_note.org.x;
+		o.org[1] = s_note.org.y;
+		o.org[2] = s_note.org.z;
+	}
+	o.heading = s_steer.heading;
+	o.carClass = LocalRallyClass();
+	o.throttle = s_lastKeys.throttle;
+	o.brake = s_lastKeys.brake;
+	o.handbrake = s_lastKeys.handbrake;
+	return true;
 }

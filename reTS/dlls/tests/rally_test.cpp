@@ -13,6 +13,7 @@
 #define H9RALLY_MATHS_ONLY
 #include "../../pm_shared/h9_rally.h"
 #include "../h9_rally_snd.h"
+#include "../race_rally.h"
 
 #include <cmath>
 #include <cstdio>
@@ -485,125 +486,18 @@ int main()
 		Check(fabsf(H9RallyCrashKeep(1.0f) - 1.0f) < 1e-5f, "grazing a wall keeps all of it");
 	}
 
-	// --- sounds: the gearbox, the skid, the hit and the landing (dlls/h9_rally_snd.h) -----------------------------
+	// --- sounds: the horn and the landing, the two the server plays (dlls/h9_rally_snd.h) -----------------------------
 	{
-		const float top = RaceRallyTopSpeed(1);
-		Check(fabsf(top - 680.0f) < 1.0f, "sound: the Xsara's road top speed, the gearbox's range, is 680");
-		// HL Rally's gearbox: the shifts, driven by a speed that rises and one that falls
-		{
-			RallySndGearbox up;
-			float shiftAt[8] = {0};
-			int prevGear = 0, maxGear = 0;
-			bool rpmOk = true, gearsOk = true;
-			float lastRpm = 0;
-			float gearAt[3] = {0, 0, 0}; // the gear at 100 u/s, at flat out on sand and on neutral ground, going up
-			for (float v = 0; v <= 700.0f; v += 0.5f)
-			{
-				RallySndGearStep(up, v, true, true, 0.005f);
-				if (up.gear != prevGear)
-				{
-					gearsOk = gearsOk && up.gear == prevGear + 1;
-					if (up.gear < 8)
-						shiftAt[up.gear] = v;
-					prevGear = up.gear;
-				}
-				maxGear = up.gear > maxGear ? up.gear : maxGear;
-				rpmOk = rpmOk && up.rpm >= RSND_RPM_MIN - 0.01f && up.rpm <= RSND_RPM_MAX + 0.01f;
-				if (v == 100.0f)
-					gearAt[0] = (float)up.gear;
-				if (v == 340.0f)
-					gearAt[1] = (float)up.gear;
-				if (v == 408.0f)
-					gearAt[2] = (float)up.gear;
-				lastRpm = up.rpm;
-			}
-			Check(maxGear == 6 && gearsOk && rpmOk, "sound: the box climbs one gear at a time to sixth and the revs stay 15 to 250");
-			bool nearShift = true;
-			for (int g = 2; g <= 6; g++)
-				nearShift = nearShift && fabsf(shiftAt[g] - 380.0f * (float)(g - 1) / 3.25f) < 6.0f;
-			Check(nearShift, "sound: it shifts up near 117 u/s a gear (cs / (gear * 2) above 190, cs = speed * 3.25)");
-			Check(lastRpm > 150 && lastRpm < 200, "sound: flat out in sixth at 700 u/s the revs are the speed's (about 190)");
-			Check(gearAt[1] == 3 && gearAt[2] == 4, "sound: flat out on sand (340) is third gear, on neutral ground (408) fourth");
-
-			RallySndGearbox down;
-			down.gear = 6;
-			float downAt[8] = {0};
-			int dg = 6;
-			float v100 = 0;
-			for (float v = 700.0f; v >= 0.0f; v -= 0.5f)
-			{
-				RallySndGearStep(down, v, false, true, 0.005f);
-				if (down.gear != dg)
-				{
-					if (dg < 8 && down.gear == dg - 1)
-						downAt[dg] = v;
-					dg = down.gear;
-				}
-				if (v == 100.0f)
-					v100 = (float)down.gear;
-			}
-			Check(fabsf(downAt[6] - 240.0f * 6 / 3.25f) < 6.0f && fabsf(downAt[3] - 240.0f * 3 / 3.25f) < 6.0f,
-				"sound: coming down above cs 550 it drops a gear at cs under 240 x gear (443 u/s from sixth)");
-			Check(gearAt[0] == 1 && v100 == 2, "sound: and there is hysteresis: 100 u/s is first gear going up, second coming down");
-			Check(down.gear == 0, "sound: at a standstill the box is in neutral");
-		}
-		{
-			RallySndGearbox b;
-			for (int i = 0; i < 200; i++)
-				RallySndGearStep(b, 0, true, true, 0.01f);
-			Check(b.rpm > 200, "sound: the throttle at a standstill revs the engine up");
-			for (int i = 0; i < 400; i++)
-				RallySndGearStep(b, 0, false, true, 0.01f);
-			Check(b.rpm <= RSND_RPM_MIN + 0.1f, "sound: and letting go drops it to idle");
-			RallySndGearbox a;
-			a.gear = 4;
-			for (int i = 0; i < 100; i++)
-				RallySndGearStep(a, 400, true, false, 0.01f);
-			Check(a.rpm > 200, "sound: in the air the needle runs free with the throttle");
-		}
-		Check(RallySndPitch(RSND_RPM_MIN) == 60 && RallySndPitch(RSND_RPM_MAX) == 200 && RallySndPitch(500) == 200 && RallySndPitch(0) == 60,
-			"sound: pitch runs 60 at 15 revs to 200 at 250");
-		Check(RallySndPitch(82.0f) >= 99 && RallySndPitch(82.0f) <= 101, "sound: pitch 100 (the sample's own rate) is at 82 revs, first gear at about 50 u/s");
-		{
-			bool mono = true;
-			for (float r = 15; r < 250; r += 1)
-				mono = mono && RallySndPitch(r + 1) >= RallySndPitch(r);
-			Check(mono, "sound: the pitch rises with the revs");
-		}
-		Check(fabsf(RallySndVolume(190, true) - 0.9f) < 0.001f && fabsf(RallySndVolume(120, false) - 0.4f) < 0.001f,
-			"sound: volume is 40 + rpm/2 on the throttle, 20 + rpm/3 off it, over 150");
-		Check(RallySndVolume(100, false) < RallySndVolume(100, true), "sound: a little quieter coasting");
-		// the skid
-		Check(RallySndSkid(false, true, 300, 0.4f, false), "sound: a slide at speed starts the skid");
-		Check(!RallySndSkid(false, true, 300, 0.1f, false), "sound: no slide, no skid");
-		Check(!RallySndSkid(false, true, 60, 0.9f, false), "sound: too slow for a slide skid");
-		Check(!RallySndSkid(false, false, 300, 0.9f, false), "sound: no skid in the air");
-		Check(RallySndSkid(false, true, 100, 0.0f, true) && !RallySndSkid(false, true, 50, 0.0f, true), "sound: the handbrake skids above a small speed");
-		Check(RallySndSkid(true, true, 200, 0.2f, false) && !RallySndSkid(false, true, 200, 0.2f, false),
-			"sound: the skid holds down to a lower slip than it starts at");
-		Check(!RallySndSkid(true, true, 40, 0.5f, false), "sound: and ends when the speed is gone");
-		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_ROAD, false)) == 0 && RallySndSkidKind(RaceSurfaceByte(H9RS_CONCRETE, false)) == 0 &&
-				  RallySndSkidKind(RaceSurfaceByte(H9RS_NEUTRAL, false)) == 0,
-			"sound: hard ground has the tarmac loop");
-		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_SAND, false)) == 1 && RallySndSkidKind(RaceSurfaceByte(H9RS_DIRT, false)) == 1 &&
-				  RallySndSkidKind(RaceSurfaceByte(H9RS_GRAVEL, false)) == 1 && RallySndSkidKind(RaceSurfaceByte(H9RS_GRASS, false)) == 1,
-			"sound: sand, dirt, gravel and grass have the loose-ground loop");
-		Check(RallySndSkidKind(RaceSurfaceByte(H9RS_SNOW, false)) == 2 && RallySndSkidKind(RaceSurfaceByte(H9RS_ICE, false)) == 2,
-			"sound: snow and ice have the snow loop");
-		{
-			const RaceRallyDrive d = RaceRallyDriveOf(300, 300, 0, false, false, false, 0); // 45 degrees of slide
-			Check(RallySndSkid(false, true, 424, d.slip, false), "sound: a 45 degree slide from the race's own slip number is a skid");
-		}
-		Check(RallySndSkidVolume(0.5f, 400, false) > RallySndSkidVolume(0.2f, 400, false), "sound: a bigger slide skids louder");
-		// walls and landings
-		Check(RallySndHitVolume(600, 400) > 0.8f && RallySndHitVolume(300, 150) > 0.4f, "sound: a crash takes speed in one frame and sounds");
-		Check(RallySndHitVolume(680, 3) == 0 && RallySndHitVolume(680, 100 - 1) == 0, "sound: drag, brakes and a lift do not sound as a wall");
-		Check(RallySndHitVolume(1000, 150) == 0, "sound: a loss under a fifth of the speed is not a wall");
-		Check(RallySndLandVolume(200) == 0 && RallySndLandVolume(300) > 0.45f && RallySndLandVolume(2000) == 1.0f, "sound: only a hard landing thumps");
-		// the message limit: 10 a second is RSND_GAP
-		Check(fabsf(1.0f / RSND_GAP - 10.0f) < 0.01f, "sound: at most ten sound-change messages a second a player");
-		Check(!RallySndWorthSending(100, 101, 0.5f, 0.51f, 2, 0.04f) && RallySndWorthSending(100, 103, 0.5f, 0.5f, 2, 0.04f),
-			"sound: a change too small to hear is not sent");
+		// HL Rally's horn (dlls/rally_horn.cpp): held, once at once, then every second; the key up plays nothing
+		float next = 0.0f;
+		Check(RallySndHornStep(true, next, 5.0f) && fabsf(next - 6.0f) < 1e-5f, "sound: the horn sounds at once when the key goes down");
+		Check(!RallySndHornStep(true, next, 5.5f), "sound: and not again inside the second");
+		Check(!RallySndHornStep(false, next, 6.5f), "sound: not without the key");
+		Check(RallySndHornStep(true, next, 6.01f) && fabsf(next - 7.01f) < 1e-4f, "sound: held, it repeats once a second");
+		Check(fabsf(RSND_HORN_REPEAT - 1.0f) < 1e-6f, "sound: the repeat is 1 second (rally_horn.cpp: fHornTime = time + 1)");
+		// pm_shared.c:859: every landing at 0.2, pitch 100; a one-shot's 200/255 (rally_sound.cpp:134)
+		Check(fabsf(RSND_LAND_VOL - 0.2f) < 1e-6f && RSND_LAND_PITCH == 100, "sound: a landing is 0.2 at pitch 100");
+		Check(fabsf(RSND_ONESHOT_VOL - 200.0f / 255.0f) < 1e-3f, "sound: a one-shot is 200/255 of the file's volume");
 	}
 
 	// --- the decisions pmove makes (pm_shared/h9_rally.h) ---------------------------------------------------------

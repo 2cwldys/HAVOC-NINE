@@ -911,7 +911,8 @@ void CRaceRules::Countdown()
 		char text[16];
 		snprintf(text, sizeof(text), "%d", number);
 		RaceBig(NULL, 255, 60, 40, 1.1f, text);
-		Beep("buttons/blip1.wav", 100);
+		if (!Rally()) // a rally race has HL Rally's voice instead (cl_dll/h9_rallysnd.cpp)
+			Beep("buttons/blip1.wav", 100);
 	}
 }
 
@@ -924,7 +925,8 @@ void CRaceRules::Go()
 	m_flGantryOff = gpGlobals->time + RACE_GREEN_TIME;
 	m_flFinishEnd = m_flResultsEnd = 0;
 	RaceBig(NULL, 60, 255, 80, 1.5f, "GO!");
-	Beep("buttons/bell1.wav", 110);
+	if (!Rally())
+		Beep("buttons/bell1.wav", 110);
 	SetState(RACE_RACING);
 }
 
@@ -995,7 +997,8 @@ void CRaceRules::Tell(int index, CBasePlayer* pPlayer, RaceEvent event, int chec
 		snprintf(text, sizeof(text), "* %s finishes %s in %s (best lap %s)\n", STRING(pPlayer->pev->netname),
 			RaceOrdinal(racer->finishPlace), RaceTime(racer->total), RaceTime(racer->bestLap));
 		UTIL_ClientPrintAll(HUD_PRINTTALK, text);
-		Beep("buttons/bell1.wav", 100);
+		if (!Rally())
+			Beep("buttons/bell1.wav", 100);
 		break;
 	case RACE_EV_WRONGWAY:
 		m_seats[index].nextWarn = 0; // said at once, by Status

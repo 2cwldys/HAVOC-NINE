@@ -72,3 +72,19 @@ void H9RallySteer_NoteView(const float simorg[3], const float simvel[3], bool on
 bool H9RallyCar_LocalSpeed(float& speed3d, float& alongNose);
 // The FOV the car's view wants (HL Rally's 90), or 0 for the player's own.
 float H9RallyCam_Fov();
+
+// What the sounds read of the local car (h9_rallysnd.cpp): the steering's gearbox (HL Rally's revs and gear), the predicted velocity and origin when
+// the last refdef noted them (`valid`), and the keys of the last CL_CreateMove. False when the local player is not a car.
+struct H9RallyDriveNote
+{
+	bool valid;
+	float rpm;
+	int gear;
+	float tractionLoss;
+	float vel[3], org[3];
+	float heading;
+	int carClass; // the physinfo "rally" value, 1..3
+	bool onGround;
+	bool throttle, brake, handbrake;
+};
+bool H9RallyCar_DriveNote(H9RallyDriveNote& out);
