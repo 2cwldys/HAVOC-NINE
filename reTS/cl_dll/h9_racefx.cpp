@@ -837,8 +837,7 @@ void H9RaceFx_Draw()
 		// cl_h9_racefx_debug 1: once a second, what the effects see (cars this frame, marks kept, the dark sprite, a car's bytes)
 		s_debugNext = s_now + 1.0f;
 		const bool dark = BindSpr(SPR_OMBRA, 0);
-		gEngfuncs.Con_Printf("racefx: cars %d, marks %d, puffs on %d, ombra %s (handle %d), car0 at %.0f %.0f %.0f len %.1f slip %d state %d speed %.1f lengths/s
-",
+		gEngfuncs.Con_Printf("racefx: cars %d, marks %d, puffs on %d, ombra %s (handle %d), car0 at %.0f %.0f %.0f len %.1f slip %d state %d speed %.1f lengths/s\n",
 			nCars, s_marks.count, doSpray ? 1 : 0, dark ? "bound" : "NOT bound", (int)s_spr[SPR_OMBRA].handle,
 			nCars > 0 ? s_pend[0].origin.x : 0.0f, nCars > 0 ? s_pend[0].origin.y : 0.0f, nCars > 0 ? s_pend[0].origin.z : 0.0f,
 			nCars > 0 ? s_pend[0].dims.len : 0.0f, nCars > 0 ? s_pend[0].b0 : 0, nCars > 0 ? s_pend[0].b1 : 0,
