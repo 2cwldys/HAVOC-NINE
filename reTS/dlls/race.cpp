@@ -298,6 +298,10 @@ private:
 	// settings (keys)
 	int m_iLaps = 3;
 	float m_flCountdown = 5, m_flMaxTime = 0, m_flFinishWait = 30;
+	bool m_bAutoJoin = false;                 // "autojoin": no lobby; whoever is on foot is put in a free grid car
+	float m_flSeatAt[RACE_MAX_PLAYERS + 1] = {}; // by player index: not before this (he has just left a car)
+	bool m_bHadCar[RACE_MAX_PLAYERS + 1] = {};
+	void AutoJoin();
 
 	// the map
 	Checkpoint m_checkpoints[RACE_MAX_CHECKPOINTS];
@@ -430,6 +434,8 @@ bool CRaceRules::KeyValue(KeyValueData* pkvd)
 		m_flMaxTime = atof(pkvd->szValue);
 	else if (FStrEq(pkvd->szKeyName, "finishwait"))
 		m_flFinishWait = atof(pkvd->szValue);
+	else if (FStrEq(pkvd->szKeyName, "autojoin"))
+		m_bAutoJoin = atoi(pkvd->szValue) != 0;
 	else
 		return CPointEntity::KeyValue(pkvd);
 	return true;
@@ -551,7 +557,7 @@ void CRaceRules::Survey()
 		picks++;
 	if (cars == 0)
 		ALERT(at_warning, "race_rules: the map has no h9_car with a slot key: nobody can race\n");
-	if (picks == 0)
+	if (picks == 0 && !m_bAutoJoin)
 		ALERT(at_warning, "race_rules: the map has no race_pick: nobody can get into a grid car\n");
 	ALERT(at_console, "race_rules: %d checkpoints, %d laps, countdown %.0f s, finishwait %.0f s, maxtime %.0f s\n",
 		m_iCheckpoints, m_iLaps, m_flCountdown, m_flFinishWait, m_flMaxTime);
@@ -695,6 +701,8 @@ void CRaceRules::RaceThink()
 		pev->nextthink = now + 5.0f;
 		return;
 	}
+	if (m_bAutoJoin)
+		AutoJoin();
 	Roster();
 	HudFrame();
 	if (m_flGantryOff > 0 && now >= m_flGantryOff)
@@ -714,6 +722,27 @@ void CRaceRules::RaceThink()
 	case RACE_COUNTDOWN: Countdown(); break;
 	case RACE_RACING:
 	case RACE_FINISHED: Race(dt); break;
+	}
+}
+
+// "autojoin": a map with no lobby (the way HL Rally's are). A player on foot is put in a free grid car: when he
+// comes in, in the middle of a race too, and three seconds after he left one (he got out, or the results are over).
+// Not while a race is ending: he would be held and then put out with the rest.
+void CRaceRules::AutoJoin()
+{
+	for (int index = 1; index <= gpGlobals->maxClients && index <= RACE_MAX_PLAYERS; index++)
+	{
+		CBasePlayer* pPlayer = RacePlayer(index);
+		const bool has = pPlayer && pPlayer->m_pTank != NULL;
+		if (m_bHadCar[index] && !has)
+			m_flSeatAt[index] = gpGlobals->time + 3.0f;
+		m_bHadCar[index] = has;
+		if (!pPlayer || has || !pPlayer->IsAlive() || m_state == RACE_FINISHED || gpGlobals->time < m_flSeatAt[index])
+			continue;
+		if (RaceSeatFree(pPlayer))
+			m_bHadCar[index] = true;
+		else
+			m_flSeatAt[index] = gpGlobals->time + 1.0f; // the grid is full: look again in a second
 	}
 }
 

@@ -40,6 +40,10 @@ bool RaceRespawnPoint(CBasePlayer* pPlayer, Vector& origin, Vector& angles);
 // as a drive through the checkpoints between and the wrong-way watch begins again.
 void RacePlaced(CBasePlayer* pPlayer);
 
+// The free grid car with the lowest slot takes this player in (h9_car.cpp). False when he has a car, is dead, or
+// the grid is full.
+bool RaceSeatFree(CBasePlayer* pPlayer);
+
 // The race_waypoint with this number (for the AI drivers of a later wave). False when the map has none.
 bool RaceWaypoint(int number, Vector& origin, float& speed, float& spread);
 

@@ -114,6 +114,8 @@ enum
 	H9SURF_DIRT,
 	H9SURF_GRASS,
 	H9SURF_WATER,
+	H9SURF_SNOW,
+	H9SURF_ICE,
 	H9SURF_COUNT
 };
 
@@ -132,6 +134,8 @@ static const H9Surface g_h9Surfaces[H9SURF_COUNT] = {
 	{"dirt", 0.60f, 0.88f, 60, 1.0f},
 	{"grass", 0.45f, 0.72f, 150, 0.4f},
 	{"water", 0.55f, 0.50f, 400, 0}, // a film of it; H9SurfaceAdd deepens it
+	{"snow", 0.50f, 0.90f, 50, 0.8f}, // packed: it lets go early and the car goes sideways a long way
+	{"ice", 0.25f, 1.00f, 0, 0.3f},
 };
 #define H9CAR_DEEP_TOP 0.25f   // water a wheel's height deep: the top speed's share
 #define H9CAR_DEEP_ROLL 900.0f // and the slowing
@@ -143,7 +147,8 @@ static const struct
 } g_h9SurfaceNames[] = {
 	{"tarmac", H9SURF_TARMAC}, {"road", H9SURF_TARMAC}, {"start", H9SURF_TARMAC}, {"gravel", H9SURF_GRAVEL},
 	{"dirt", H9SURF_DIRT}, {"grass", H9SURF_GRASS}, {"verge", H9SURF_GRASS}, {"hill", H9SURF_GRASS},
-	{"water", H9SURF_WATER},
+	{"water", H9SURF_WATER}, {"snow", H9SURF_SNOW}, {"ice", H9SURF_ICE},
+	{"wntr_cliff", H9SURF_TARMAC}, {"wntr", H9SURF_SNOW}, // a winter set's names: rock, and everything else under snow
 };
 
 // The surface a texture's name stands for. The marks a name may begin with are passed over first ("~", "{", "!",
@@ -509,6 +514,7 @@ public:
 
 private:
 	friend class CRacePick;
+	friend bool RaceSeatFree(CBasePlayer* pPlayer);
 	void PutAt(const Vector& origin, float yaw);
 	CBasePlayer* Driver();
 	void TakeWheel(CBasePlayer* pPlayer);
@@ -1392,6 +1398,26 @@ void CRacePick::Spawn()
 	pev->solid = SOLID_BBOX;
 	pev->takedamage = DAMAGE_NO;
 	UTIL_SetSize(pev, Vector(-72, -72, 0), Vector(72, 72, 76));
+}
+
+// A map with no lobby (race_rules "autojoin"): the free grid car with the lowest slot takes him, in its own skin.
+bool RaceSeatFree(CBasePlayer* pPlayer)
+{
+	if (!pPlayer || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
+		return false;
+	CH9Car* pFree = NULL;
+	CBaseEntity* pEntity = NULL;
+	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "h9_car")) != NULL)
+	{
+		CH9Car* pCar = static_cast<CH9Car*>(pEntity);
+		if (pCar->m_iSlot > 0 && !pCar->Driver() && (!pFree || pCar->m_iSlot < pFree->m_iSlot))
+			pFree = pCar;
+	}
+	if (!pFree)
+		return false;
+	pFree->PutAt(pFree->m_vecHome, pFree->m_flHomeYaw);
+	pFree->TakeWheel(pPlayer);
+	return pPlayer->m_pTank != NULL;
 }
 
 void CRacePick::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value)
