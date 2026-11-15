@@ -2,7 +2,7 @@
 #
 # h9xash_server.bat starts it beside HAVOC 9.exe -dedicated; h9xash.bat starts it with -Listen beside a Create Game
 # (a listen server), which announces itself only when listen_heartbeat=1 (below): it puts the host's address in a
-# list everyone can read. Every two minutes, while that
+# list everyone can read. Every 15 seconds, while that
 # server runs with this port, it sends {"port": <port>} to <heartbeat_url>/v1/heartbeat, the
 # list bot (serverlist-bot\README.md, docs\NETWORKING.txt section 7). The list takes the address
 # the heartbeat comes from, asks that server for its info, and lists it while it answers, so
@@ -16,7 +16,7 @@
 param(
 	[int]$Port = 27015,
 	[string]$Root = $PSScriptRoot,
-	[int]$Seconds = 120,
+	[int]$Seconds = 15,
 	[switch]$Listen
 )
 
@@ -118,15 +118,15 @@ while (-not (Test-Server))
 # an IPv6 sender is refused. curl.exe (Windows 10 1803 and later) can be told -4; PowerShell's own web calls cannot, so an
 # older Windows uses them as before.
 $script:hbCode = 0
-function Send-Heartbeat
+function Send-Heartbeat([string]$Json = $body)
 {
 	$script:hbCode = 0
 	$curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-	if (-not (Test-Path -LiteralPath $curl)) { return Invoke-RestMethod -Method Post -Uri $target -ContentType 'application/json' -Body $body -TimeoutSec 20 }
+	if (-not (Test-Path -LiteralPath $curl)) { return Invoke-RestMethod -Method Post -Uri $target -ContentType 'application/json' -Body $Json -TimeoutSec 20 }
 	$tmp = [IO.Path]::GetTempFileName()
 	try
 	{
-		[IO.File]::WriteAllText($tmp, $body)
+		[IO.File]::WriteAllText($tmp, $Json)
 		$out = @(& $curl -4 -sS --max-time 20 -X POST -H 'Content-Type: application/json' --data-binary ('@' + $tmp) -w "`n%{http_code}" $target 2>&1)
 		if ($LASTEXITCODE -ne 0) { throw (($out | ForEach-Object { [string]$_ }) -join ' ') }
 		$code = [int]($out[$out.Count - 1])
@@ -175,6 +175,8 @@ while (Test-Server)
 		$auth = Get-Auth $site $address
 		if ($auth -ne $lastAuth) { Say "$site -- $auth"; $lastAuth = $auth }
 	}
-	for ($i = 0; $i -lt $wait -and (Test-Server); $i += 5) { Start-Sleep -Seconds 5 }
+	for ($i = 0; $i -lt $wait -and (Test-Server); $i += 1) { Start-Sleep -Seconds 1 }
 }
+# the game has ended: say so, and the list takes the server off at once (a crash or a power cut is found by its next query)
+try { [void](Send-Heartbeat ('{"port":' + $Port + ',"closing":true}')); Say "$target -- closed: taken off the list" } catch { }
 exit 0

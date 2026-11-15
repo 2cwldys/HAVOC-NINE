@@ -157,17 +157,15 @@ def plural(count, word):
 
 def status_for(served, answering, silent, list_ok):
     """
-    The bot's Discord status as (status, text). "dnd" (red) while the list cannot be reached
-    at public_url, or while servers are on it and none of them answers; "online" (green) while
-    a server on the list answers; "idle" (yellow) when nothing is on the list. While the bot
-    itself is down, Discord shows it offline (grey) on its own.
+    The bot's Discord status as (status, text). "dnd" (red) only while the list itself cannot be reached at public_url;
+    "online" (green) while a server on the list answers; "idle" (yellow) when nothing is on it. A server that does not
+    answer is not on the list, so there is nothing to call unreachable. While the bot itself is down, Discord shows it
+    offline (grey) on its own.
     """
     if not list_ok:
         return "dnd", "server list unreachable"
     if answering:
         return "online", "Tracking " + plural(max(served, answering), "server")
-    if silent:
-        return "dnd", plural(silent, "server") + " unreachable"
     return "idle", "no servers to track"
 
 
@@ -436,30 +434,20 @@ class ServerList:
                 self.entries.pop(key, None)
 
     def live(self, gamedir):
-        """The servers in this game folder that answered within expire_seconds."""
-        now = time.time()
+        """
+        The servers in this game folder that answered their last query. A server that does not answer is not on the list, at
+        once: it stays queried (a seed or a keyed one), or goes with its next heartbeat, and is back the moment it answers.
+        """
         return [entry for entry in self.entries.values()
-                if entry["folder"] == gamedir
-                and entry["seen"]
-                and now - entry["seen"] <= self.settings.expire_seconds]
+                if entry["folder"] == gamedir and entry["seen"] and entry.get("answering")]
 
     def standing(self, gamedir):
         """
-        (served, answering, silent) for the Discord status: how many servers the list serves
-        now (as live() counts them), how many answered at one of the last two polls, and how
-        many are on the list without having answered in that time.
+        (served, answering, silent) for the Discord status: the servers the list serves now, which are the ones that answered
+        their last query, and no silent ones: a server that does not answer is not on the list.
         """
-        now = time.time()
-        recent = 2 * (self.settings.poll_seconds + self.settings.probe_timeout)
-        answering = silent = 0
-        for entry in self.entries.values():
-            if entry["folder"] not in (gamedir, ""):        # "" is a seed that has not answered yet
-                continue
-            if entry["seen"] and now - entry["seen"] <= recent:
-                answering += 1
-            else:
-                silent += 1
-        return len(self.live(gamedir)), answering, silent
+        answering = len(self.live(gamedir))
+        return answering, answering, 0
 
     def refusal(self, host, port, open_):
         """
@@ -517,6 +505,7 @@ class ServerList:
         entry = self.entries.get(address) or new_entry(host, port, source, open_)
         entry.update(info)
         entry["seen"] = time.time()
+        entry["answering"] = True
         self.entries[address] = entry
         log(f"listed {address} ({entry['name']}, {entry['map']}) from {source}")
         return entry, None
@@ -579,9 +568,16 @@ class ServerList:
         now = time.time()
         for key, info in zip(keys, infos):
             entry = self.entries.get(key)
-            if entry is not None and info is not None:
+            if entry is None:
+                continue
+            if info is not None:
                 entry.update(info)
                 entry["seen"] = now
+                entry["answering"] = True
+            else:
+                if entry.get("answering"):
+                    log(f"off the list: {key} does not answer")
+                entry["answering"] = False
         for key, entry in list(self.entries.items()):
             if now - (entry["seen"] or entry["added"]) > self.settings.expire_seconds:
                 log(f"dropped {key}: no answer for {self.settings.expire_seconds:g} s")
@@ -595,8 +591,9 @@ def make_app(state, settings):
     app["settings"] = settings
     app["fails"] = {}                                       # address -> [wrong keys, when the window started]
     app["rates"] = {}                                       # address -> [heartbeats without the key, when the window started]
-    app.router.add_get("/v1/servers/{gamedir}", handle_list)
+    # the .json list first: "{gamedir}" would otherwise take "ts.json" as a gamedir of its own and answer 404
     app.router.add_get("/v1/servers/{gamedir}.json", handle_list_json)
+    app.router.add_get("/v1/servers/{gamedir}", handle_list)
     app.router.add_post("/v1/heartbeat", handle_heartbeat)
     return app
 
@@ -778,6 +775,12 @@ async def handle_heartbeat(request):
             log(f"heartbeat from {sender} refused: more than {settings.heartbeats_per_minute} in {HEARTBEAT_RATE_WINDOW} s")
         return web.json_response({"ok": False, "error": "too many heartbeats from this address; wait"},
                                  status=429, headers={"Retry-After": str(HEARTBEAT_RATE_WINDOW)})
+    if body.get("closing") is True:
+        # the server says it is shutting down: off the list at once (the next query would find it gone, and so would a crash)
+        gone = request.app["state"].remove(target)
+        if gone:
+            log(f"off the list: {target[0]}:{target[1]} said it is closing")
+        return web.json_response({"ok": True, "closed": bool(gone)})
     entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}", open_=not keyed)
     if entry is None:
         return web.json_response({"ok": False, "error": reason}, status=403 if reason == BLACKLISTED else 422)
