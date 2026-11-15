@@ -1,36 +1,36 @@
 {
  "format": 1,
- "builtAt": "2026-11-11T15:16:16.972Z",
+ "builtAt": "2026-11-15T19:21:20.083Z",
  "inputs": {
-  "engine": "5cc8877810231ebc95976c88d193c2855434f53d83a9950c3a5f6f9638c86c7f",
-  "client": "d1d304c07c56c54d32a3da19fca12c556bc80456209eb3a36fbfb0d80f358add",
-  "patches": "d820402756d274ffb578f46a815c7b72b26b78c6954cef70ccfed7349ead5ed3",
+  "engine": "5251ad1648e966d777ee0887ad4d52811efbcb1c4726a0aab28bce638ef3066a",
+  "client": "7c142b2562804ead9df299c73a7ec231b97ac33b39b4ff7d3811f82aaed5c2db",
+  "patches": "c71ec773f97aa944b7674a61e719f1e2f7251ec234152f6e3267fd4239827d34",
   "builder": "70f0e86b45975b540613ad7718c5b82ae283b8a09db2984dbec2070437f65651",
-  "stager": "f669044b0ed6745364f06fd83ef0607cbf1336ea902ed391366c4f2c1d549c47",
+  "stager": "dfd759fff1215cffeb4ed2121713c5b895f451fcd3377ed35096305fc7d5344d",
   "pages": "676dca62ff18d326f60db999918dd745058a010531c6fec0aa1c437b7bbf27a3"
  },
  "counts": {
-  "engine": 7038,
-  "client": 1174,
-  "patches": 59
+  "engine": 7039,
+  "client": 1183,
+  "patches": 62
  },
  "outputs": {
-  "engine/xash.wasm": "83533c853ee7",
+  "engine/xash.wasm": "a9ff00adf185",
   "engine/xash.js": "ff0263da5ecf",
-  "cl_dll/client_emscripten_wasm32.wasm": "4b466f395059",
+  "cl_dll/client_emscripten_wasm32.wasm": "b3fc7e683fac",
   "3rdparty/mainui/libmenu.wasm": "7f603d32f440"
  },
  "smoke": {
   "ok": true,
   "checks": 6,
-  "at": "2026-11-11T15:16:16.990Z",
+  "at": "2026-11-15T19:21:20.099Z",
   "perf": {
    "fps": 60,
    "frameMs": {
     "p50": 16.7,
     "p95": 16.8,
-    "p99": 16.9,
-    "max": 17.4
+    "p99": 16.8,
+    "max": 16.9
    },
    "longTasks": {
     "count": 0,

@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "1.61"
+#define VERSION "1.62"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which
@@ -929,7 +929,7 @@ new g_cv_modelverify;
 new g_cv_modelfallback;
 new g_cv_prune, g_cv_prunedist;
 new g_cv_botreload;
-new g_cv_hoverinfo, g_cv_hoverrange, g_cv_hoverplaque, g_cv_hidenames;
+new g_cv_hoverinfo, g_cv_hoverrange, g_cv_hoverplaque, g_cv_hidenames, g_cv_hidedots;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
@@ -6822,6 +6822,8 @@ public plugin_init()
 	g_cv_hoverplaque = register_cvar("tsm_hover_plaque", "1");
 	// On a roleplay map (Apollo RP in use) an H9 game draws none of the names TS puts over the player the crosshair is on.
 	g_cv_hidenames   = register_cvar("arp_h9_hidenames", "1");
+	// And, with team play on (Apollo RP's teams follow the jobs), the small green dot TS draws over each teammate's head.
+	g_cv_hidedots    = register_cvar("arp_h9_hideteamdots", "1");
 
 	g_cv_medheal  = register_cvar("tsm_medic_heal",     "50");
 	g_cv_medcool  = register_cvar("tsm_medic_cooldown", "15.0");
@@ -14592,7 +14594,8 @@ hover_plaque(id, hit, const hname[], const cname[], hp)
 /*
  * H9Look to every player whose game reads it (protocol 5), every second: which of the names TS draws over the player the crosshair is on to leave
  * out. A teammate's, in a live round, while the plaque above takes his place (tsm_hover_plaque); every name, on a roleplay map, where Apollo RP
- * says who anyone is (arp_h9_hidenames). The client believes the last word for 15 seconds.
+ * says who anyone is (arp_h9_hidenames); and, on a roleplay map, the green dot over each teammate (arp_h9_hideteamdots). The client believes the
+ * last word for 15 seconds.
  */
 public task_look_sync()
 {
@@ -14604,6 +14607,10 @@ public task_look_sync()
 	if (g_map_rp && get_pcvar_num(g_cv_hidenames))
 	{
 		flags |= 2;
+	}
+	if (g_map_rp && get_pcvar_num(g_cv_hidedots))
+	{
+		flags |= 4;
 	}
 	if (g_state == ST_LIVE && get_pcvar_num(g_cv_hoverinfo) && get_pcvar_num(g_cv_hoverplaque))
 	{
