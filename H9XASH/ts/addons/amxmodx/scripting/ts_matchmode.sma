@@ -5620,8 +5620,8 @@ public plugin_precache()
 	}
 
 	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprites of the line along it, where the game has the model and TS's trail. TS's own trail
-	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the turret's line is the laser rifle's streak where the game has it, and a
-	// Mech's trail is H9's own picture of TS's (h9_bullet_trail.spr: the same soft ribbon at full brightness), else the same streak as the turret's.
+	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the line without H9's trail is the laser rifle's streak where the game has it,
+	// and the trail a Mech's bullet and the turret's both have is H9's own picture of TS's (h9_bullet_trail.spr: the same soft ribbon at full brightness), else that streak.
 	if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
 	{
 		if (file_exists("sprites/laserrifle_trail.spr", true))
@@ -18061,9 +18061,9 @@ turret_seek(t, Float:muzzle[3])
  * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
  * the barrel to where the round went, with a line along its path. The turret's line is drawn at once
  * from the barrel to where the round went (g_turret_trail: the laser rifle's streak, else TS's
- * bullet_trail, which is faint). A Mech's (mech) is a trail that follows the bullet and fades out
- * behind it (g_mech_trail, H9's own sprite of TS's trail), and is the turret's line where the game
- * lacks that sprite. Only a picture: the round itself landed when it was fired. A plain tracer where
+ * bullet_trail, which is faint). With mech set, which a Mech's shot and the turret's both ask for, it
+ * is a trail that follows the bullet and fades out behind it (g_mech_trail, H9's own sprite of TS's
+ * trail), and is the line above where the game lacks that sprite. Only a picture: the round itself landed when it was fired. A plain tracer where
  * the game has no such files. The answer is the seconds the bullet's entity stays in the world, 0.0
  * for a picture that holds no entity (the plain tracer).
  */
@@ -18221,7 +18221,8 @@ turret_fire(t, Float:pivot[3], Float:yaw, Float:pitch)
 	new hit = get_tr2(0, TR_pHit);
 	get_tr2(0, TR_vecEndPos, end);
 
-	turret_trail(muzzle, end);
+	// the turret's shots look as the Mech's M60 does: the ribbon that follows the bullet (H9's own trail), else its own streak
+	turret_trail(muzzle, end, true);
 
 	if (g_turret_shots[t]++ % 2 == 0)
 	{
