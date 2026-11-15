@@ -14,9 +14,9 @@ On the host (C:\\havoc9\\delta.py, run by receive-deploy.ps1; the host's Python)
     delta.py have --store S --files F             the SHA-256 of every file the host holds, one per line
     delta.py ingest TAR [TAR ...] --store S       takes a blobs tar into the store (every name a SHA-256, every file hashed)
     delta.py assemble-zip RECIPE OUT --store S --files F   builds a ZIP from a recipe
-    delta.py assemble-dir RECIPE OUTDIR --store S --files F  lays a recipe out as a folder (hard links where it can)
+    delta.py assemble-dir RECIPE OUTDIR --store S --files F  lays a recipe out as a folder (copies; --link makes hard links)
     delta.py seed-zip ZIP [ZIP ...] --store S     files the ZIP holds into the store (a first run)
-    delta.py seed-dir DIR [DIR ...] --store S     the files of a folder, hard-linked into the store
+    delta.py seed-dir DIR [DIR ...] --store S     the files of a folder, copied into the store
 """
 import argparse
 import hashlib
@@ -190,10 +190,8 @@ def store_put(src, sha, store, move):
     if move:
         os.replace(src, dst)
     else:
-        try:
-            os.link(src, dst)
-        except OSError:
-            shutil.copyfile(src, dst)
+        # a copy, never a hard link: a live file that is rewritten in place (robocopy does that) would change the stored one with it
+        shutil.copyfile(src, dst)
 
 
 def cmd_ingest(a):
@@ -285,9 +283,12 @@ def cmd_assemble_dir(a):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if os.path.exists(dst):
             os.remove(dst)
-        try:
-            os.link(src, dst)
-        except OSError:
+        if a.link:
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copyfile(src, dst)
+        else:
             shutil.copyfile(src, dst)
         if sha_file(dst) != e["sha256"]:
             die("the file for %s is not the one the recipe names" % e["path"])
@@ -354,6 +355,7 @@ def main():
             s.add_argument(n, nargs=nargs) if nargs else s.add_argument(n)
         s.add_argument("--store", required=True)
         s.add_argument("--files", default="")
+        s.add_argument("--link", action="store_true")
         s.set_defaults(f=f)
     a = p.parse_args()
     a.f(a)
