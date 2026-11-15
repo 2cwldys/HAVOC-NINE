@@ -41,6 +41,13 @@ REM text files older builds kept it in: ts\userid_resolved.cfg and ts\config.cfg
 REM docs\CUSTOM_XASH_USERID.txt.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_userid.ps1"
 
+REM ---- the certificates this PC trusts -------------------------------------------------
+REM The game checks havoc9.org's certificate against lists of its own (the game server's web
+REM module and the engine), not against Windows'. h9_cacerts.ps1 adds the certificates Windows
+REM trusts to both, so an antivirus that scans HTTPS does not cut the game off from havoc9.org.
+REM If it fails, the lists stay as they are and the game starts anyway.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_cacerts.ps1"
+
 set "MUSICLIST=ts\menu_music.txt"
 set "RESOLVED=ts\menu_music_resolved.cfg"
 set "CHOSEN=equilibrium.mp3"

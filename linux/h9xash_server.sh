@@ -46,6 +46,35 @@ for a in "$@"; do
 	case ${a,,} in -port|+port) port_args=() ;; esac
 done
 
+# The certificates this machine trusts, as h9_cacerts.ps1 does on Windows: the game checks havoc9.org's certificate against
+# lists of its own (ts/addons/amxmodx/data/amxx_easy_http_cacert.pem for the game server's web module, valve/cacert.pem for
+# the engine, read before the one inside valve/extras.pk3), not against the system's. Each becomes Mozilla's list (everything
+# above the marker line) plus the system's bundle, so a proxy or scanner the system trusts does not cut the game off from
+# havoc9.org. If anything fails, the lists stay as they are.
+h9_cacerts() {
+	local amxx=ts/addons/amxmodx/data/amxx_easy_http_cacert.pem sys='' f out tmp
+	local marker='# ---- H9: the certificates this PC trusts (h9_cacerts.ps1, on every launch) ----'
+	[ -f "$amxx" ] || return 0
+	for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem \
+		/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/cert.pem; do
+		if [ -r "$f" ]; then sys=$f; break; fi
+	done
+	[ -n "$sys" ] || return 0
+	tmp=$(mktemp 2>/dev/null) || return 0
+	{ awk -v m="$marker" '$0 == m { exit } { sub(/\r$/, ""); print }' "$amxx" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+	  printf '\n%s\n' "$marker"
+	  grep -v '^#' "$sys"
+	} > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+	for out in "$amxx" valve/cacert.pem; do
+		[ -d "$(dirname -- "$out")" ] || continue
+		cmp -s "$tmp" "$out" && continue
+		cp -f -- "$tmp" "$out.h9new" 2>/dev/null && mv -f -- "$out.h9new" "$out" 2>/dev/null
+	done
+	rm -f "$tmp"
+	return 0
+}
+( export LC_ALL=C; h9_cacerts )
+
 rm -f engine.log
 
 # The P2P helper, only when p2p.ini beside this script says enabled=1 (docs/P2P_JOIN.txt): the helper that lets friends

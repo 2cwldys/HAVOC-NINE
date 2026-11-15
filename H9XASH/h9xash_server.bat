@@ -147,6 +147,13 @@ echo [ts] p2p.ini says enabled=1, but the P2P helper cannot run here ^(see above
 
 :p2pdone
 
+REM ---- the certificates this PC trusts -------------------------------------------------
+REM The game checks havoc9.org's certificate against lists of its own (the game server's web
+REM module and the engine), not against Windows'. h9_cacerts.ps1 adds the certificates Windows
+REM trusts to both, so an antivirus that scans HTTPS does not cut the game off from havoc9.org.
+REM If it fails, the lists stay as they are and the game starts anyway.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_cacerts.ps1"
+
 REM ---- the H9 server list ------------------------------------------------------------
 REM h9_heartbeat.ps1 runs beside the server: every two minutes while HAVOC 9.exe -dedicated
 REM on that port runs, it tells the H9 server list (heartbeat_url in networking.ini,
