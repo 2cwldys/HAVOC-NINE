@@ -168,7 +168,7 @@
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.13"
+#define VERSION "1.15"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
@@ -190,8 +190,13 @@
 #define TASK_TICK  59200
 #define TASK_SOON  59201
 #define TASK_ENROLL 59202
+#define TASK_PUBLIC 59203                // h9_public: the list announcement, every 15 seconds
+#define TASK_PUBLIC1 59204               // and the first one, soon after the map's cvars are set
 #define TASK_REQUIRE 59600               // + slot: h9_require_account's check after the grace period
 
+new g_cv_public;                         // h9_public: a Create Game announces itself to the H9 server list
+new bool:g_pub_sent = false;             // announced now: a closing message is due when h9_public goes back to 0
+new g_pub_err[96];                       // why the last announcement did not get through, or ""
 new g_cv_url, g_cv_server, g_cv_key, g_cv_interval, g_cv_challenge, g_cv_names, g_cv_enroll, g_cv_autoenroll;
 new g_cv_require, g_cv_require_grace;    // h9_require_account and its grace period
 new g_cv_auth;                           // h9_authenticated: 0 asks h9web not to authenticate or rate this server
@@ -322,7 +327,10 @@ public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
 
-	g_cv_url       = register_cvar("h9_presence_url", "https://havoc9.org/api/presence/report");
+	// game.havoc9.org is a DNS-only name with an IPv4 address and no IPv6 one. A server enrolls from its IPv4 address (h9web
+	// proves it by asking that address over UDP), and havoc9.org itself is answered over IPv6 as well by Cloudflare, which
+	// the web module cannot be told to avoid.
+	g_cv_url       = register_cvar("h9_presence_url", "https://game.havoc9.org/api/presence/report");
 	g_cv_server    = register_cvar("h9_presence_server", "");
 	// The key signs this server's reports. FCVAR_PROTECTED keeps its value out of cvar
 	// listings and amx_cvar; the plugin never logs or prints it.
@@ -347,6 +355,10 @@ public plugin_init()
 	// h9_authenticated 0 opts this server out of being authenticated and rated (the report says
 	// authenticated: false). 1 asks for nothing: h9web judges what the server runs. FCVAR_SERVER: in the rules.
 	g_cv_auth = register_cvar("h9_authenticated", "1", FCVAR_SERVER);
+	// 1: this Create Game announces itself to the H9 server list every 15 seconds, so it is listed (and, on havoc9.org, public: its
+	// players show under it, not as "elsewhere"). 0, the default: it is not listed. A dedicated server announces itself through
+	// h9_heartbeat.ps1 (networking.ini heartbeat=1), not through this.
+	g_cv_public = register_cvar("h9_public", "0", FCVAR_SERVER);
 	// h9_preset names the game-mode preset this server runs, for h9web to judge the list of files by; set by
 	// configs/h9_preset.cfg (plugin_cfg), empty when no preset is named.
 	g_cv_preset = register_cvar("h9_preset", "");
@@ -420,6 +432,15 @@ public plugin_cfg()
 		server_exec();
 	}
 	check_release();
+
+	// h9_public (a Create Game only): the announcement runs on its own, whether or not this server is enrolled
+	remove_task(TASK_PUBLIC);
+	remove_task(TASK_PUBLIC1);
+	if (!is_dedicated_server())
+	{
+		set_task(5.0, "task_public", TASK_PUBLIC1);
+		set_task(15.0, "task_public", TASK_PUBLIC, "", 0, "b");
+	}
 
 	g_cv_mode   = get_cvar_pointer("tsm_pres_mode");
 	g_cv_siege  = get_cvar_pointer("tsm_pres_siege");
@@ -1570,6 +1591,87 @@ bool:coarse_net(id, out[], len)
 // ---- enrollment ---------------------------------------------------------------------------------
 
 /** h9_presence_url without its /report, and path after it. */
+/**
+ * h9_public: tells the H9 server list this Create Game is up (POST <site>/serverlist/v1/heartbeat {"port": N}), which lists it and,
+ * on havoc9.org, makes it public. Back to 0 it says it is closing, once, and the list takes it off at once. The list answers only for
+ * the address the call comes from, so the server must be reachable on its UDP port from the internet, as for any listed server.
+ */
+public task_public()
+{
+	if (is_dedicated_server() || !g_selftest || !url_ok())
+	{
+		return;
+	}
+	if (get_pcvar_num(g_cv_public) == 1)
+	{
+		g_pub_sent = true;
+		send_public(false);
+	}
+	else if (g_pub_sent)
+	{
+		g_pub_sent = false;
+		send_public(true);
+	}
+}
+
+send_public(bool:closing)
+{
+	new host[96], url[200], body[64];
+	site_host(host, charsmax(host));
+	new port = get_cvar_num("hostport");
+	if (port <= 0)
+	{
+		port = get_cvar_num("port");
+	}
+	if (port <= 0)
+	{
+		port = 27015;
+	}
+	// http:// only to this machine (a test site), as for h9_presence_url
+	formatex(url, charsmax(url), "%s://%s/serverlist/v1/heartbeat", equal(host, "127.0.0.1", 9) || equal(host, "localhost", 9) ? "http" : "https", host);
+	if (closing)
+	{
+		formatex(body, charsmax(body), "{^"port^":%d,^"closing^":true}", port);
+	}
+	else
+	{
+		formatex(body, charsmax(body), "{^"port^":%d}", port);
+	}
+	new EzHttpOptions:opt = ezhttp_create_options();
+	ezhttp_option_set_header(opt, "Content-Type", "application/json");
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.15");
+	ezhttp_option_set_timeout(opt, 10000);
+	ezhttp_option_set_connect_timeout(opt, 5000);
+	ezhttp_option_set_body(opt, body);
+	ezhttp_post(url, "on_public", opt);
+}
+
+public on_public(EzHttpRequest:request_id)
+{
+	new msg[96];
+	if (ezhttp_get_error_code(request_id) != EZH_OK)
+	{
+		formatex(msg, charsmax(msg), "the H9 server list cannot be reached: HTTP error %d", _:ezhttp_get_error_code(request_id));
+	}
+	else if (ezhttp_get_http_code(request_id) != 200)
+	{
+		// 422: the list asked this server and got no answer (its UDP port is not open to the internet, or a map is loading)
+		formatex(msg, charsmax(msg), "the H9 server list refused this server: HTTP %d", ezhttp_get_http_code(request_id));
+	}
+	else
+	{
+		msg[0] = 0;
+	}
+	if (!equal(msg, g_pub_err))
+	{
+		copy(g_pub_err, charsmax(g_pub_err), msg);
+		if (msg[0])
+		{
+			log_amx("[PRESENCE] h9_public: %s", msg);
+		}
+	}
+}
+
 /** h9web's host, from h9_presence_url: havoc9.org unless a test site is set. */
 site_host(out[], len)
 {
@@ -3319,6 +3421,7 @@ public cmd_status()
 	server_print("  reports accepted this map: %d; last outcome: %d", g_accepted, g_last_status);
 	server_print("  reaching h9web: %s", g_neterr[0] ? g_neterr : "no problem seen this map");
 	server_print("  what this server runs: %d file(s) listed for h9web; %s", g_comp_n, g_comp_due ? "goes in the next report" : "h9web has it");
+	server_print("  h9_public: %s%s", get_pcvar_num(g_cv_public) == 1 ? "1 (announced to the H9 server list every 15 seconds)" : "0 (not announced)", g_pub_err[0] ? g_pub_err : "");
 	server_print("  h9_authenticated: %s", get_pcvar_num(g_cv_auth) ? "1 (h9web judges what this server runs)" : "0 (this server asks not to be authenticated or rated)");
 	new preset[32];
 	pres(g_cv_preset, preset, charsmax(preset));

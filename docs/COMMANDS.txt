@@ -4276,6 +4276,18 @@
                                       more authenticated than that. In the
                                       server's rules (docs\H9_PRESENCE.txt
                                       section 4d)
+ h9_public                 0          1: this Create Game announces itself to
+                                      the H9 server list every 15 seconds,
+                                      so it is listed (in everyone's Internet
+                                      tab) and, on havoc9.org, public: its
+                                      players show under it. Its UDP port
+                                      must be open to the internet. 0: not
+                                      listed; the host's address is not
+                                      published. A dedicated server announces
+                                      itself through h9_heartbeat.ps1
+                                      (networking.ini heartbeat=1), not
+                                      through this. In the server's rules
+                                      (docs\H9_PRESENCE.txt section 4d)
  h9_preset                 (empty)    the game-mode preset this server runs
                                       (Assault, Siege, TeamElimination):
                                       havoc9.org judges its files against that

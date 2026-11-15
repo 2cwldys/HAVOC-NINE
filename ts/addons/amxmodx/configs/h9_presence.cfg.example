@@ -84,3 +84,10 @@ h9_require_account_grace "45"
 // nothing: h9web judges what the server runs. No setting makes a server more authenticated
 // than that. The cvar is in the server's rules.
 h9_authenticated "1"
+
+
+// Public: 1 makes this Create Game announce itself to the H9 server list every 15 seconds, so it is listed in everyone's
+// Internet tab and, on havoc9.org, public: its players show under it (docs/H9_PRESENCE.txt section 4d). The host's address
+// is published then, and the UDP port must be open to the internet. 0, the default: not listed. A dedicated server
+// announces itself through h9_heartbeat.ps1 (networking.ini heartbeat=1), not through this. The cvar is in the server's rules.
+h9_public "0"
