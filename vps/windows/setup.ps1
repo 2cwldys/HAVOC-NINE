@@ -25,6 +25,9 @@
     .\setup.ps1 -P2P standalone            the relay as a service of its own (havoc9-p2p), its settings in
                                            etc\p2p, and the same firewall rule; -P2PPort 27248 is the UDP port
                                            (the one in its settings). Without -P2P nothing of it is touched.
+    .\setup.ps1 -WebFrom cloudflare        TCP 80 and 443 from Cloudflare's addresses only, so the site cannot be
+                                           reached around Cloudflare (-WebFrom any undoes it); remembered for
+                                           later runs. Only once the padlock shows and the orange cloud is on.
 
   The stack, and why: Node.js 24 runs h9web as it does on Linux; Caddy is the web server
   because it makes and renews the Let's Encrypt certificate by itself (one program, no
@@ -56,6 +59,7 @@ param(
     [string]$WebClientStage = '',
     [ValidateSet('', 'module', 'standalone')][string]$P2P = '',
     [ValidateRange(1, 65535)][int]$P2PPort = 27248,
+    [ValidateSet('', 'cloudflare', 'any')][string]$WebFrom = '',
     [switch]$NoFirewall,
     [switch]$Check,
     [switch]$FileIndex
@@ -115,6 +119,8 @@ $Logs = Join-Path $Root 'logs'
 $Downloads = Join-Path $Root 'downloads'
 $Config = Join-Path $Etc 'config.json'
 $Passphrase = Join-Path $Etc 'backup-passphrase'
+$CfFile = Join-Path $Etc 'cloudflare-ranges.txt'
+$WebFromFile = Join-Path $Etc 'web-from.txt'
 $Fwd = $Root -replace '\\', '/'
 $Warnings = New-Object System.Collections.Generic.List[string]
 $DryRun = [bool]$WhatIfPreference
@@ -147,22 +153,36 @@ function Test-Http([string]$Url)
     try { return [string](Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 5).StatusCode } catch { return 'no answer' }
 }
 
-# The downloads' file index, site\downloads\files (README-WINDOWS.txt step 13). The three files
-# the DOWNLOADS page's buttons fetch from site\downloads are symbolic links there, so the disk
-# holds one copy and a link always opens the file downloads\ holds now, whatever replaced it.
-# Each link is made again when it is missing or points elsewhere, then checked: its SHA-256 must
-# be that of the file in downloads\. A button file not there yet is skipped (an old link to it
-# goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves.
-$ButtonFiles = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe')
+# The downloads' file index, site\downloads\files (README-WINDOWS.txt step 13). The DOWNLOADS
+# page's three files (and the native Linux server, kept in site\downloads too but on no button) are
+# symbolic links there, so the disk holds one copy and a link always opens the file downloads\
+# holds now, whatever replaced it. With the build in site\downloads\.build (receive-deploy.ps1
+# writes it, a dot file nobody is served) each link carries it in its name, H9XASH-1.61.zip, and
+# the link of another build goes; without one the link has the file's own name. Each link is made
+# again when it is missing or points elsewhere, then checked: its SHA-256 must be that of the file
+# in downloads\. A file not there yet is skipped (an old link to it goes). Last, SHA256SUMS.txt
+# lists the SHA-256 of every file the index serves.
+$ButtonFiles = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe', 'H9XASH-linux-server.zip')
 function Sync-Downloads
 {
     $dl = Join-Path $Site 'downloads'
     $idx = Join-Path $dl 'files'
     if (-not (Test-Path -LiteralPath $idx)) { Step "make $idx" { New-Item -ItemType Directory -Force -Path $idx | Out-Null } }
+    $build = ''
+    $bf = Join-Path $dl '.build'
+    if (Test-Path -LiteralPath $bf) { $b = ([IO.File]::ReadAllText($bf)).Trim(); if ($b -match '^[0-9][A-Za-z0-9._-]{0,31}$') { $build = $b } }
     $sums = @{}
-    foreach ($f in $ButtonFiles) {
-        $src = Join-Path $dl $f
+    foreach ($src0 in $ButtonFiles) {
+        $base = [IO.Path]::GetFileNameWithoutExtension($src0)
+        $ext = [IO.Path]::GetExtension($src0)
+        $f = if ($build) { "$base-$build$ext" } else { $src0 }
+        $src = Join-Path $dl $src0
         $link = Join-Path $idx $f
+        # this file's links under another name (another build, or none) go
+        $mine = '^' + [regex]::Escape($base) + '(-[0-9][A-Za-z0-9._-]*)?' + [regex]::Escape($ext) + '$'
+        foreach ($old in @(Get-ChildItem -LiteralPath $idx -Force | Where-Object { $_.LinkType -eq 'SymbolicLink' -and $_.Name -match $mine -and $_.Name -ne $f })) {
+            Step "remove $($old.FullName) (not this build's name)" { Remove-Item -LiteralPath $old.FullName -Force }
+        }
         $have = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) {
             if ($have -and $have.LinkType -eq 'SymbolicLink') { Step "remove $link (no $src)" { Remove-Item -LiteralPath $link -Force } }
@@ -190,10 +210,10 @@ function Sync-Downloads
         $a = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant()
         $b = (Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($a -eq $b) {
-            Note "downloads\files\$f is downloads\$f (SHA-256 $a)"
+            Note "downloads\files\$f is downloads\$src0 (SHA-256 $a)"
             $sums[$f] = $a
         } else {
-            Warn "downloads\files\$f IS NOT THE SAME FILE as downloads\$f (SHA-256 $b, not $a): look at $idx"
+            Warn "downloads\files\$f IS NOT THE SAME FILE as downloads\$src0 (SHA-256 $b, not $a): look at $idx"
         }
     }
     if ($DryRun) { return }
@@ -226,6 +246,8 @@ if ($Check)
         if ($task) { $i = $task | Get-ScheduledTaskInfo; Note ('{0,-28} last run {1}, result {2}' -f $t, $i.LastRunTime, $i.LastTaskResult) } else { Note "$t  not installed" }
     }
     foreach ($k in @('secrets.json', 'data.key')) { if (Test-Path -LiteralPath (Join-Path $H9Data $k)) { Note "$k is in $H9Data" } }
+    $wf = 'any'; if (Test-Path -LiteralPath $WebFromFile) { $wf = ([IO.File]::ReadAllText($WebFromFile)).Trim() }
+    Note "TCP 80 and 443 from  $wf (-WebFrom)"
     exit 0
 }
 
@@ -238,6 +260,8 @@ if ($FileIndex)
     Say "the downloads' file index ($Site\downloads\files)"
     if (-not (Test-Path -LiteralPath (Join-Path $Site 'downloads'))) { Fail "no $Site\downloads yet: run .\setup.ps1 first" }
     Sync-Downloads
+    $cc = Join-Path $Root 'code-check.ps1'
+    if (Test-Path -LiteralPath $cc) { & $cc -Root $Root -Write }
     foreach ($w in $Warnings) { Write-Host "  [WARN] $w" -ForegroundColor Yellow }
     exit 0
 }
@@ -258,9 +282,20 @@ foreach ($d in @($Root, $Tools, $H9web, $ListHome, $Site, $Game, $Etc, $Data, $H
 }
 # data and logs: SYSTEM, Administrators and LocalService (the services' account) only; etc the
 # same, LocalService reading. *S-1-5-18 SYSTEM, *S-1-5-32-544 Administrators, *S-1-5-19 LocalService.
+# the root and everything that is code (h9web, site, serverlist, tools, services, game, p2p): SYSTEM and Administrators change it,
+# everyone else (LocalService too) only reads it, so a service that is broken into cannot rewrite its own code, the tools or
+# start-all.ps1 (which runs as SYSTEM at boot). Without this the root inherits C:\'s "Authenticated Users: Modify".
+Step "lock ${Root}: code only administrators may change" {
+    Invoke-Native 'icacls.exe' @($Root, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-32-545:(OI)(CI)RX', '/Q') | Out-Null
+}
 Step "lock $Data, $Logs and $Etc to SYSTEM, Administrators and LocalService" {
-    foreach ($d in @($Data, $Logs)) { Invoke-Native 'icacls.exe' @($d, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-19:(OI)(CI)M', '/T', '/Q') | Out-Null }
-    Invoke-Native 'icacls.exe' @($Etc, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-19:(OI)(CI)RX', '/T', '/Q') | Out-Null
+    foreach ($d in @($Data, $Logs)) { Invoke-Native 'icacls.exe' @($d, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-19:(OI)(CI)M', '/Q') | Out-Null }
+    Invoke-Native 'icacls.exe' @($Etc, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-19:(OI)(CI)RX', '/Q') | Out-Null
+    # what is already inside takes the folder's rules again: the same grants given to the files themselves with /T leave
+    # them with no rules at all on a second run, and then no service can read its settings
+    foreach ($d in @($Data, $Logs, $Etc)) {
+        if (Get-ChildItem -LiteralPath $d -Force | Select-Object -First 1) { Invoke-Native 'icacls.exe' @((Join-Path $d '*'), '/reset', '/T', '/C', '/Q') | Out-Null }
+    }
 }
 
 Say '2. the tools (pinned, checked)'
@@ -422,9 +457,56 @@ if ($WebClientStage) {
     }
 }
 
+# the host's own scripts, beside the folders: start-all.ps1 (start and check everything), receive-deploy.ps1 (takes a
+# delivery from deploy-vps.ps1) and code-check.ps1 (the fingerprint of all code). The root is administrators-only.
+foreach ($f in @('start-all.ps1', 'stop-all.ps1', 'receive-deploy.ps1', 'code-check.ps1', 'restore-backup.ps1')) {
+    $from = Join-Path $Here $f
+    if (Test-Path -LiteralPath $from) { Step "$f into $Root" { Copy-Item -LiteralPath $from -Destination (Join-Path $Root $f) -Force } }
+}
+# their shortcuts on every administrator's desktop (Remote Desktop): right-click, Run as administrator
+$desk = Join-Path $env:PUBLIC 'Desktop'
+if (Test-Path -LiteralPath $desk) {
+    Step "the desktop shortcuts in $desk" {
+        foreach ($c in @(@('Start-HAVOC9.cmd', 'start-all.ps1', 'Starts everything havoc9.org runs here and shows whether it works.'),
+                         @('Stop-HAVOC9.cmd', 'stop-all.ps1', 'Stops everything havoc9.org runs here (the next boot starts it again).'),
+                         @('Restore-HAVOC9-Backup.cmd', 'restore-backup.ps1', 'Lists the backups and puts the one you choose back.'))) {
+            $text = "@echo off`r`nrem $($c[2]) Right-click, Run as administrator.`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"$Root\$($c[1])`"`r`npause`r`n"
+            [IO.File]::WriteAllText((Join-Path $desk $c[0]), $text, (New-Object Text.ASCIIEncoding))
+        }
+        $l = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desk 'HAVOC9 Backups.lnk'))
+        $l.TargetPath = Join-Path $H9Data 'backups'
+        $l.Description = 'h9web backups: daily at 03:30, the newest 14 kept; log: logs\backup.log'
+        $l.Save()
+    }
+}
+
 Say '6. Caddy (HTTPS for the domain)'
 $emailLine = ''; if ($Email) { $emailLine = "email $Email" }
-$caddyfile = (Get-Content -Raw -LiteralPath (Join-Path $Here 'Caddyfile.template')).Replace('{DOMAIN}', $Domain).Replace('{ROOT}', $Fwd).Replace('{EMAIL_LINE}', $emailLine)
+# Cloudflare's published ranges (https://www.cloudflare.com/ips/), fetched on every run and kept in etc\cloudflare-ranges.txt,
+# whose copy is used when they cannot be fetched. Only well-formed ranges are taken: an odd answer must not become Caddy syntax.
+# Caddy believes CF-Connecting-IP only from them; -WebFrom cloudflare lets ports 80 and 443 in from them only.
+$cidr = '^((\d{1,3}\.){3}\d{1,3}/\d{1,2}|[0-9a-fA-F:]+/\d{1,3})$'
+$CfRanges = @()
+try {
+    $got = @()
+    foreach ($u in @('https://www.cloudflare.com/ips-v4', 'https://www.cloudflare.com/ips-v6')) {
+        $got += @(([string](Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 30).Content) -split '\s+' | Where-Object { $_ })
+    }
+    $odd = @($got | Where-Object { $_ -notmatch $cidr })
+    if ($odd.Count -or $got.Count -lt 4) { throw "an unexpected answer ($($got.Count) lines, $($odd.Count) of them not a range)" }
+    $CfRanges = $got
+    Step "write $CfFile ($($got.Count) ranges)" { [IO.File]::WriteAllText($CfFile, (($got -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false)) }
+} catch {
+    $why = $_.Exception.Message
+    if (Test-Path -LiteralPath $CfFile) {
+        $CfRanges = @([IO.File]::ReadAllLines($CfFile) | ForEach-Object { $_.Trim() } | Where-Object { $_ -match $cidr })
+        Warn "Cloudflare's ranges could not be fetched ($why): the copy in $CfFile is used"
+    } else {
+        Warn "Cloudflare's ranges could not be fetched ($why) and there is no copy: behind Cloudflare every visitor looks like Cloudflare until setup.ps1 runs again"
+    }
+}
+$trusted = ''; if ($CfRanges.Count) { $trusted = 'trusted_proxies static ' + ($CfRanges -join ' ') }
+$caddyfile = (Get-Content -Raw -LiteralPath (Join-Path $Here 'Caddyfile.template')).Replace('{DOMAIN}', $Domain).Replace('{ROOT}', $Fwd).Replace('{EMAIL_LINE}', $emailLine).Replace('{TRUSTED_PROXIES}', $trusted)
 Step "write $Etc\Caddyfile" {
     [IO.File]::WriteAllText((Join-Path $Etc 'Caddyfile'), $caddyfile, (New-Object Text.UTF8Encoding $false))
     $extra = Join-Path $Etc 'Caddyfile.extra'
@@ -524,7 +606,8 @@ $cli = "`"$Node`" `"$H9web\bin\h9web-backup.js`" --config `"$Config`""
 $tasks = @(
     @{ Name = 'havoc9 h9web backup'; At = '03:30'; Line = "$cli backup --out `"$H9Data\backups`" --keep 14 >> `"$Logs\backup.log`" 2>&1"; On = $true },
     @{ Name = 'havoc9 h9web backup offsite'; At = '03:45'; Line = "$cli backup --encrypt --with-keys --passphrase-file `"$Passphrase`" --out `"$H9Data\offsite`" --keep 7 >> `"$Logs\backup.log`" 2>&1"; On = (Test-Path -LiteralPath $Passphrase) },
-    @{ Name = 'havoc9 log cleanup'; At = '04:00'; Line = "forfiles /p `"$Logs`" /m *.log /d -30 /c `"cmd /c del @path`" 2>nul & exit /b 0"; On = $true }
+    @{ Name = 'havoc9 log cleanup'; At = '04:00'; Line = "forfiles /p `"$Logs`" /m *.log /d -30 /c `"cmd /c del @path`" 2>nul & exit /b 0"; On = $true },
+    @{ Name = 'havoc9 code check'; At = '05:30'; Line = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$Root\code-check.ps1`" -Root `"$Root`" -Check >> `"$Logs\code-check-task.log`" 2>&1"; On = (Test-Path -LiteralPath (Join-Path $Root 'code-check.ps1')) }
 )
 foreach ($t in $tasks) {
     if (-not $t.On) {
@@ -540,17 +623,40 @@ foreach ($t in $tasks) {
 
 if (-not $NoFirewall) {
     Say '10. the firewall'
-    $rules = @(@{ Name = 'havoc9 web (Caddy, TCP 80 and 443)'; Proto = 'TCP'; Ports = @('80', '443') })
+    # who may reach 80 and 443: every address, or with -WebFrom cloudflare Cloudflare's ranges only (remembered in etc\web-from.txt)
+    $webScope = 'any'
+    if ($WebFrom) {
+        $webScope = $WebFrom
+        Step "remember -WebFrom $WebFrom in $WebFromFile" { [IO.File]::WriteAllText($WebFromFile, "$WebFrom`n") }
+    } elseif (Test-Path -LiteralPath $WebFromFile) {
+        $webScope = ([IO.File]::ReadAllText($WebFromFile)).Trim()
+    }
+    $webAddr = @('Any')
+    if ($webScope -eq 'cloudflare') {
+        if ($CfRanges.Count) { $webAddr = $CfRanges } else { Warn "-WebFrom cloudflare: no Cloudflare ranges are known, so TCP 80 and 443 stay open to every address" }
+    }
+    $rules = @(@{ Name = 'havoc9 web (Caddy, TCP 80 and 443)'; Proto = 'TCP'; Ports = @('80', '443'); From = $webAddr; FromText = $webScope })
     foreach ($g in $GamePorts) {
         $parts = $g.Split('/')
         $rules += @{ Name = "havoc9 game server ($g)"; Proto = $parts[1].ToUpper(); Ports = @($parts[0]) }
     }
     if ($P2P) { $rules += @{ Name = "havoc9 p2p relay (UDP $P2PPort)"; Proto = 'UDP'; Ports = @([string]$P2PPort) } }
     foreach ($r in $rules) {
-        if (Get-NetFirewallRule -DisplayName $r.Name -ErrorAction SilentlyContinue) { Note "$($r.Name): there"; continue }
-        Step "firewall rule '$($r.Name)'" { New-NetFirewallRule -DisplayName $r.Name -Direction Inbound -Protocol $r.Proto -LocalPort $r.Ports -Action Allow -Profile Any | Out-Null }
+        $from = @('Any'); if ($r.From) { $from = $r.From }
+        if (Get-NetFirewallRule -DisplayName $r.Name -ErrorAction SilentlyContinue) {
+            if (-not $r.From) { Note "$($r.Name): there"; continue }
+            Step "firewall rule '$($r.Name)': from $($r.FromText)" { Set-NetFirewallRule -DisplayName $r.Name -RemoteAddress $from }
+            continue
+        }
+        Step "firewall rule '$($r.Name)'" { New-NetFirewallRule -DisplayName $r.Name -Direction Inbound -Protocol $r.Proto -LocalPort $r.Ports -RemoteAddress $from -Action Allow -Profile Any | Out-Null }
     }
     Note 'h9web and the list listen on 127.0.0.1 only: no rule needed for them'
+}
+
+if (-not $DryRun -and (Test-Path -LiteralPath (Join-Path $Root 'code-check.ps1'))) {
+    Say '11. the fingerprint of all code (code-check.ps1)'
+    try { if (-not [Diagnostics.EventLog]::SourceExists('havoc9')) { New-EventLog -LogName Application -Source 'havoc9' } } catch { }
+    & (Join-Path $Root 'code-check.ps1') -Root $Root -Write
 }
 
 Say 'done'
