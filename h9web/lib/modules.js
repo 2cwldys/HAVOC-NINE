@@ -53,6 +53,8 @@ export function serversHook({ servers, status }) {
       const a = st.answer;
       return Object.freeze({ name: a.name, map: a.map, mode: a.mode, players: a.players, max: a.max, bots: a.bots });
     },
+    // Whether the server announced itself to the H9 server list (a Create Game's host choosing to be public)
+    announced: (address) => !!(status && typeof status.isFeedListed === "function" && status.isFeedListed(String(address))),
     hideFromBoard: (fn) => {
       if (!status || !status.boardFilters || typeof fn !== "function") return () => {};
       status.boardFilters.add(fn);

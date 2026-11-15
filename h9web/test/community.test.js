@@ -1088,6 +1088,24 @@ describe("Create Game servers, the default picture, browser-made copies, the boa
     assert.equal(mine.owner, "Morpheus");
   });
 
+  test("a listen server whose host announced it to the H9 server list is public: its players show under it, not as elsewhere", async () => {
+    const address = "127.0.0.1:27031";
+    const shown = async () => (await request(t.base, "GET", "/api/presence/now")).json;
+    assert.ok((await shown()).elsewhere.some((w) => w.username === "Morpheus"), "private until it is announced");
+    t.app.status.feed = [{ address, kind: "ip", name: "Morpheus's game", map: "h9_te_x", mode: "", players: 1, max: 8, bots: 0, ping_ms: 5, at: Date.now() }];
+    try {
+      assert.equal(t.app.status.isFeedListed(address), true);
+      const now = await shown();
+      const here = now.servers.find((s) => s.server.address === address);
+      assert.ok(here, "the server is on the page's list of who is where");
+      assert.ok(here.players.some((p) => p.username === "Morpheus"));
+      assert.ok(!now.elsewhere.some((w) => w.username === "Morpheus"));
+    } finally {
+      t.app.status.feed = [];
+    }
+    assert.ok((await shown()).elsewhere.some((w) => w.username === "Morpheus"), "private again once it is not announced");
+  });
+
   test("a listen server enrolls only its own address, and needs the proof hooks", async () => {
     const r = await request(t.base, "POST", "/api/presence/enroll", { body: { v: 1, server: "203.0.113.77:27015", listen: true }, origin: null });
     assert.equal(r.status, 403);

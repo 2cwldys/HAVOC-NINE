@@ -379,7 +379,10 @@ export function createPresence(deps) {
   // A private community's server (community.js), and a listen server (Create Game, enroll.js: its
   // address is a player's own): left out of everything public, as a hidden "where" is. A private
   // community's members see its servers on the community's own page.
-  const privateServer = (key) => !!community.privateCommunityOf(key) || enrollment.isListen(key);
+  // A Create Game is private, its players "elsewhere", unless its host announced it to the H9 server list, which is asking to be shown; a
+  // private community's server stays private either way.
+  const announced = (key) => !!(servers && typeof servers.announced === "function" && servers.announced(key));
+  const privateServer = (key) => !!community.privateCommunityOf(key) || (enrollment.isListen(key) && !announced(key));
 
   // The official preset (preset.js): which servers are authenticated, for the game's server browser and
   // for rated play.

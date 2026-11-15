@@ -274,6 +274,12 @@ export class StatusPoller {
   // The H9 server list's JSON (serverlist-bot's GET /v1/servers/<gamedir>.json), read from this machine's own list (or any https
   // address), kept as plain, checked fields: an address that is a public IPv4:port, text cut short, numbers made numbers. A list
   // that does not answer leaves the last answer for expireSeconds and then nothing.
+  // Whether the H9 server list names this address now: its operator announced it there, which is choosing to be public.
+  isFeedListed(address) {
+    const t = Date.now();
+    return this.feed.some((f) => f.address === address && t - f.at <= this.expireMs);
+  }
+
   refreshFeed() {
     let u;
     try {
