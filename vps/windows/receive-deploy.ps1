@@ -19,6 +19,7 @@
         H9XASH.zip.recipe.json, H9XASH-linux.zip.recipe.json, H9XASH-linux-server.zip.recipe.json, webclient.zip.recipe.json,
         blobs-<n>.tar                                           a delta (delta.py): the list of a client ZIP or of the web client
                                                                 and only the files this host has not seen; the host builds the ZIP
+        preset-bundle.json                                      the build's official plugin list, imported into the site (h9web's preset-seed.js)
         updater-files.tar, updater-files-<n>.tar                H9XASH-Updater's new files, each named by its SHA-256 (in
                                                                 pieces, so the delivery can go over several streams)
         deploy-manifest.txt
@@ -57,8 +58,11 @@ $Rules = @(
     @{ Re = '^updater-files(-[0-9]{1,3})?\.tar$'; Kind = 'updater' },
     @{ Re = '^(H9XASH|H9XASH-linux|H9XASH-linux-server)\.zip\.recipe\.json$'; Kind = 'recipe' },
     @{ Re = '^webclient\.zip\.recipe\.json$'; Kind = 'wcrecipe' },
-    @{ Re = '^blobs-[0-9]{1,3}\.tar$'; Kind = 'blobs' }
+    @{ Re = '^blobs-[0-9]{1,3}\.tar$'; Kind = 'blobs' },
+    @{ Re = '^preset-bundle\.json$'; Kind = 'preset' }
 )
+$Config = Join-Path $Root 'etc\config.json'
+$Node = Join-Path $Root 'tools\node\node.exe'
 $Py = Join-Path $Root 'tools\python\python.exe'
 $Delta = Join-Path $Root 'delta.py'
 $Store = Join-Path $Root 'store'
@@ -239,6 +243,19 @@ if (-not $pkgDir) {
     $pkgDir = Get-ChildItem -LiteralPath 'C:\setup' -Directory -Filter 'havoc9-vps-windows-*' | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
 }
 
+# 3b. the official plugin list of this build, into the site's database (h9web's preset-seed.js; it adds, so older builds' hashes stay official)
+$presetName = $want.Keys | Where-Object { $kinds[$_] -eq 'preset' } | Select-Object -First 1
+$presetFailed = $false
+if ($presetName) {
+    Say 'the official plugin list'
+    $was = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Node (Join-Path $Root 'h9web\modules\presence\bin\preset-seed.js') --import-bundle (Join-Path $in $presetName) --config $Config --mode add 2>&1 | ForEach-Object { Write-Host "  $_" }; $presetExit = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $was }
+    if ($presetExit -ne 0) { $presetFailed = $true; Write-Host '  [FAIL] the plugin list was not imported: servers of this build will read "not authenticated" until it is (see above)' -ForegroundColor Red }
+    else { $newTrees['preset-bundle'] = $want[$presetName] }
+}
+
 # 4. the web client
 $wcZip = $want.Keys | Where-Object { $kinds[$_] -eq 'webclient' } | Select-Object -First 1
 if ($wcZip -or $wcRecipe) {
@@ -302,7 +319,7 @@ if (Test-Path -LiteralPath $cc) {
 }
 Say 'checks'
 Invoke-Child @('-File', (Join-Path $Root 'start-all.ps1'), '-Root', $Root)
-$ok = ($script:childExit -eq 0)
+$ok = ($script:childExit -eq 0) -and -not $presetFailed
 if ($ok -and $newTrees.Count) {
     $tr = @{}
     if (Test-Path -LiteralPath $TreeFile) { $old = Get-Content -Raw -LiteralPath $TreeFile | ConvertFrom-Json; foreach ($pn in $old.PSObject.Properties.Name) { $tr[$pn] = $old.$pn } }

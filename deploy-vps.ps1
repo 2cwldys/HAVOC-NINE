@@ -155,6 +155,27 @@ if ((On 'deploy.updater_files') -and (Test-Path -LiteralPath (Join-Path $files '
         }
     } else { Write-Host "  same on the host: the updater's files ($($blobs.Count))" }
 }
+$pyArgs = @(); $pyExe = 'python'
+if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
+
+# the official plugin list (tools\preset_bundle.py): a release that rebuilds a plugin changes its hash, so the host must get the build's list
+# with it or the servers of that build read "not authenticated". Sent when it differs from what the host imported last.
+if (On 'deploy.preset') {
+    $presetFile = Join-Path $Scratch 'preset-bundle.json'
+    $lin = Join-Path $Here 'H9XASH-linux'
+    $bargs = $pyArgs + @('-I', (Join-Path $Here 'tools\preset_bundle.py'), '--h9xash', (Join-Path $Here 'H9XASH'), '--out', $presetFile)
+    if (Test-Path -LiteralPath $lin) { $bargs += @('--linux', $lin) }
+    Say 'the official plugin list of this build'
+    if ($DryRun) { Write-Host '  (a dry run: not made)' }
+    else {
+        & $pyExe @bargs 2>&1 | ForEach-Object { Write-Host "  $_" }
+        if ($LASTEXITCODE -or -not (Test-Path -LiteralPath $presetFile)) { Fail 'tools\preset_bundle.py failed: the release would leave the plugin list behind (preset = 0 in packaging.ini turns this off)' }
+        $psha = Sha $presetFile
+        if ($remoteTree['preset-bundle'] -eq $psha) { Write-Host '  same list as the host imported last' }
+        else { $send.Add([pscustomobject]@{ Path = $presetFile; Name = 'preset-bundle.json'; Sha = $psha; Size = (Get-Item -LiteralPath $presetFile).Length }) }
+    }
+}
+
 # the delta (vps\windows\delta.py): the client ZIPs and the web client go as recipes plus only the files the host has not seen; the host builds
 # the ZIPs. The updater's new files, sent above, count as seen. A source whose tree the host built already is not sent again.
 if ($delta) {
@@ -168,8 +189,6 @@ if ($delta) {
         $seen = New-Object System.Collections.Generic.HashSet[string]($blobsThere)
         foreach ($b in $missing) { [void]$seen.Add($b) }
         [IO.File]::WriteAllLines($haveFile, [string[]]@($seen))
-        $pyArgs = @(); $pyExe = 'python'
-        if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
         $planArgs = $pyArgs + @('-I', (Join-Path $Here 'vps\windows\delta.py'), 'plan', '--out-dir', $dout, '--have', $haveFile)
         foreach ($s in $specs) { $planArgs += @('--zip', $s) }
         Say ("the delta: reading $($specs.Count) ZIP(s) (a minute)")

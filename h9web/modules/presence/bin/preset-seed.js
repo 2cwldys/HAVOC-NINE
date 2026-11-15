@@ -19,6 +19,13 @@
 // --presets (or --game-mode) the file also says "gameMode": that mode's list is what the import fills; with
 // none it fills the shared list "*", which every game mode accepts.
 //
+// --bundle FILE writes every list (each tag's, and the shared one with --live) as one file instead: { "format": 1, "lists": [{ "gameMode",
+// "entries" }] }, which a release sends to the host. On the host, with no build folder at all:
+//   node preset-seed.js --import-bundle FILE[,FILE...] [--config FILE] [--mode add|replace]
+// puts the lists of those files (merged, a file once however many name it) into the database, the way --import does. --live puts
+// the plugins that configs\plugins.ini switches on, the build's own default set, on the shared list: they are H9's own, and no
+// preset file names those that only some servers run (the Apollo RP plugins, the P2P helper, the stats and prop plugins).
+//
 // --import puts the entries straight into the site's database instead (run it as the service's user, with the
 // service's config, as h9web-admin.js is: --config FILE or H9WEB_CONFIG; the service must have run once with
 // presence migration 15): the same as the admin route, in the audit log as "(command line)". The site reads the
@@ -31,12 +38,90 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { readGameMode, SHARED } from "../preset.js";
+import { readGameMode, SHARED, KINDS } from "../preset.js";
 
 function arg(name, flag = false) {
   const i = process.argv.indexOf("--" + name);
   if (i < 0) return flag ? false : null;
   return flag ? true : process.argv[i + 1] ?? null;
+}
+
+// The database side of --import and --import-bundle: lists is [{ gameMode, entries: [{ kind, file, sha256, note? }] }].
+async function importLists(lists, mode) {
+  if (mode !== "add" && mode !== "replace") {
+    console.error("--mode is add or replace");
+    process.exit(2);
+  }
+  const { loadConfig } = await import("../../../lib/config.js");
+  const { openDatabase, appliedVersion } = await import("../../../lib/db.js");
+  const { createAudit } = await import("../../../lib/audit.js");
+  const config = loadConfig(arg("config") || process.env.H9WEB_CONFIG);
+  const dbFile = path.join(config.dataDir, "h9web.db");
+  if (!fs.existsSync(dbFile)) {
+    console.error(dbFile + " does not exist. Start the service once first; it makes the database.");
+    process.exit(1);
+  }
+  const db = openDatabase(dbFile);
+  if (appliedVersion(db, "presence") < 15) {
+    console.error("the database is at presence v" + appliedVersion(db, "presence") + ": start the service with this code once (it migrates to v15), then import.");
+    process.exit(1);
+  }
+  const at = Math.floor(Date.now() / 1000);
+  const put = db.prepare(`INSERT INTO presence_preset (kind, file, sha256, game_mode, version, optional, note, added_by, added_at)
+    VALUES (?, ?, ?, ?, NULL, 0, ?, NULL, ?)
+    ON CONFLICT (kind, file, sha256, game_mode) DO UPDATE SET note = excluded.note`);
+  let rows = 0;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (mode === "replace") db.prepare("DELETE FROM presence_preset WHERE optional = 0").run();
+    for (const g of lists) {
+      for (const e of g.entries) {
+        put.run(e.kind, e.file, e.sha256, g.gameMode, e.note || null, at);
+        rows++;
+      }
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  const names = lists.map((g) => (g.gameMode === SHARED ? "shared" : g.gameMode) + " " + g.entries.length).join(", ");
+  createAudit({ db, retentionDays: config.admin.auditRetentionDays }).record({
+    action: "presence.preset.import", subject: "preset", detail: rows + " file(s) on " + lists.length + " list(s) (" + names + "), " + mode + " (command line)",
+  });
+  console.error("imported " + rows + " entries into " + dbFile + " (" + mode + "; " + names + ")");
+}
+
+// --import-bundle: the lists of bundle files written by --bundle, checked entry by entry and merged
+const bundleFiles = arg("import-bundle");
+if (bundleFiles) {
+  const merged = new Map();
+  const bad = (m) => {
+    console.error("--import-bundle: " + m);
+    process.exit(2);
+  };
+  for (const f of bundleFiles.split(",").map((s) => s.trim()).filter(Boolean)) {
+    let b;
+    try {
+      b = JSON.parse(fs.readFileSync(f, "utf8"));
+    } catch (e) {
+      bad(f + " cannot be read: " + e.message);
+    }
+    if (!b || b.format !== 1 || !Array.isArray(b.lists) || b.lists.length > 64) bad(f + " is not a preset bundle");
+    for (const l of b.lists) {
+      const gameMode = readGameMode(l && l.gameMode === undefined ? "*" : l && l.gameMode);
+      if (gameMode === null || !Array.isArray(l.entries) || l.entries.length > 5000) bad(f + " has a list that is not valid");
+      const m = merged.get(gameMode) || new Map();
+      for (const e of l.entries) {
+        const ok = e && KINDS[e.kind] && /^[A-Za-z0-9_.-]{1,80}$/.test(e.file || "") && /^[0-9a-f]{64}$/.test(e.sha256 || "");
+        if (!ok) bad(f + " has an entry that is not valid: " + JSON.stringify(e).slice(0, 80));
+        m.set(e.kind + "|" + e.file.toLowerCase() + "|" + e.sha256, { kind: e.kind, file: e.file, sha256: e.sha256, note: typeof e.note === "string" ? e.note.slice(0, 120) : undefined });
+      }
+      merged.set(gameMode, m);
+    }
+  }
+  await importLists([...merged].map(([gameMode, m]) => ({ gameMode, entries: [...m.values()] })), arg("mode") || "add");
+  process.exit(0);
 }
 
 const root = arg("h9xash");
@@ -131,6 +216,12 @@ const groups = forced !== null
     ...(liveList ? [{ gameMode: SHARED, entries: collect([liveList], { modules: !tagLists.length }) }] : []),
   ];
 
+if (arg("bundle")) {
+  const lists = groups.map((g) => ({ gameMode: g.gameMode, entries: sortedOf(g.entries) }));
+  fs.writeFileSync(arg("bundle"), JSON.stringify({ format: 1, lists }, null, 1) + "\n");
+  console.error("wrote " + arg("bundle") + ": " + lists.map((g) => (g.gameMode === SHARED ? "shared" : g.gameMode) + " " + g.entries.length).join(", "));
+  process.exit(0);
+}
 const sorted = sortedOf(all);
 const result = JSON.stringify({ mode: arg("mode") || "add", ...(gameMode && gameMode !== SHARED ? { gameMode } : {}), entries: sorted }, null, 1) + "\n";
 const out = arg("out");
@@ -139,48 +230,6 @@ else if (!arg("import", true)) process.stdout.write(result);
 const counts = { amxx: 0, module: 0, meta: 0 };
 for (const e of all.values()) counts[e.kind]++;
 if (arg("import", true)) {
-  const mode = arg("mode") || "add";
-  if (mode !== "add" && mode !== "replace") {
-    console.error("--mode is add or replace");
-    process.exit(2);
-  }
-  const { loadConfig } = await import("../../../lib/config.js");
-  const { openDatabase, appliedVersion } = await import("../../../lib/db.js");
-  const { createAudit } = await import("../../../lib/audit.js");
-  const config = loadConfig(arg("config") || process.env.H9WEB_CONFIG);
-  const dbFile = path.join(config.dataDir, "h9web.db");
-  if (!fs.existsSync(dbFile)) {
-    console.error(dbFile + " does not exist. Start the service once first; it makes the database.");
-    process.exit(1);
-  }
-  const db = openDatabase(dbFile);
-  if (appliedVersion(db, "presence") < 15) {
-    console.error("the database is at presence v" + appliedVersion(db, "presence") + ": start the service with this code once (it migrates to v15), then import.");
-    process.exit(1);
-  }
-  const at = Math.floor(Date.now() / 1000);
-  const put = db.prepare(`INSERT INTO presence_preset (kind, file, sha256, game_mode, version, optional, note, added_by, added_at)
-    VALUES (?, ?, ?, ?, NULL, 0, ?, NULL, ?)
-    ON CONFLICT (kind, file, sha256, game_mode) DO UPDATE SET note = excluded.note`);
-  let rows = 0;
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    if (mode === "replace") db.prepare("DELETE FROM presence_preset WHERE optional = 0").run();
-    for (const g of groups) {
-      for (const e of sortedOf(g.entries)) {
-        put.run(e.kind, e.file, e.sha256, g.gameMode, e.note || null, at);
-        rows++;
-      }
-    }
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
-  const lists = groups.map((g) => (g.gameMode === SHARED ? "shared" : g.gameMode) + " " + g.entries.size).join(", ");
-  createAudit({ db, retentionDays: config.admin.auditRetentionDays }).record({
-    action: "presence.preset.import", subject: "preset", detail: rows + " file(s) on " + groups.length + " list(s) (" + lists + "), " + mode + " (command line)",
-  });
-  console.error("imported " + rows + " entries into " + dbFile + " (" + mode + "; " + lists + ")");
+  await importLists(groups.map((g) => ({ gameMode: g.gameMode, entries: sortedOf(g.entries) })), arg("mode") || "add");
 }
 console.error((out ? "wrote " + out + ": " : "") + all.size + " files (" + counts.amxx + " plugins, " + counts.module + " modules, " + counts.meta + " metamod)" + (missing.size ? "; not in the build: " + [...missing].join(", ") : ""));
