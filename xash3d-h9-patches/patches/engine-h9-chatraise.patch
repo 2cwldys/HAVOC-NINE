@@ -1,0 +1,42 @@
+diff --git a/engine/client/console.c b/engine/client/console.c
+--- a/engine/client/console.c
++++ b/engine/client/console.c
+@@ -35,6 +35,8 @@
+ static CVAR_DEFINE_AUTO( scr_drawversion, "1", FCVAR_ARCHIVE, "draw version in menu or screenshots, doesn't affect console" );
+ static CVAR_DEFINE_AUTO( con_oldfont, "0", 0, "use legacy font from gfx.wad, might be missing or broken" );
+ static CVAR_DEFINE_AUTO( con_showcompletion, "1", FCVAR_ARCHIVE, "perform simplified autocompletion while typing" );
++// H9: pixels the say: line is raised, so that it clears the game's HUD in the lower left (0 is where the chat lines end)
++static CVAR_DEFINE_AUTO( h9_chatraise, "16", FCVAR_ARCHIVE, "raise the chat input line by this many pixels, clear of the HUD in the lower left" );
+ 
+ static int g_codepage = 0;
+ 
+@@ -51,7 +53,9 @@
+ the game has one; when it leaves the position as it was (GoldSrc clients have none,
+ and the HL SDK's own moves it only while spectating) the line goes under the chat
+ lines the game drew this frame, at their left edge, or with none on screen where
+-the HL SDK's chat area ends, just above the HUD
++the HL SDK's chat area ends, just above the HUD. Either way the line is raised by
++h9_chatraise pixels: TS's team box and health box stand in the lower left and the line
++clipped into them
+ ================
+ */
+ static void Con_ChatInputPosition( int *x, int *y )
+@@ -69,6 +73,10 @@
+ 		*x = 10;
+ 		*y = refState.height - 60 - Con_GetFont( con_fontsize.value )->charHeight;
+ 	}
++
++	*y -= (int)Q_max( 0.0f, h9_chatraise.value );
++	if( *y < 0 )
++		*y = 0;
+ }
+ 
+ #define CON_TIMES		4	// notify lines
+@@ -841,6 +849,7 @@
+ 	Cvar_RegisterVariable( &scr_drawversion );
+ 	Cvar_RegisterVariable( &con_oldfont );
+ 	Cvar_RegisterVariable( &con_showcompletion );
++	Cvar_RegisterVariable( &h9_chatraise );
+ 
+ 	// init the console buffer
+ 	con.bufsize = CON_TEXTSIZE;

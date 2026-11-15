@@ -147,6 +147,12 @@ if /i "!H9PRIO!"=="Realtime" set "H9PRIOSW=/HIGH"
 if /i "!H9PRIO!"=="Realtime" echo [h9xash] priority=Realtime in networking.ini runs as High.
 if defined H9PRIO if /i not "!H9PRIO!"=="Normal" if /i not "!H9PRIO!"=="AboveNormal" if /i not "!H9PRIO!"=="High" if /i not "!H9PRIO!"=="Realtime" echo [h9xash] priority= in networking.ini is not Normal, AboveNormal or High: AboveNormal is used.
 
+REM ---- Create Game on the H9 server list ----------------------------------------------
+REM With listen_heartbeat=1 under [server] in networking.ini, this Create Game tells the H9 server list it is up (the
+REM list then shows it in everyone's Internet tab, which publishes this PC's address: off by default). h9_heartbeat.ps1
+REM -Listen does nothing unless that is set, and ends by itself when the game does.
+start "" /b powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0h9_heartbeat.ps1" -Port !H9PORT! -Listen
+
 REM By full path: a shell with NoDefaultCurrentDirectoryInExePath set will not run a
 REM program from the current folder by its bare name. start /b /wait runs it at the priority
 REM above and waits for it to exit before the next line runs, its exit code in ERRORLEVEL.

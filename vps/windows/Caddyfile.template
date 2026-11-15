@@ -1,6 +1,6 @@
 # havoc9.org on Windows, through Caddy: HTTPS from Let's Encrypt (made and renewed by Caddy
 # itself), the site, h9web and the H9 server list. vps\windows\setup.ps1 writes etc\Caddyfile
-# from this template on every run ({DOMAIN}, {ROOT}, {EMAIL_LINE}, {TRUSTED_PROXIES} filled in); additions of your
+# from this template on every run ({DOMAIN}, {GAMEHOST}, {ROOT}, {EMAIL_LINE}, {TRUSTED_PROXIES}, {CF_RANGES} filled in); additions of your
 # own go in etc\Caddyfile.extra, which it imports and never touches. The same rules as the
 # Linux host's nginx (havoc9.org/webclient/DEPLOY.txt section 8), but for the rate limits:
 # Caddy has none built in, so h9web's own limits are the only ones here.
@@ -85,7 +85,13 @@
 		not path /api/forum/avatar
 	}
 
+	# The site is reached through Cloudflare: port 443 is open to every address for {GAMEHOST} (below), so a request that
+	# comes straight to this machine for {DOMAIN} is refused first. {CF_RANGES} is Cloudflare's published ranges; the
+	# machine's own checks of the site come from itself.
+	@direct not remote_ip {CF_RANGES} 127.0.0.1 ::1
+
 	route {
+		respond @direct "Use https://{DOMAIN}/" 403
 		respond @hidden 404
 		respond @notes 404
 		respond @files_hidden 404
@@ -155,6 +161,43 @@
 			hide .*
 		}
 		file_server
+	}
+}
+
+# {GAMEHOST}: the name game servers use for h9_presence_url and heartbeats. It is a DNS-only record with an IPv4 address and
+# no IPv6 one (Cloudflare answers every proxied name over IPv6 as well, and a game server's enrollment, which h9web proves by
+# asking the server's own address over UDP, must come from its IPv4 address). It carries only what a game server or the game
+# calls; every other address answers 404, and its requests never go through Cloudflare, so the address Caddy sees is the
+# caller's own.
+{GAMEHOST} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	@game_api path /api/presence/* /api/community/* /api/rank/* /api/link/* /api/p2p/*
+
+	route {
+		request_body @game_api {
+			max_size 128KB
+		}
+		request_body /serverlist/* {
+			max_size 4KB
+		}
+		reverse_proxy @game_api 127.0.0.1:8090 {
+			header_up X-Real-IP {client_ip}
+		}
+		handle_path /serverlist/* {
+			header Cache-Control "no-cache"
+			reverse_proxy 127.0.0.1:8081 {
+				header_up X-Real-IP {client_ip}
+			}
+		}
+		respond "This name is for game servers. The site is https://{DOMAIN}/" 404
 	}
 }
 

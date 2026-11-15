@@ -30,6 +30,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# any error that stops the script stops it with exit code 1, so a caller never reads a failed deploy as done
+trap { Write-Host "[FAIL] $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red; exit 1 }
 $Here = $PSScriptRoot
 $Dist = Join-Path $Here 'dist'
 $DryRun = [bool]$WhatIfPreference
@@ -77,12 +79,14 @@ if (-not $NoBuild) {
 # 2. what the host has
 Say "asking $sshHost what it has"
 $remote = @{}
+$remoteTree = @{}
 $blobsThere = New-Object System.Collections.Generic.HashSet[string]
 $answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
 if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
 foreach ($l in $answer) {
     if ($l -match '^file ([0-9a-f]{64}) (\S+)$') { $remote[$Matches[2]] = $Matches[1] }
-    elseif ($l -match '^blob ([0-9a-f]{64})$') { [void]$blobsThere.Add($Matches[1]) }
+    elseif ($l -match '^(blob|have) ([0-9a-f]{64})$') { [void]$blobsThere.Add($Matches[2]) }
+    elseif ($l -match '^tree (\S+) ([0-9a-f]{64})$') { $remoteTree[$Matches[1]] = $Matches[2] }
 }
 function Sha([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
 function Newest([string]$pattern) { Get-ChildItem -LiteralPath $Dist -File -Filter $pattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1 }
@@ -95,12 +99,13 @@ function Add-If([string]$path, [string]$name, [bool]$always) {
     if (-not $always -and $remote[$name] -eq $h) { Write-Host "  same on the host: $name"; return }
     $send.Add([pscustomobject]@{ Path = $path; Name = $name; Sha = $h; Size = (Get-Item -LiteralPath $path).Length })
 }
-if (On 'deploy.client') { Add-If (Join-Path $Dist 'H9XASH.zip') 'H9XASH.zip' $false; Add-If (Join-Path $Dist 'H9XASH-linux.zip') 'H9XASH-linux.zip' $false }
+$delta = On 'deploy.delta'
+if ((On 'deploy.client') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH.zip') 'H9XASH.zip' $false; Add-If (Join-Path $Dist 'H9XASH-linux.zip') 'H9XASH-linux.zip' $false }
 if (On 'deploy.updater') { Add-If (Join-Path $Dist 'H9XASH-Updater.exe') 'H9XASH-Updater.exe' $false }
-if (On 'deploy.linux_server') { Add-If (Join-Path $Dist 'H9XASH-linux-server.zip') 'H9XASH-linux-server.zip' $false }
+if ((On 'deploy.linux_server') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH-linux-server.zip') 'H9XASH-linux-server.zip' $false }
 if (On 'deploy.site') { $z = Newest 'havoc9-vps-windows-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' } }
 if (On 'deploy.publish_host_packages') { $z = Newest 'havoc9-vps-linux-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } }
-if (On 'deploy.webclient') {
+if ((On 'deploy.webclient') -and -not $delta) {
     $z = Newest 'havoc9-vps-webclient-*.zip'
     $m = Join-Path $Here 'webclient-build\stage\manifest.json'
     if ($z -and (Test-Path -LiteralPath $m) -and $remote['webclient-manifest.json'] -eq (Sha $m)) { Write-Host '  same on the host: the web client' }
@@ -115,6 +120,7 @@ if (Test-Path -LiteralPath $vf) {
     if ($m.Success) { $lines.Add("build $($m.Groups[1].Value)"); Say "build $($m.Groups[1].Value)" }
 }
 $tar = $null
+$missing = @()
 $files = Join-Path $Dist 'files'
 if ((On 'deploy.updater_files') -and (Test-Path -LiteralPath (Join-Path $files 'manifest.json'))) {
     $blobs = @(Get-ChildItem -LiteralPath $files -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' } | ForEach-Object { $_.Name })
@@ -123,17 +129,71 @@ if ((On 'deploy.updater_files') -and (Test-Path -LiteralPath (Join-Path $files '
     if ($missing.Count -or $remote['manifest.json'] -ne $mj -or ($blobsThere.Count -ne $blobs.Count)) {
         foreach ($b in $blobs) { $lines.Add("blob $b") }
         $lines.Add("updater-manifest $mj")
-        $tar = Join-Path $Scratch 'updater-files.tar'
-        $list = Join-Path $Scratch 'updater-files.list'
-        [IO.File]::WriteAllLines($list, [string[]](@($missing) + 'manifest.json'))
-        Say "the updater's files: $($missing.Count) of $($blobs.Count) are new to the host"
+        # in pieces of at most 400 MB, so they go over several streams at once (manifest.json in the first)
+        $pieces = New-Object System.Collections.Generic.List[object]
+        $cur = New-Object System.Collections.Generic.List[string]; $cur.Add('manifest.json'); $curSize = 0
+        foreach ($b in $missing) {
+            $sz = (Get-Item -LiteralPath (Join-Path $files $b)).Length
+            if ($cur.Count -gt 0 -and $curSize + $sz -gt 400MB) { $pieces.Add($cur); $cur = New-Object System.Collections.Generic.List[string]; $curSize = 0 }
+            $cur.Add($b); $curSize += $sz
+        }
+        if ($cur.Count) { $pieces.Add($cur) }
+        Say "the updater's files: $($missing.Count) of $($blobs.Count) are new to the host, in $($pieces.Count) archive(s)"
         if (-not $DryRun) {
-            if (Test-Path -LiteralPath $tar) { [IO.File]::Delete($tar) }
-            & "$env:SystemRoot\System32\tar.exe" -cf $tar -C $files -T $list
-            if ($LASTEXITCODE) { Fail 'could not make updater-files.tar' }
-            $send.Add([pscustomobject]@{ Path = $tar; Name = 'updater-files.tar'; Sha = (Sha $tar); Size = (Get-Item -LiteralPath $tar).Length })
+            $tars = @()
+            for ($i = 0; $i -lt $pieces.Count; $i++) {
+                $name = 'updater-files-{0}.tar' -f ($i + 1)
+                $tar = Join-Path $Scratch $name
+                $list = Join-Path $Scratch "$name.list"
+                [IO.File]::WriteAllLines($list, [string[]]$pieces[$i])
+                if (Test-Path -LiteralPath $tar) { [IO.File]::Delete($tar) }
+                & "$env:SystemRoot\System32\tar.exe" -cf $tar -C $files -T $list
+                if ($LASTEXITCODE) { Fail "could not make $name" }
+                $send.Add([pscustomobject]@{ Path = $tar; Name = $name; Sha = (Sha $tar); Size = (Get-Item -LiteralPath $tar).Length })
+                $tars += $tar
+            }
         }
     } else { Write-Host "  same on the host: the updater's files ($($blobs.Count))" }
+}
+# the delta (vps\windows\delta.py): the client ZIPs and the web client go as recipes plus only the files the host has not seen; the host builds
+# the ZIPs. The updater's new files, sent above, count as seen. A source whose tree the host built already is not sent again.
+if ($delta) {
+    $specs = New-Object System.Collections.Generic.List[string]
+    if (On 'deploy.client') { foreach ($n in 'H9XASH.zip', 'H9XASH-linux.zip') { if (Test-Path -LiteralPath (Join-Path $Dist $n)) { $specs.Add("$n=" + (Join-Path $Dist $n)) } } }
+    if ((On 'deploy.linux_server') -and (Test-Path -LiteralPath (Join-Path $Dist 'H9XASH-linux-server.zip'))) { $specs.Add('H9XASH-linux-server.zip=' + (Join-Path $Dist 'H9XASH-linux-server.zip')) }
+    if (On 'deploy.webclient') { $wz = Newest 'havoc9-vps-webclient-*.zip'; if ($wz) { $specs.Add('webclient.zip=' + $wz.FullName) } }
+    if ($specs.Count) {
+        $dout = Join-Path $Scratch 'delta'
+        $haveFile = Join-Path $Scratch 'have.txt'
+        $seen = New-Object System.Collections.Generic.HashSet[string]($blobsThere)
+        foreach ($b in $missing) { [void]$seen.Add($b) }
+        [IO.File]::WriteAllLines($haveFile, [string[]]@($seen))
+        $pyArgs = @(); $pyExe = 'python'
+        if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
+        $planArgs = $pyArgs + @('-I', (Join-Path $Here 'vps\windows\delta.py'), 'plan', '--out-dir', $dout, '--have', $haveFile)
+        foreach ($s in $specs) { $planArgs += @('--zip', $s) }
+        Say ("the delta: reading $($specs.Count) ZIP(s) (a minute)")
+        if ($DryRun) { Write-Host '  (a dry run: not read)' }
+        else {
+            $planLine = @(& $pyExe @planArgs | Where-Object { $_ -like 'PLAN *' }) | Select-Object -Last 1
+            if ($LASTEXITCODE -or -not $planLine) { Fail 'delta.py plan failed' }
+            $plan = ([string]$planLine).Substring(5) | ConvertFrom-Json
+            $anyNew = $false
+            foreach ($s in $specs) {
+                $name = $s.Split('=')[0]
+                $info = $plan.sources.$name
+                $rf = Join-Path $dout "$name.recipe.json"
+                if ($remoteTree[$name] -eq $info.tree) { Write-Host "  same on the host: $name"; continue }
+                $send.Add([pscustomobject]@{ Path = $rf; Name = "$name.recipe.json"; Sha = (Sha $rf); Size = (Get-Item -LiteralPath $rf).Length })
+                $anyNew = $true
+                Write-Host ('  {0}: {1} files, {2:N0} MB' -f $name, $info.files, ($info.bytes / 1MB))
+            }
+            if ($anyNew) {
+                Write-Host ('  new to the host: {0} files, {1:N0} MB' -f $plan.new_files, ($plan.new_bytes / 1MB))
+                foreach ($bt in $plan.tars) { $bp = Join-Path $dout $bt; $send.Add([pscustomobject]@{ Path = $bp; Name = $bt; Sha = (Sha $bp); Size = (Get-Item -LiteralPath $bp).Length }) }
+            }
+        }
+    }
 }
 if (-not $send.Count) { Say 'nothing to send: the host has all of it'; exit 0 }
 foreach ($s in $send) { $lines.Add("$($s.Sha)  $($s.Name)") }
@@ -150,14 +210,35 @@ $man = Join-Path $Scratch 'deploy-manifest.txt'
 & ssh @ssh $sshHost "mkdir C:\setup\incoming\$stamp"
 if ($LASTEXITCODE) { Fail 'could not make the delivery folder on the host' }
 $send.Add([pscustomobject]@{ Path = $man; Name = 'deploy-manifest.txt'; Sha = ''; Size = 0 })
-foreach ($s in $send) {
-    Write-Host "  scp $($s.Name)"
-    & scp @ssh $s.Path "${sshHost}:$inbox/$($s.Name)"
-    if ($LASTEXITCODE) { Fail "scp of $($s.Name) failed" }
+# several scp at once ([deploy] streams, default 4): one SSH stream to the host is held to a few MB/s by the distance,
+# and the connection carries more; the biggest files start first
+$streams = 4; if ([string]$cfg['deploy.streams'] -match '^[1-9][0-9]?$') { $streams = [int]$cfg['deploy.streams'] }
+$queue = New-Object System.Collections.Generic.Queue[object]
+foreach ($s in ($send | Sort-Object Size -Descending)) { $queue.Enqueue($s) }
+$running = New-Object System.Collections.Generic.List[object]
+$failed = New-Object System.Collections.Generic.List[string]
+$t0 = Get-Date
+while ($queue.Count -or $running.Count) {
+    while ($queue.Count -and $running.Count -lt $streams) {
+        $s = $queue.Dequeue()
+        $scpArgs = @($ssh) + @('-q', "`"$($s.Path)`"", "${sshHost}:$inbox/$($s.Name)")
+        $p = Start-Process -FilePath 'scp' -ArgumentList $scpArgs -NoNewWindow -PassThru
+        $null = $p.Handle
+        $running.Add([pscustomobject]@{ Proc = $p; File = $s })
+        Write-Host "  scp $($s.Name) ($([int]($s.Size / 1MB)) MB)"
+    }
+    Start-Sleep -Milliseconds 500
+    foreach ($r in $running.ToArray()) {
+        if (-not $r.Proc.HasExited) { continue }
+        [void]$running.Remove($r)
+        if ($r.Proc.ExitCode -ne 0) { $failed.Add($r.File.Name); Write-Host "  [FAIL] scp $($r.File.Name)" -ForegroundColor Red }
+        else { Write-Host ('  sent {0} ({1:N0} s since the start)' -f $r.File.Name, ((Get-Date) - $t0).TotalSeconds) }
+    }
 }
+if ($failed.Count) { Fail "scp failed for: $($failed -join ', ') (nothing was installed; run it again)" }
 Say 'the host checks and installs it'
 & ssh @ssh $sshHost "powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Incoming C:\setup\incoming\$stamp"
 $rc = $LASTEXITCODE
-if ($tar -and (Test-Path -LiteralPath $tar)) { [IO.File]::Delete($tar) }
+foreach ($t in @($tars)) { if ($t -and (Test-Path -LiteralPath $t)) { [IO.File]::Delete($t); [IO.File]::Delete("$t.list") } }
 if ($rc -eq 0) { Say 'deployed' } else { Write-Host "[FAIL] the host's receive-deploy.ps1 said no (above); its log: C:\havoc9\logs\deploy-*.log" -ForegroundColor Red }
 exit $rc

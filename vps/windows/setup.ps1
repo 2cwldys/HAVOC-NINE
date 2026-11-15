@@ -50,6 +50,7 @@
 param(
     [string]$Root = 'C:\havoc9',
     [string]$Domain = 'havoc9.org',
+    [string]$GameHost = '',
     [string]$Email = '',
     [string[]]$GamePorts = @('27015/udp'),
     [string]$H9Xash = '',
@@ -81,6 +82,8 @@ if (-not $PSBoundParameters.ContainsKey('GamePorts') -and $H9Xash -and (Test-Pat
     }
     $GamePorts = @("$port/udp")
 }
+# the name game servers use (h9_presence_url, heartbeats): a DNS-only record with an IPv4 address only, game.<domain>
+if (-not $GameHost) { $GameHost = "game.$Domain" }
 $Here = $PSScriptRoot
 $Src = $Here
 if (-not (Test-Path -LiteralPath (Join-Path $Src 'h9web\server.js'))) { $Src = [IO.Path]::GetFullPath((Join-Path $Here '..\..')) }
@@ -459,7 +462,7 @@ if ($WebClientStage) {
 
 # the host's own scripts, beside the folders: start-all.ps1 (start and check everything), receive-deploy.ps1 (takes a
 # delivery from deploy-vps.ps1) and code-check.ps1 (the fingerprint of all code). The root is administrators-only.
-foreach ($f in @('start-all.ps1', 'stop-all.ps1', 'receive-deploy.ps1', 'code-check.ps1', 'restore-backup.ps1')) {
+foreach ($f in @('start-all.ps1', 'stop-all.ps1', 'receive-deploy.ps1', 'code-check.ps1', 'restore-backup.ps1', 'delta.py')) {
     $from = Join-Path $Here $f
     if (Test-Path -LiteralPath $from) { Step "$f into $Root" { Copy-Item -LiteralPath $from -Destination (Join-Path $Root $f) -Force } }
 }
@@ -506,7 +509,9 @@ try {
     }
 }
 $trusted = ''; if ($CfRanges.Count) { $trusted = 'trusted_proxies static ' + ($CfRanges -join ' ') }
-$caddyfile = (Get-Content -Raw -LiteralPath (Join-Path $Here 'Caddyfile.template')).Replace('{DOMAIN}', $Domain).Replace('{ROOT}', $Fwd).Replace('{EMAIL_LINE}', $emailLine).Replace('{TRUSTED_PROXIES}', $trusted)
+# who may ask for the site by its own name: Cloudflare's ranges; with none known, everyone (the site must not go dark over a failed fetch)
+$cfList = '0.0.0.0/0 ::/0'; if ($CfRanges.Count) { $cfList = $CfRanges -join ' ' }
+$caddyfile = (Get-Content -Raw -LiteralPath (Join-Path $Here 'Caddyfile.template')).Replace('{DOMAIN}', $Domain).Replace('{GAMEHOST}', $GameHost).Replace('{ROOT}', $Fwd).Replace('{EMAIL_LINE}', $emailLine).Replace('{TRUSTED_PROXIES}', $trusted).Replace('{CF_RANGES}', $cfList)
 Step "write $Etc\Caddyfile" {
     [IO.File]::WriteAllText((Join-Path $Etc 'Caddyfile'), $caddyfile, (New-Object Text.UTF8Encoding $false))
     $extra = Join-Path $Etc 'Caddyfile.extra'
@@ -636,6 +641,8 @@ if (-not $NoFirewall) {
         if ($CfRanges.Count) { $webAddr = $CfRanges } else { Warn "-WebFrom cloudflare: no Cloudflare ranges are known, so TCP 80 and 443 stay open to every address" }
     }
     $rules = @(@{ Name = 'havoc9 web (Caddy, TCP 80 and 443)'; Proto = 'TCP'; Ports = @('80', '443'); From = $webAddr; FromText = $webScope })
+    # the game servers' name (Caddyfile: {GAMEHOST}) is reached directly, from any address, over IPv4: TCP 443 for everyone
+    $rules += @{ Name = "havoc9 game API ($GameHost, TCP 443)"; Proto = 'TCP'; Ports = @('443') }
     foreach ($g in $GamePorts) {
         $parts = $g.Split('/')
         $rules += @{ Name = "havoc9 game server ($g)"; Proto = $parts[1].ToUpper(); Ports = @($parts[0]) }

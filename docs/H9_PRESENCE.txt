@@ -234,7 +234,8 @@
       h9web.
 
  The other cvars (h9_presence.cfg):
-   h9_presence_url        default https://havoc9.org/api/presence/report
+   h9_presence_url        default https://game.havoc9.org/api/presence/report (a DNS-only name with an IPv4 address and
+                        no IPv6 one: a server enrolls from its IPv4 address, and havoc9.org itself is answered over IPv6 too)
    h9_presence_interval   seconds between reports, 30 to 600 (default 60)
    h9_presence_challenge  1: the id proof (section 8); the default. With 0 no
                           one is proven and an announced id can be copied

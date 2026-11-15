@@ -16,7 +16,11 @@
         havoc9-vps-windows-<build>-<stamp>.zip                  the host package: installed with its setup.ps1
         havoc9-vps-linux-<build>-<stamp>.zip                    the file index only
         havoc9-vps-webclient-<build>-<stamp>.zip                the web client's files
-        updater-files.tar                                       H9XASH-Updater's new files, each named by its SHA-256
+        H9XASH.zip.recipe.json, H9XASH-linux.zip.recipe.json, H9XASH-linux-server.zip.recipe.json, webclient.zip.recipe.json,
+        blobs-<n>.tar                                           a delta (delta.py): the list of a client ZIP or of the web client
+                                                                and only the files this host has not seen; the host builds the ZIP
+        updater-files.tar, updater-files-<n>.tar                H9XASH-Updater's new files, each named by its SHA-256 (in
+                                                                pieces, so the delivery can go over several streams)
         deploy-manifest.txt
     * each file's SHA-256 must be the one the manifest gives, and each updater file's SHA-256 must be its name;
     * a ZIP may not hold a path that climbs out of its folder (.. or a drive).
@@ -50,10 +54,37 @@ $Rules = @(
     @{ Re = '^havoc9-vps-windows-[A-Za-z0-9._-]+\.zip$'; Kind = 'host' },
     @{ Re = '^havoc9-vps-linux-[A-Za-z0-9._-]+\.zip$'; Kind = 'index' },
     @{ Re = '^havoc9-vps-webclient-[A-Za-z0-9._-]+\.zip$'; Kind = 'webclient' },
-    @{ Re = '^updater-files\.tar$'; Kind = 'updater' }
+    @{ Re = '^updater-files(-[0-9]{1,3})?\.tar$'; Kind = 'updater' },
+    @{ Re = '^(H9XASH|H9XASH-linux|H9XASH-linux-server)\.zip\.recipe\.json$'; Kind = 'recipe' },
+    @{ Re = '^webclient\.zip\.recipe\.json$'; Kind = 'wcrecipe' },
+    @{ Re = '^blobs-[0-9]{1,3}\.tar$'; Kind = 'blobs' }
 )
+$Py = Join-Path $Root 'tools\python\python.exe'
+$Delta = Join-Path $Root 'delta.py'
+$Store = Join-Path $Root 'store'
+$TreeFile = Join-Path $Dl '.trees.json'
 
 function Sha([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+
+# A child PowerShell script (setup.ps1, start-all.ps1 ...): its output shown, its exit code in $script:childExit. Under
+# $ErrorActionPreference 'Stop' a line a program writes to its error stream (Caddy logs its ordinary lines there) would stop
+# this script, so the preference is 'Continue' for the call: only the child's exit code says whether it worked.
+$script:childExit = 0
+function Invoke-Child([string[]]$ChildArgs) {
+    $was = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & powershell.exe -NoProfile -ExecutionPolicy Bypass @ChildArgs 2>&1 | ForEach-Object { Write-Host "  $_" }; $script:childExit = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $was }
+}
+
+# delta.py (the host's Python): its output shown, its exit code in $script:deltaExit; see Invoke-Child for the preference
+$script:deltaExit = 0
+function Invoke-Delta([string[]]$DeltaArgs) {
+    $was = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Py -I $Delta @DeltaArgs 2>&1 | ForEach-Object { Write-Host "  $_" }; $script:deltaExit = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $was }
+}
 
 if ($Hashes) {
     foreach ($n in $Buttons + @('H9XASH-linux-server.zip')) {
@@ -67,6 +98,11 @@ if ($Hashes) {
     }
     $w = Join-Path $Site 'webclient\manifest.json'
     if (Test-Path -LiteralPath $w) { "file $(Sha $w) webclient-manifest.json" }
+    if (Test-Path -LiteralPath $TreeFile) {
+        $tr = Get-Content -Raw -LiteralPath $TreeFile | ConvertFrom-Json
+        foreach ($pn in $tr.PSObject.Properties.Name) { "tree $pn $($tr.$pn)" }
+    }
+    if ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $Delta)) { & $Py -I $Delta have --store $Store --files $Files }
     exit 0
 }
 
@@ -129,15 +165,18 @@ function Test-ZipPaths([string]$Zip) {
 }
 foreach ($n in $want.Keys) { if ($kinds[$n] -in @('host', 'webclient')) { Test-ZipPaths (Join-Path $in $n) } }
 
-# the updater's files: unpacked into the delivery, each one's SHA-256 its name, nothing else in the archive
+# the updater's files: unpacked into the delivery, each one's SHA-256 its name, nothing else in the archives
 $blobDir = Join-Path $in 'updater-files'
-if ($want.ContainsKey('updater-files.tar')) {
+$tars = @($want.Keys | Where-Object { $kinds[$_] -eq 'updater' } | Sort-Object)
+if ($tars.Count) {
     New-Item -ItemType Directory -Force -Path $blobDir | Out-Null
-    $list = & tar.exe -tf (Join-Path $in 'updater-files.tar')
-    if ($LASTEXITCODE -ne 0) { Fail 'updater-files.tar cannot be read' }
-    foreach ($e in $list) { if ($e -notmatch '^([0-9a-f]{64}|manifest\.json)$') { Fail "updater-files.tar holds a name the updater's files never have: $e" } }
-    & tar.exe -xf (Join-Path $in 'updater-files.tar') -C $blobDir
-    if ($LASTEXITCODE -ne 0) { Fail 'updater-files.tar could not be unpacked' }
+    foreach ($tarName in $tars) {
+        $list = & tar.exe -tf (Join-Path $in $tarName)
+        if ($LASTEXITCODE -ne 0) { Fail "$tarName cannot be read" }
+        foreach ($e in $list) { if ($e -notmatch '^([0-9a-f]{64}|manifest\.json)$') { Fail "$tarName holds a name the updater's files never have: $e" } }
+        & tar.exe -xf (Join-Path $in $tarName) -C $blobDir
+        if ($LASTEXITCODE -ne 0) { Fail "$tarName could not be unpacked" }
+    }
     foreach ($f in Get-ChildItem -LiteralPath $blobDir -File) {
         if ($f.Name -eq 'manifest.json') {
             if ((Sha $f.FullName) -ne $manifestJsonSha) { Fail 'the updater manifest.json is not the one that was sent' }
@@ -145,7 +184,43 @@ if ($want.ContainsKey('updater-files.tar')) {
         }
         if ((Sha $f.FullName) -ne $f.Name) { Fail "updater file $($f.Name) is not what its name says" }
     }
-    Write-Host "  updater-files.tar  ok ($(@(Get-ChildItem -LiteralPath $blobDir -File).Count) files)"
+    Write-Host "  $($tars.Count) updater archive(s)  ok ($(@(Get-ChildItem -LiteralPath $blobDir -File).Count) files)"
+}
+
+# 2b. the delta, before anything stops: the updater's new files and the delta's new files go in, and the client ZIPs and the web client
+# are built from their recipes (delta.py checks every file's SHA-256 as it goes in and again as it is used)
+$recipes = @($want.Keys | Where-Object { $kinds[$_] -eq 'recipe' } | Sort-Object)
+$wcRecipe = $want.Keys | Where-Object { $kinds[$_] -eq 'wcrecipe' } | Select-Object -First 1
+$blobTars = @($want.Keys | Where-Object { $kinds[$_] -eq 'blobs' } | Sort-Object)
+$newTrees = @{}
+if ($recipes.Count -or $wcRecipe -or $blobTars.Count) {
+    Say 'the delta: new files in, ZIPs built from recipes'
+    if (-not ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $Delta))) { Fail "no $Py or ${Delta}: install the host package first" }
+    if ($tars.Count) {
+        New-Item -ItemType Directory -Force -Path $Files | Out-Null
+        foreach ($f in Get-ChildItem -LiteralPath $blobDir -File | Where-Object { $_.Name -ne 'manifest.json' }) {
+            $dest = Join-Path $Files $f.Name
+            if (-not (Test-Path -LiteralPath $dest)) { Move-Item -LiteralPath $f.FullName -Destination $dest }
+        }
+    }
+    if ($blobTars.Count) {
+        Invoke-Delta (@('ingest') + @($blobTars | ForEach-Object { Join-Path $in $_ }) + @('--store', $Store))
+        if ($script:deltaExit -ne 0) { Fail 'delta.py could not take the new files in (above)' }
+    }
+    foreach ($r in $recipes) {
+        $zipName = $r -replace '\.recipe\.json$', ''
+        $out = Join-Path $in $zipName
+        Invoke-Delta @('assemble-zip', (Join-Path $in $r), $out, '--store', $Store, '--files', $Files)
+        if ($script:deltaExit -ne 0) { Fail "delta.py could not build $zipName (above)" }
+        $want[$zipName] = Sha $out
+        $kinds[$zipName] = 'button'
+        $newTrees[$zipName] = (Get-Content -Raw -LiteralPath (Join-Path $in $r) | ConvertFrom-Json).tree
+    }
+    if ($wcRecipe) {
+        Invoke-Delta @('assemble-dir', (Join-Path $in $wcRecipe), (Join-Path $in 'webclient'), '--store', $Store, '--files', $Files)
+        if ($script:deltaExit -ne 0) { Fail 'delta.py could not lay out the web client (above)' }
+        $newTrees['webclient.zip'] = (Get-Content -Raw -LiteralPath (Join-Path $in $wcRecipe) | ConvertFrom-Json).tree
+    }
 }
 
 # 3. the host package: its own setup.ps1 (a backup first, every setting and key kept)
@@ -157,8 +232,8 @@ if ($hostZip) {
     if (Test-Path -LiteralPath $pkgDir) { Remove-Item -LiteralPath $pkgDir -Recurse -Force }
     Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
     if (-not (Test-Path -LiteralPath (Join-Path $pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $pkgDir" }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkgDir 'setup.ps1') -Root $Root 2>&1 | ForEach-Object { Write-Host "  $_" }
-    if ($LASTEXITCODE -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root)
+    if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
 }
 if (-not $pkgDir) {
     $pkgDir = Get-ChildItem -LiteralPath 'C:\setup' -Directory -Filter 'havoc9-vps-windows-*' | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
@@ -166,14 +241,14 @@ if (-not $pkgDir) {
 
 # 4. the web client
 $wcZip = $want.Keys | Where-Object { $kinds[$_] -eq 'webclient' } | Select-Object -First 1
-if ($wcZip) {
-    Say "the web client from $wcZip"
+if ($wcZip -or $wcRecipe) {
+    Say "the web client from $(if ($wcZip) { $wcZip } else { 'its recipe' })"
     $wcDir = Join-Path $in 'webclient'
-    Expand-Archive -LiteralPath (Join-Path $in $wcZip) -DestinationPath $wcDir
+    if ($wcZip) { Expand-Archive -LiteralPath (Join-Path $in $wcZip) -DestinationPath $wcDir }
     $stage = Get-ChildItem -LiteralPath $wcDir -Recurse -Directory -Filter 'stage' | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') } | Select-Object -First 1
-    if (-not $stage) { Fail "$wcZip has no stage folder with a manifest.json" }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkgDir 'setup.ps1') -Root $Root -WebClientStage $stage.FullName 2>&1 | ForEach-Object { Write-Host "  $_" }
-    if ($LASTEXITCODE -ne 0) { Fail 'setup.ps1 -WebClientStage failed (above)' }
+    if (-not $stage) { Fail "the web client has no stage folder with a manifest.json" }
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-WebClientStage', $stage.FullName)
+    if ($script:childExit -ne 0) { Fail 'setup.ps1 -WebClientStage failed (above)' }
 }
 
 # 5. the downloads: each one put in place whole, by a rename in the same folder
@@ -193,7 +268,7 @@ foreach ($n in $want.Keys) {
 }
 
 # 6. the updater's files: the new ones first, manifest.json last, then the ones no release names any more
-if ($want.ContainsKey('updater-files.tar')) {
+if ($tars.Count) {
     Say "H9XASH-Updater's files"
     New-Item -ItemType Directory -Force -Path $Files | Out-Null
     $added = 0
@@ -211,23 +286,29 @@ if ($want.ContainsKey('updater-files.tar')) {
     if ($blobsWanted.Count) {
         foreach ($f in Get-ChildItem -LiteralPath $Files -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' -and -not $blobsWanted.Contains($_.Name) }) { Remove-Item -LiteralPath $f.FullName -Force; $gone++ }
     }
-    Write-Host "  $added new, $gone no longer named"
+    Write-Host "  $added new in this step, $gone no longer named"
 }
 
 # 7. the file index (under this build's names), the code's fingerprint, and the checks
 if ($build) { [IO.File]::WriteAllText((Join-Path $Dl '.build'), "$build`n") }
 if ($pkgDir) {
     Say "the downloads' file index"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkgDir 'setup.ps1') -Root $Root -FileIndex 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex')
 }
 $cc = Join-Path $Root 'code-check.ps1'
 if (Test-Path -LiteralPath $cc) {
     Say 'the fingerprint of all code'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $cc -Root $Root -Write 2>&1 | ForEach-Object { Write-Host "  $_" }
+    Invoke-Child @('-File', $cc, '-Root', $Root, '-Write')
 }
 Say 'checks'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'start-all.ps1') -Root $Root 2>&1 | ForEach-Object { Write-Host "  $_" }
-$ok = ($LASTEXITCODE -eq 0)
+Invoke-Child @('-File', (Join-Path $Root 'start-all.ps1'), '-Root', $Root)
+$ok = ($script:childExit -eq 0)
+if ($ok -and $newTrees.Count) {
+    $tr = @{}
+    if (Test-Path -LiteralPath $TreeFile) { $old = Get-Content -Raw -LiteralPath $TreeFile | ConvertFrom-Json; foreach ($pn in $old.PSObject.Properties.Name) { $tr[$pn] = $old.$pn } }
+    foreach ($k in $newTrees.Keys) { $tr[$k] = $newTrees[$k] }
+    [IO.File]::WriteAllText($TreeFile, ($tr | ConvertTo-Json -Compress), (New-Object Text.ASCIIEncoding))
+}
 Stop-Transcript | Out-Null
 if ($ok) { Remove-Item -LiteralPath $in -Recurse -Force; Write-Host '== delivered'; exit 0 }
 Write-Host "== delivered, but a check is not OK (above); the delivery is kept in $in" -ForegroundColor Yellow

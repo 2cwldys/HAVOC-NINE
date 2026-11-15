@@ -111,7 +111,15 @@
    A      havoc9.org        <the machine's public IPv4 address>
    A      www.havoc9.org    <the same>
    AAAA   (both names)      <its IPv6 address, only if it has one>
- Remove any other A or AAAA records for those names. TTL 300 makes a later
+   A      game.havoc9.org   <the same IPv4 address>, DNS ONLY (grey cloud), and NO AAAA record
+ Remove any other A or AAAA records for those names.
+ game.havoc9.org is the name game servers use (h9_presence_url, the plugins' default): it has no IPv6
+ address on purpose. Cloudflare answers every name it proxies over IPv6 as well, and cannot be told not
+ to (the dashboard has no switch any more); a game server's enrollment must come from its IPv4 address,
+ because h9web proves the server is there by asking that address over UDP, so a server on a PC that
+ prefers IPv6 was refused ("bad_request", now "ipv6_use_game_host") until its address was a name with
+ only an A record. setup.ps1 serves it from Caddy (only what a game server calls; everything else is a
+ 404), opens TCP 443 for it from every address, and has the site's own name answer Cloudflare only. TTL 300 makes a later
  move quick. Check from any PC:  nslookup havoc9.org
  On a home connection the public address is the router's: forward TCP 80
  and 443 and UDP 27015 on the router to this machine's LAN address, and give

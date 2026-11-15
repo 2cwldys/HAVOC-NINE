@@ -235,6 +235,13 @@ export function createEnrollment(deps) {
     let server = null;
     if (body.server !== undefined) server = addressKey(body.server);
     else if (Number.isInteger(body.port) && body.port >= 1 && body.port <= 65535) server = addressKey(caller + ":" + body.port);
+    if (!server && body.server === undefined && caller.includes(":")) {
+      // an IPv6 caller: havoc9.org is answered over IPv6 as well by Cloudflare, and a server enrolls from its IPv4 address
+      // (the proof is a UDP query to that address). The IPv4-only name is a DNS-only record, so no proxy answers it over IPv6.
+      const host = s.gameHost || "game.havoc9.org";
+      throw new HttpError(400, "ipv6_use_game_host", "This request came over IPv6 (" + caller + "), but a server enrolls from its IPv4 address. "
+        + "Set h9_presence_url to https://" + host + "/api/presence/report, a name that has no IPv6 address.");
+    }
     if (!server) throw new HttpError(400, "bad_request", "Send { port } from the server itself, or { server: \"ip:port\" }.");
     const listen = body.listen === true;
     if (listen && !(clientIdIndex && verifyIdProof && accounts)) {

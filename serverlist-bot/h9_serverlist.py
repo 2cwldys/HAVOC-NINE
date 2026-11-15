@@ -903,10 +903,8 @@ def make_bot(state, settings):
                         checked = time.monotonic()
                     wanted = status_for(*state.standing(settings.gamedir), self.list_ok)
                     build = served_build(settings)
-                    if build:
-                        wanted = (wanted[0], f"{wanted[1]} | H9XASH {build}"[:128])
                     if build and build != self.bio_build:
-                        await self.set_bio(build)
+                        await self.set_bio(build)                   # About Me only: the status line stays as it was
                     if wanted != self.shown:
                         await self.change_presence(status=discord.Status(wanted[0]),
                                                    activity=discord.CustomActivity(name=wanted[1]))

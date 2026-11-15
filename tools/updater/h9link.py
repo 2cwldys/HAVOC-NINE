@@ -26,6 +26,8 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
+import h9tls
+
 SITE = 'https://havoc9.org'
 STORE = 'user_id.ini'
 DEVICE_FILE = 'device_id.ini'
@@ -268,7 +270,7 @@ def _running_under_wine():
 
 def _get(url):
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with h9tls.urlopen(req, 20) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
 

@@ -81,7 +81,8 @@ $Own = @{
     windows = @(@('vps\windows\README-WINDOWS.txt', 'README-WINDOWS.txt'), @('vps\windows\setup.ps1', 'setup.ps1'), @('vps\windows\setup.cmd', 'setup.cmd'),
                 @('vps\windows\Caddyfile.template', 'Caddyfile.template'), @('vps\windows\start-all.ps1', 'start-all.ps1'),
                 @('vps\windows\receive-deploy.ps1', 'receive-deploy.ps1'), @('vps\windows\code-check.ps1', 'code-check.ps1'),
-                @('vps\windows\restore-backup.ps1', 'restore-backup.ps1'), @('vps\windows\stop-all.ps1', 'stop-all.ps1'))
+                @('vps\windows\restore-backup.ps1', 'restore-backup.ps1'), @('vps\windows\stop-all.ps1', 'stop-all.ps1'),
+                @('vps\windows\delta.py', 'delta.py'))
 }
 # the relay's files, picked by name: its service, never the helper, the tests or a real config
 $P2pFiles = @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
