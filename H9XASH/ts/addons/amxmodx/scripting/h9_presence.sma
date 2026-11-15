@@ -168,7 +168,7 @@
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.12"
+#define VERSION "1.13"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
@@ -228,6 +228,7 @@ new bool:g_again = false;                // something changed while it was in fl
 new g_last_ts = 0;                       // the ts of the last report built
 new g_last_count = -1;                   // players in the last accepted report (-1: none yet)
 new g_last_status = 0;                   // the last outcome logged: 200, a status, or -1
+new g_neterr[160];                       // why the last call to h9web did not get through, in words; "" once one does
 new g_backoff_until = 0;
 new g_sent_count = 0;
 new g_accepted = 0;                      // reports accepted since the map started
@@ -1107,15 +1108,15 @@ public on_report_done(EzHttpRequest:request_id)
 	g_sending = false;
 	if (ezhttp_get_error_code(request_id) != EZH_OK)
 	{
-		new err[128];
-		ezhttp_get_error_message(request_id, err, charsmax(err));
-		note_result(-1, err);
+		net_problem(request_id, "the report");
+		g_last_status = -1;
 	}
 	else
 	{
 		new status = ezhttp_get_http_code(request_id);
 		if (status == 200)
 		{
+			g_neterr[0] = 0;
 			if (carried)
 			{
 				g_comp_due = false;
@@ -1569,6 +1570,74 @@ bool:coarse_net(id, out[], len)
 // ---- enrollment ---------------------------------------------------------------------------------
 
 /** h9_presence_url without its /report, and path after it. */
+/** h9web's host, from h9_presence_url: havoc9.org unless a test site is set. */
+site_host(out[], len)
+{
+	new url[192];
+	get_pcvar_string(g_cv_url, url, charsmax(url));
+	trim(url);
+	new start = contain(url, "://");
+	start = start < 0 ? 0 : start + 3;
+	new i = start;
+	while (url[i] && url[i] != '/')
+	{
+		i++;
+	}
+	url[i] = 0;
+	copy(out, len, url[start]);
+}
+
+/**
+ * Why a call to h9web did not get through, in words: the connection failed, the certificate is not
+ * one this server trusts (an antivirus that scans HTTPS puts its own in front of every site, and
+ * the web module checks against its own list: H9XASH's launcher adds the PC's certificates to it,
+ * h9_cacerts.ps1), or h9web refused the call. Logged once each time it changes, and shown by
+ * h9_presence_status. Returns true when the call failed; a call that got through clears it.
+ */
+bool:net_problem(EzHttpRequest:request_id, const what[])
+{
+	new host[96], msg[160];
+	site_host(host, charsmax(host));
+	new EzHttpErrorCode:err = ezhttp_get_error_code(request_id);
+	if (err == EZH_SSL_CONNECT_ERROR || err == EZH_SSL_LOCAL_CERTIFICATE_ERROR || err == EZH_SSL_REMOTE_CERTIFICATE_ERROR
+		|| err == EZH_SSL_CACERT_ERROR || err == EZH_GENERIC_SSL_ERROR)
+	{
+		formatex(msg, charsmax(msg), "cannot reach %s: the certificate is not trusted (antivirus HTTPS scanning?)", host);
+	}
+	else if (err != EZH_OK)
+	{
+		new text[96];
+		ezhttp_get_error_message(request_id, text, charsmax(text));
+		formatex(msg, charsmax(msg), "cannot reach %s: %s", host, text);
+	}
+	else
+	{
+		new code = ezhttp_get_http_code(request_id);
+		if (code == 200)
+		{
+			g_neterr[0] = 0;
+			return false;
+		}
+		new why[48];
+		new EzJSON:root = ezhttp_parse_json_response(request_id);
+		if (root != EzInvalid_JSON)
+		{
+			if (ezjson_object_has_value(root, "error", EzJSONString))
+			{
+				ezjson_object_get_string(root, "error", why, charsmax(why));
+			}
+			ezjson_free(root);
+		}
+		formatex(msg, charsmax(msg), "%s refused %s: HTTP %d %s", host, what, code, why);
+	}
+	if (!equal(msg, g_neterr))
+	{
+		copy(g_neterr, charsmax(g_neterr), msg);
+		log_amx("[PRESENCE] %s", msg);
+	}
+	return true;
+}
+
 api_url(out[], len, const path[])
 {
 	new url[192];
@@ -1756,7 +1825,7 @@ send_enroll()
 public on_enroll(EzHttpRequest:request_id)
 {
 	g_ebusy = false;
-	if (ezhttp_get_error_code(request_id) != EZH_OK || ezhttp_get_http_code(request_id) != 200)
+	if (net_problem(request_id, "this server's enrollment"))
 	{
 		wait_more();
 		return;
@@ -1895,10 +1964,12 @@ public on_enroll_status(EzHttpRequest:request_id)
 	g_ebusy = false;
 	if (ezhttp_get_error_code(request_id) != EZH_OK)
 	{
+		net_problem(request_id, "");
 		wait_more();
 		return;
 	}
 	new code = ezhttp_get_http_code(request_id);
+	net_problem(request_id, "the enrollment check");
 	if (code == 401 || code == 403)
 	{
 		// the enrollment is gone (unproven for an hour, or revoked): start again, later
@@ -3246,6 +3317,7 @@ public cmd_status()
 	}
 	server_print("  players in game: %d (with a proof: %d); in the last accepted report: %d", ids, proven, g_last_count < 0 ? 0 : g_last_count);
 	server_print("  reports accepted this map: %d; last outcome: %d", g_accepted, g_last_status);
+	server_print("  reaching h9web: %s", g_neterr[0] ? g_neterr : "no problem seen this map");
 	server_print("  what this server runs: %d file(s) listed for h9web; %s", g_comp_n, g_comp_due ? "goes in the next report" : "h9web has it");
 	server_print("  h9_authenticated: %s", get_pcvar_num(g_cv_auth) ? "1 (h9web judges what this server runs)" : "0 (this server asks not to be authenticated or rated)");
 	new preset[32];
