@@ -1748,7 +1748,11 @@ export function createPresence(deps) {
     if (!confirmAdmin) log.warn("presence.core_hook_missing", { hook: "auth.confirmAdmin", effect: "move-id and reset-id answer 503" });
     netKey = loadNetKey(deps.dataDir, log);
     // the site's server board (/api/servers) leaves out what presence keeps private (lib/modules.js)
-    if (servers && typeof servers.hideFromBoard === "function") offBoard = servers.hideFromBoard((address) => privateServer(address));
+    // a Create Game is private (its host did not ask to be listed); one that announced itself to the H9 server list asked to be shown,
+    // and only a private community's server stays off the board then
+    if (servers && typeof servers.hideFromBoard === "function") {
+      offBoard = servers.hideFromBoard((address, source) => (source === "feed" ? !!community.privateCommunityOf(address) : privateServer(address)));
+    }
     // and says on it whether each server is authenticated (preset.js): the site's chain beside the name
     if (servers && typeof servers.annotateBoard === "function") {
       offNotes = servers.annotateBoard((address) => {

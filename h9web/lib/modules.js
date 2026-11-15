@@ -30,7 +30,8 @@ const RESERVED = new Set(["api", "core", "account", "accounts", "assets", "webcl
 //   listed()        the entries with listed true
 //   status(address) { name, map, mode, players, max, bots } from the server's last A2S answer
 //                   (within status.expireSeconds), or null
-//   hideFromBoard(fn)  fn(address) -> true keeps that server off the site's server board
+//   hideFromBoard(fn)  fn(address, source) -> true keeps that server off the site's server board (source "feed": the server
+//                      announced itself to the H9 server list, which is its operator's choice to be public)
 //                   (/api/servers) for as long as fn answers so; it stays in servers.json, the
 //                   relay and the master's list. Returns a function that takes the filter away.
 //                   The presence module hides private communities' servers with it.
