@@ -131,6 +131,9 @@ typedef enum instance_e
 #define MAX_STATIC_ENTITIES	32	// static entities that moved on the client when level is spawn
 #endif
 
+#ifndef H9_MAX_USERINFO
+#define H9_MAX_USERINFO ( MAX_INFO_STRING * 2 ) // H9: what a game keeps of one player's userinfo (a server too, server.h)
+#endif
 #define MAX_SERVERINFO_STRING 512  // server handles too many settings. expand to 1024?
 #define MAX_PRINT_MSG         8192 // how many symbols can handle single call of Con_Printf or Con_DPrintf
 #define MAX_TOKEN             2048 // parse token length

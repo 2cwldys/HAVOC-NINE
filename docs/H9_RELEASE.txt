@@ -29,8 +29,12 @@ the files of a package, shipped together; the gate compares the one name they al
 --------------
 
 The release is the first word of one file: xash3d-h9-patches\overlay\ts\h9_release.txt, which xash.bat's overlay
-lays into the game folder as ts\h9_release.txt (and the web client's stage with it). It is a date, 2026.11.05, and
-compares as text (older sorts first). To make a new release, edit that file and then build, in this order:
+lays into the game folder as ts\h9_release.txt (and the web client's stage with it). SINCE BUILD 1.64 THE RELEASE IS THE BUILD, in the same versioning:
+1.64, the number VERSION in ts_matchmode.sma has. It is not a date any more (the dated kind, 2026.11.10, was the release up to build 1.63). Every bump of
+the build writes it, so a new build is also a new join gate: node tools\release-prepare.mjs --auto, --bump and --release put the build in the first word of the
+overlay's h9_release.txt and of H9XASH\ts\h9_release.txt before build.bat compiles it into the plugins; tools\release-check.mjs fails when the two differ.
+You do not edit the file by hand. The gate asks for the same release, so an older or a newer game is refused; how the two compare is only the wording
+of the refusal (SV_H9ReleaseOlder: numbers, "1.100" after "1.99", and a dated release older than any build). To make a new release, bump the build and then build, in this order:
 
     xash.bat engine            (nothing in the engine changes with the number: it reads the file)
     build.bat <the plugins>    writes include\h9_release.inc from the file (H9_RELEASE) and builds the plugins with it
@@ -98,7 +102,8 @@ No new patch was added to xash.bat's chain (its xash.dll line has no room for on
       ts_matchmode.sma: 1.60 becomes 1.61; a letter some builds carry goes), build.bat and export.bat run so that ts_matchmode.amxx carries it,
       and the download page's notes and VERSION.txt follow (tools\release-check.mjs --write); with nothing changed the build stays, and one
       someone raised by hand since is not raised again;
-    * the release (section 2, the join gate's date) is never changed by it: edit h9_release.txt by hand when a release is to make older clients
+    * the release (section 2, the join gate) is the build's number and is written by it with every bump; --keep-release leaves it alone, which is for the rare bump that must not
+      refuse the older clients (release-check then says the two differ, so the check has to be told: do not use it without the owner's word). It used to be a date edited by hand to make older clients
       refuse the server.
 
   A step that fails puts the old build back and no ZIP is written. build.bat and export.bat run under D:\temp\HEAVY-JOB.lock like every heavy job
@@ -113,6 +118,24 @@ No new patch was added to xash.bat's chain (its xash.dll line has no room for on
   only: anywhere else a bump (a dry run too) is refused with "there is no build.bat and export.bat"; --no-build writes the new number into ts_matchmode.sma alone.
 
 
+5b. WHAT A NEW BUILD REACHES, AND HOW YOU KNOW
+----------------------------------------------
+
+  One number, the build (VERSION in ts_matchmode.sma, "1.64"), is written everywhere a release is stated. The release-prepare bump does the first four, the
+  deploy the rest; .\verify-release.ps1 (the last step of .\deploy-vps.ps1) checks them all and prints PASS, WARN or FAIL for each:
+    * the plugins (compiled with it) and the official presets (their hashes); release-check.mjs and verify-release.ps1 READ the release out of the compiled
+      h9_presence.amxx (tools\amxx-release.mjs: the literal after "h9_plugin_release" in its data) and fail when it is not the build: a bump that stopped
+      between writing the release files and compiling leaves the old release in the binary while every text file agrees, and the manifest must serve that file;
+    * the join gate's release (h9_release.txt: the same number, section 2) and tools\release-check.mjs;
+    * the download page's notes and VERSION.txt;
+    * the updater's manifest on the site (https://havoc9.org/files/manifest.json, "build") and the versioned downloads (H9XASH-1.64.zip and the others);
+    * the host's build file (site\downloads\.build) and, FROM IT, THE SERVER LIST BOT'S ABOUT ME ("Serving H9XASH 1.64": the bot follows the file by itself, no restart,
+      serverlist-bot\README.md "The build in the bio"; the check waits up to two minutes for the bot's log line "About Me now names H9XASH 1.64");
+    * the game server folder on the host (C:\havoc9\H9XASH): WARN until update-game.ps1 -Apply has run there with the server stopped (a server that is still on the
+      old release refuses players of the new one: section 2).
+  Nothing in this list is done by hand. docs\SHIP_A_VERSION.txt says the order and what to do when a line is not PASS.
+
+
 6. THINGS TO KNOW
 -----------------
 
@@ -122,5 +145,5 @@ No new patch was added to xash.bat's chain (its xash.dll line has no room for on
     each join); players already in stay.
   * A server on an older engine than this ignores _h9rel and lets everyone in; a client on an older engine sends none
     and is refused by a server that has the gate.
-  * The release is compared as plain text: keep the 2026.11.05 form (four digits, two, two; a second release on a day
-    is 2026.11.05.2).
+  * The release is the build, "1.64" (the number after the dot grows; keep its width, "1.09" before "1.10"). The gate itself is an equality, so only the
+    wording of a refusal compares: numerically, a dated release (a first number of 1000 or more) older than any build.

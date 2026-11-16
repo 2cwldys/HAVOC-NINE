@@ -433,11 +433,13 @@ static void UI_UpdateUserinfo( void )
 
 	player_info_t *player = &gameui.playerinfo;
 
+	// H9: cls.userinfo holds H9_MAX_USERINFO and player->userinfo only MAX_INFO_STRING; the menu reads its keys from the whole of cls.userinfo, or a
+	// key set after the 255th character (a colour, the model) would read as empty
 	Q_strncpy( player->userinfo, cls.userinfo, sizeof( player->userinfo ));
-	Q_strncpy( player->name, Info_ValueForKey( player->userinfo, "name" ), sizeof( player->name ));
-	Q_strncpy( player->model, Info_ValueForKey( player->userinfo, "model" ), sizeof( player->model ));
-	player->topcolor = Q_atoi( Info_ValueForKey( player->userinfo, "topcolor" ));
-	player->bottomcolor = Q_atoi( Info_ValueForKey( player->userinfo, "bottomcolor" ));
+	Q_strncpy( player->name, Info_ValueForKey( cls.userinfo, "name" ), sizeof( player->name ));
+	Q_strncpy( player->model, Info_ValueForKey( cls.userinfo, "model" ), sizeof( player->model ));
+	player->topcolor = Q_atoi( Info_ValueForKey( cls.userinfo, "topcolor" ));
+	player->bottomcolor = Q_atoi( Info_ValueForKey( cls.userinfo, "bottomcolor" ));
 	host.userinfo_changed = false; // we got it
 }
 

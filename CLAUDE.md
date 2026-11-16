@@ -205,10 +205,18 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   (`tools\release-prepare.mjs`, `docs\H9_RELEASE.txt` 5): a changed plugin or module since the last
   staged package raises the build by one, runs `build.bat` and `export.bat` under the heavy-job
   lock and writes the presets; `-NoPrepare` skips it, `-DryRun` only says what it would do. The
-  join gate's release date (`h9_release.txt`) is never touched by it.
+  join gate's release (`h9_release.txt`) IS the build (the same versioning, `1.64`, not a date since 1.64): it writes it with every bump, and
+  `tools\release-check.mjs` fails when it is not the build (`node tools\release-prepare.mjs --release` makes it so). A new build is therefore a new gate: players on
+  an older build are refused until they update. Never edit `h9_release.txt` by hand (`docs\H9_RELEASE.txt`, 2).
+- `.\ship.ps1` runs a whole release in order (engine, plugins and the build number with the join gate's release, linux, export, web client, deploy, a check of the host's game
+  server), each step gated by `[ship]` in `packaging.ini`; `-WhatIf` shows the plan, `-From <step>` continues after a failure, `-UpdateServer` also updates the host's game
+  folder (stopped server). It commits and pushes nothing. `docs\SHIP_A_VERSION.txt` is what to read when a step stops.
+- `.\deploy-vps.ps1` ends with `.\verify-release.ps1`: the new build must be in the updater's manifest, the host's build file, THE SERVER LIST BOT'S ABOUT ME (the bot follows
+  the build file, so a version increase updates it; nothing is done by hand), the versioned downloads, the join gate and the host's game folder (WARN until
+  `update-game.ps1 -Apply` has run there). Read its PASS/WARN/FAIL lines in the report; a FAIL makes the deploy exit 1.
 - A release goes to havoc9.org with `.\deploy-vps.ps1` (`packaging.ini` says what it does): it stages the
-  ZIPs (the version bump and the presets come with the stage), packs the host packages, and delivers over
-  SSH only what changed (`vps\windows\delta.py`: the client ZIPs and the web client are rebuilt on the host
+  client packages as LISTS (no ZIP is built on this PC; the version bump and the presets come with the stage), packs the Windows host package (the host installs it; it is NEVER in the downloads' file index), and delivers over
+  SSH only what changed (`vps\windows\delta.py`: the client ZIPs and the web client are built on the host, which keeps the compressed form of every file it has zipped
   from recipes), the updater's files, and THE BUILD'S OFFICIAL PLUGIN LIST. That list (`tools\preset_bundle.py`:
   every game mode, the Windows and the Linux build, plus the plugins of the default `plugins.ini` on the
   shared list) is built and sent with every release and imported by the host's `receive-deploy.ps1`

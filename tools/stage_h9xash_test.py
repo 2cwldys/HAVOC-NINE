@@ -353,8 +353,10 @@ def ps_env():
 def build_cmd(kind, ctx, o):
     ps = kind == "ps"
     if ps:
+        # -NoPrepare always: without it the PowerShell stage runs tools/release-prepare.mjs of the real source tree (a new build number, the plugins
+        # rebuilt, the presets and the web client rewritten) for every case; this test is about packaging and must never touch the tree it runs in
         cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ctx.ps1,
-               "-Source", o["source"], "-OutDir", o["out"], "-StageDir", o["stage"]]
+               "-Source", o["source"], "-OutDir", o["out"], "-StageDir", o["stage"], "-NoPrepare"]
         if o.get("keep", True):
             cmd += ["-KeepStage"]
     else:
@@ -378,6 +380,8 @@ def build_cmd(kind, ctx, o):
         cmd += ["-AllowIp" if ps else "--allow-ip", o["allow_ip"]]
     if o.get("compression"):
         cmd += ["-Compression" if ps else "--compression", o["compression"]]
+    if o.get("lists"):
+        cmd += ["-Lists" if ps else "--lists"]
     return cmd
 
 
@@ -489,6 +493,34 @@ def compare_zips(label, pa, pb, soft_order=False):
         check(False, label + ": members equal only after line-end normalisation", "\n".join(norm_only[:10]))
     check(not bad_date, label + ": same entry times (files not rewritten keep the source time)", "\n".join(bad_date[:10]))
     return a, b
+
+
+def list_vs_zip(dmod, label, list_path, zip_path):
+    """The entries a list names are the entries its ZIP holds: path, kind, attributes, system, compression, SHA-256 and size of each. The time of an
+    entry is left out of the comparison: the two come from two runs, and the files a run makes itself (the stock config, networking.ini, the scrubbed
+    files) and the folders get the time of their own run; each time must still be a real date (year 1980 to 2107, six numbers)."""
+    try:
+        from_list, _srcs = dmod.entries_of_list(list_path)
+        from_zip = dmod.recipe_of_zip(zip_path)
+    except SystemExit as e:
+        check(False, label + ": read both", str(e))
+        return
+
+    def key(es):
+        out = {}
+        for e in es:
+            d = dict(e)
+            d["time"] = None
+            out[d["path"]] = d
+        return out
+
+    shape = all(len(e["time"]) == 6 and 1980 <= e["time"][0] <= 2107 and all(isinstance(x, int) for x in e["time"]) for e in from_list)
+    check(shape, label + ": every time in the list is a real date")
+
+    a, b = key(from_list), key(from_zip)
+    bad = [p for p in sorted(set(a) | set(b)) if a.get(p) != b.get(p)]
+    check(not bad and len(from_list) == len(from_zip), label + ": the list names the entries of the ZIP (%d)" % len(from_zip),
+          "%d differ, first %s: list %s, ZIP %s" % (len(bad), bad[0], a.get(bad[0]), b.get(bad[0])) if bad else "")
 
 
 def compare_stages(label, ra, rb):
@@ -858,6 +890,37 @@ def main():
             ma, mb = manifest(ra.files), manifest(rb.files)
             check(ma == mb, "same manifest (published time apart)", line_diff(ma, mb, "ps", "py"))
             check(sorted(os.listdir(ra.files)) == sorted(os.listdir(rb.files)), "same files in the files folder")
+
+    # ---- lists: what -Lists / --lists write is what the ZIPs hold
+    heading("lists against ZIPs (delta.py plan --list reads them in place of ZIPs)")
+    delta_py = os.path.join(ctx.here, "vps", "windows", "delta.py")
+    if os.path.isfile(delta_py):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("delta_for_stage_test", delta_py)
+        dmod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dmod)
+        for case, fxname, o in cases:
+            if case not in ("native", "server-only", "stock-and-overlay", "stock-wine", "no-linux"):
+                continue
+            for kind in kinds:
+                lo = dict(o)
+                lo["lists"] = True
+                rl = run_one(kind, ctx, case + "-lists", src(fxname), lo)
+                rz = runs[case][kind]
+                tag = "[%s] %s: " % (kind, case)
+                check(rl.rc == rz.rc and rz.rc == 0, tag + "a run with lists ends as the run with ZIPs does (exit %d)" % rz.rc)
+                check(not rl.zips, tag + "it writes no ZIP", str(rl.zips))
+                check(rl.stage is not None, tag + "it keeps the stage (the lists point into it)")
+                for zp in rz.zips:
+                    name = os.path.basename(zp)
+                    lp = os.path.join(rl.out, name + ".list.json")
+                    if not check(os.path.isfile(lp), tag + name + ".list.json is there"):
+                        continue
+                    list_vs_zip(dmod, tag + name, lp, zp)
+                    srcs = dmod.entries_of_list(lp)[1]
+                    check(all(os.path.isfile(s) for s in srcs.values()), tag + name + ": every file the list names exists")
+    else:
+        info("no vps%swindows%sdelta.py beside the stage scripts: the lists were not compared" % (os.sep, os.sep))
 
     # ---- the shell wrapper
     heading("stage-h9xash.sh")

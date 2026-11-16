@@ -1126,6 +1126,8 @@ static void CL_WritePacket( void )
 	Netchan_UpdateProgress( &cls.netchan );
 }
 
+static void CL_H9SendLateUserinfo( void ); // H9: defined with CL_H9PacketUserinfo, further down
+
 /*
 =================
 CL_SendCommand
@@ -1135,6 +1137,8 @@ Called every frame to builds and sends a command packet to the server.
 */
 static void CL_SendCommand( void )
 {
+	CL_H9SendLateUserinfo();
+
 	// we create commands even if a demo is playing,
 	CL_CreateCmd();
 
@@ -1335,6 +1339,123 @@ static void CL_WriteSteamTicket( sizebuf_t *send, int challenge )
 	*(uint32_t*)(cls.steamid + 4) = LittleLong( ((uint32_t*)buf)[5] );
 }
 
+// H9: a connect packet carries 255 characters of userinfo at most (MAX_INFO_STRING: a stock server refuses more), and a game with the H9 keys has
+// more than that. cls.userinfo now holds H9_MAX_USERINFO of it; before, the keys that did not fit were refused one by one in the order they were
+// set, h9_clientid and even _h9rel among them, so a server could neither tie the player to an account nor tell the release (the kick "Your HAVOC 9
+// is out of date"). The packet gets the keys a server needs to let the player in, then whatever else fits, and the rest goes with setinfo once
+// connected (CL_H9SendLateUserinfo): an H9 server keeps H9_MAX_USERINFO of each player and takes them, any other refuses them one by one.
+static char cl_h9_late[H9_MAX_USERINFO]; // "\key\value" pairs that did not fit the connect packet
+static char cl_h9_packetinfo[MAX_INFO_STRING]; // the userinfo a connect packet carries
+static char cl_h9_fullinfo[H9_MAX_USERINFO]; // cls.userinfo while the GoldSrc packet is made
+
+static const char *const cl_h9_packet_keys[] =
+{
+	"name", "model", "rate", "cl_updaterate", "cl_lw", "cl_lc", "cl_dlmax", "cl_nopred", "topcolor", "bottomcolor", "password", "team", "skin",
+	"_h9rel", "_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
+};
+
+static qboolean CL_H9InfoFits( const char *out, size_t size, const char *key, const char *value )
+{
+	return value[0] && Q_strlen( out ) + Q_strlen( key ) + Q_strlen( value ) + 2 < size;
+}
+
+// h9_clientid is made for ONE H9 server (CL_SendConnectPacket salts the player's id with that server's address), and nothing takes it off again: the
+// GoldSrc packet, which makes none, must not hand the one of the last H9 server to whatever it connects to
+static qboolean CL_H9SkipKey( const char *key, qboolean goldsrc )
+{
+	return goldsrc && !Q_strcmp( key, "h9_clientid" );
+}
+
+static void CL_H9PacketUserinfo( char *out, size_t size, qboolean goldsrc )
+{
+	const char *s = cls.userinfo;
+	int i;
+
+	out[0] = 0;
+	cl_h9_late[0] = 0;
+
+	for( i = 0; i < (int)( sizeof( cl_h9_packet_keys ) / sizeof( cl_h9_packet_keys[0] )); i++ )
+	{
+		const char *key = cl_h9_packet_keys[i];
+		const char *value = Info_ValueForKey( cls.userinfo, key );
+
+		if( CL_H9SkipKey( key, goldsrc ))
+			continue;
+
+		if( CL_H9InfoFits( out, size, key, value ))
+			Info_SetValueForKey( out, key, value, size );
+	}
+
+	while( *s == '\\' )
+	{
+		char key[MAX_INFO_STRING], value[MAX_INFO_STRING];
+		const char *k = s + 1, *v = Q_strchr( k, '\\' ), *e;
+		size_t kl, vl;
+
+		if( !v )
+			break;
+
+		kl = v - k;
+		v++;
+		e = Q_strchr( v, '\\' );
+		vl = e ? (size_t)( e - v ) : Q_strlen( v );
+		s = e ? e : v + vl;
+
+		if( !kl || kl >= sizeof( key ) || vl >= sizeof( value ))
+			continue;
+
+		Q_strncpy( key, k, kl + 1 );
+		Q_strncpy( value, v, vl + 1 );
+
+		if( CL_H9SkipKey( key, goldsrc ))
+			continue;
+
+		if( Info_ValueForKey( out, key )[0] || !value[0] )
+			continue;
+
+		if( CL_H9InfoFits( out, size, key, value ))
+			Info_SetValueForKey( out, key, value, size );
+		else if( Q_strlen( cl_h9_late ) + kl + vl + 2 < sizeof( cl_h9_late ))
+			Q_snprintf( cl_h9_late + Q_strlen( cl_h9_late ), sizeof( cl_h9_late ) - Q_strlen( cl_h9_late ), "\\%s\\%s", key, value );
+	}
+}
+
+static void CL_H9SendLateUserinfo( void )
+{
+	char late[H9_MAX_USERINFO];
+	const char *s = late;
+
+	if( !cl_h9_late[0] || cls.state < ca_connected || cls.demoplayback )
+		return;
+
+	// copied out at once: CL_UpdateInfo may come back here through a command
+	Q_strncpy( late, cl_h9_late, sizeof( late ));
+	cl_h9_late[0] = 0;
+
+	while( *s == '\\' )
+	{
+		char key[MAX_INFO_STRING], value[MAX_INFO_STRING];
+		const char *k = s + 1, *v = Q_strchr( k, '\\' ), *e;
+		size_t kl, vl;
+
+		if( !v )
+			break;
+
+		kl = v - k;
+		v++;
+		e = Q_strchr( v, '\\' );
+		vl = e ? (size_t)( e - v ) : Q_strlen( v );
+		s = e ? e : v + vl;
+
+		if( !kl || kl >= sizeof( key ) || vl >= sizeof( value ))
+			continue;
+
+		Q_strncpy( key, k, kl + 1 );
+		Q_strncpy( value, v, vl + 1 );
+		CL_UpdateInfo( key, value );
+	}
+}
+
 void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticket, size_t ticketlen )
 {
 	sizebuf_t send;
@@ -1351,6 +1472,11 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
 	if( cl_advertise_engine_in_name.value && Q_strnicmp( name, "[Xash3D]", 8 ))
 		Info_SetValueForKeyf( cls.userinfo, "name", sizeof( cls.userinfo ), "[Xash3D]%s", name );
 
+	// H9: the packet carries MAX_INFO_STRING of the userinfo (CL_H9PacketUserinfo); cls.userinfo is that for this function and whole again at its end
+	CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ), true );
+	Q_strncpy( cl_h9_fullinfo, cls.userinfo, sizeof( cl_h9_fullinfo ));
+	Q_strncpy( cls.userinfo, cl_h9_packetinfo, sizeof( cls.userinfo ));
+
 	MSG_Init( &send, "GoldSrcConnect", send_buf, sizeof( send_buf ));
 	MSG_WriteLong( &send, NET_HEADER_OUTOFBANDPACKET );
 	MSG_WriteStringf( &send, C2S_CONNECT" %i %i \"%s\" \"%s\"\n",
@@ -1366,6 +1492,8 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
 
 	NET_SendPacket( NS_CLIENT, MSG_GetNumBytesWritten( &send ), MSG_GetData( &send ), adr );
 	Con_Printf( "Trying to connect with GoldSrc 48 protocol\n" );
+
+	Q_strncpy( cls.userinfo, cl_h9_fullinfo, sizeof( cls.userinfo ));
 }
 
 /*
@@ -1469,7 +1597,8 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
 			Info_SetValueForKeyf( protinfo, "cookie", sizeof( protinfo ), "%016"PRIx64, cls.netchan_pending_cookie );
 		}
 
-		Netchan_OutOfBandPrint( NS_CLIENT, adr, C2S_CONNECT" %i %i \"%s\" \"%s\"\n", PROTOCOL_VERSION, challenge, protinfo, cls.userinfo );
+		CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ), false );
+		Netchan_OutOfBandPrint( NS_CLIENT, adr, C2S_CONNECT" %i %i \"%s\" \"%s\"\n", PROTOCOL_VERSION, challenge, protinfo, cl_h9_packetinfo );
 		Con_Printf( "Trying to connect with modern protocol\n" );
 	}
 

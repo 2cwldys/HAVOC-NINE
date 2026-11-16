@@ -206,7 +206,7 @@ static void H9T_Advertise( void )
 		return;
 
 	travel.advertised = want;
-	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", MAX_INFO_STRING );
+	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", H9_MAX_USERINFO );
 
 	if( cls.state >= ca_connected )
 		CL_UpdateInfo( "_h9travel", want ? "1" : "0" );

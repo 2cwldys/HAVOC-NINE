@@ -68,9 +68,17 @@ diff --git a/engine/client/dll_int/cl_game.c b/engine/client/dll_int/cl_game.c
  	pfnDrawConsoleStringLen,
  	pfnConsolePrint,
 diff --git a/engine/client/console.c b/engine/client/console.c
+index f4cb680..d8a01dc 100644
 --- a/engine/client/console.c
 +++ b/engine/client/console.c
-@@ -39,6 +39,37 @@ static int g_codepage = 0;
+@@ -34,11 +34,50 @@ static CVAR_DEFINE_AUTO( con_color, "240 180 24", FCVAR_ARCHIVE, "set a custom c
+ static CVAR_DEFINE_AUTO( scr_drawversion, "1", FCVAR_ARCHIVE, "draw version in menu or screenshots, doesn't affect console" );
+ static CVAR_DEFINE_AUTO( con_oldfont, "0", 0, "use legacy font from gfx.wad, might be missing or broken" );
+ static CVAR_DEFINE_AUTO( con_showcompletion, "1", FCVAR_ARCHIVE, "perform simplified autocompletion while typing" );
++// H9: pixels the say: line is raised, so that it clears the game's HUD in the lower left (0 is where the chat lines end)
++static CVAR_DEFINE_AUTO( h9_chatraise, "16", FCVAR_ARCHIVE, "raise the chat input line by this many pixels, clear of the HUD in the lower left" );
+ 
+ static int g_codepage = 0;
  
  static qboolean g_messagemode_privileged = true;
  
@@ -85,7 +93,9 @@ diff --git a/engine/client/console.c b/engine/client/console.c
 +the game has one; when it leaves the position as it was (GoldSrc clients have none,
 +and the HL SDK's own moves it only while spectating) the line goes under the chat
 +lines the game drew this frame, at their left edge, or with none on screen where
-+the HL SDK's chat area ends, just above the HUD
++the HL SDK's chat area ends, just above the HUD. Either way the line is raised by
++h9_chatraise pixels: TS's team box and health box stand in the lower left and the line
++clipped into them
 +================
 +*/
 +static void Con_ChatInputPosition( int *x, int *y )
@@ -103,12 +113,24 @@ diff --git a/engine/client/console.c b/engine/client/console.c
 +		*x = 10;
 +		*y = refState.height - 60 - Con_GetFont( con_fontsize.value )->charHeight;
 +	}
++
++	*y -= (int)Q_max( 0.0f, h9_chatraise.value );
++	if( *y < 0 )
++		*y = 0;
 +}
 +
  #define CON_TIMES		4	// notify lines
  #define CON_MAX_TIMES	64	// notify max lines
  #define COLOR_DEFAULT	'7'
-@@ -1837,8 +1868,7 @@ static void Con_DrawNotify( void )
+@@ -808,6 +847,7 @@ void Con_Init( void )
+ 	Cvar_RegisterVariable( &scr_drawversion );
+ 	Cvar_RegisterVariable( &con_oldfont );
+ 	Cvar_RegisterVariable( &con_showcompletion );
++	Cvar_RegisterVariable( &h9_chatraise );
+ 
+ 	// init the console buffer
+ 	con.bufsize = CON_TEXTSIZE;
+@@ -1837,8 +1877,7 @@ static void Con_DrawNotify( void )
  		int	len;
  
  		// update chatline position from client.dll
@@ -118,7 +140,7 @@ diff --git a/engine/client/console.c b/engine/client/console.c
  
  		Q_snprintf( buf, sizeof( buf ), "%s: ", con.chat_cmd );
  
-@@ -2163,16 +2193,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
+@@ -2163,16 +2202,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
  		*x = con.curFont->charWidths[' '];
  		*y = 0;
  

@@ -164,7 +164,8 @@ function Test-Http([string]$Url)
 # the link of another build goes; without one the link has the file's own name. Each link is made
 # again when it is missing or points elsewhere, then checked: its SHA-256 must be that of the file
 # in downloads\. A file not there yet is skipped (an old link to it goes). Last, SHA256SUMS.txt
-# lists the SHA-256 of every file the index serves.
+# lists the SHA-256 of every file the index serves. The index is public: a host package (havoc9-vps-*, the site's own installer and code) is never
+# in it, and any file of that name that someone put there is removed.
 $ButtonFiles = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe', 'H9XASH-linux-server.zip')
 function Sync-Downloads
 {
@@ -175,6 +176,10 @@ function Sync-Downloads
     $bf = Join-Path $dl '.build'
     if (Test-Path -LiteralPath $bf) { $b = ([IO.File]::ReadAllText($bf)).Trim(); if ($b -match '^[0-9][A-Za-z0-9._-]{0,31}$') { $build = $b } }
     $sums = @{}
+    # the index is public: a host package (the site's installer and code) is never in it, whoever put it there
+    foreach ($p in @(Get-ChildItem -LiteralPath $idx -File -Force | Where-Object { $_.Name -like 'havoc9-vps-*' })) {
+        Step "remove $($p.FullName) (a host package is never in the public file index)" { Remove-Item -LiteralPath $p.FullName -Force }
+    }
     foreach ($src0 in $ButtonFiles) {
         $base = [IO.Path]::GetFileNameWithoutExtension($src0)
         $ext = [IO.Path]::GetExtension($src0)
@@ -462,7 +467,7 @@ if ($WebClientStage) {
 
 # the host's own scripts, beside the folders: start-all.ps1 (start and check everything), receive-deploy.ps1 (takes a
 # delivery from deploy-vps.ps1) and code-check.ps1 (the fingerprint of all code). The root is administrators-only.
-foreach ($f in @('start-all.ps1', 'stop-all.ps1', 'receive-deploy.ps1', 'code-check.ps1', 'restore-backup.ps1', 'delta.py')) {
+foreach ($f in @('start-all.ps1', 'stop-all.ps1', 'receive-deploy.ps1', 'code-check.ps1', 'restore-backup.ps1', 'update-game.ps1', 'delta.py')) {
     $from = Join-Path $Here $f
     if (Test-Path -LiteralPath $from) { Step "$f into $Root" { Copy-Item -LiteralPath $from -Destination (Join-Path $Root $f) -Force } }
 }

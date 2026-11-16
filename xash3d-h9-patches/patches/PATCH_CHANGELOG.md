@@ -99,7 +99,8 @@ about the first kind:
 | 54 | `engine-h9-intro.patch` | `client/cl_video.c` (cvars `ts_intro` and `ts_intro_vol`, `SCR_SkipStartupVideo`, the intro skipped in `SCR_NextMovie` when it is 0), `client/client.h`, `client/input/in_keys.c` (`Key_Event`), `client/sound/s_stream.c` (`S_StartBackgroundTrack`) | the intro video before the main menu: `ts_intro` (archived, 1), `ts_intro_vol` (archived, 1: how loud it is), any key or mouse button skips a startup video |
 | 55 | `engine-h9-glowfix.patch` | `ref/gl/gl_draw.c` (`R_Set2DMode`) | MSR's bloom: `GL_MODULATE` is bound before the compose, so a glowing mesh (lamps, the RepuTengu glasses) is no longer drawn as a white square |
 | 57 | `engine-h9-upscale.patch` | `ref/gl/gl_upscale.c` (new), `ref/gl/gl_fbo.c` (`GL_BlitTarget`), `ref/gl/gl_opengl.c` (two cvars, their registration, `R_Shutdown`), `ref/gl/gl_local.h` | `h9_upscale` 0 or 1 and `h9_upscale_sharp` 0 to 1 (0.84): with `h9_upscale` on, the scene target's blit into the screen target (`GL_BlitTarget` asks `GL_UpscaleBlit` first) is drawn by AMD FidelityFX Super Resolution 1.0 instead: EASU into a target of the screen's size and RCAS from it, or RCAS alone at `r_scene_scale` 1, as GLSL 1.10 shaders through the ARB shader objects `gl_opengl.c` loaded and nothing called. The plain blit when it is off, when the scene is bigger than the screen and whenever the upscaler cannot work (one console line, no retry until `h9_upscale` goes to 0 and 1). AMD's MIT notice is in `gl_upscale.c` and in `overlay/ref_gl.FSR1-LICENSE.txt`. The OpenGL ES and WebGL renderers compile `gl_upscale.c` to a stub (the cvars stay). **Applies after the whole chain**: its hunks in `gl_fbo.c`, `gl_opengl.c` and `gl_local.h` sit clear of every hunk of `engine.patch` (the lines of `GL_BindScreenTarget`, the cvar block and the registration block are its), so every earlier patch still reverse-checks as in place. See `docs\H9_UPSCALE.txt` |
-| 58 | `engine-h9-chatraise.patch` | `client/console.c` (`Con_ChatInputPosition`, cvar `h9_chatraise`) | the say: line is raised `h9_chatraise` pixels (16; 0 = where the chat lines end), clear of the team box and the health box of TS's HUD in the lower left |
+| 58 | `engine-h9-chatraise.patch` (now folded into `engine-h9-chatinput.patch`, file in `retired/`) | `client/console.c` (`Con_ChatInputPosition`, cvar `h9_chatraise`) | the say: line is raised `h9_chatraise` pixels (16; 0 = where the chat lines end), clear of the team box and the health box of TS's HUD in the lower left |
+| 59 | `engine-h9-userinfo-client.patch` | `client/cl_main.c` (`CL_H9PacketUserinfo`, `CL_H9SendLateUserinfo`, the two connect packets, `CL_SendCommand`), `client/client.h` (`cls.userinfo`), `common/common.h` (`H9_MAX_USERINFO`), `client/cl_presence.c`, `client/cl_travel.c`, `common/cvar.c`, `client/dll_int/cl_gameui.c` (`UI_UpdateUserinfo`), `common/infostring.c` (`Info_SetValueForStarKey`: `>=`) | the client keeps `H9_MAX_USERINFO` (512) of its own userinfo, where the 255 of before refused keys one by one (h9_clientid, even `_h9rel`); a connect packet gets the keys a server needs first and what else fits in 255, the rest goes with `setinfo` once connected |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -1898,3 +1899,59 @@ last chat line: both ended inside the team box. The patch takes `h9_chatraise` p
 `HUD_ChatInputPosition` moved the line; `Con_GetInputRect` goes through the same function. The patch is a tail one: made against the `console.c` the chain leaves (the working tree of `xash3d-fwgs`), it applies
 forward with `git apply --check` and the result is the intended file; it adds three hunks near the cvar block, `Con_ChatInputPosition` and the registration in `Con_Init`, none in a region another patch
 touches after `engine-h9-chatinput.patch` and `engine-h9-consoleoverlay.patch`. Added to the end of the chain in `xash.bat`. Needs the next engine build; the web client takes it with the next `webclient-sync`.
+
+### 2026-11-16 -- engine-h9-userinfo-client.patch: the client's userinfo is no longer cut at 255 characters
+
+A player who joined an H9 server over the ordinary route was left out of its presence report ("players in game: 1 (with a proof: 1); in the last accepted report: 0", `.rank`: "You are not signed in"),
+and once the keys had been reshuffled the server kicked the client with "Your HAVOC 9 is out of date". Both came from `cls.userinfo[MAX_INFO_STRING]` (256): a game with H9's userinfo keys (`_h9lnk`,
+`_h9idl`, `_h9idv`, `_h9rel`, `_h9arphud`, `_h9chatbubble`, `_h9race`, `_h9tts`, `_h9vgui`, `_h9arpvgui` and the usual ones) is within a few characters of 255 before `h9_clientid` (45) is set, and
+`Info_SetValueForKey` refuses a key that does not fit, without a word, so which keys a server got depended on the order they were set. The patch makes `cls.userinfo` `H9_MAX_USERINFO` (512, the size the server
+already keeps of each player, `server.h`) and sets the three literal `MAX_INFO_STRING` limits on it (`_h9rel`, `_h9travel`, a userinfo cvar's change) to the same. A connect packet still carries 255 at most
+(a stock server refuses more: "invalid userinfo in connect command"): `CL_H9PacketUserinfo` fills it with the keys a server needs to let a player in (name, model, rate, the cl_ ones, `_h9rel`, `_h9idv`,
+`_h9lnk`, `_h9idl`, `h9_clientid`), then every other key that fits, and the rest is kept; `CL_H9SendLateUserinfo`, from `CL_SendCommand`, sends those with `setinfo` as soon as the game is connected, which an H9
+server takes (its copy holds `H9_MAX_USERINFO`) and a stock server refuses key by key. Both connect packets (the GoldSrc 48 one too) use it. A tail patch: made against the tree the chain leaves, `git apply --check`
+forward is clean, added to the end of the chain in `xash.bat`. Needs the next engine build and `webclient-sync` (the browser build has the same `cls.userinfo`).
+
+Same day, the chain: the three literal `MAX_INFO_STRING` limits are not all in this tail patch: `_h9rel` and `_h9travel` are set inside `cl_presence.c` and `cl_travel.c`, which `engine-h9-presence.patch` and
+`engine-h9-travel.patch` create, so their `H9_MAX_USERINFO` is in those two patches (a tail patch that edits a line another patch added makes that patch's reverse check fail). The connect code uses file-scope buffers
+(`cl_h9_packetinfo`, `cl_h9_fullinfo`) so that no declaration shifts the context of `engine-h9-slots128.patch`, and the GoldSrc write line is left as it was (`engine.patch` has it as context). One thing this
+did not cure and did not cause: `engine-h9-chatraise.patch` (tail, 2026-11-13) edits lines of `Con_ChatInputPosition`, which `engine-h9-chatinput.patch` added, so on a tree that holds both, `chatinput`'s reverse check
+fails and `xash.bat` stops at it; the build that applied `chatraise` passed only because it was the first to. `xash.bat` now honours `H9_SKIP_PATCH_VERIFY=1` (no patch is checked or applied: for a tree that is already
+patched, never for a fresh clone). The lasting cure is to fold `chatraise` into `chatinput` (or bake both into the `h9` branch of `xash3d-fwgs`), a commit-sized job left for when commits are allowed.
+
+### 2026-11-16 -- engine-h9-chatraise.patch folded into engine-h9-chatinput.patch; the chain verifies again
+
+`chatraise` (2026-11-13) was a tail patch that edited lines `engine-h9-chatinput.patch` had added (the body of `Con_ChatInputPosition`, the cvar block). A tree that held both therefore failed
+`chatinput`'s reverse check, and `xash.bat` stopped at it on every build after the one that applied `chatraise`. The `console.c` part of `chatinput` is now the diff from the tree before `chatinput`
+to the tree after `chatinput` and `chatraise` (made by reversing the console.c patches last to first, then applying `chatinput` and `chatraise`; checked: with `consoleoverlay` applied after,
+the result is byte for byte the tree's `console.c`); `chatraise` is out of the chain in `xash.bat` and its file is in `retired/`. Nothing of the tree changed, so no engine build is needed for this.
+`H9_SKIP_PATCH_VERIFY` (above) stays as a switch for the next time a patch overlaps another; the build of 2026-11-16 onward runs without it.
+
+### 2026-11-16 -- engine-h9-serverinfo.patch: SV_H9ReleaseOlder, the wording of a release refusal compares numbers
+
+The join gate (`SV_H9ReleaseRefusal`, `docs\H9_RELEASE.txt`) holds a joiner to the server's release and chose between "Your HAVOC 9 is out of date" and "This server runs an older HAVOC 9" with
+`Q_strcmp( have, want ) < 0`. The release is the build now (1.64, the same versioning as `VERSION` in `ts_matchmode.sma`) and it used to be a date (2026.11.10): as text a date sorts after any build,
+so every player on the dated release would have been told that the SERVER is the older one. `SV_H9ReleaseOlder( a, b )` (added above `SV_H9ReleaseRefusal`, in the same hunk that adds that function) compares
+the dotted numbers (up to four, `Q_atoi` each, so "1.100" is after "1.99" and "1.59b" is 1.59) and counts a first number of 1000 or more (a year) as older than any build. The refusal itself is unchanged: any
+mismatch is refused. The hunk of `sv_client.c` grew by 44 lines and the two hunks after it moved by the same number (the header counts and starts were recomputed from the hunk bodies); the patch reverse-checks on the
+tree and the chain verifies "in place". Needs the next engine build (done for build 1.64).
+
+### 2026-11-16 -- engine-h9-userinfo-client.patch: four fixes from the review of 1.64 (build 1.65)
+
+A reviewer read the userinfo work of 1.64 (the server half in `engine-h9-userinfo.patch`, the client half here) and tried it with AddressSanitizer; the four findings are fixed in this tail patch (it is the end of
+the chain, so nothing edits the lines it adds):
+
+1. `common/infostring.c`, `Info_SetValueForStarKey`: `if( Q_strlen( new ) + Q_strlen( s ) > maxsize )` let a result of exactly `maxsize` characters through, and its terminating NUL went one byte past the buffer.
+On the server, `SV_UserinfoForOthers` fills `char out[MAX_INFO_STRING]` with the keys a client reads of another player (name, model, colours, team, skin): a 127-character name and a 116-character model make exactly 256,
+so a player who could join wrote one zero byte past `out` on the dedicated server's stack (with MSVC's /GS the stack cookie: an abort). On the client the same write moved from 256 to 512 with the larger userinfo and
+landed in `cls.physinfo[0]`. The test says `>=` now, as the eviction loop below it always did. Checked with the real `infostring.c` built on its own under AddressSanitizer, with buffers of exactly their size: the old
+file aborts on the 256 case at once, the new one takes 300000 random fills of 256 and 512 bytes (the longest result 511 characters). Left alone, because it is stock: `Info_RemoveKey` with an empty key removes the
+FIRST key, so a buffer that holds nothing but "important" keys (none can be evicted) and cannot take one more loses its first key (the name, in `SV_UserinfoForOthers`' copy, for such a pathological player); it was a
+memory error before.
+2. `client/dll_int/cl_gameui.c`, `UI_UpdateUserinfo`: the menu read name, model and the two colours from `player->userinfo`, a 256-byte cut of the 512-byte `cls.userinfo`, so a key set after character 255 read as empty
+(the preview ignored a colour). They are read from `cls.userinfo` now; `player->userinfo` is still the cut copy.
+3. `client/cl_main.c`, `CL_H9PacketUserinfo`: the GoldSrc connect packet carried `h9_clientid`, the id made for the last H9 server (the modern packet salts it with the address of the server it goes to, the GoldSrc packet
+makes none), so a stock server got the token an H9 server knows the player by. `CL_H9SkipKey` leaves it out of the GoldSrc packet and of the late list (`CL_H9PacketUserinfo` has a third argument, true for the GoldSrc packet).
+
+The patch is made again as git's own diff of the saved originals against the tree, six files now (`cl_main.c`, `client.h`, `cl_gameui.c`, `common.h`, `cvar.c`, `infostring.c`); the chain verifies "in place". Needs the
+engine build of 1.65 (`xash.dll`, the Linux server, and `webclient-sync` for the browser build: `infostring.c` is shared).

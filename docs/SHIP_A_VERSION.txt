@@ -5,8 +5,17 @@ Written 2026-11-15 after build 1.63. docs\H9_RELEASE.txt says what a release IS 
 RUN one from the last feature to the verified site. Run it ONCE per batch, after the last feature has its own Windows build and checks.
 Never push; no Co-Authored-By line; commits only when the owner says "stage" or "commit" (CLAUDE.md).
 
-0. BEFORE ANYTHING
-------------------
+0. THE SHORT WAY: .\ship.ps1
+----------------------------
+From the git copy, in PowerShell 7, with the game closed:  .\ship.ps1  (or -WhatIf to see the plan, -From <step> to continue after a failure, -UpdateServer to also update
+the game server folder on the host). It runs the steps of section 1 in order - engine, plugins (the build number and the join gate's release, then the plugins and presets),
+linux, export, webclient, deploy (stage, package, upload, install, verify-release.ps1), server - each gated by [ship] in packaging.ini (1, 0 or auto = when its inputs
+changed), stops at the first failure with the log to read, and prints a report. It refuses to start while the game runs, while a heavy job holds the lock, while the git copy holds
+reTS or engine work the master lacks (a merge by hand, 1b) or while the host does not answer. It commits and pushes nothing. The rest of this document says what each step does and
+what to do when one fails.
+
+0b. BEFORE ANYTHING
+-------------------
 - The owner's game must be closed. Never launch or kill a game while they play; ask, or look at the process list (do not probe their PC beyond it).
 - SSH: the deploy logs in with the key behind the shortcut havoc9-vps (docs\ADD_AN_SSH_KEY.txt: adding a PC or a person, removing a key, what never
   to share). Never ask for, print or paste a private key.
@@ -30,20 +39,40 @@ Never push; no Co-Authored-By line; commits only when the owner says "stage" or 
     It compares the compiled plugins with the state file, raises VERSION in ts_matchmode.sma by one when any changed, runs build.bat and export.bat
     (log D:\temp\release-prepare-build.log / -export.log, ~10 minutes) and writes the four official presets. Run from the git copy it refuses (no build.bat).
     If it says "kept 1.xx" the compiled plugins did not change: build.bat has to run FIRST for new .sma code.
+    The join gate's release is the build (1.64, not a date): the same run writes it into xash3d-h9-patches\overlay\ts\h9_release.txt and H9XASH\ts\h9_release.txt
+    BEFORE build.bat compiles it into the plugins, and release-check fails when they differ. A release with no new plugin but a new engine or client still needs
+    a new build number: node tools\release-prepare.mjs --bump (it rebuilds the plugins with it). --release alone makes the release the current build.
+    Everyone on an older build is refused by the gate until they update (the updater does it): say so in the report.
  d. Linux:  build-linux.cmd (no -Stage), then export.bat again so H9XASH-linux reaches the git copy.
  e. Web client:  node tools\webclient-sync.mjs  (rebuilds the wasm engine and client, lays the stage out, runs a headless-browser smoke test), then
     node tools\webclient-sync.mjs --check in the master AND in the git copy (both must say "up to date"). "out of date ... client" in the git copy means its
     reTS differs from the master's. A "refusing: these must never be served" line means a PC-local file (cacert.pem, ids, keys) is in H9XASH: add it to
     make_webclient_game.py's SKIP_NAMES, never to the allowed list.
  f. Deliver, from the git copy, PowerShell 7:  .\deploy-vps.ps1   (log it: *> D:\temp\h9vps\deploy_xx.log)
-    It runs stage-h9xash.ps1 (ZIPs, updater files in dist\files, release-prepare keeps the build), makes the host packages (site, h9web, server list),
+    It runs stage-h9xash.ps1 (a LIST of what each client package holds, not the ZIP: the host builds the ZIPs; updater files in dist\files; release-prepare keeps the build; packaging.ini [stage] zips = 1 writes the ZIPs too), makes the Windows host package (site, h9web, server list; the host installs it, it is never in the public downloads),
     builds the preset bundle (tools\preset_bundle.py), plans the delta, uploads in 6 parallel scp streams (~5 MB/s, a normal release sends 100-300 MB),
     and runs C:\havoc9\receive-deploy.ps1 on the host. packaging.ini switches each part. First it refreshes the host's OWN receive-deploy.ps1 and
     delta.py when they differ (an older receiver meets a newer delivery otherwise).
- g. Verify (section 2), then stage the commits (section 5).
+ g. The game server on the VPS (C:\havoc9\H9XASH) is NOT touched by the deploy: stop it, then on the host run
+       powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1            (what would change; changes nothing)
+       powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1 -Apply     (update it; -StopServer ends a running one)
+    It runs the site's own H9XASH-Updater.exe against the manifest, so only new or changed files are fetched, each checked by SHA-256,
+    with a rollback (-Rollback). It leaves the server's configs, keys and logs alone. Then start it with h9xash_server.bat.
+    A WINDOW to know about: the join gate is an equality and the release is the build, so from the moment the deploy has put the new build on the site until
+    the VPS server is updated, that server (still on the old release) refuses every player who has updated, and a player who has not is refused by nobody
+    but cannot join a new server. Keep the window short: stop the server before the deploy, run .\ship.ps1 -UpdateServer (or update-game.ps1 -Apply on the host
+    right after the deploy), start it again. verify-release.ps1 says WARN for the game server folder until that is done.
+ h. Verify (section 2), then stage the commits (section 5).
 
 2. VERIFY THE SITE (all of it, every time)
 ------------------------------------------
+deploy-vps.ps1 ends with .\verify-release.ps1, which does every check below and prints PASS / WARN / FAIL for each (exit 1 on a FAIL; run it alone any time):
+the updater's manifest, the host's build file, THE SERVER LIST BOT'S ABOUT ME (it is part of a version increase: the build file the deploy writes is what the bot
+follows, and the verification waits up to 2 minutes for its log to say "About Me now names H9XASH <build>"), the versioned downloads, that the public file index holds no
+host package, the join gate (h9_release.txt = the build), that the compiled plugin carries that release (h9_presence.amxx, read out of the binary: a bump
+that stopped before the compile leaves the old one in it while every text file agrees) and that the updater's manifest serves that very file, the game
+server folder on the host (WARN until update-game.ps1 -Apply has run, server stopped) and the site. Nothing here has to be
+looked up by hand; the list below says what each line means.
 - deploy log ends "everything is up", exit 0; all services Running; "code as installed: unchanged since the last install".
 - ssh havoc9-vps "type C:\havoc9\site\downloads\.build"  ->  the build number.
 - https://havoc9.org/files/manifest.json (needs header X-H9-Updater: 1 and a user agent starting H9XASH-Updater/) says "build": "<build>".

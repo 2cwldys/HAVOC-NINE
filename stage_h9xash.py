@@ -40,6 +40,7 @@
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -134,7 +135,7 @@ LINUX_FILES = ['h9xash.sh', 'h9_userid.sh', 'README_LINUX.txt']
 # Files that must reach the ZIP whenever H9XASH has them.
 ESSENTIALS = [slash(e) for e in (
     'HAVOC 9.exe', 'xash.dll', 'menu.dll', 'ref_gl.dll', 'SDL2.dll', 'filesystem_stdio.dll',
-    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'h9_cacerts.ps1', 'enter_userid.cmd',
+    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'h9_cacerts.ps1', 'h9_vcruntime.ps1', 'redist\\vc14-x86\\msvcp140.dll', 'redist\\vc14-x86\\vcruntime140.dll', 'enter_userid.cmd',
     'ts\\liblist.gam', 'ts\\gameinfo.txt', 'ts\\delta.lst', 'ts\\dlls\\mp.dll', 'ts\\cl_dlls\\client.dll',
     'ts\\autoexec.cfg', 'ts\\userconfig.cfg', 'ts\\addons\\metamod\\plugins.ini',
     'ts\\addons\\amxmodx\\configs\\plugins.ini', 'ts\\addons\\amxmodx\\configs\\amxx.cfg')] + LINUX_FILES
@@ -617,19 +618,9 @@ def copy_file_into(zf, zi, path, size, level):
         shutil.copyfileobj(fh, dst, 1 << 20)
 
 
-def make_unix_zip(stage, out, skip=(), overlay=None, no_windows=False):
-    """The staged H9XASH folder (less the skip list, plus the overlay folder when the build is native) as one
-    H9XASH/ folder in a .zip made as a Unix one -- folders 0755, files 0644, .sh files and ELF binaries 0755,
-    .sh files with LF line ends, in sorted order -- then read back and checked against those rules. unzip and
-    Linux archive managers give the modes back.
-      stage       the staged H9XASH folder
-      out         the .zip to write
-      skip        paths (relative to stage, with /) left out of the package
-      overlay     a folder laid out like H9XASH whose files go in on top of the staged ones
-      no_windows  the read-back refuses any .exe .dll .bat .cmd .ps1 in the package
-    Returns the summary line; raises PackageStopped when the read-back finds a problem."""
-    part = out + '.part'
-    top = 'H9XASH'
+def collect_unix_files(stage, skip=(), overlay=None):
+    """The files (relative path -> path on disk) and the folders of a Unix package: the staged folder less the skip list, plus the overlay folder
+    on top. Returns (files, dirs, how many overlay files were added, how many replaced a staged one)."""
     skip = set(slash(s) for s in skip)
     files = {}
     dirs = set([''])
@@ -663,6 +654,103 @@ def make_unix_zip(stage, out, skip=(), overlay=None, no_windows=False):
         walk(overlay, False)
         over_replaced = sum(1 for r, p in before.items() if files[r] != p)
         over_added = len(files) - len(before)
+    return files, dirs, over_added, over_replaced
+
+
+def write_list(path, items):
+    """A package's list for delta.py (plan --list): the entries its ZIP would hold, each file with the staged file it comes from."""
+    part = path + '.part'
+    with open(part, 'w', encoding='ascii') as fh:
+        json.dump({'format': 1, 'entries': items}, fh)
+    os.replace(part, path)
+
+
+def make_unix_list(stage, out, lf_dir, skip=(), overlay=None, no_windows=False):
+    """make_unix_zip's entries and rules, written as a list and no ZIP. The .sh files, with LF line ends, are written under lf_dir and listed from
+    there. Returns the summary line; raises PackageStopped when a rule is broken."""
+    top = 'H9XASH'
+    files, dirs, over_added, over_replaced = collect_unix_files(stage, skip, overlay)
+    now = time.time()
+    os.makedirs(lf_dir, exist_ok=True)
+    problems = []
+    windows_ext = ('.exe', '.dll', '.bat', '.cmd', '.ps1')
+    items = []
+    count = {'dirs': 0, 'files': 0, 'sh': 0, 'elf': 0}
+    for d in sorted(dirs):
+        arc = top + '/' + d + '/' if d else top + '/'
+        zi = zip_entry(arc, stat.S_IFDIR | 0o755, now)
+        items.append({'path': arc, 'time': list(zi.date_time), 'attr': zi.external_attr, 'system': 3, 'ct': zi.compress_type, 'dir': True})
+        count['dirs'] += 1
+    for rel in sorted(files):
+        p = files[rel]
+        st = os.stat(p)
+        arc = top + '/' + rel
+        low = rel.lower()
+        with open(p, 'rb') as fh:
+            head = fh.read(4)
+        src = p
+        if low.endswith('.sh'):
+            with open(p, 'rb') as fh:
+                data = fh.read().replace(b'\r\n', b'\n')
+            if b'\r' in data:
+                problems.append('a CR in ' + arc)
+            src = os.path.join(lf_dir, '%05d.sh' % count['sh'])
+            with open(src, 'wb') as fh:
+                fh.write(data)
+            mode = stat.S_IFREG | 0o755
+            count['sh'] += 1
+        else:
+            elf = head == b'\x7fELF'
+            mode = stat.S_IFREG | (0o755 if elf else 0o644)
+            if elf:
+                count['elf'] += 1
+        if no_windows and low.endswith(windows_ext):
+            problems.append('a Windows file in a native package: ' + arc)
+        zi = zip_entry(arc, mode, st.st_mtime)
+        items.append({'path': arc, 'src': src, 'time': list(zi.date_time), 'attr': zi.external_attr, 'system': 3, 'ct': zi.compress_type})
+        count['files'] += 1
+    if problems:
+        raise PackageStopped('; '.join(problems[:10]))
+    write_list(out, items)
+    line = '%d files in %d folders, all under H9XASH/' % (count['files'], count['dirs'])
+    if overlay:
+        line += '; %d from the native build folder, %d of them over staged files' % (over_added + over_replaced, over_replaced)
+    line += '; %d .sh file(s) and %d binaries at mode 0755; listed, no ZIP' % (count['sh'], count['elf'])
+    return line
+
+
+def make_windows_list(files, empty_dirs, out):
+    """make_windows_zip's entries, written as a list and no ZIP (Windows entries: no Unix modes, no attributes). Returns how many files."""
+    top = 'H9XASH'
+    items = []
+    now = time.localtime(time.time())[:6]
+    for d in empty_dirs:
+        items.append({'path': top + '/' + d + '/', 'time': list(now), 'attr': 0, 'system': 0, 'ct': 0, 'dir': True})
+    for rel, path in files:
+        st = os.stat(path)
+        when = time.localtime(st.st_mtime)[:6]
+        if when[0] < 1980:
+            when = (1980, 1, 1, 0, 0, 0)
+        items.append({'path': top + '/' + rel, 'src': path, 'time': list(when), 'attr': 0, 'system': 0, 'ct': zipfile.ZIP_DEFLATED})
+    items.sort(key=lambda e: e['path'])
+    write_list(out, items)
+    return len(files)
+
+
+def make_unix_zip(stage, out, skip=(), overlay=None, no_windows=False):
+    """The staged H9XASH folder (less the skip list, plus the overlay folder when the build is native) as one
+    H9XASH/ folder in a .zip made as a Unix one -- folders 0755, files 0644, .sh files and ELF binaries 0755,
+    .sh files with LF line ends, in sorted order -- then read back and checked against those rules. unzip and
+    Linux archive managers give the modes back.
+      stage       the staged H9XASH folder
+      out         the .zip to write
+      skip        paths (relative to stage, with /) left out of the package
+      overlay     a folder laid out like H9XASH whose files go in on top of the staged ones
+      no_windows  the read-back refuses any .exe .dll .bat .cmd .ps1 in the package
+    Returns the summary line; raises PackageStopped when the read-back finds a problem."""
+    part = out + '.part'
+    top = 'H9XASH'
+    files, dirs, over_added, over_replaced = collect_unix_files(stage, skip, overlay)
 
     now = time.time()
     count = {'dirs': 0, 'files': 0, 'sh': 0, 'elf': 0}
@@ -851,6 +939,8 @@ def parse_args(argv):
         help='public IP addresses that may stay in config files')
     opt(['--dry-run', '--dryrun', '-DryRun'], action='store_true', help='stage and scrub, write the report, no ZIP')
     opt(['--keep-stage', '--keepstage', '-KeepStage'], action='store_true', help='keep the staged folder')
+    opt(['--lists', '-Lists'], action='store_true',
+        help='write a list for each package (NAME.zip.list.json) instead of a ZIP, for vps/windows/delta.py plan --list; the staged folder is kept')
     opt(['--no-linux', '--nolinux', '-NoLinux'], action='store_true', help='the Windows ZIP only')
     opt(['--linux-native', '--linuxnative', '-LinuxNative'],
         help='the native Linux build, a folder laid out like H9XASH (default: H9XASH-linux)')
@@ -1174,14 +1264,20 @@ def stage_main(a):
             empty_dirs.append(d)
     win_list = [(r, p) for r, p in stage_files if r.lower() not in leave_out]
     try:
-        win_files = make_windows_zip(win_list, empty_dirs, zip_path, level)
+        if a.lists:
+            win_files = make_windows_list(win_list, empty_dirs, zip_path + '.list.json')
+        else:
+            win_files = make_windows_zip(win_list, empty_dirs, zip_path, level)
     except PackageStopped as e:
         say('  STOPPED: ' + str(e))
         run.write_report(report_path)
         say('  report: ' + report_path)
         return 1
-    say('  %s files, %s MB, SHA-256 %s' % (n0(win_files), n0(os.path.getsize(zip_path) / float(MB)),
-                                         sha256_of(zip_path).upper()))
+    if a.lists:
+        say('  %s files listed (%s.list.json)' % (n0(win_files), zip_path))
+    else:
+        say('  %s files, %s MB, SHA-256 %s' % (n0(win_files), n0(os.path.getsize(zip_path) / float(MB)),
+                                             sha256_of(zip_path).upper()))
 
     # ---- the Linux packages
     if linux_ok:
@@ -1197,17 +1293,28 @@ def stage_main(a):
                 os.remove(out_zip)
             made = None
             try:
-                if kind == 'native':
-                    line = make_unix_zip(stage, out_zip, skip=windows_only_rels + linux_only_rels,
-                                         overlay=linux_native, no_windows=True)
+                if a.lists:
+                    target = out_zip + '.list.json'
+                    lf_dir = os.path.join(stage_base, 'lf%d' % step)
+                    if kind == 'native':
+                        line = make_unix_list(stage, target, lf_dir, skip=windows_only_rels + linux_only_rels,
+                                              overlay=linux_native, no_windows=True)
+                    else:
+                        line = make_unix_list(stage, target, lf_dir)
+                    say('  ' + line)
+                    made = target
                 else:
-                    line = make_unix_zip(stage, out_zip)
-                say('  ' + line)
-                made = out_zip
+                    if kind == 'native':
+                        line = make_unix_zip(stage, out_zip, skip=windows_only_rels + linux_only_rels,
+                                             overlay=linux_native, no_windows=True)
+                    else:
+                        line = make_unix_zip(stage, out_zip)
+                    say('  ' + line)
+                    made = out_zip
             except PackageStopped as e:
                 say('  STOPPED: ' + str(e))
                 warn('%s was not made (Python exit 1); the Windows ZIP is done' % out_zip)
-            if made:
+            if made and not a.lists:
                 say('  %s MB, SHA-256 %s' % (n0(os.path.getsize(made) / float(MB)), sha256_of(made).upper()))
 
     # ---- the web files for H9XASH-Updater
@@ -1244,7 +1351,9 @@ def stage_main(a):
         if ('Version %s<' % build) not in html:
             warn('the downloads page does not show Version %s; update its two download notes' % build)
 
-    if a.keep_stage:
+    if a.lists:
+        say('  stage kept: %s (the lists point into it; deploy-vps.ps1 removes it when it has what it needs)' % stage)
+    elif a.keep_stage:
         say('  stage kept: ' + stage)
     else:
         remove_tree(stage_base)

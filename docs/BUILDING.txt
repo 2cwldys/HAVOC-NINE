@@ -156,7 +156,18 @@
    on them (the PowerShell one only where Windows PowerShell is installed;
    --no-ps skips it) and compares the ZIPs member by member, the staged
    files, the report and the stop conditions (a Discord token, a cut-short
-   .bsp, a Git LFS pointer).
+   .bsp, a Git LFS pointer). The PowerShell stage is run with -NoPrepare:
+   without it the stage would prepare a real release (a new build, the
+   plugins rebuilt) in the tree the test runs in. It also runs both scripts
+   with -Lists (--lists) and checks that each list names the entries of the
+   ZIP of the same run: a delivery to the host (deploy-vps.ps1) writes lists
+   in place of ZIPs, because the host builds the ZIPs itself (vps\windows\
+   delta.py). Stage lists, no ZIP:
+       .\stage-h9xash.ps1 -Lists          (dist\H9XASH.zip.list.json and the
+                                          others; the staged folder is kept)
+   The delta tool has its own test (any Python 3.8 or later, the host's
+   too: copy vps\windows\delta.py and tools\delta_test.py over):
+       python tools/delta_test.py
 
  7b. THE LINUX SERVER BUILD                              build-linux.cmd
  ---------------------------------------------------------------------------

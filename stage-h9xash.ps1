@@ -108,6 +108,12 @@
 .PARAMETER KeepStage
   Keep the staged folder after zipping, to test-play it first.
 
+.PARAMETER Lists
+  Write a LIST for each package (dist\H9XASH.zip.list.json, H9XASH-linux.zip.list.json, H9XASH-linux-server.zip.list.json) instead of a ZIP: the
+  entries the ZIP would hold, each with the staged file it comes from. vps\windows\delta.py plan --list reads them and the host builds the
+  ZIPs, so a release does not compress and read back three ZIPs of a gigabyte here. The staged folder is KEPT (the lists point into it);
+  deploy-vps.ps1 removes it once it has what it needs. Old ZIPs of the same names are removed. Without -Lists the ZIPs are written as before.
+
 .PARAMETER Compression
   Optimal (default) or Fastest.
 
@@ -158,6 +164,7 @@ param(
     [string[]]$AllowIp = @(),
     [switch]$DryRun,
     [switch]$KeepStage,
+    [switch]$Lists,
     [switch]$NoLinux,
     [string]$LinuxNative,
     [string]$FilesDir,
@@ -227,7 +234,7 @@ $Replacements = @(
 
 # Files that must reach the ZIP whenever H9XASH has them.
 $Essentials = @('HAVOC 9.exe', 'xash.dll', 'menu.dll', 'ref_gl.dll', 'SDL2.dll', 'filesystem_stdio.dll',
-    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'h9_cacerts.ps1', 'enter_userid.cmd',
+    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'h9_cacerts.ps1', 'h9_vcruntime.ps1', 'redist\vc14-x86\msvcp140.dll', 'redist\vc14-x86\vcruntime140.dll', 'enter_userid.cmd',
     'ts\liblist.gam', 'ts\gameinfo.txt', 'ts\delta.lst', 'ts\dlls\mp.dll', 'ts\cl_dlls\client.dll',
     'ts\autoexec.cfg', 'ts\userconfig.cfg', 'ts\addons\metamod\plugins.ini',
     'ts\addons\amxmodx\configs\plugins.ini', 'ts\addons\amxmodx\configs\amxx.cfg')
@@ -271,20 +278,48 @@ $ExampleIps = @('123.45.67.89')
 # plus an overlay folder when the build is native) as one H9XASH/ folder in a .zip made as a Unix one --
 # folders 0755, files 0644, .sh files and ELF binaries 0755, .sh files with LF line ends, in sorted order --
 # then read back and checked against those rules. unzip and Linux archive managers give the modes back.
+function ConvertTo-JsonString([string]$s) {
+    $s = $s.Replace('\', '\\').Replace('"', '\"')
+    if ($s -cmatch '[^\x20-\x7E]') { $s = [regex]::Replace($s, '[^\x20-\x7E]', [Text.RegularExpressions.MatchEvaluator]{ param($m) '\u' + ([int][char]$m.Value).ToString('x4') }) }
+    return '"' + $s + '"'
+}
+# a package's list for delta.py (plan --list): the entries its ZIP would hold, files with the staged file each comes from; sorted, so the same
+# files give the same list (and the same tree) whatever order the disk listed them in
+function Write-PackageList([string]$Path, $Rows, [int]$System) {
+    $Rows.Sort([Comparison[object]]{ param($a, $b) [string]::CompareOrdinal($a.Path, $b.Path) })
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append('{"format":1,"entries":[')
+    $first = $true
+    foreach ($r in $Rows) {
+        $w = [DateTime]$r.When
+        if ($w.Year -lt 1980 -or $w.Year -gt 2107) { $w = [DateTime]'1980-01-01T00:00:00' }
+        $time = '[{0},{1},{2},{3},{4},{5}]' -f $w.Year, $w.Month, $w.Day, $w.Hour, $w.Minute, $w.Second
+        if (-not $first) { [void]$sb.Append(',') }
+        $first = $false
+        if ($r.Src) { [void]$sb.Append('{"path":' + (ConvertTo-JsonString $r.Path) + ',"src":' + (ConvertTo-JsonString $r.Src) + ',"time":' + $time + ',"attr":0,"system":' + $System + ',"ct":8}') }
+        else { [void]$sb.Append('{"path":' + (ConvertTo-JsonString $r.Path) + ',"time":' + $time + ',"attr":0,"system":' + $System + ',"ct":0,"dir":true}') }
+    }
+    [void]$sb.Append(']}')
+    [IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object Text.UTF8Encoding($false)))
+}
 $LinuxZipPy = @'
 import os, shutil, stat, sys, time, zipfile
 
-# usage: make_linux_zip.py STAGE OUT [--skip LISTFILE] [--overlay DIR] [--no-windows]
+# usage: make_linux_zip.py STAGE OUT [--skip LISTFILE] [--overlay DIR] [--no-windows] [--list --lf-dir DIR]
 #   STAGE      the staged H9XASH folder
-#   OUT        the .zip to write
+#   OUT        the .zip to write (with --list: the list to write)
 #   --skip     a text file of paths (relative to STAGE, with /) left out of the package
 #   --overlay  a folder laid out like H9XASH whose files go in on top of the staged ones
 #   --no-windows  the read-back refuses any .exe .dll .bat .cmd .ps1 in the package
+#   --list     write the list of entries the ZIP would hold (JSON, each file with the staged file it comes from) and no ZIP, for delta.py plan --list;
+#              the .sh files, with LF line ends, are written to --lf-dir and listed from there
 args = sys.argv[1:]
 stage, out = args[0], args[1]
 skip_file = None
 overlay = None
 no_windows = False
+as_list = False
+lf_dir = None
 i = 2
 while i < len(args):
     if args[i] == '--skip':
@@ -296,6 +331,12 @@ while i < len(args):
     elif args[i] == '--no-windows':
         no_windows = True
         i += 1
+    elif args[i] == '--list':
+        as_list = True
+        i += 1
+    elif args[i] == '--lf-dir':
+        lf_dir = args[i + 1]
+        i += 2
     else:
         sys.exit('unknown argument ' + args[i])
 
@@ -359,6 +400,61 @@ def entry(name, mode, mtime):
         zi.compress_type = zipfile.ZIP_DEFLATED
     return zi
 
+
+if as_list:
+    import json
+    if not lf_dir:
+        sys.exit('--list needs --lf-dir')
+    os.makedirs(lf_dir, exist_ok=True)
+    problems = []
+    windows_ext = ('.exe', '.dll', '.bat', '.cmd', '.ps1')
+    items = []
+    n_dirs = n_files = n_sh = n_elf = 0
+    for d in sorted(dirs):
+        arc = top + '/' + d + '/' if d else top + '/'
+        zi = entry(arc, stat.S_IFDIR | 0o755, now)
+        items.append({'path': arc, 'time': list(zi.date_time), 'attr': zi.external_attr, 'system': 3, 'ct': 0, 'dir': True})
+        n_dirs += 1
+    for rel in sorted(files):
+        p = files[rel]
+        st = os.stat(p)
+        arc = top + '/' + rel
+        low = rel.lower()
+        with open(p, 'rb') as fh:
+            head = fh.read(4)
+        src = p
+        if low.endswith('.sh'):
+            with open(p, 'rb') as fh:
+                data = fh.read().replace(b'\r\n', b'\n')
+            if b'\r' in data:
+                problems.append('a CR in ' + arc)
+            src = os.path.join(lf_dir, '%05d.sh' % n_sh)
+            with open(src, 'wb') as fh:
+                fh.write(data)
+            mode = stat.S_IFREG | 0o755
+            n_sh += 1
+        else:
+            elf = head == b'\x7fELF'
+            mode = stat.S_IFREG | (0o755 if elf else 0o644)
+            if elf:
+                n_elf += 1
+        if no_windows and low.endswith(windows_ext):
+            problems.append('a Windows file in a native package: ' + arc)
+        zi = entry(arc, mode, st.st_mtime)
+        items.append({'path': arc, 'src': src, 'time': list(zi.date_time), 'attr': zi.external_attr, 'system': 3, 'ct': 8})
+        n_files += 1
+    if problems:
+        print('STOPPED: ' + '; '.join(problems[:10]))
+        sys.exit(1)
+    with open(part, 'w', encoding='ascii') as fh:
+        json.dump({'format': 1, 'entries': items}, fh)
+    os.replace(part, out)
+    line = '%d files in %d folders, all under H9XASH/' % (n_files, n_dirs)
+    if overlay:
+        line += '; %d from the native build folder, %d of them over staged files' % (over_added + over_replaced, over_replaced)
+    line += '; %d .sh file(s) and %d binaries at mode 0755; listed, no ZIP' % (n_sh, n_elf)
+    print(line)
+    sys.exit(0)
 
 count = {'dirs': 0, 'files': 0, 'sh': 0, 'elf': 0}
 with zipfile.ZipFile(part, 'w', zipfile.ZIP_DEFLATED, allowZip64=True, compresslevel=6) as zf:
@@ -842,11 +938,27 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $level = [IO.Compression.CompressionLevel]::$Compression
 
 Say ''
-Say "5. Windows package: $zipPath"
+if ($Lists) { Say "5. Windows package: the list $zipPath.list.json (no ZIP: the host builds it)" } else { Say "5. Windows package: $zipPath" }
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 $leaveOut = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($r in $linuxOnlyRels) { [void]$leaveOut.Add($r) }
 $winFiles = 0
+if ($Lists) {
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($d in (Get-ChildItem -LiteralPath $stage -Recurse -Force -Directory)) {
+        if (@(Get-ChildItem -LiteralPath $d.FullName -Force).Count -eq 0) {
+            $rows.Add([pscustomobject]@{ Path = 'H9XASH/' + $d.FullName.Substring($stage.Length + 1).Replace('\', '/') + '/'; Src = ''; When = (Get-Date) })
+        }
+    }
+    foreach ($f in $stageFiles) {
+        $rel = $f.FullName.Substring($stage.Length + 1)
+        if ($leaveOut.Contains($rel)) { continue }
+        $rows.Add([pscustomobject]@{ Path = 'H9XASH/' + $rel.Replace('\', '/'); Src = $f.FullName; When = $f.LastWriteTime })
+        $winFiles++
+    }
+    Write-PackageList ($zipPath + '.list.json') $rows 0
+    Say ("  {0:N0} files listed" -f $winFiles)
+} else {
 $fs = [IO.File]::Open($zipPath, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite)
 $za = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create, $false)
 try {
@@ -869,6 +981,7 @@ try {
 $zipInfo = Get-Item -LiteralPath $zipPath
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
 Say ("  {0:N0} files, {1:N0} MB, SHA-256 {2}" -f $winFiles, ($zipInfo.Length / 1MB), $hash)
+}
 
 # ---- the Linux packages ----------------------------------------------------------------
 
@@ -882,13 +995,16 @@ if ($linuxOk) {
         $step++
         $outZip = $job.Out
         if (Test-Path -LiteralPath $outZip) { Remove-Item -LiteralPath $outZip -Force }
+        $outTarget = if ($Lists) { "$outZip.list.json" } else { $outZip }
+        if ($Lists -and (Test-Path -LiteralPath $outTarget)) { Remove-Item -LiteralPath $outTarget -Force }
         $made = $null
         if ($job.Kind -eq 'native' -and -not $PyVersion) {
             Warn "no Python 3 through the py launcher: a native Linux package needs it for the file modes of its binaries, so $outZip was not made"
         } elseif ($PyVersion) {
             $pyScript = Join-Path $stageBase 'make_linux_zip.py'
             [IO.File]::WriteAllText($pyScript, $LinuxZipPy, [Text.Encoding]::ASCII)
-            $pyArgs = @($stage, $outZip)
+            $pyArgs = @($stage, $outTarget)
+            if ($Lists) { $pyArgs += @('--list', '--lf-dir', (Join-Path $stageBase ('lf' + $step))) }
             if ($job.Kind -eq 'native') {
                 $skipFile = Join-Path $stageBase 'native_skip.txt'
                 $skipLines = @(($windowsOnlyRels + $linuxOnlyRels) | ForEach-Object { $_.Replace('\', '/') })
@@ -898,14 +1014,17 @@ if ($linuxOk) {
             $pyOut = @(& py -3 -I $pyScript @pyArgs)
             $pyRc = $LASTEXITCODE
             foreach ($l in $pyOut) { Say "  $l" }
-            if ($pyRc -eq 0 -and (Test-Path -LiteralPath $outZip)) { $made = $outZip }
-            else { Warn "$outZip was not made (Python exit $pyRc); the Windows ZIP is done" }
+            if ($pyRc -eq 0 -and (Test-Path -LiteralPath $outTarget)) { $made = $outTarget }
+            else { Warn "$outTarget was not made (Python exit $pyRc); the Windows package is done" }
+        } elseif ($Lists) {
+            Warn "no Python 3 through the py launcher: the list of $outZip was not made"
         } else {
             Say '  (no Python 3, so no file modes: Linux players start it with bash h9xash.sh)'
             [IO.Compression.ZipFile]::CreateFromDirectory($stage, $outZip, $level, $true)
             $made = $outZip
         }
-        if ($made) {
+        if ($made -and $Lists) { Say "  list: $made" }
+        elseif ($made) {
             $info = Get-Item -LiteralPath $made
             Say ("  {0:N0} MB, SHA-256 {1}" -f ($info.Length / 1MB), (Get-FileHash -LiteralPath $made -Algorithm SHA256).Hash)
         }
@@ -959,7 +1078,8 @@ if ($prepareJs -and -not $DryRun) {
     if ($LASTEXITCODE -ne 0) { Warn "the package's build and hashes were not recorded in $stateFile (exit $LASTEXITCODE): the next stage will bump the build again" }
 }
 
-if ($KeepStage) { Say "  stage kept: $stage" }
+if ($Lists) { Say "  stage kept: $stage (the lists point into it; deploy-vps.ps1 removes it when it has what it needs)" }
+elseif ($KeepStage) { Say "  stage kept: $stage" }
 else { Remove-Item -LiteralPath $stageBase -Recurse -Force }
 
 Write-Report

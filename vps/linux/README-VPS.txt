@@ -349,16 +349,17 @@
    /var/www/havoc9.org/downloads/         you copy in the buttons' files:
                                           H9XASH.zip, H9XASH-linux.zip,
                                           H9XASH-Updater.exe
-   /var/www/havoc9.org/downloads/files/   you copy in the two host packages
-                                          (havoc9-vps-linux- and
-                                          havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip);
-                                          setup.sh adds the buttons' three
-                                          files and SHA256SUMS.txt (below)
+   /var/www/havoc9.org/downloads/files/   the index: setup.sh puts the
+                                          buttons' files in it as links, and
+                                          SHA256SUMS.txt (below); you put
+                                          nothing in it
  They come from dist\ in the repository on the PC that builds them:
- stage-h9xash.ps1 makes the two client ZIPs, tools\updater\build.cmd makes
- H9XASH-Updater.exe and make-vps-package.ps1 the two host packages. The
- .report.txt files made beside them stay off the index unless the owner
- chooses otherwise: they are the build PC's own records, and
+ stage-h9xash.ps1 makes the two client ZIPs and tools\updater\build.cmd makes
+ H9XASH-Updater.exe. A HOST PACKAGE (make-vps-package.ps1) IS NEVER IN THE
+ INDEX: the index is public, and a package is the site's own installer and
+ code, not a download. setup.sh takes any havoc9-vps-* file out of it. The
+ .report.txt files made beside the client ZIPs stay off the index too unless
+ the owner chooses otherwise: they are the build PC's own records, and
  H9XASH.report.txt names its folders. Nothing else goes in the index:
  not dist\files (the updater's own files, served at /files/), not the web
  client's files, and never a config, key or token (ts_advertise.cfg,
@@ -367,8 +368,6 @@
  subfolder and every dot file is a 404.
  From your PC, in the repository's folder (each file goes up once):
    scp dist\H9XASH.zip dist\H9XASH-linux.zip dist\H9XASH-Updater.exe root@havoc9.org:/var/www/havoc9.org/downloads/
-   scp dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip root@havoc9.org:/var/www/havoc9.org/downloads/files/
-   scp dist\havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip root@havoc9.org:/var/www/havoc9.org/downloads/files/
  then on the VPS, in the unpacked package folder:
    sudo bash setup.sh --file-index
  Every full run of setup.sh does the same. It links the buttons' three
@@ -382,9 +381,8 @@
    sha256sum /var/www/havoc9.org/downloads/H9XASH.zip /var/www/havoc9.org/downloads/files/H9XASH.zip
  (the same hash twice), and every line of SHA256SUMS.txt against its file:
    cd /var/www/havoc9.org/downloads/files && sha256sum -c SHA256SUMS.txt
- Remove a host package's older build when its new one goes in. A player
- checks a download with sha256sum -c SHA256SUMS.txt --ignore-missing
- (Linux) or Get-FileHash <file> (Windows).
+ A player checks a download with sha256sum -c SHA256SUMS.txt
+ --ignore-missing (Linux) or Get-FileHash <file> (Windows).
 
 
  14. WHEN SOMETHING IS WRONG

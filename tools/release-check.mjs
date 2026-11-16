@@ -20,6 +20,7 @@ The GitHub workflow .github/workflows/preset-hash.yml runs this and tools/preset
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { amxxReleaseOfFile } from "./amxx-release.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -84,6 +85,23 @@ if (fs.existsSync(overlay)) {
   }
 } else {
   notes.push("(no " + rel(overlay) + " in this tree: the release is not checked)");
+}
+
+// the compiled plugin carries it too (tools/amxx-release.mjs): a bump that stopped between writing the release files and compiling leaves the old release in
+// the binary, and every text file still agrees
+if (release) {
+  for (const f of ["compiled/h9_presence.amxx", "H9XASH/ts/addons/amxmodx/plugins/h9_presence.amxx"]) {
+    const p = path.join(root, f);
+    if (!canOpen(p)) continue;
+    const carried = amxxReleaseOfFile(p);
+    if (carried === null) notes.push("(" + f + " could not be read as an .amxx: the release it carries was not checked)");
+    else if (carried !== release) problems.push(f + " carries release " + (carried || "none") + " and the release is " + release + " (a bump stopped before the plugins were compiled: node tools/release-prepare.mjs --bump, or build.bat)");
+  }
+}
+
+// the join gate's release is written in the build's versioning (docs/H9_RELEASE.txt): they are the same value
+if (build && release && release !== build) {
+  problems.push("the release (xash3d-h9-patches/overlay/ts/h9_release.txt) says " + release + " and the build is " + build + ": the join gate is the build (node tools/release-prepare.mjs --release makes it so, and every bump does)");
 }
 
 for (const n of notes) console.log(n);

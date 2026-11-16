@@ -436,7 +436,9 @@ qboolean Info_SetValueForStarKey( char *s, const char *key, const char *value, i
 		return true; // just clear variable
 
 	Q_snprintf( new, sizeof( new ), "\\%s\\%s", key, value );
-	if( Q_strlen( new ) + Q_strlen( s ) > maxsize )
+	// H9: a result of maxsize characters leaves no room for the terminating NUL (the test used to be > and wrote one byte past the buffer: the
+	// server's out[256] in SV_UserinfoForOthers, and cls.userinfo into cls.physinfo[0] on the client); the loop below already says >=
+	if( Q_strlen( new ) + Q_strlen( s ) >= maxsize )
 	{
 		// no more room in buffer to add key/value
 		if( Info_IsKeyImportant( key ))

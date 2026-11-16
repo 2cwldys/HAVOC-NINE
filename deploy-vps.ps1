@@ -8,8 +8,8 @@
     .\deploy-vps.ps1 -NoBuild        deliver what dist\ holds already
     .\deploy-vps.ps1 -WhatIf         say what would be built and sent, change nothing
 
-  1. Builds: stage-h9xash.ps1 (the client ZIPs and the updater's files), make-vps-package.ps1 (the host package, and the
-     web client's package).
+  1. Builds: stage-h9xash.ps1 (the client ZIPs and the updater's files), make-vps-package.ps1 -Target windows (the host package, which
+     the host installs and nobody downloads, and the web client's package).
   2. Asks the host what it has (receive-deploy.ps1 -Hashes): each download's SHA-256 and the updater files' names. Only
      what differs is sent: a client ZIP is about 930 MB, so an unchanged one is never sent again, and of the updater's
      files only the new ones go, in one archive.
@@ -35,7 +35,8 @@ trap { Write-Host "[FAIL] $($_.Exception.Message) (line $($_.InvocationInfo.Scri
 $Here = $PSScriptRoot
 $Dist = Join-Path $Here 'dist'
 $DryRun = [bool]$WhatIfPreference
-function Say([string]$t) { Write-Host "== $t" }
+$script:deployStart = Get-Date
+function Say([string]$t) { Write-Host ("== {0}   [{1:N0} s]" -f $t, ((Get-Date) - $script:deployStart).TotalSeconds) }
 function Fail([string]$t) { Write-Host "[FAIL] $t" -ForegroundColor Red; exit 1 }
 
 # packaging.ini: [section] key = value, ; comments
@@ -49,6 +50,19 @@ foreach ($raw in [IO.File]::ReadAllLines($Ini)) {
     if ($line -match '^([A-Za-z0-9_]+)\s*=\s*(.*)$') { $cfg["$sec.$($Matches[1].ToLowerInvariant())"] = $Matches[2].Trim() }
 }
 function On([string]$k) { return [string]$cfg[$k] -eq '1' }
+# a delta delivery needs no ZIP made here (the host builds them from recipes), so the stage and the packager write LISTS of what each ZIP would hold
+# (stage-h9xash.ps1 -Lists, make-vps-package.ps1 -WebClientList): nothing is compressed and read back on this PC. [stage] zips = 1 writes the ZIPs too.
+$delta = On 'deploy.delta'
+$listMode = $delta -and -not (On 'stage.zips')
+# the stage folder the lists point into goes when the delivery is done (a re-run with -NoBuild before that still has it)
+function Remove-StageFolders {
+    $sd = Join-Path $Dist '.stage'
+    if (-not (Test-Path -LiteralPath $sd)) { return }
+    foreach ($d in @(Get-ChildItem -LiteralPath $sd -Directory -Filter 'h9xash-stage-*' -ErrorAction SilentlyContinue)) {
+        # in the background: a folder of 7,000 files takes a while to delete and nothing waits for it
+        Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList @('/c', 'rmdir', '/s', '/q', "`"$($d.FullName)`"") -WindowStyle Hidden | Out-Null
+    }
+}
 # the deploy's own scratch files (the updater archive can be 2 GB): [deploy] scratch in packaging.ini, else dist\.deploy
 $Scratch = [string]$cfg['deploy.scratch']
 if (-not $Scratch) { $Scratch = Join-Path $Dist '.deploy' }
@@ -61,16 +75,24 @@ $ssh = @('-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTi
 if (-not $NoBuild) {
     if (On 'stage.run') {
         $noLinux = [string]$cfg['stage.linux'] -eq '0'
-        Say ('stage-h9xash.ps1' + $(if ($noLinux) { ' -NoLinux' } else { '' }))
+        Say ('stage-h9xash.ps1' + $(if ($noLinux) { ' -NoLinux' } else { '' }) + $(if ($listMode) { ' -Lists' } else { '' }))
         if (-not $DryRun) {
-            if ($noLinux) { & (Join-Path $Here 'stage-h9xash.ps1') -NoLinux } else { & (Join-Path $Here 'stage-h9xash.ps1') }
+            $stageArgs = @{}
+            if ($noLinux) { $stageArgs['NoLinux'] = $true }
+            if ($listMode) { $stageArgs['Lists'] = $true }
+            & (Join-Path $Here 'stage-h9xash.ps1') @stageArgs
             if ($LASTEXITCODE) { Fail 'stage-h9xash.ps1 failed' }
         }
     }
     if (On 'package.make') {
-        Say ('make-vps-package.ps1' + $(if (On 'package.webclient') { ' -WebClient' } else { '' }))
+        $wcSwitch = ''
+        if (On 'package.webclient') { $wcSwitch = if ($listMode) { 'WebClientList' } else { 'WebClient' } }
+        Say ('make-vps-package.ps1 -Target windows' + $(if ($wcSwitch) { " -$wcSwitch" } else { '' }))
         if (-not $DryRun) {
-            if (On 'package.webclient') { & (Join-Path $Here 'make-vps-package.ps1') -WebClient } else { & (Join-Path $Here 'make-vps-package.ps1') }
+            # the host is Windows and its package is installed there, never published; a Linux host package is made by hand (make-vps-package.cmd -Target linux)
+            $pkArgs = @{ Target = 'windows' }
+            if ($wcSwitch) { $pkArgs[$wcSwitch] = $true }
+            & (Join-Path $Here 'make-vps-package.ps1') @pkArgs
             if ($LASTEXITCODE) { Fail 'make-vps-package.ps1 failed' }
         }
     }
@@ -126,12 +148,11 @@ function Add-If([string]$path, [string]$name, [bool]$always) {
     if (-not $always -and $remote[$name] -eq $h) { Write-Host "  same on the host: $name"; return }
     $send.Add([pscustomobject]@{ Path = $path; Name = $name; Sha = $h; Size = (Get-Item -LiteralPath $path).Length })
 }
-$delta = On 'deploy.delta'
 if ((On 'deploy.client') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH.zip') 'H9XASH.zip' $false; Add-If (Join-Path $Dist 'H9XASH-linux.zip') 'H9XASH-linux.zip' $false }
 if (On 'deploy.updater') { Add-If (Join-Path $Dist 'H9XASH-Updater.exe') 'H9XASH-Updater.exe' $false }
 if ((On 'deploy.linux_server') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH-linux-server.zip') 'H9XASH-linux-server.zip' $false }
+# the host package: installed by the host from C:\setup, never put in the public downloads' file index
 if (On 'deploy.site') { $z = Newest 'havoc9-vps-windows-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' } }
-if (On 'deploy.publish_host_packages') { $z = Newest 'havoc9-vps-linux-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } }
 if ((On 'deploy.webclient') -and -not $delta) {
     $z = Newest 'havoc9-vps-webclient-*.zip'
     $m = Join-Path $Here 'webclient-build\stage\manifest.json'
@@ -206,10 +227,17 @@ if (On 'deploy.preset') {
 # the delta (vps\windows\delta.py): the client ZIPs and the web client go as recipes plus only the files the host has not seen; the host builds
 # the ZIPs. The updater's new files, sent above, count as seen. A source whose tree the host built already is not sent again.
 if ($delta) {
-    $specs = New-Object System.Collections.Generic.List[string]
-    if (On 'deploy.client') { foreach ($n in 'H9XASH.zip', 'H9XASH-linux.zip') { if (Test-Path -LiteralPath (Join-Path $Dist $n)) { $specs.Add("$n=" + (Join-Path $Dist $n)) } } }
-    if ((On 'deploy.linux_server') -and (Test-Path -LiteralPath (Join-Path $Dist 'H9XASH-linux-server.zip'))) { $specs.Add('H9XASH-linux-server.zip=' + (Join-Path $Dist 'H9XASH-linux-server.zip')) }
-    if (On 'deploy.webclient') { $wz = Newest 'havoc9-vps-webclient-*.zip'; if ($wz) { $specs.Add('webclient.zip=' + $wz.FullName) } }
+    $specs = New-Object System.Collections.Generic.List[object]
+    # a package is read from its list when the stage wrote one that is not older than its ZIP, else from its ZIP
+    function Add-Spec([string]$name, [string]$zip, [string]$list) {
+        $zOk = Test-Path -LiteralPath $zip -PathType Leaf
+        $lOk = Test-Path -LiteralPath $list -PathType Leaf
+        if ($lOk -and (-not $zOk -or (Get-Item -LiteralPath $list).LastWriteTime -ge (Get-Item -LiteralPath $zip).LastWriteTime)) { $specs.Add([pscustomobject]@{ Kind = 'list'; Name = $name; Path = $list }) }
+        elseif ($zOk) { $specs.Add([pscustomobject]@{ Kind = 'zip'; Name = $name; Path = $zip }) }
+    }
+    if (On 'deploy.client') { foreach ($n in 'H9XASH.zip', 'H9XASH-linux.zip') { Add-Spec $n (Join-Path $Dist $n) ((Join-Path $Dist $n) + '.list.json') } }
+    if (On 'deploy.linux_server') { Add-Spec 'H9XASH-linux-server.zip' (Join-Path $Dist 'H9XASH-linux-server.zip') ((Join-Path $Dist 'H9XASH-linux-server.zip') + '.list.json') }
+    if (On 'deploy.webclient') { $wz = Newest 'havoc9-vps-webclient-*.zip'; Add-Spec 'webclient.zip' $(if ($wz) { $wz.FullName } else { Join-Path $Dist 'webclient.zip' }) (Join-Path $Dist 'webclient.list.json') }
     if ($specs.Count) {
         $dout = Join-Path $Scratch 'delta'
         $haveFile = Join-Path $Scratch 'have.txt'
@@ -217,8 +245,8 @@ if ($delta) {
         foreach ($b in $missing) { [void]$seen.Add($b) }
         [IO.File]::WriteAllLines($haveFile, [string[]]@($seen))
         $planArgs = $pyArgs + @('-I', (Join-Path $Here 'vps\windows\delta.py'), 'plan', '--out-dir', $dout, '--have', $haveFile)
-        foreach ($s in $specs) { $planArgs += @('--zip', $s) }
-        Say ("the delta: reading $($specs.Count) ZIP(s) (a minute)")
+        foreach ($s in $specs) { $planArgs += @("--$($s.Kind)", ($s.Name + '=' + $s.Path)) }
+        Say ("the delta: $($specs.Count) package(s), from " + (($specs | ForEach-Object { $_.Kind + 's' } | Select-Object -Unique) -join ' and ') + $(if (@($specs | Where-Object { $_.Kind -eq 'zip' }).Count) { ' (a minute for each ZIP read back)' } else { '' }))
         if ($DryRun) { Write-Host '  (a dry run: not read)' }
         else {
             $planLine = @(& $pyExe @planArgs | Where-Object { $_ -like 'PLAN *' }) | Select-Object -Last 1
@@ -226,7 +254,7 @@ if ($delta) {
             $plan = ([string]$planLine).Substring(5) | ConvertFrom-Json
             $anyNew = $false
             foreach ($s in $specs) {
-                $name = $s.Split('=')[0]
+                $name = $s.Name
                 $info = $plan.sources.$name
                 $rf = Join-Path $dout "$name.recipe.json"
                 if ($remoteTree[$name] -eq $info.tree) { Write-Host "  same on the host: $name"; continue }
@@ -241,7 +269,15 @@ if ($delta) {
         }
     }
 }
-if (-not $send.Count) { Say 'nothing to send: the host has all of it'; exit 0 }
+if (-not $send.Count) {
+    Say 'nothing to send: the host has all of it'
+    if ($DryRun) { exit 0 }
+    Remove-StageFolders
+    # the checks are the end of every deploy, also of one that sent nothing (a re-run after a delivery that stopped before them)
+    Say 'verifying the release (verify-release.ps1)'
+    & (Join-Path $Here 'verify-release.ps1') -Ini $Ini
+    exit $LASTEXITCODE
+}
 foreach ($s in $send) { $lines.Add("$($s.Sha)  $($s.Name)") }
 Say ('sending {0} file(s), {1:N0} MB' -f $send.Count, (($send | Measure-Object Size -Sum).Sum / 1MB))
 $send | ForEach-Object { Write-Host ('  {0,-48} {1,10:N1} MB' -f $_.Name, ($_.Size / 1MB)) }
@@ -286,5 +322,11 @@ Say 'the host checks and installs it'
 & ssh @ssh $sshHost "powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Incoming C:\setup\incoming\$stamp"
 $rc = $LASTEXITCODE
 foreach ($t in @($tars)) { if ($t -and (Test-Path -LiteralPath $t)) { [IO.File]::Delete($t); [IO.File]::Delete("$t.list") } }
-if ($rc -eq 0) { Say 'deployed' } else { Write-Host "[FAIL] the host's receive-deploy.ps1 said no (above); its log: C:\havoc9\logs\deploy-*.log" -ForegroundColor Red }
+if ($rc -eq 0) { Say 'deployed'; Remove-StageFolders } else { Write-Host "[FAIL] the host's receive-deploy.ps1 said no (above); its log: C:\havoc9\logs\deploy-*.log" -ForegroundColor Red }
+# the release is everywhere it should be (the manifest, the build file, the bot's About Me, the downloads, the join gate, the host's game folder)
+if ($rc -eq 0) {
+    Say 'verifying the release (verify-release.ps1)'
+    & (Join-Path $Here 'verify-release.ps1') -Ini $Ini
+    if ($LASTEXITCODE) { Write-Host '[FAIL] the release is not everywhere it should be (above)' -ForegroundColor Red; $rc = 1 }
+}
 exit $rc

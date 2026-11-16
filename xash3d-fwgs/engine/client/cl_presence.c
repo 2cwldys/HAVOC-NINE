@@ -562,7 +562,7 @@ void CL_Presence_Init( void )
 	Cvar_DirectFullSet( &h9_rel, H9_Release(), 0 );
 
 	if( H9_Release()[0] )
-		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), MAX_INFO_STRING );
+		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), H9_MAX_USERINFO );
 }
 
 /*
