@@ -28,7 +28,7 @@ static void mPlayerPostThink(edict_t *e)   { if (H9EntModActive()) DFPlayerPostT
 static void mServerActivate(edict_t *l, int c, int m) { DFServerActivate(l, c, m); H9OnServerActivate(l, c, m); RETURN_META(MRES_IGNORED); }
 static void mServerDeactivate(void)        { DFServerDeactivate(); RETURN_META(MRES_IGNORED); }
 // H9: EntMod's admin/entity commands only work when the gate is active (entmap or `entmod 1`).
-static void mClientCommand(edict_t *e)     { if (H9EntModActive() && DFClientCommand(e)) RETURN_META(MRES_SUPERCEDE); RETURN_META(MRES_IGNORED); }
+static void mClientCommand(edict_t *e)     { if (H9HandleIdCommand(e)) RETURN_META(MRES_SUPERCEDE); if (H9EntModActive() && DFClientCommand(e)) RETURN_META(MRES_SUPERCEDE); RETURN_META(MRES_IGNORED); }
 
 DLL_FUNCTIONS g_DllFunctionTable =
 {

@@ -1107,7 +1107,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 ### Metamod plugins (reconstructed)
 
-Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both stay INERT unless the current map's name contains "entmap", the map is listed in `entmod_maps`, or `entmod 1` is set -- see `entmod` / `entmod_maps`. While active they de-rank the server (no career XP or ELO). Each prints its on/off decision and the map name it saw to the server console every map (`[EntMod] map '<name>' -> tools ON/off`, `[HookMod] ... -> hook ON/off`), so you can confirm activation in-game.
+Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both stay INERT unless the current map's name contains "entmap", the map is listed in `entmod_maps`, or `entmod_force 1` is set. While active they de-rank the server (no career XP or ELO). The `entmod` cvar is a state readout the gate sets each map -- `entmod 1` means the tools are live on this map, `entmod 0` means they are not -- so you can check it in the console. Each plugin also prints its decision to the server console every map (`[EntMod] map '<name>' -> tools ON/off`, `[HookMod] ... -> hook ON/off`). EntMod registers all its commands with the engine, so they appear in the console autocomplete (type `e_`, `es_`, `t_` or `entmod_` to list them) and run when typed. Every command still needs admin (`DF_admins.txt` + `setinfo _entpass`), except on the server console / listen-server host, where the operator is trusted.
 
 #### EntMod
 
@@ -1116,13 +1116,14 @@ Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both sta
 | Cvar | Default | What it does |
 |---|---|---|
 | `DF_entversion` | `4` | EntMod's version / identity marker (read-only) |
-| `entmod` | `0` | 1: force the EntMod and HookMod tools on on every map, not just entmaps. While on, the server de-ranks: no career XP or ELO, and the browser shows it not authenticated |
+| `entmod` | `0` | STATE READOUT the gate sets each map: `1` = the EntMod/HookMod tools are live on this map (an entmap, a listed map, or `entmod_force 1`), `0` = inert. Setting it by hand does not last -- it is overwritten each map |
+| `entmod_force` | `0` | `1`: force the tools on on every map, not just entmaps. While the tools are on the server de-ranks: no career XP or ELO, and the browser shows it not authenticated |
 | `entmod_maps` | `the_betterthanbest_entmap;the_betterthanbest_entmap2` | the `;`-separated map names the tools turn on for; a map whose name contains "entmap" also counts |
 | `entmod_preset` | (empty) | when active, auto-load `addons/EntMod/entsave/<map>_<name>.txt` (what the `es_save` command writes) at map start, so an admin's placed entities persist with no manual `es_load`; empty = off. The file is plain text -- edit it to change the preset |
 
 #### HookMod
 
-`EntMod4/src/HookMod/` (reconstructed from the abandoned "Hook Mod v5"). A grappling hook, gated by the same `entmod` / `entmod_maps`. Commands: `+hook` (fire), `-hook` (retract), `hook_login <password>`.
+`EntMod4/src/HookMod/` (reconstructed from the abandoned "Hook Mod v5"). A grappling hook, gated the same way (an "entmap" map name, `entmod_maps`, or `entmod_force 1`). Commands: `+hook` (fire), `-hook` (retract), `hook_login <password>`.
 
 | Cvar | Default | What it does |
 |---|---|---|

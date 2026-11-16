@@ -8,7 +8,9 @@
 // ======================================================================================
 
 int H9AdminIdMatch(edict_t * /*player*/, const char * /*field1*/) { return 0; }
+int H9HandleIdCommand(edict_t * /*player*/) { return 0; }
 
 void H9GameInit(void) {}
 void H9OnServerActivate(edict_t * /*l*/, int /*c*/, int /*m*/) {}
 int  H9EntModActive(void) { return 1; }   // pure build: always active (no entmap/entmod gate)
+void H9RegisterCommands(void) {}          // pure build: commands via the ClientCommand hook only

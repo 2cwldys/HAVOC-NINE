@@ -1,3 +1,6 @@
+# EntMod real admin lists hold ids + passwords; keep them private. Only DF_admins.example.txt is committed.
+DF_admins.txt
+
 # ts_advertise.cfg holds the Discord bot token. Never commit it.
 #
 # The token is the whole bot account, not access to one channel.

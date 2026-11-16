@@ -96,6 +96,7 @@
     <ClCompile Include="..\util.cpp" />
     <ClCompile Include="..\weaponcore.cpp" />
     <ClCompile Include="..\..\h9\h9_admin.cpp" />
+    <ClCompile Include="..\..\h9\h9_cmds.cpp" />
     <ClCompile Include="..\..\h9\h9_gate.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

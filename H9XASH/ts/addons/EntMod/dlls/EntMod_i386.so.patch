@@ -13,7 +13,9 @@ Build:
 HAVOC9 additions (src/h9): DF_admins admin parity (accept the h9_clientid Xash id as well as the
 engine auth id / SteamID; _entpass still required); the entmod / entmod_maps gate -- the tools turn
 ON when the map name contains "entmap" (the entmod-map naming convention), the map is one of the
-";"-separated names in the entmod_maps cvar, or the operator set "entmod 1"; inert otherwise. While
-active the server de-ranks (no career XP / ELO) via the h9_compete.sma / h9_presence.sma entmod_map()
-gate. The on/off decision and the exact map name are printed to the server console each map
-("[EntMod] map '<name>' -> tools ON/off") so activation can be confirmed in-game.
+";"-separated names in the entmod_maps cvar, or the operator set "entmod_force 1"; inert otherwise.
+The gate sets the "entmod" cvar to the result (1 = live, 0 = inert) so it is visible in the console,
+and prints the decision each map ("[EntMod] map '<name>' -> tools ON/off"). While active the server
+de-ranks (no career XP / ELO) via the h9_compete.sma / h9_presence.sma entmod_map() gate. EntMod also
+registers all its commands with the engine (restored from the original, which the first
+reconstruction had dropped), so they appear in the console and run when typed.
