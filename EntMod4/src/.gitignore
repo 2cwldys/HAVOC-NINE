@@ -1,0 +1,17 @@
+# EntMod4 / HookMod build artifacts. The source is tracked; built binaries go to EntMod4/dist/
+# (gitignored) and the deployed H9XASH tree. Intermediate and output build files are not tracked.
+*.o
+*.so
+obj/
+Debug/
+Release/
+*.user
+*.tlog
+*.log
+*.pdb
+*.idb
+*.ilk
+*.iobj
+*.ipdb
+*.exp
+*.lib

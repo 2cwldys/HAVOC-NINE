@@ -1105,3 +1105,59 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `arp_printmode` | `1` | Print mode 0 - no standard chat 1 - normal print mode, i.e. 'Hawk: this is a sample message' 2 - extra print mode, i.e. 'Hawk says, "This is a sample message."' |
 | `arp_radio_channels` | `10` | (no description yet) |
 
+### Metamod plugins (reconstructed)
+
+Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both are INERT off the entmaps unless `entmod 1` -- see `entmod` / `entmod_maps`, which also de-rank the server (no career XP or ELO) while active.
+
+#### EntMod
+
+`EntMod4/src/EntMod4/` (reconstructed from the abandoned "Ent Mod v4"). The entity admin tools. Admin identity is `addons/EntMod/DF_admins.txt` lines (`id;password;flags`, the id being the engine auth id / SteamID or the `h9_clientid` Xash id) plus a per-player `setinfo _entpass <password>` -- not cvars. See `EntMod4/DF_admins.example.txt`.
+
+| Cvar | Default | What it does |
+|---|---|---|
+| `DF_entversion` | `4` | EntMod's version / identity marker (read-only) |
+| `entmod` | `0` | 1: force the EntMod and HookMod tools on on every map, not just entmaps. While on, the server de-ranks: no career XP or ELO, and the browser shows it not authenticated |
+| `entmod_maps` | `the_betterthanbest_entmap;the_betterthanbest_entmap2` | the `;`-separated map names the tools turn on for; a map whose name contains "entmap" also counts |
+| `entmod_preset` | (empty) | when active, auto-load `addons/EntMod/entsave/<map>_<name>.txt` (what the `es_save` command writes) at map start, so an admin's placed entities persist with no manual `es_load`; empty = off. The file is plain text -- edit it to change the preset |
+
+#### HookMod
+
+`EntMod4/src/HookMod/` (reconstructed from the abandoned "Hook Mod v5"). A grappling hook, gated by the same `entmod` / `entmod_maps`. Commands: `+hook` (fire), `-hook` (retract), `hook_login <password>`.
+
+| Cvar | Default | What it does |
+|---|---|---|
+| `DF_hook_on` | `1` | master enable |
+| `DF_hook_deployspeed` | `1500` | projectile tip launch speed |
+| `DF_hook_speed` | `1.5` | reel pull speed (x the player's maxspeed) |
+| `DF_hook_ground` | `0` | 1: allow pulling down into the ground |
+| `DF_hook_showspy` | `0` | 1: draw the rope in the player's team colour |
+| `DF_hook_sound` | `1` | 1: play the fire sound |
+| `DF_hook_hold` | `15` | max seconds a hook may stay attached |
+| `DF_hook_sky` | `0` | 1: allow attaching to the sky |
+| `DF_hook_players` | `0` | 1: allow attaching to players |
+| `DF_hook_onlywalls` | `0` | 1: only let the hook attach to world / walls |
+| `DF_hook_color` | `1` | rope colour (1 blue, 2 red, 3 yellow, 4 green, 5+ white) |
+| `DF_hook_gravity` | `0.5` | gravity on the tip projectile |
+| `DF_hook_instant` | `0` | 1: instant hit-scan hook instead of a travelling projectile |
+| `DF_hook_swing` | `0` | 1: pendulum swing physics instead of a straight reel |
+| `DF_hook_swing_acceleration` | `150` | swing input acceleration (swing mode) |
+| `DF_hook_swing_reelspeed` | `200` | rope reel in / out rate (swing mode) |
+| `DF_hook_swing_minlength` | `100` | shortest the rope may be reeled (swing mode) |
+| `DF_hook_wait` | `0.05` | seconds between hook fires |
+| `DF_hook_forcespeed` | `0` | non-zero: pull with a constant force instead of the speed curve |
+| `DF_hook_width` | `20` | rope beam width |
+| `DF_hook_noise` | `1` | rope beam noise / amplitude |
+| `DF_hook_weapon` | `0` | a rope render flag |
+| `DF_hook_usekey` | `0` | 1: fire the hook with +use as well as +hook |
+| `DF_hook_password` | `0` | "0" = none; otherwise a player must `hook_login` with this password before they may hook |
+
+#### h9_shovemod
+
+`src/h9_shovemod.sma`. Shove the player you aim at -- `/shove`, the use key, or the "Shove" entry in the ARP use-key menu. The use-key shove is suppressed where `arp_h9_ctxmenu` is on (use the menu entry there instead).
+
+| Cvar | Default | What it does |
+|---|---|---|
+| `shove_force` | `7` | how hard the shove flings the target (a velocity multiplier) |
+| `shove_cooldown` | `10` | seconds a player waits between shoves |
+| `shove_allow_inuse` | `1` | 1: the use key shoves too (not only /shove); 0: only /shove and the menu |
+

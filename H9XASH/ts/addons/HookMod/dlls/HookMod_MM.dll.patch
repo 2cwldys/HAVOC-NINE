@@ -1,0 +1,13 @@
+HookMod_MM.dll -- HookMod (reconstructed), a Metamod grappling-hook plugin for The Specialists on H9XASH.
+
+NOT a patch of an upstream binary. The original "Hook Mod v5" (Drunken_F00l / Tony Paloma,
+adminop.net) was abandoned, Windows-only; it was reverse-engineered from the shipped HookMod_MM.dll
+into clean C++ at EntMod4/src/HookMod/. Metamod-only (the standalone shim was dropped). The Linux
+HookMod_i386.so is NEW -- none shipped originally.
+
+Build:
+  Windows:  MSBuild EntMod4/src/HookMod/msvc/HookMod.vcxproj /p:Configuration=Release;Platform=Win32;PlatformToolset=v143  -> EntMod4/dist/HookMod_MM.dll
+  Linux:    make -C EntMod4/src/HookMod  -> HookMod_i386.so
+
+HAVOC9 additions (src/HookMod/h9_gate.cpp): the same entmod / entmod_maps gate as EntMod -- inert off
+the entmaps unless "entmod 1". DF_hook_on is the mod's own master switch. Not yet verified in a game.

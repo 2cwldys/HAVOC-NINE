@@ -1,0 +1,40 @@
+// =====================================================================================
+// DF_admins.txt -- EntMod admin list (EXAMPLE). Deploy as addons/EntMod/DF_admins.txt.
+//
+// One admin per line:
+//     <id>;<password>;<flags>
+//
+//   <id>        The identity that selects this line. EntMod accepts EITHER:
+//                 * the engine auth id from GETPLAYERAUTHID -- a SteamID on a Steam
+//                   server, or "ID_<32 hex>" on H9XASH; OR
+//                 * (HAVOC9 addition) the custom Xash id the H9 client publishes in the
+//                   "h9_clientid" userinfo key -- an account-derived id that survives an
+//                   IP change. See src/h9/h9_admin.cpp.
+//               "-1" is a wildcard that matches the LAN / invalid-auth-id sentinel.
+//
+//   <password>  The admin's secret. The player must set it on their client with:
+//                   setinfo _entpass <password>
+//               Compared case-insensitively. THIS is the real credential -- the id only
+//               chooses which line; a known id without the password grants nothing. So
+//               salting/hashing the id (as h9_clientid is) does not weaken access.
+//
+//   <flags>     The admin flag bits to grant, as a decimal number (see the EntMod docs /
+//               remo_guide.txt for the bit meanings). 65535 = all listed powers.
+//
+// Lines starting with '#' or '//', and blank lines, are ignored.
+// =====================================================================================
+
+// --- 1) Steam server: selected by SteamID -------------------------------------------
+STEAM_0:1:12345678;changeme_steam;65535
+
+// --- 2) H9XASH: selected by the custom Xash id (h9_clientid) -------------------------
+//     Account-derived and IP-stable. Read a player's value from their "h9_clientid"
+//     userinfo key. This is the recommended form on HAVOC9.
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6;changeme_h9;65535
+
+// --- 3) H9XASH: selected by the engine auth id (ID_...) ------------------------------
+//     Tied to the install rather than the account; use when a player is not linked.
+ID_0123456789abcdef0123456789abcdef;changeme_id;255
+
+// --- 4) Wildcard (any id): for a LAN / listen server test only -- NOT for public use.
+// -1;changeme_lan;65535

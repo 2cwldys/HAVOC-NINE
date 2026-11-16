@@ -1,0 +1,6 @@
+# EntMod4 build output -- not tracked in git.
+# The Windows (EntMod_MM.dll / HookMod_MM.dll) and Unix (EntMod_i386.so / HookMod_i386.so)
+# binaries built from src/ are dropped here by the build scripts. Keep the folder, ignore
+# everything in it.
+*
+!.gitignore
