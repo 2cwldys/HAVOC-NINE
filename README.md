@@ -63,7 +63,7 @@ repository as a git submodule of its own repository.
 >
 > - `h9_customweapons 0` gives TS 3.0's own weapons.
 > - `h9_customhands 0` gives its own hands.
-> - The H9 game modes run only on maps named for them (`h9_te_`, `h9_siege_` and so on). Any other map plays as TS plays it.
+> - The H9 game modes run only on maps named for them (`h9_te_`, `h9_siege_` and so on), and a race only on a map with a `race_rules` entity. Any other map plays as TS plays it.
 >
 > Every setting is listed in [CVARS.md](CVARS.md).
 
@@ -95,6 +95,7 @@ The name of a map decides which game it plays; [docs/GAME_MODES.txt](docs/GAME_M
 | **Mech Warrior** | `h9_mw_` | The match with the classes cut down to the Officer, the Combat Engineer and as many Mechs as a side likes. Every bot plays a Mech. |
 | **Assault** | `h9_as_` | Both sides fight over up to 24 capture points that anyone standing in them can take. A side's lives are one pool. |
 | **Capture the Flag** | `h9_ctf_` | H9's own: each side has a flag on its pad. Take the enemy's, carry it to your own pad, and it scores. |
+| **Race and Rally** | `rc_` | A map with a `race_rules` entity runs a race: a countdown, checkpoints in order, laps and places. In rally mode each player is a rally car, picked and tuned in the car menu, with chase, bonnet, TV and interior views. The kill key puts the car back at the last checkpoint. The test stage is `rc_rally01`. |
 | **The game as it ships** | `dm_`, `tdm_`, `ts_`, `h9_dm_`, `h9_tdm_`, `h9_ctb_`, `ctb_`, `ctf_` | The Specialists' own deathmatch, team deathmatch and Capture the Briefcase, left as TS plays them. A map with any other name plays the game as it ships too. |
 | **Roleplay** | `rp_`, `tsrp_` | Includes the Apollo RP scripts, played on the roleplay maps. It plays as normal Apollo RP or with H9's additions, by cvar. |
 
