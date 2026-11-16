@@ -4364,6 +4364,232 @@ Lines of the previous diff that this build replaced, kept here:
 +the HL SDK's chat area ends, just above the HUD
 Diff sha256 ac39c456093236c669adaa5e78cac8e3ebc7491a76e889cfa1fbdf15995f076f, the diff below.
 
+Generated Sun 11/15/2026 22:51:03.55, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++// close(handle). It loops the video by itself, and no sound is played. The main menu's background
++	return video && video.frame && video.frame( handle, HEAPU8, dst, width, height ) ? 1 : 0;
++	redraw = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres ) != 0;
++		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), MAX_INFO_STRING );
++	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", MAX_INFO_STRING );
+Diff sha256 9d2faac439404600a669cabccc83e2b052a2bb8b1b0e924179df79332d630fee, the diff below.
+
+Generated Sun 11/15/2026 23:00:44.57, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	if( Q_strcmp( have, want ) < 0 )
+Diff sha256 48a30244020bb22d8e8ab8315bb089cb5eebaabb2e49c9e0fbf94a26cf75aab3, the diff below.
+
+Generated Mon 11/16/2026  0:53:32.78, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++static void CL_H9PacketUserinfo( char *out, size_t size )
++	CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ));
++		CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ));
+Diff sha256 86fd80d2ff5bbe14a30467c918bff5e80967c8dd45a95a0c525eaf934ac4dc1b, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -4397,7 +4623,7 @@ index 9b982640..bed4c69e 100644
  // platform-specific alignment for types, to not break ABI
  #if XASH_PSP
 diff --git a/engine/client/avi/avi_ffmpeg.c b/engine/client/avi/avi_ffmpeg.c
-index 70f4b2f5..ddd05807 100644
+index 70f4b2f5..e326a0fb 100644
 --- a/engine/client/avi/avi_ffmpeg.c
 +++ b/engine/client/avi/avi_ffmpeg.c
 @@ -18,6 +18,7 @@ GNU General Public License for more details.
@@ -4647,7 +4873,7 @@ index 70f4b2f5..ddd05807 100644
  };
  
  static const dllfunc_t libavcodec_funcs[] =
-@@ -817,6 +879,229 @@ static qboolean AVI_ValidateFFmpegVersion( void )
+@@ -817,6 +879,237 @@ static qboolean AVI_ValidateFFmpegVersion( void )
  	}
  
  	return true;
@@ -4659,7 +4885,7 @@ index 70f4b2f5..ddd05807 100644
 +// and this hands its pictures to the renderer the way the FFmpeg branch above does. The page
 +// answers open(path) with { handle, width, height } or null, frame(handle, heap, dst, width, height)
 +// with true once it has written a new picture into heap at dst as width * height RGBA pixels, and
-+// close(handle). It loops the video by itself, and no sound is played. The main menu's background
++// close(handle). It loops the menu's video by itself, answers -1 once any other video is over, and no sound is played. The main menu's background
 +// (CIN_MENUBG, cl_gameui.c) is what uses it; AVI_Initailize still reports no AVI support, so
 +// AVI_LoadVideo's cinematics stay off.
 +EM_JS( int, AVI_PageOpen, ( const char *path, int *size ), {
@@ -4674,7 +4900,9 @@ index 70f4b2f5..ddd05807 100644
 +
 +EM_JS( int, AVI_PageFrame, ( int handle, byte *dst, int width, int height ), {
 +	var video = Module.video;
-+	return video && video.frame && video.frame( handle, HEAPU8, dst, width, height ) ? 1 : 0;
++	// 1: a new picture is in memory, 0: none yet, -1: the video is over (one the page plays once)
++	var r = video && video.frame ? video.frame( handle, HEAPU8, dst, width, height ) : false;
++	return r === -1 ? -1 : ( r ? 1 : 0 );
 +});
 +
 +EM_JS( void, AVI_PageClose, ( int handle ), {
@@ -4779,7 +5007,13 @@ index 70f4b2f5..ddd05807 100644
 +	if( Avi->paused )
 +		return true;
 +
-+	redraw = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres ) != 0;
++	int picture = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres );
++
++	// the page says a video it plays once is over (the startup intro): the movie ends here and the engine goes on
++	if( picture < 0 )
++		return false;
++
++	redraw = picture != 0;
 +
 +	if( redraw )
 +		Avi->shown = true;
@@ -4877,7 +5111,7 @@ index 70f4b2f5..ddd05807 100644
  }
  #else
  struct movie_state_s
-@@ -880,7 +1165,7 @@ static void AVI_UnloadFFmpeg( void )
+@@ -880,7 +1173,7 @@ static void AVI_UnloadFFmpeg( void )
  }
  #endif // XASH_AVI == AVI_NULL
  
@@ -9098,7 +9332,7 @@ index 00000000..d88a23a2
 +#endif // XASH_EMSCRIPTEN
 +#endif // H9_IDPROOF_SELFTEST
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..ecdadcc6 100644
+index 39e4f9c2..adc559e4 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -16,6 +16,7 @@ GNU General Public License for more details.
@@ -9265,7 +9499,25 @@ index 39e4f9c2..ecdadcc6 100644
  
  		if( cl_autorecord.value && !cls.demoplayback )
  		{
-@@ -1177,7 +1272,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
+@@ -1031,6 +1126,8 @@ static void CL_WritePacket( void )
+ 	Netchan_UpdateProgress( &cls.netchan );
+ }
+ 
++static void CL_H9SendLateUserinfo( void ); // H9: defined with CL_H9PacketUserinfo, further down
++
+ /*
+ =================
+ CL_SendCommand
+@@ -1040,6 +1137,8 @@ Called every frame to builds and sends a command packet to the server.
+ */
+ static void CL_SendCommand( void )
+ {
++	CL_H9SendLateUserinfo();
++
+ 	// we create commands even if a demo is playing,
+ 	CL_CreateCmd();
+ 
+@@ -1177,7 +1276,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
  	Info_SetValueForKey( protinfo, "cdkey", key, protinfosize );
  }
  
@@ -9308,7 +9560,7 @@ index 39e4f9c2..ecdadcc6 100644
  {
  	string key;
  	netadr_t adr = { .type = NA_LOOPBACK, }; // goldsrc servers don't get unique key as xashid isn't sent raw to them
-@@ -1191,6 +1320,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+@@ -1191,6 +1324,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
  		return;
  	}
  
@@ -9318,7 +9570,142 @@ index 39e4f9c2..ecdadcc6 100644
  	ID_GetMD5ForAddress( key, adr, sizeof( key ));
  	CRC32_Init( &crc );
  	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
-@@ -1225,7 +1357,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+@@ -1203,6 +1339,123 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+ 	*(uint32_t*)(cls.steamid + 4) = LittleLong( ((uint32_t*)buf)[5] );
+ }
+ 
++// H9: a connect packet carries 255 characters of userinfo at most (MAX_INFO_STRING: a stock server refuses more), and a game with the H9 keys has
++// more than that. cls.userinfo now holds H9_MAX_USERINFO of it; before, the keys that did not fit were refused one by one in the order they were
++// set, h9_clientid and even _h9rel among them, so a server could neither tie the player to an account nor tell the release (the kick "Your HAVOC 9
++// is out of date"). The packet gets the keys a server needs to let the player in, then whatever else fits, and the rest goes with setinfo once
++// connected (CL_H9SendLateUserinfo): an H9 server keeps H9_MAX_USERINFO of each player and takes them, any other refuses them one by one.
++static char cl_h9_late[H9_MAX_USERINFO]; // "\key\value" pairs that did not fit the connect packet
++static char cl_h9_packetinfo[MAX_INFO_STRING]; // the userinfo a connect packet carries
++static char cl_h9_fullinfo[H9_MAX_USERINFO]; // cls.userinfo while the GoldSrc packet is made
++
++static const char *const cl_h9_packet_keys[] =
++{
++	"name", "model", "rate", "cl_updaterate", "cl_lw", "cl_lc", "cl_dlmax", "cl_nopred", "topcolor", "bottomcolor", "password", "team", "skin",
++	"_h9rel", "_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
++};
++
++static qboolean CL_H9InfoFits( const char *out, size_t size, const char *key, const char *value )
++{
++	return value[0] && Q_strlen( out ) + Q_strlen( key ) + Q_strlen( value ) + 2 < size;
++}
++
++// h9_clientid is made for ONE H9 server (CL_SendConnectPacket salts the player's id with that server's address), and nothing takes it off again: the
++// GoldSrc packet, which makes none, must not hand the one of the last H9 server to whatever it connects to
++static qboolean CL_H9SkipKey( const char *key, qboolean goldsrc )
++{
++	return goldsrc && !Q_strcmp( key, "h9_clientid" );
++}
++
++static void CL_H9PacketUserinfo( char *out, size_t size, qboolean goldsrc )
++{
++	const char *s = cls.userinfo;
++	int i;
++
++	out[0] = 0;
++	cl_h9_late[0] = 0;
++
++	for( i = 0; i < (int)( sizeof( cl_h9_packet_keys ) / sizeof( cl_h9_packet_keys[0] )); i++ )
++	{
++		const char *key = cl_h9_packet_keys[i];
++		const char *value = Info_ValueForKey( cls.userinfo, key );
++
++		if( CL_H9SkipKey( key, goldsrc ))
++			continue;
++
++		if( CL_H9InfoFits( out, size, key, value ))
++			Info_SetValueForKey( out, key, value, size );
++	}
++
++	while( *s == '\\' )
++	{
++		char key[MAX_INFO_STRING], value[MAX_INFO_STRING];
++		const char *k = s + 1, *v = Q_strchr( k, '\\' ), *e;
++		size_t kl, vl;
++
++		if( !v )
++			break;
++
++		kl = v - k;
++		v++;
++		e = Q_strchr( v, '\\' );
++		vl = e ? (size_t)( e - v ) : Q_strlen( v );
++		s = e ? e : v + vl;
++
++		if( !kl || kl >= sizeof( key ) || vl >= sizeof( value ))
++			continue;
++
++		Q_strncpy( key, k, kl + 1 );
++		Q_strncpy( value, v, vl + 1 );
++
++		if( CL_H9SkipKey( key, goldsrc ))
++			continue;
++
++		if( Info_ValueForKey( out, key )[0] || !value[0] )
++			continue;
++
++		if( CL_H9InfoFits( out, size, key, value ))
++			Info_SetValueForKey( out, key, value, size );
++		else if( Q_strlen( cl_h9_late ) + kl + vl + 2 < sizeof( cl_h9_late ))
++			Q_snprintf( cl_h9_late + Q_strlen( cl_h9_late ), sizeof( cl_h9_late ) - Q_strlen( cl_h9_late ), "\\%s\\%s", key, value );
++	}
++}
++
++static void CL_H9SendLateUserinfo( void )
++{
++	char late[H9_MAX_USERINFO];
++	const char *s = late;
++
++	if( !cl_h9_late[0] || cls.state < ca_connected || cls.demoplayback )
++		return;
++
++	// copied out at once: CL_UpdateInfo may come back here through a command
++	Q_strncpy( late, cl_h9_late, sizeof( late ));
++	cl_h9_late[0] = 0;
++
++	while( *s == '\\' )
++	{
++		char key[MAX_INFO_STRING], value[MAX_INFO_STRING];
++		const char *k = s + 1, *v = Q_strchr( k, '\\' ), *e;
++		size_t kl, vl;
++
++		if( !v )
++			break;
++
++		kl = v - k;
++		v++;
++		e = Q_strchr( v, '\\' );
++		vl = e ? (size_t)( e - v ) : Q_strlen( v );
++		s = e ? e : v + vl;
++
++		if( !kl || kl >= sizeof( key ) || vl >= sizeof( value ))
++			continue;
++
++		Q_strncpy( key, k, kl + 1 );
++		Q_strncpy( value, v, vl + 1 );
++		CL_UpdateInfo( key, value );
++	}
++}
++
+ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticket, size_t ticketlen )
+ {
+ 	sizebuf_t send;
+@@ -1219,13 +1472,18 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+ 	if( cl_advertise_engine_in_name.value && Q_strnicmp( name, "[Xash3D]", 8 ))
+ 		Info_SetValueForKeyf( cls.userinfo, "name", sizeof( cls.userinfo ), "[Xash3D]%s", name );
+ 
++	// H9: the packet carries MAX_INFO_STRING of the userinfo (CL_H9PacketUserinfo); cls.userinfo is that for this function and whole again at its end
++	CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ), true );
++	Q_strncpy( cl_h9_fullinfo, cls.userinfo, sizeof( cl_h9_fullinfo ));
++	Q_strncpy( cls.userinfo, cl_h9_packetinfo, sizeof( cls.userinfo ));
++
+ 	MSG_Init( &send, "GoldSrcConnect", send_buf, sizeof( send_buf ));
+ 	MSG_WriteLong( &send, NET_HEADER_OUTOFBANDPACKET );
+ 	MSG_WriteStringf( &send, C2S_CONNECT" %i %i \"%s\" \"%s\"\n",
  		PROTOCOL_GOLDSRC_VERSION, challenge, protinfo, cls.userinfo );
  	MSG_SeekToBit( &send, -8, SEEK_CUR ); // rewrite null terminator
  	if( ticket == NULL )
@@ -9327,7 +9714,16 @@ index 39e4f9c2..ecdadcc6 100644
  	else
  		MSG_WriteBytes( &send, ticket, ticketlen );
  
-@@ -1298,7 +1430,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1234,6 +1492,8 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+ 
+ 	NET_SendPacket( NS_CLIENT, MSG_GetNumBytesWritten( &send ), MSG_GetData( &send ), adr );
+ 	Con_Printf( "Trying to connect with GoldSrc 48 protocol\n" );
++
++	Q_strncpy( cls.userinfo, cl_h9_fullinfo, sizeof( cls.userinfo ));
+ }
+ 
+ /*
+@@ -1298,7 +1558,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  	else
  	{
  		const char *qport = Cvar_VariableString( "net_qport" );
@@ -9336,7 +9732,7 @@ index 39e4f9c2..ecdadcc6 100644
  		string key;
  
  		ID_GetMD5ForAddress( key, adr, sizeof( key ));
-@@ -1310,6 +1442,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1310,6 +1570,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
  
  		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
@@ -9357,7 +9753,17 @@ index 39e4f9c2..ecdadcc6 100644
  		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
  		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
  
-@@ -1393,6 +1539,7 @@ static void CL_CheckForResend( void )
+@@ -1323,7 +1597,8 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+ 			Info_SetValueForKeyf( protinfo, "cookie", sizeof( protinfo ), "%016"PRIx64, cls.netchan_pending_cookie );
+ 		}
+ 
+-		Netchan_OutOfBandPrint( NS_CLIENT, adr, C2S_CONNECT" %i %i \"%s\" \"%s\"\n", PROTOCOL_VERSION, challenge, protinfo, cls.userinfo );
++		CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ), false );
++		Netchan_OutOfBandPrint( NS_CLIENT, adr, C2S_CONNECT" %i %i \"%s\" \"%s\"\n", PROTOCOL_VERSION, challenge, protinfo, cl_h9_packetinfo );
+ 		Con_Printf( "Trying to connect with modern protocol\n" );
+ 	}
+ 
+@@ -1393,6 +1668,7 @@ static void CL_CheckForResend( void )
  	// if the local server is running and we aren't then connect
  	if( cls.state == ca_disconnected && SV_Active( ))
  	{
@@ -9365,7 +9771,7 @@ index 39e4f9c2..ecdadcc6 100644
  		cls.signon = 0;
  		cls.state = ca_connecting;
  		Q_strncpy( cls.servername, "localhost", sizeof( cls.servername ));
-@@ -1426,6 +1573,7 @@ static void CL_CheckForResend( void )
+@@ -1426,6 +1702,7 @@ static void CL_CheckForResend( void )
  
  	if( res == NET_EAI_NONAME )
  	{
@@ -9373,7 +9779,7 @@ index 39e4f9c2..ecdadcc6 100644
  		CL_Disconnect();
  		return;
  	}
-@@ -1443,6 +1591,7 @@ static void CL_CheckForResend( void )
+@@ -1443,6 +1720,7 @@ static void CL_CheckForResend( void )
  		if( cls.bandwidth_test.retry >= CL_TEST_RETRIES )
  		{
  			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
@@ -9381,7 +9787,7 @@ index 39e4f9c2..ecdadcc6 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -1455,11 +1604,13 @@ static void CL_CheckForResend( void )
+@@ -1455,11 +1733,13 @@ static void CL_CheckForResend( void )
  		if( cls.connect_retry >= CL_CONNECTION_RETRIES )
  		{
  			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
@@ -9395,7 +9801,7 @@ index 39e4f9c2..ecdadcc6 100644
  	}
  
  	cls.serveradr = adr;
-@@ -1530,9 +1681,13 @@ static void CL_Connect_f( void )
+@@ -1530,9 +1810,13 @@ static void CL_Connect_f( void )
  	Con_Printf( "server %s\n", server );
  	CL_Disconnect();
  
@@ -9412,7 +9818,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	cls.state = ca_connecting;
  	cls.net_protocol = proto;
-@@ -1648,6 +1803,7 @@ void CL_ClearState( void )
+@@ -1648,6 +1932,7 @@ void CL_ClearState( void )
  	Cvar_SetValue( "scr_loading", 0.0f );
  	host.allow_console = host.allow_console_init;
  	HTTP_ClearCustomServers();
@@ -9420,7 +9826,7 @@ index 39e4f9c2..ecdadcc6 100644
  }
  
  /*
-@@ -1798,12 +1954,14 @@ void CL_Disconnect( void )
+@@ -1798,12 +2083,14 @@ void CL_Disconnect( void )
  	IN_LockInputDevices( false ); // unlock input devices
  
  	cls.state = ca_disconnected;
@@ -9435,7 +9841,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	// back to menu in non-developer mode
  	if( host_developer.value || cls.key_dest == key_menu )
-@@ -1931,6 +2089,7 @@ static void CL_Reconnect_f( void )
+@@ -1931,6 +2218,7 @@ static void CL_Reconnect_f( void )
  
  	if( cls.state == ca_connected )
  	{
@@ -9443,7 +9849,7 @@ index 39e4f9c2..ecdadcc6 100644
  		CL_Reconnect( false );
  		return;
  	}
-@@ -1949,6 +2108,7 @@ static void CL_Reconnect_f( void )
+@@ -1949,6 +2237,7 @@ static void CL_Reconnect_f( void )
  		cls.net_protocol = proto; // don't change protocol
  
  		Con_Printf( "reconnecting...\n" );
@@ -9451,7 +9857,7 @@ index 39e4f9c2..ecdadcc6 100644
  	}
  }
  
-@@ -1979,8 +2139,12 @@ static void CL_Retry_f( void )
+@@ -1979,8 +2268,12 @@ static void CL_Retry_f( void )
  	Con_Printf( "Commencing connection retry to %s\n", cls.servername );
  	CL_Disconnect();
  
@@ -9466,7 +9872,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	cls.state = ca_connecting;
  	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
-@@ -2092,6 +2256,8 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+@@ -2092,6 +2385,8 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
  	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
  		return;
  
@@ -9475,7 +9881,7 @@ index 39e4f9c2..ecdadcc6 100644
  	UI_AddServerToList( from, infostring );
  }
  
-@@ -2135,7 +2301,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2135,7 +2430,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  {
  	static char	s[512+8];
  	int p, numcl, maxcl, password, bots;
@@ -9484,7 +9890,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	// set to beginning but skip header
  	MSG_SeekToBit( msg, (sizeof( uint32_t ) + sizeof( uint8_t )) << 3, SEEK_SET );
-@@ -2153,7 +2319,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2153,7 +2448,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
  		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
  		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
@@ -9493,7 +9899,7 @@ index 39e4f9c2..ecdadcc6 100644
  		numcl = MSG_ReadByte( msg );
  		maxcl = MSG_ReadByte( msg );
  		MSG_ReadByte( msg ); // protocol version
-@@ -2185,7 +2351,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2185,7 +2480,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
  		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
  		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
@@ -9502,7 +9908,7 @@ index 39e4f9c2..ecdadcc6 100644
  		MSG_ReadShort( msg ); // app id
  		numcl = MSG_ReadByte( msg );
  		maxcl = MSG_ReadByte( msg );
-@@ -2213,10 +2379,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2213,10 +2508,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
  	Info_SetValueForKey( s, "team", "0", sizeof( s ));
  	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
@@ -9519,7 +9925,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	// write host last so we can try to cut off too long hostnames
  	// TODO: value size limit for infostrings
-@@ -2745,6 +2916,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2745,6 +3045,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  	if( !CL_IsFromConnectingServer( from ))
  		return;
  
@@ -9527,7 +9933,7 @@ index 39e4f9c2..ecdadcc6 100644
  	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
  	{
  		const char *s = MSG_ReadString( msg );
-@@ -2762,8 +2934,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2762,8 +3063,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
  	}
  
@@ -9546,7 +9952,7 @@ index 39e4f9c2..ecdadcc6 100644
  		Msg( "%s\n", formatted_msg );
  
  	// don't disconnect, errormsg is a FWGS extension and
-@@ -3142,6 +3323,7 @@ static void CL_ReadPackets( void )
+@@ -3142,6 +3452,7 @@ static void CL_ReadPackets( void )
  		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
  		{
  			Con_Printf( "\nServer connection timed out.\n" );
@@ -9554,7 +9960,7 @@ index 39e4f9c2..ecdadcc6 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -3221,6 +3403,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3221,6 +3532,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  	else if( !successfully_received )
  	{
  		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
@@ -9562,7 +9968,7 @@ index 39e4f9c2..ecdadcc6 100644
  	}
  
  	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
-@@ -3298,7 +3481,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3298,7 +3610,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  
  			MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
  
@@ -9571,7 +9977,7 @@ index 39e4f9c2..ecdadcc6 100644
  				CL_RegisterResources( &msg, cls.net_protocol );
  
  			if( MSG_GetNumBytesWritten( &msg ) > 0 )
-@@ -3456,6 +3639,8 @@ qboolean CL_PrecacheResources( void )
+@@ -3456,6 +3768,8 @@ qboolean CL_PrecacheResources( void )
  {
  	resource_t	*pRes;
  
@@ -9580,7 +9986,7 @@ index 39e4f9c2..ecdadcc6 100644
  	// if we downloaded new WAD files or any other archives they must be added to searchpath
  	if( CL_ShouldRescanFilesystem( ))
  		FS_Rescan_f();
-@@ -3469,6 +3654,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3469,6 +3783,7 @@ qboolean CL_PrecacheResources( void )
  		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
  			continue;
  
@@ -9588,7 +9994,7 @@ index 39e4f9c2..ecdadcc6 100644
  		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
  		SetBits( pRes->ucFlags, RES_PRECACHED );
  		cl.nummodels = 1;
-@@ -3493,6 +3679,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3493,6 +3808,7 @@ qboolean CL_PrecacheResources( void )
  
  				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  				{
@@ -9596,7 +10002,7 @@ index 39e4f9c2..ecdadcc6 100644
  					CL_Disconnect_f();
  					return false;
  				}
-@@ -3509,6 +3696,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3509,6 +3825,7 @@ qboolean CL_PrecacheResources( void )
  		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
  			continue;
  
@@ -9604,7 +10010,7 @@ index 39e4f9c2..ecdadcc6 100644
  		switch( pRes->type )
  		{
  		case t_sound:
-@@ -3529,6 +3717,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3529,6 +3846,7 @@ qboolean CL_PrecacheResources( void )
  					{
  						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  						{
@@ -9612,7 +10018,7 @@ index 39e4f9c2..ecdadcc6 100644
  							S_EndRegistration();
  							CL_Disconnect_f();
  							return false;
-@@ -3558,6 +3747,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3558,6 +3876,7 @@ qboolean CL_PrecacheResources( void )
  						{
  							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  							{
@@ -9620,7 +10026,7 @@ index 39e4f9c2..ecdadcc6 100644
  								S_EndRegistration();
  								CL_Disconnect_f();
  								return false;
-@@ -3675,9 +3865,11 @@ static void CL_InitLocal( void )
+@@ -3675,9 +3994,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -9632,7 +10038,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	Cvar_RegisterVariable( &showpause );
  	Cvar_RegisterVariable( &mp_decals );
-@@ -3688,9 +3880,11 @@ static void CL_InitLocal( void )
+@@ -3688,9 +4009,11 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_download_ingame );
  	Cvar_RegisterVariable( &cl_logofile );
  	Cvar_RegisterVariable( &cl_logocolor );
@@ -9644,7 +10050,7 @@ index 39e4f9c2..ecdadcc6 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -3708,6 +3902,7 @@ static void CL_InitLocal( void )
+@@ -3708,6 +4031,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &hud_utf8 );
  
  	Cvar_RegisterVariable( &rcon_address );
@@ -9652,7 +10058,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	Cvar_RegisterVariable( &cl_trace_consistency );
  	Cvar_RegisterVariable( &cl_trace_stufftext );
-@@ -3746,6 +3941,7 @@ static void CL_InitLocal( void )
+@@ -3746,6 +4070,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_bmodelinterp );
  	Cvar_RegisterVariable( &cl_clockreset );
  	Cvar_RegisterVariable( &cl_fixtimerate );
@@ -9660,7 +10066,7 @@ index 39e4f9c2..ecdadcc6 100644
  	Cvar_RegisterVariable( &hud_fontscale );
  	Cvar_RegisterVariable( &hud_fontrender );
  	Cvar_RegisterVariable( &hud_scale );
-@@ -3825,6 +4021,7 @@ static void CL_InitLocal( void )
+@@ -3825,6 +4150,7 @@ static void CL_InitLocal( void )
  	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
  
  	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
@@ -9668,7 +10074,7 @@ index 39e4f9c2..ecdadcc6 100644
  }
  
  //============================================================================
-@@ -3941,6 +4138,9 @@ void Host_ClientFrame( void )
+@@ -3941,6 +4267,9 @@ void Host_ClientFrame( void )
  	// handle spectator movement
  	CL_MoveSpectatorCamera();
  
@@ -9678,7 +10084,7 @@ index 39e4f9c2..ecdadcc6 100644
  	// catch changes video settings
  	VID_CheckChanges();
  
-@@ -3974,6 +4174,7 @@ void CL_Init( void )
+@@ -3974,6 +4303,7 @@ void CL_Init( void )
  	CL_InitLocal();
  
  	VID_Init();	// init video
@@ -9686,7 +10092,7 @@ index 39e4f9c2..ecdadcc6 100644
  
  	// unreliable buffer. unsed for unreliable commands and voice stream
  	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
-@@ -3981,20 +4182,24 @@ void CL_Init( void )
+@@ -3981,20 +4311,24 @@ void CL_Init( void )
  	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
  
  	S_Init();	// init sound
@@ -9711,7 +10117,7 @@ index 39e4f9c2..ecdadcc6 100644
  }
  
  /*
-@@ -4005,6 +4210,7 @@ CL_Shutdown
+@@ -4005,6 +4339,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -9719,7 +10125,7 @@ index 39e4f9c2..ecdadcc6 100644
  	Con_Printf( "%s()\n", __func__ );
  
  	if( host.status != HOST_CRASHED && cls.initialized )
-@@ -4014,6 +4220,7 @@ void CL_Shutdown( void )
+@@ -4014,6 +4349,7 @@ void CL_Shutdown( void )
  		Touch_WriteConfig();
  	}
  
@@ -11717,7 +12123,7 @@ index 00000000..c019dcaa
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..c6f8a5ce
+index 00000000..e470537e
 --- /dev/null
 +++ b/engine/client/cl_presence.c
 @@ -0,0 +1,733 @@
@@ -12285,7 +12691,7 @@ index 00000000..c6f8a5ce
 +	Cvar_DirectFullSet( &h9_rel, H9_Release(), 0 );
 +
 +	if( H9_Release()[0] )
-+		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), MAX_INFO_STRING );
++		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), H9_MAX_USERINFO );
 +}
 +
 +/*
@@ -12501,7 +12907,7 @@ index 51b5def6..36e67822 100644
  		ClearBits( cl_ticket_generator.flags, FCVAR_CHANGED );
 diff --git a/engine/client/cl_travel.c b/engine/client/cl_travel.c
 new file mode 100644
-index 00000000..ecbae394
+index 00000000..804f78e5
 --- /dev/null
 +++ b/engine/client/cl_travel.c
 @@ -0,0 +1,553 @@
@@ -12713,7 +13119,7 @@ index 00000000..ecbae394
 +		return;
 +
 +	travel.advertised = want;
-+	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", MAX_INFO_STRING );
++	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", H9_MAX_USERINFO );
 +
 +	if( cls.state >= ca_connected )
 +		CL_UpdateInfo( "_h9travel", want ? "1" : "0" );
@@ -13206,7 +13612,7 @@ index c1b3ef13..600317c0 100644
  
  	switch( cls.scrshot_action )
 diff --git a/engine/client/client.h b/engine/client/client.h
-index e5db2dac..89fd8edc 100644
+index e5db2dac..492fcad2 100644
 --- a/engine/client/client.h
 +++ b/engine/client/client.h
 @@ -145,6 +145,11 @@ typedef struct
@@ -13232,6 +13638,15 @@ index e5db2dac..89fd8edc 100644
  	qboolean use_extended_api;
  } gameui_static_t;
  
+@@ -576,7 +585,7 @@ typedef struct
+ 
+ 	local_state_t	spectator_state;		// init as client startup
+ 
+-	char		userinfo[MAX_INFO_STRING];
++	char		userinfo[H9_MAX_USERINFO];	// H9: what this game keeps of its own userinfo; a connect packet carries MAX_INFO_STRING of it (cl_main.c)
+ 	char		physinfo[MAX_INFO_STRING];	// read-only
+ 
+ 	sizebuf_t		datagram;			// unreliable stuff. gets sent in CL_Move about cl_cmdrate times per second.
 @@ -694,6 +703,7 @@ extern convar_t	mp_decals;
  extern convar_t	cl_logomaxdim;
  extern convar_t	cl_allow_download;
@@ -13639,7 +14054,7 @@ index 495245d7..8723bad0 100644
  	pfnDrawConsoleStringLen,
  	pfnConsolePrint,
 diff --git a/engine/client/dll_int/cl_gameui.c b/engine/client/dll_int/cl_gameui.c
-index 993304fa..56073e34 100644
+index 993304fa..87e3b6b4 100644
 --- a/engine/client/dll_int/cl_gameui.c
 +++ b/engine/client/dll_int/cl_gameui.c
 @@ -352,6 +352,80 @@ static float GAME_EXPORT UI_GetLogoLength( void )
@@ -13723,7 +14138,25 @@ index 993304fa..56073e34 100644
  static void UI_UpdateUserinfo( void )
  {
  	if( !host.userinfo_changed )
-@@ -1316,6 +1390,10 @@ static ui_extendedfuncs_t gExtendedfuncs =
+@@ -359,11 +433,13 @@ static void UI_UpdateUserinfo( void )
+ 
+ 	player_info_t *player = &gameui.playerinfo;
+ 
++	// H9: cls.userinfo holds H9_MAX_USERINFO and player->userinfo only MAX_INFO_STRING; the menu reads its keys from the whole of cls.userinfo, or a
++	// key set after the 255th character (a colour, the model) would read as empty
+ 	Q_strncpy( player->userinfo, cls.userinfo, sizeof( player->userinfo ));
+-	Q_strncpy( player->name, Info_ValueForKey( player->userinfo, "name" ), sizeof( player->name ));
+-	Q_strncpy( player->model, Info_ValueForKey( player->userinfo, "model" ), sizeof( player->model ));
+-	player->topcolor = Q_atoi( Info_ValueForKey( player->userinfo, "topcolor" ));
+-	player->bottomcolor = Q_atoi( Info_ValueForKey( player->userinfo, "bottomcolor" ));
++	Q_strncpy( player->name, Info_ValueForKey( cls.userinfo, "name" ), sizeof( player->name ));
++	Q_strncpy( player->model, Info_ValueForKey( cls.userinfo, "model" ), sizeof( player->model ));
++	player->topcolor = Q_atoi( Info_ValueForKey( cls.userinfo, "topcolor" ));
++	player->bottomcolor = Q_atoi( Info_ValueForKey( cls.userinfo, "bottomcolor" ));
+ 	host.userinfo_changed = false; // we got it
+ }
+ 
+@@ -1316,6 +1392,10 @@ static ui_extendedfuncs_t gExtendedfuncs =
  	pfnIsCvarReadOnly,
  	pfnSetTextInputRect,
  	pfnSetTextInputBuffer,
@@ -14367,7 +14800,7 @@ index d640a991..92a8c81e 100644
  	Cmd_ExecuteStringWithPrivilegeCheck( text, true );
  }
 diff --git a/engine/common/common.h b/engine/common/common.h
-index 8d471f11..9674e8f2 100644
+index 8d471f11..ed5ec123 100644
 --- a/engine/common/common.h
 +++ b/engine/common/common.h
 @@ -118,6 +118,7 @@ typedef enum instance_e
@@ -14378,10 +14811,29 @@ index 8d471f11..9674e8f2 100644
  
  #if XASH_LOW_MEMORY == 0
  #define MAX_DECALS		512	// touching TE_DECAL messages, etc
+@@ -130,6 +131,9 @@ typedef enum instance_e
+ #define MAX_STATIC_ENTITIES	32	// static entities that moved on the client when level is spawn
+ #endif
+ 
++#ifndef H9_MAX_USERINFO
++#define H9_MAX_USERINFO ( MAX_INFO_STRING * 2 ) // H9: what a game keeps of one player's userinfo (a server too, server.h)
++#endif
+ #define MAX_SERVERINFO_STRING 512  // server handles too many settings. expand to 1024?
+ #define MAX_PRINT_MSG         8192 // how many symbols can handle single call of Con_Printf or Con_DPrintf
+ #define MAX_TOKEN             2048 // parse token length
 diff --git a/engine/common/cvar.c b/engine/common/cvar.c
-index 0084a31f..0d8945c5 100644
+index 0084a31f..332c9e87 100644
 --- a/engine/common/cvar.c
 +++ b/engine/common/cvar.c
+@@ -150,7 +150,7 @@ static qboolean Cvar_UpdateInfo( convar_t *var, const char *value, qboolean noti
+ #if !XASH_DEDICATED
+ 		else
+ 		{
+-			if( !Info_SetValueForKey( CL_Userinfo(), var->name, value, MAX_INFO_STRING ))
++			if( !Info_SetValueForKey( CL_Userinfo(), var->name, value, H9_MAX_USERINFO ))
+ 				return false; // failed to change value
+ 
+ 			// time to update server copy of userinfo
 @@ -602,7 +602,21 @@ static void Cvar_SanitizeAndSet( convar_t *var, const char *value )
  
  	// nothing to change
@@ -15056,6 +15508,21 @@ index 2f26bd93..f50d62e3 100644
  /*
  ===============
  HTTP_Download_f
+diff --git a/engine/common/infostring.c b/engine/common/infostring.c
+index 7b8c44c6..1fe140d2 100644
+--- a/engine/common/infostring.c
++++ b/engine/common/infostring.c
+@@ -436,7 +436,9 @@ qboolean Info_SetValueForStarKey( char *s, const char *key, const char *value, i
+ 		return true; // just clear variable
+ 
+ 	Q_snprintf( new, sizeof( new ), "\\%s\\%s", key, value );
+-	if( Q_strlen( new ) + Q_strlen( s ) > maxsize )
++	// H9: a result of maxsize characters leaves no room for the terminating NUL (the test used to be > and wrote one byte past the buffer: the
++	// server's out[256] in SV_UserinfoForOthers, and cls.userinfo into cls.physinfo[0] on the client); the loop below already says >=
++	if( Q_strlen( new ) + Q_strlen( s ) >= maxsize )
+ 	{
+ 		// no more room in buffer to add key/value
+ 		if( Info_IsKeyImportant( key ))
 diff --git a/engine/common/mod_bmodel.c b/engine/common/mod_bmodel.c
 index d1fe48e2..ad03eb3f 100644
 --- a/engine/common/mod_bmodel.c
@@ -16343,14 +16810,59 @@ index d61e51bd..bf1eaa6a 100644
  
  //
 diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
-index c95ce9a7..003d4f0a 100644
+index c95ce9a7..b71114d0 100644
 --- a/engine/server/sv_client.c
 +++ b/engine/server/sv_client.c
-@@ -344,6 +344,61 @@ SV_ConnectClient
+@@ -344,6 +344,106 @@ SV_ConnectClient
  A connection request that did not come from the master
  ==================
  */
 +const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
++
++/*
++================
++SV_H9ReleaseOlder
++
++H9: whether release a is older than release b, as numbers: a release is the build ("1.64": the digits after the dot are one number, so "1.100" is
++after "1.99"), and the dated kind this replaced ("2026.11.10") is older than any build, though it sorts after one as text (a first part of
++1000 or more is a year). Only the wording of a refusal depends on it: a joiner whose release is not the server's is refused either way.
++================
++*/
++static qboolean SV_H9ReleaseOlder( const char *a, const char *b )
++{
++	int na[4] = { 0, 0, 0, 0 }, nb[4] = { 0, 0, 0, 0 };
++	const char *s;
++	int i;
++
++	for( s = a, i = 0; *s && i < 4; i++ )
++	{
++		na[i] = Q_atoi( s );
++		while( *s && *s != '.' )
++			s++;
++		if( *s == '.' )
++			s++;
++	}
++
++	for( s = b, i = 0; *s && i < 4; i++ )
++	{
++		nb[i] = Q_atoi( s );
++		while( *s && *s != '.' )
++			s++;
++		if( *s == '.' )
++			s++;
++	}
++
++	if(( na[0] >= 1000 ) != ( nb[0] >= 1000 ))
++		return na[0] >= 1000;
++
++	for( i = 0; i < 4; i++ )
++	{
++		if( na[i] != nb[i] )
++			return na[i] < nb[i];
++	}
++
++	return false;
++}
 +
 +/*
 +================
@@ -16397,7 +16909,7 @@ index c95ce9a7..003d4f0a 100644
 +		return buf;
 +	}
 +
-+	if( Q_strcmp( have, want ) < 0 )
++	if( SV_H9ReleaseOlder( have, want ))
 +		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (release %s, this server runs %s): update it from https://havoc9.org/downloads/\n", have, want );
 +	else
 +		Q_snprintf( buf, size, "This server runs an older HAVOC 9 (release %s, yours is %s): ask its admin to update, or play on a server that has\n", want, have );
@@ -16408,7 +16920,7 @@ index c95ce9a7..003d4f0a 100644
  static void SV_ConnectClient( netadr_t from )
  {
  	char userinfo[MAX_INFO_STRING];
-@@ -402,6 +457,17 @@ static void SV_ConnectClient( netadr_t from )
+@@ -402,6 +502,17 @@ static void SV_ConnectClient( netadr_t from )
  	qport = Q_atoi( Info_ValueForKey( protinfo, "qport" ));
  	extensions = Q_atoi( Info_ValueForKey( protinfo, "ext" ));
  
@@ -16426,7 +16938,7 @@ index c95ce9a7..003d4f0a 100644
  	if( FBitSet( extensions, NET_EXT_NETCHAN_COOKIE ))
  	{
  		const char *cookie_str = Info_ValueForKey( protinfo, "cookie" );
-@@ -433,6 +499,18 @@ static void SV_ConnectClient( netadr_t from )
+@@ -433,6 +544,18 @@ static void SV_ConnectClient( netadr_t from )
  
  	Q_strncpy( userinfo, s, sizeof( userinfo ));
  
@@ -16445,7 +16957,7 @@ index c95ce9a7..003d4f0a 100644
  	// check connection password (don't verify local client)
  	if( !NET_IsLocalAddress( from ) && SV_HavePassword( ))
  	{
-@@ -508,7 +586,7 @@ static void SV_ConnectClient( netadr_t from )
+@@ -508,7 +631,7 @@ static void SV_ConnectClient( netadr_t from )
  
  	// HACKHACK: can hear all players by default to avoid issues
  	// with server.dll without voice game manager
@@ -16454,7 +16966,7 @@ index c95ce9a7..003d4f0a 100644
  
  	// initailize netchan
  	if( !Host_IsLocalClient( ))
-@@ -711,8 +789,15 @@ void SV_DropClient( sv_client_t *cl, qboolean crash )
+@@ -711,8 +834,15 @@ void SV_DropClient( sv_client_t *cl, qboolean crash )
  	// don't send to other clients
  	cl->edict = NULL;
  
@@ -16472,7 +16984,7 @@ index c95ce9a7..003d4f0a 100644
  
  	// if this was the last client on the server, send a heartbeat
  	// to the master so it is known the server is empty
-@@ -1048,10 +1133,31 @@ static void SV_Info( netadr_t from, int protocolVersion )
+@@ -1048,10 +1178,31 @@ static void SV_Info( netadr_t from, int protocolVersion )
  		Info_SetValueForKey( s, "team", svgame.globals->teamplay ? "1" : "0", sizeof( s ));
  		Info_SetValueForKey( s, "coop", svgame.globals->coop ? "1" : "0", sizeof( s ));
  		Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", count );
@@ -16504,7 +17016,7 @@ index c95ce9a7..003d4f0a 100644
  		// write host last so we can try to cut off too long hostnames
  		// TODO: value size limit for infostrings
  		remaining = sizeof( s ) - Q_strlen( s ) - sizeof( "\\host\\" ) - 1;
-@@ -1280,6 +1386,34 @@ static float SV_CalcClientTime( sv_client_t *cl )
+@@ -1280,6 +1431,34 @@ static float SV_CalcClientTime( sv_client_t *cl )
  	return 0.0f;
  }
  
@@ -16539,7 +17051,7 @@ index c95ce9a7..003d4f0a 100644
  /*
  ===================
  SV_FullClientUpdate
-@@ -1289,7 +1423,7 @@ Writes all update values to a bitbuf
+@@ -1289,7 +1468,7 @@ Writes all update values to a bitbuf
  */
  void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  {
@@ -16548,7 +17060,7 @@ index c95ce9a7..003d4f0a 100644
  	char		digest[16];
  	MD5Context_t	ctx;
  
-@@ -1298,8 +1432,18 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
+@@ -1298,8 +1477,18 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  
  	int i = cl - svs.clients;
  
@@ -16569,7 +17081,7 @@ index c95ce9a7..003d4f0a 100644
  	MSG_WriteLong( msg, cl->userid );
  
  	if( cl->name[0] )
-@@ -1310,6 +1454,11 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
+@@ -1310,6 +1499,11 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  
  		// remove server passwords, etc.
  		Info_RemovePrefixedKeys( info, '_' );
@@ -16581,7 +17093,7 @@ index c95ce9a7..003d4f0a 100644
  		MSG_WriteString( msg, info );
  
  		MD5Init( &ctx );
-@@ -3662,7 +3811,7 @@ static void SV_ParseVoiceData( sv_client_t *cl, sizebuf_t *msg )
+@@ -3662,7 +3856,7 @@ static void SV_ParseVoiceData( sv_client_t *cl, sizebuf_t *msg )
  			if( cur->state < cs_connected )
  				continue;
  
