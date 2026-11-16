@@ -33,6 +33,7 @@
 #include "vgui_TeamFortressViewport.h" // iTeamColors / iNumberOfTeamColors (team box color)
 
 #include <stdio.h>
+#include "h9_vgui.h" // H9Look_HideTeamDots
 #include "h9_racehud.h" // H9: H9RaceHud_Driving
 
 extern "C" int CL_IsThirdPerson();
@@ -219,12 +220,14 @@ void CHudTSStatus::DrawTeamDots()
 	cl_entity_t* lp = gEngfuncs.GetLocalPlayer();
 	const int local = lp ? lp->index : 0;
 	const int maxClients = gEngfuncs.GetMaxClients();
+	// H9: a roleplay map's server may ask for no dots (H9Look); the seen flags are used up all the same
+	const bool hide = H9Look_HideTeamDots();
 	for (int i = 0; i <= maxClients && i < MAX_PLAYERS + 2; i++)
 	{
 		if (!s_bSeen[i])
 			continue;
 		s_bSeen[i] = false;
-		if (i == local || g_PlayerExtraInfo[i].teamnumber != g_PlayerExtraInfo[local].teamnumber)
+		if (hide || i == local || g_PlayerExtraInfo[i].teamnumber != g_PlayerExtraInfo[local].teamnumber)
 			continue;
 		cl_entity_t* ent = gEngfuncs.GetEntityByIndex(i);
 		if (ent == nullptr || 0 == ent->player)

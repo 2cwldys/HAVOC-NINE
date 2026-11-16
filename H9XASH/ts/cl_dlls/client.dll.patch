@@ -12,8 +12,8 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client; the builds of 2026-11-09 09:03 and 13:45 are target client alone: the player's own lines spoken, and the voices to pick, item 28; the build of 2026-11-09 after that is target client alone too: the chat bubbles, item 29; and the next, the Apollo RP HUD as panels, item 30; and the build of 2026-11-09 in the evening, target client alone, the voices, the gas mask and the pan of the speech, item 28; and the build of 2026-11-09 at 21:32, target client alone, the float chat's own line and the lift of the box over the typing sprite, item 29; and the build of 2026-11-10 at 07:17, target client with the game library built beside it: the loadout rework's buy window, item 31, the mixed voices and the global speech, item 28, the float chat's linger, item 29, the needs panel and the weapon bar's clearance, item 30, and the Mech rocket launcher's salvo, item 32; and the build of 2026-11-10 at 17:31, target client alone: the aim plaque and the names of the aimed player, item 33, and Apollo RP's inventory and exchange windows, item 34; and the build of 2026-11-10 at 18:25, target client alone: the item pictures, the credit sign and no GIVE TO, item 34; and the build of 2026-11-10 at 19:11, target client alone: the picture above a dropped item's notice, item 34; and the build of 2026-11-10 at 19:42, target client alone: the first panel of Apollo RP's HUD smaller while the weapon select is open, item 30, and the colour of the panels, item 35; and the build of 2026-11-10 at 22:34, target client alone: the search of a handcuffed player, item 34; and the build of 2026-11-11 at 14:56, target client alone: the item pictures of the inventory window and CREDITS in its header, item 38; and the build of 2026-11-13 at 11:20, target client alone: the context menu of the use key on a player, item 42; and the build of 2026-11-14, both targets: race and rally mode's client, item 43)
-Size          : 1395712 bytes
-SHA256        : 1EB267EE86A143B60C21DDB15D86627F706C8E80D11B3C2B2E8C14A551A009C6
+Size          : 1387520 bytes
+SHA256        : B0622CFE6EDE59561079352E38BD0D1FB88AF0C20FA13E1949701BBF1926C69F
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
@@ -768,6 +768,14 @@ What the source build contains, beyond the stock client
    hud_redraw.cpp, hud_update.cpp, in_camera.cpp, input.cpp, inputw32.cpp, saytext.cpp, tri.cpp, ts_attachments.cpp, ts_reticle.cpp, ts_status.cpp, vgui_TeamFortressViewport.cpp/.h, view.cpp,
    CMakeLists.txt. Nothing changes outside a race map. The cvars and commands are in COMMANDS.txt (RACE AND RALLY MODE); docs\LINUX_SUPPORT.txt says what a Linux player gets. The build of
    2026-11-14 is both targets.
+
+44. Two small panel changes (2026-11-15): the arrow of a menu row, and no team dots on a roleplay map
+
+    h9_arpctx_ui.h: a row that opens a page of choices draws its arrow from fills (a chevron two pixels thick, odd in height so the tip is one row), because
+    the HUD font's '>' came out as a colon on screen. h9_vgui.cpp / ts_status.cpp: the H9Look message (protocol 5) has a third flag, bit 2, that
+    asks the game to leave out the small green dot TS draws over each teammate's head; a roleplay map sets it (arp_h9_hideteamdots), where the teams follow the jobs.
+    H9Look_HideTeamDots() is true while the server's last message is under 15 seconds old and has the bit. This build also carries the race and rally client of item 43
+    from the git copy's source, which the master's reTS had not had until 2026-11-15.
 
 Building and deploying
 ----------------------

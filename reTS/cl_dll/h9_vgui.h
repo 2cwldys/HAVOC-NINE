@@ -213,4 +213,8 @@ int H9Vgui_StackBottom();
 // anyone is). The server says it again every few seconds; one that goes quiet is not believed. cl_h9_aimplaque 0 draws TS's names always
 // and shows no "aim" notice. From TS_AimNames (ts_reticle.cpp): true when the name of this aimed player is not drawn.
 bool H9Look_HideAimName(bool teammate);
+// The same message, flags bit 2: on a roleplay map (Apollo RP's teams follow the jobs, so team play is on) the server asks the game to leave out the small green dot TS draws over
+// each teammate's head (arp_h9_hideteamdots). From CHudTSStatus::DrawTeamDots (ts_status.cpp): true when the dots are not drawn. The same 15 seconds and the same
+// cl_h9_aimplaque 0 as the names.
+bool H9Look_HideTeamDots();
 // ---- end H9 VGUI ------------------------------------------------------------------------------
