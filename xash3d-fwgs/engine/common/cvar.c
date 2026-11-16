@@ -150,7 +150,7 @@ static qboolean Cvar_UpdateInfo( convar_t *var, const char *value, qboolean noti
 #if !XASH_DEDICATED
 		else
 		{
-			if( !Info_SetValueForKey( CL_Userinfo(), var->name, value, MAX_INFO_STRING ))
+			if( !Info_SetValueForKey( CL_Userinfo(), var->name, value, H9_MAX_USERINFO ))
 				return false; // failed to change value
 
 			// time to update server copy of userinfo

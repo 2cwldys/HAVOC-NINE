@@ -585,7 +585,7 @@ typedef struct
 
 	local_state_t	spectator_state;		// init as client startup
 
-	char		userinfo[MAX_INFO_STRING];
+	char		userinfo[H9_MAX_USERINFO];	// H9: what this game keeps of its own userinfo; a connect packet carries MAX_INFO_STRING of it (cl_main.c)
 	char		physinfo[MAX_INFO_STRING];	// read-only
 
 	sizebuf_t		datagram;			// unreliable stuff. gets sent in CL_Move about cl_cmdrate times per second.

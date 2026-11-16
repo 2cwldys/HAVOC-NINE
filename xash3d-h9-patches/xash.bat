@@ -166,7 +166,7 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-glowfix.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-framesize.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-upscale.patch" || exit /b 1
-    call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatraise.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-userinfo-client.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
@@ -339,6 +339,9 @@ exit /b 0
 
 :patch
 REM %1 = the repository, %2 = the patch.
+REM H9_SKIP_PATCH_VERIFY=1: the tree is already patched and some patch overlaps lines an earlier one added (so neither check below can pass):
+REM nothing is checked or applied. A fresh clone needs it unset. See patches\PATCH_CHANGELOG.md, 2026-11-16.
+if defined H9_SKIP_PATCH_VERIFY (echo   skipped   %~nx2 ^(H9_SKIP_PATCH_VERIFY^)& exit /b 0)
 git -C %1 apply --reverse --check %2 >nul 2>&1 && (echo   in place  %~nx2& exit /b 0)
 REM Plain apply first: when the region's text already sits in the tree exactly as
 REM the patch's pre-image (a patch updated here by hand before its commit), the
