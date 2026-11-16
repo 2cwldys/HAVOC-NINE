@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { decide, diffHashes, hashMap, nextBuild, parseBuild, withBuild } from "./release-prepare.mjs";
+import { decide, diffHashes, hashMap, nextBuild, parseBuild, withBuild, withRelease } from "./release-prepare.mjs";
 
 let n = 0;
 const ok = (name, fn) => { fn(); n++; };
@@ -28,6 +28,15 @@ ok("parseBuild and withBuild keep every other byte", () => {
   assert.equal(withBuild(text, "1.61"), '/* head */\r\n#define PLUGIN  "TSM"\r\n#define VERSION "1.61"\r\n#define AUTHOR "x"\r\n');
   assert.equal(parseBuild("// #define VERSION \"9.9\"\n"), null);
   assert.throws(() => withBuild("no version here\n", "1.61"));
+});
+
+ok("withRelease changes the first word and nothing else", () => {
+  assert.equal(withRelease("2026.11.05\n", "1.64"), "1.64\n");
+  assert.equal(withRelease("2026.11.05 a note about it\r\nmore\r\n", "1.64"), "1.64 a note about it\r\nmore\r\n");
+  assert.equal(withRelease("1.63", "1.64"), "1.64", "no trailing newline stays none");
+  assert.equal(withRelease("\n  2026.11.05\n", "1.64"), "\n  1.64\n", "leading blank space stays");
+  assert.equal(withRelease("", "1.64"), "1.64\n", "an empty file gets the release");
+  assert.equal(withRelease("   \n", "1.64"), "1.64\n");
 });
 
 const pre = (rows) => ({ entries: rows.map(([kind, file, sha256]) => ({ kind, file, sha256 })) });
@@ -104,9 +113,23 @@ try {
   r = run("--auto", "--no-build");
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(fs.readFileSync(path.join(root, "ts_matchmode.sma"), "latin1"), '#define VERSION "1.61"\r\n');
+  // the join gate's release is the build: the same run wrote it (the dated release of the fake tree is gone)
+  const relFile = path.join(root, "xash3d-h9-patches", "overlay", "ts", "h9_release.txt");
+  assert.equal(fs.readFileSync(relFile, "latin1"), "1.61\n", "the release is the build");
+  assert.match(r.stdout, /the release \(h9_release\.txt, the join gate\) is 1\.61 too, in 1 file/);
   r = run("--auto", "--dry");
   assert.match(r.stdout, /already a new one/);
-  n += 6;
+
+  // --keep-release leaves the release alone, --release makes it the current build again (no bump)
+  r = run("--bump", "--no-build", "--keep-release");
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(fs.readFileSync(path.join(root, "ts_matchmode.sma"), "latin1"), '#define VERSION "1.62"\r\n');
+  assert.equal(fs.readFileSync(relFile, "latin1"), "1.61\n", "--keep-release does not touch it");
+  r = run("--release", "--no-build");
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(fs.readFileSync(path.join(root, "ts_matchmode.sma"), "latin1"), '#define VERSION "1.62"\r\n', "--release does not raise the build");
+  assert.equal(fs.readFileSync(relFile, "latin1"), "1.62\n", "--release makes the release the build");
+  n += 9;
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

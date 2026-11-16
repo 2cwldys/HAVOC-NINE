@@ -348,6 +348,51 @@ const char *H9_Release( void );   // common/h9_release.c: the release of this ga
 
 /*
 ================
+SV_H9ReleaseOlder
+
+H9: whether release a is older than release b, as numbers: a release is the build ("1.64": the digits after the dot are one number, so "1.100" is
+after "1.99"), and the dated kind this replaced ("2026.11.10") is older than any build, though it sorts after one as text (a first part of
+1000 or more is a year). Only the wording of a refusal depends on it: a joiner whose release is not the server's is refused either way.
+================
+*/
+static qboolean SV_H9ReleaseOlder( const char *a, const char *b )
+{
+	int na[4] = { 0, 0, 0, 0 }, nb[4] = { 0, 0, 0, 0 };
+	const char *s;
+	int i;
+
+	for( s = a, i = 0; *s && i < 4; i++ )
+	{
+		na[i] = Q_atoi( s );
+		while( *s && *s != '.' )
+			s++;
+		if( *s == '.' )
+			s++;
+	}
+
+	for( s = b, i = 0; *s && i < 4; i++ )
+	{
+		nb[i] = Q_atoi( s );
+		while( *s && *s != '.' )
+			s++;
+		if( *s == '.' )
+			s++;
+	}
+
+	if(( na[0] >= 1000 ) != ( nb[0] >= 1000 ))
+		return na[0] >= 1000;
+
+	for( i = 0; i < 4; i++ )
+	{
+		if( na[i] != nb[i] )
+			return na[i] < nb[i];
+	}
+
+	return false;
+}
+
+/*
+================
 SV_H9ReleaseRefusal
 
 H9: what a server that holds its players to one release (h9_require_release, a cvar of h9_presence's) tells a joiner whose game is
@@ -391,7 +436,7 @@ static const char *SV_H9ReleaseRefusal( netadr_t from, const char *userinfo, cha
 		return buf;
 	}
 
-	if( Q_strcmp( have, want ) < 0 )
+	if( SV_H9ReleaseOlder( have, want ))
 		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (release %s, this server runs %s): update it from https://havoc9.org/downloads/\n", have, want );
 	else
 		Q_snprintf( buf, size, "This server runs an older HAVOC 9 (release %s, yours is %s): ask its admin to update, or play on a server that has\n", want, have );
