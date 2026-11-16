@@ -99,6 +99,7 @@ about the first kind:
 | 54 | `engine-h9-intro.patch` | `client/cl_video.c` (cvars `ts_intro` and `ts_intro_vol`, `SCR_SkipStartupVideo`, the intro skipped in `SCR_NextMovie` when it is 0), `client/client.h`, `client/input/in_keys.c` (`Key_Event`), `client/sound/s_stream.c` (`S_StartBackgroundTrack`) | the intro video before the main menu: `ts_intro` (archived, 1), `ts_intro_vol` (archived, 1: how loud it is), any key or mouse button skips a startup video |
 | 55 | `engine-h9-glowfix.patch` | `ref/gl/gl_draw.c` (`R_Set2DMode`) | MSR's bloom: `GL_MODULATE` is bound before the compose, so a glowing mesh (lamps, the RepuTengu glasses) is no longer drawn as a white square |
 | 57 | `engine-h9-upscale.patch` | `ref/gl/gl_upscale.c` (new), `ref/gl/gl_fbo.c` (`GL_BlitTarget`), `ref/gl/gl_opengl.c` (two cvars, their registration, `R_Shutdown`), `ref/gl/gl_local.h` | `h9_upscale` 0 or 1 and `h9_upscale_sharp` 0 to 1 (0.84): with `h9_upscale` on, the scene target's blit into the screen target (`GL_BlitTarget` asks `GL_UpscaleBlit` first) is drawn by AMD FidelityFX Super Resolution 1.0 instead: EASU into a target of the screen's size and RCAS from it, or RCAS alone at `r_scene_scale` 1, as GLSL 1.10 shaders through the ARB shader objects `gl_opengl.c` loaded and nothing called. The plain blit when it is off, when the scene is bigger than the screen and whenever the upscaler cannot work (one console line, no retry until `h9_upscale` goes to 0 and 1). AMD's MIT notice is in `gl_upscale.c` and in `overlay/ref_gl.FSR1-LICENSE.txt`. The OpenGL ES and WebGL renderers compile `gl_upscale.c` to a stub (the cvars stay). **Applies after the whole chain**: its hunks in `gl_fbo.c`, `gl_opengl.c` and `gl_local.h` sit clear of every hunk of `engine.patch` (the lines of `GL_BindScreenTarget`, the cvar block and the registration block are its), so every earlier patch still reverse-checks as in place. See `docs\H9_UPSCALE.txt` |
+| 58 | `engine-h9-chatraise.patch` | `client/console.c` (`Con_ChatInputPosition`, cvar `h9_chatraise`) | the say: line is raised `h9_chatraise` pixels (16; 0 = where the chat lines end), clear of the team box and the health box of TS's HUD in the lower left |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -1881,3 +1882,19 @@ OpenGL context in a test harness (an RTX 3070 driver and Mesa's llvmpipe: 35 lif
 EASU and RCAS) and compiles clean with gcc and clang. Not run in the game. `docs\H9_UPSCALE.txt` has the rest. AMD's licence text is in the header of
 `gl_upscale.c` and in `overlay\ref_gl.FSR1-LICENSE.txt` (assemble lays it beside `ref_gl.dll`). Added to the end of the chain in `xash.bat`, to its ENGINE.txt
 list and to the `ref_gl.dll` description (the `xash.dll` line is not touched).
+
+### 2026-11-13 -- engine-h9-upscale.patch: h9_upscale defaults to 1
+
+The owner asked for it ON by default. The one changed line is the cvar's definition in `ref/gl/gl_opengl.c` (`CVAR_DEFINE_AUTO( h9_upscale, "1", FCVAR_GLCONFIG, ...`);
+no hunk moved, so no other patch of the chain is affected. At `r_scene_scale` 1 the scene is the screen's size and the pass is RCAS alone (a light sharpening with
+`h9_upscale_sharp` above 0); a scene smaller than the screen gets EASU and RCAS. A saved `opengl.cfg` that holds `h9_upscale "0"` keeps its 0: the engine loads a
+saved GLCONFIG value over the default and nothing rewrites it. `docs\H9_UPSCALE.txt`, `COMMANDS.txt` and `docs\TESTFLOW.txt` say so. Needs the next engine build.
+
+### 2026-11-13 -- engine-h9-chatraise.patch (new): the say: line clears TS's HUD
+
+The owner: the chat box (the say: line, opened with the chat key) clips into the team names and the health of the HUD at the bottom left, "raise it a hair". TS's status panel keeps its team box at
+`SH - 68` (19 high) over the health box at `SH - 48`, in fixed pixels, and `Con_ChatInputPosition` (engine-h9-chatinput.patch) put the line at `height - 60 - charHeight` with no chat lines on screen, or under the
+last chat line: both ended inside the team box. The patch takes `h9_chatraise` pixels (default 16, `FCVAR_ARCHIVE`, 0 = as before) off that `y`, in both cases and not when the game's own
+`HUD_ChatInputPosition` moved the line; `Con_GetInputRect` goes through the same function. The patch is a tail one: made against the `console.c` the chain leaves (the working tree of `xash3d-fwgs`), it applies
+forward with `git apply --check` and the result is the intended file; it adds three hunks near the cvar block, `Con_ChatInputPosition` and the registration in `Con_Init`, none in a region another patch
+touches after `engine-h9-chatinput.patch` and `engine-h9-consoleoverlay.patch`. Added to the end of the chain in `xash.bat`. Needs the next engine build; the web client takes it with the next `webclient-sync`.

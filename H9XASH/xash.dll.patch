@@ -4291,6 +4291,79 @@ In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb0
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 de4935da3fe8d27e5245d589e251875ca4905df75def3eccc846798de127cb10, the diff below.
 
+Generated Sun 11/15/2026 17:19:20.76, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++the HL SDK's chat area ends, just above the HUD
+Diff sha256 ac39c456093236c669adaa5e78cac8e3ebc7491a76e889cfa1fbdf15995f076f, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -13309,7 +13382,7 @@ index e5db2dac..89fd8edc 100644
  //
  // titles.c
 diff --git a/engine/client/console.c b/engine/client/console.c
-index f4cb6806..5f75f7f2 100644
+index f4cb6806..bf45bf4e 100644
 --- a/engine/client/console.c
 +++ b/engine/client/console.c
 @@ -25,6 +25,7 @@ GNU General Public License for more details.
@@ -13320,7 +13393,14 @@ index f4cb6806..5f75f7f2 100644
  CVAR_DEFINE_AUTO( con_fontsize, "1", FCVAR_ARCHIVE, "console font number (0, 1 or 2)" );
  static CVAR_DEFINE_AUTO( con_fontrender, "2", FCVAR_ARCHIVE, "console font render mode (0: additive, 1: holes, 2: trans)" );
  static CVAR_DEFINE_AUTO( con_charset, "cp1251", FCVAR_ARCHIVE, "console font charset (only cp1251 supported now)" );
-@@ -39,6 +40,37 @@ static int g_codepage = 0;
+@@ -34,11 +35,50 @@ static CVAR_DEFINE_AUTO( con_color, "240 180 24", FCVAR_ARCHIVE, "set a custom c
+ static CVAR_DEFINE_AUTO( scr_drawversion, "1", FCVAR_ARCHIVE, "draw version in menu or screenshots, doesn't affect console" );
+ static CVAR_DEFINE_AUTO( con_oldfont, "0", 0, "use legacy font from gfx.wad, might be missing or broken" );
+ static CVAR_DEFINE_AUTO( con_showcompletion, "1", FCVAR_ARCHIVE, "perform simplified autocompletion while typing" );
++// H9: pixels the say: line is raised, so that it clears the game's HUD in the lower left (0 is where the chat lines end)
++static CVAR_DEFINE_AUTO( h9_chatraise, "16", FCVAR_ARCHIVE, "raise the chat input line by this many pixels, clear of the HUD in the lower left" );
+ 
+ static int g_codepage = 0;
  
  static qboolean g_messagemode_privileged = true;
  
@@ -13335,7 +13415,9 @@ index f4cb6806..5f75f7f2 100644
 +the game has one; when it leaves the position as it was (GoldSrc clients have none,
 +and the HL SDK's own moves it only while spectating) the line goes under the chat
 +lines the game drew this frame, at their left edge, or with none on screen where
-+the HL SDK's chat area ends, just above the HUD
++the HL SDK's chat area ends, just above the HUD. Either way the line is raised by
++h9_chatraise pixels: TS's team box and health box stand in the lower left and the line
++clipped into them
 +================
 +*/
 +static void Con_ChatInputPosition( int *x, int *y )
@@ -13353,12 +13435,16 @@ index f4cb6806..5f75f7f2 100644
 +		*x = 10;
 +		*y = refState.height - 60 - Con_GetFont( con_fontsize.value )->charHeight;
 +	}
++
++	*y -= (int)Q_max( 0.0f, h9_chatraise.value );
++	if( *y < 0 )
++		*y = 0;
 +}
 +
  #define CON_TIMES		4	// notify lines
  #define CON_MAX_TIMES	64	// notify max lines
  #define COLOR_DEFAULT	'7'
-@@ -799,6 +831,7 @@ void Con_Init( void )
+@@ -799,6 +839,7 @@ void Con_Init( void )
  	// must be init before startup video subsystem
  	Cvar_RegisterVariable( &scr_conspeed );
  	Cvar_RegisterVariable( &con_notifytime );
@@ -13366,7 +13452,15 @@ index f4cb6806..5f75f7f2 100644
  	Cvar_RegisterVariable( &con_fontsize );
  	Cvar_RegisterVariable( &con_charset );
  	Cvar_RegisterVariable( &con_fontscale );
-@@ -1817,7 +1850,7 @@ static void Con_DrawNotify( void )
+@@ -808,6 +849,7 @@ void Con_Init( void )
+ 	Cvar_RegisterVariable( &scr_drawversion );
+ 	Cvar_RegisterVariable( &con_oldfont );
+ 	Cvar_RegisterVariable( &con_showcompletion );
++	Cvar_RegisterVariable( &h9_chatraise );
+ 
+ 	// init the console buffer
+ 	con.bufsize = CON_TEXTSIZE;
+@@ -1817,7 +1859,7 @@ static void Con_DrawNotify( void )
  
  	int x = con.curFont->charWidths[' ']; // offset one space at left screen side
  
@@ -13375,7 +13469,7 @@ index f4cb6806..5f75f7f2 100644
  	{
  		for( int i = Q_max( 0, CON_LINES_COUNT - con.num_times ); i < CON_LINES_COUNT; i++ )
  		{
-@@ -1837,8 +1870,7 @@ static void Con_DrawNotify( void )
+@@ -1837,8 +1879,7 @@ static void Con_DrawNotify( void )
  		int	len;
  
  		// update chatline position from client.dll
@@ -13385,7 +13479,7 @@ index f4cb6806..5f75f7f2 100644
  
  		Q_snprintf( buf, sizeof( buf ), "%s: ", con.chat_cmd );
  
-@@ -2163,16 +2195,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
+@@ -2163,16 +2204,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
  		*x = con.curFont->charWidths[' '];
  		*y = 0;
  
