@@ -61,6 +61,7 @@ features is finished in this order:
 3. Then, once, after the last feature: `node tools\webclient-sync.mjs`, then `build-linux.cmd -Stage`, which stages the three ZIPs.
    `docs\H9_RELEASE.txt`, 2, has the same order for a release. Shipping it to the site is `.\deploy-vps.ps1`, which
    sends the build's official plugin list with it (the bullet on releases below): the list is never a separate chore.
+   `docs\SHIP_A_VERSION.txt` is the whole run in order (lock rule, commands, the site checks, pitfalls, recovery): read it before shipping.
 4. Report the batch with its parity state. While features are still being written, say plainly that the web client, `H9XASH-linux\`
    and the ZIPs are behind on purpose and what they will pick up, and never call a ZIP current before step 3.
 
