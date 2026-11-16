@@ -111,7 +111,15 @@
    A      havoc9.org        <the machine's public IPv4 address>
    A      www.havoc9.org    <the same>
    AAAA   (both names)      <its IPv6 address, only if it has one>
- Remove any other A or AAAA records for those names. TTL 300 makes a later
+   A      game.havoc9.org   <the same IPv4 address>, DNS ONLY (grey cloud), and NO AAAA record
+ Remove any other A or AAAA records for those names.
+ game.havoc9.org is the name game servers use (h9_presence_url, the plugins' default): it has no IPv6
+ address on purpose. Cloudflare answers every name it proxies over IPv6 as well, and cannot be told not
+ to (the dashboard has no switch any more); a game server's enrollment must come from its IPv4 address,
+ because h9web proves the server is there by asking that address over UDP, so a server on a PC that
+ prefers IPv6 was refused ("bad_request", now "ipv6_use_game_host") until its address was a name with
+ only an A record. setup.ps1 serves it from Caddy (only what a game server calls; everything else is a
+ 404), opens TCP 443 for it from every address, and has the site's own name answer Cloudflare only. TTL 300 makes a later
  move quick. Check from any PC:  nslookup havoc9.org
  On a home connection the public address is the router's: forward TCP 80
  and 443 and UDP 27015 on the router to this machine's LAN address, and give
@@ -158,8 +166,9 @@
    5. puts the site in (the downloads, their file index, H9XASH-Updater's
       files\ and the web client's files there are kept), then links the
       downloads into the file index and writes its SHA256SUMS.txt (step 13);
-   6. writes etc\Caddyfile from Caddyfile.template and checks it; your own
-      additions go in etc\Caddyfile.extra, which it never writes;
+   6. fetches Cloudflare's address ranges into etc\cloudflare-ranges.txt
+      (step 5), writes etc\Caddyfile from Caddyfile.template and checks it;
+      your own additions go in etc\Caddyfile.extra, which it never writes;
    7. (only with -Restore or -Keys, step 9) puts the keys in place and
       restores the backup;
    8. installs and starts the three services: havoc9-h9web,
@@ -180,6 +189,18 @@
    https://havoc9.org/ in a browser: a padlock;  http:// sends you there.
  If it does not come: C:\havoc9\logs\havoc9-caddy*.log says why (most often
  DNS, or the router or the provider's firewall not letting 80 and 443 in).
+
+ Behind Cloudflare (docs\DEPLOY_CLOUDFLARE.txt): add the two records with the
+ grey cloud first, wait for the padlock, then turn the orange cloud on with
+ SSL/TLS mode Full (strict). Caddy takes a visitor's address from
+ CF-Connecting-IP only when the connection comes from Cloudflare's ranges,
+ so h9web's limits and a game server's enrollment see the real address.
+ Then, so nobody reaches the site around Cloudflare:
+   .\setup.ps1 -WebFrom cloudflare
+ (TCP 80 and 443 from Cloudflare's ranges only; remembered; -WebFrom any
+ undoes it). Run setup.ps1 again now and then: it fetches the ranges anew.
+ The game's UDP ports never go through Cloudflare: name a game server on
+ this machine by a grey-cloud name or its address.
 
 
  6. FIRST START: THE KEYS, THE FIRST ADMIN

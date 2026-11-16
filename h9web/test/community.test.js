@@ -161,13 +161,31 @@ async function enroll(t, rules) {
   return { server: r.json.server, key: r.json.key, serverId: r.json.serverId, status: st.json.status, code: r.json.code };
 }
 
+describe("enrollment with the default: the official preset, not an admin, decides", () => {
+  test("a proven server is live at once and reports without anyone approving it", async () => {
+    const rules = await fakeRules();
+    const u = await app({ servers: [] });
+    try {
+      const e = await enroll(u, rules);
+      assert.equal(e.status, "active", "proven is enough");
+      assert.equal((await report(u, e.server, e.key, [])).status, 200, "its report is taken");
+      // a row that waited for an admin before the setting was on is live too
+      u.app.db.prepare("UPDATE presence_enrolled SET approved = 0 WHERE server = ?").run(e.server);
+      assert.equal((await report(u, e.server, e.key, [])).status, 200, "an unapproved row reports all the same");
+    } finally {
+      await u.close();
+      rules.close();
+    }
+  });
+});
+
 describe("enrollment: a key without anyone typing it", () => {
   let t;
   let rules;
   let admin;
   before(async () => {
     rules = await fakeRules();
-    t = await app({ servers: [] });
+    t = await app({ servers: [], settings: { enrollAutoApprove: false } }); // the admin approval path; the default is tested below
     admin = await adminCookie(t, "Oracle");
   });
   after(async () => {
@@ -1086,6 +1104,24 @@ describe("Create Game servers, the default picture, browser-made copies, the boa
     const mine = list.find((x) => x.address === e.server);
     assert.equal(mine.listen, true);
     assert.equal(mine.owner, "Morpheus");
+  });
+
+  test("a listen server whose host announced it to the H9 server list is public: its players show under it, not as elsewhere", async () => {
+    const address = "127.0.0.1:27031";
+    const shown = async () => (await request(t.base, "GET", "/api/presence/now")).json;
+    assert.ok((await shown()).elsewhere.some((w) => w.username === "Morpheus"), "private until it is announced");
+    t.app.status.feed = [{ address, kind: "ip", name: "Morpheus's game", map: "h9_te_x", mode: "", players: 1, max: 8, bots: 0, ping_ms: 5, at: Date.now() }];
+    try {
+      assert.equal(t.app.status.isFeedListed(address), true);
+      const now = await shown();
+      const here = now.servers.find((s) => s.server.address === address);
+      assert.ok(here, "the server is on the page's list of who is where");
+      assert.ok(here.players.some((p) => p.username === "Morpheus"));
+      assert.ok(!now.elsewhere.some((w) => w.username === "Morpheus"));
+    } finally {
+      t.app.status.feed = [];
+    }
+    assert.ok((await shown()).elsewhere.some((w) => w.username === "Morpheus"), "private again once it is not announced");
   });
 
   test("a listen server enrolls only its own address, and needs the proof hooks", async () => {

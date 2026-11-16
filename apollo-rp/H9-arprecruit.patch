@@ -1,0 +1,244 @@
+--- a/apollo-rp/base/addons/amxmodx/scripting/ARP_NPCs.sma
++++ b/apollo-rp/base/addons/amxmodx/scripting/ARP_NPCs.sma
+@@ -9,7 +9,7 @@
+ #define ARPVGUI_PAGED
+ #include <ApolloRP_VGui>
+ 
+-#define NPC_TYPES 5
++#define NPC_TYPES 6
+ #define GUNSHOP_MODES 3
+ #define MAX_NPCS 50
+ 
+@@ -19,7 +19,8 @@
+ 	"bank",
+ 	"doctor",
+ 	"gunshop",
+-	"atm"
++	"atm",
++	"recruiter"
+ }
+ 
+ new g_NpcHandlers[NPC_TYPES][] =
+@@ -28,7 +29,8 @@
+ 	"BankHandle",
+ 	"DoctorHandle",
+ 	"GunshopHandle",
+-	"AtmHandle"
++	"AtmHandle",
++	"RecruiterHandle"
+ }
+ 
+ enum SELLING
+@@ -95,6 +97,8 @@
+ new g_Licenses[50][44][SELLING]
+ new g_WeaponNum[50][3]
+ new g_RobProfile[50][33]
++// H9: the post a recruiting office (type "recruiter") offers, by its npcs.ini line  hirejob "<job>"
++new g_HireJob[50][33]
+ new g_Heal[50] = {-1,...}
+ 
+ new g_Selling[50][50][SELLING]
+@@ -137,6 +141,10 @@
+ 
+ new p_FillCost
+ new p_ProfitFraction
++// H9: arp_h9_recruit (the recruiting offices hire and release) and arp_h9_recruit_wait (seconds before one player may join or leave again); when he may next
++new p_Recruit
++new p_RecruitWait
++new Float:g_RecruitAt[MAX_PLAYERS + 1]
+ 
+ enum MODS
+ {
+@@ -169,6 +177,8 @@
+ 	
+ 	p_FillCost = register_cvar("arp_ammofill_cost","50")
+ 	p_ProfitFraction = register_cvar("arp_profit_fraction","0.25")
++	p_Recruit = register_cvar("arp_h9_recruit","0")
++	p_RecruitWait = register_cvar("arp_h9_recruit_wait","0")
+ 	
+ 	//register_event("CurWeapon","EventCurWeapon","be")
+ 	
+@@ -229,7 +239,9 @@
+ 		
+ 		if(containi(Buffer,"[END]") != -1)
+ 		{
+-			if(file_exists(Model))
++			if(!file_exists(Model))
++				g_HireJob[g_NpcNum][0] = 0
++			else
+ 			{
+ 				precache_model(Model)
+ 				
+@@ -371,6 +383,13 @@
+ 			parse(Buffer,ConfigsDir,1,g_RobProfile[g_NpcNum],63)
+ 			remove_quotes(g_RobProfile[g_NpcNum])
+ 			trim(g_RobProfile[g_NpcNum])
++		}
++		else if(containi(Buffer,"hirejob") != -1)
++		{
++			// H9: a recruiting office's post; the job's name holds none of the words above (name, type, model ...)
++			parse(Buffer,ConfigsDir,1,g_HireJob[g_NpcNum],32)
++			remove_quotes(g_HireJob[g_NpcNum])
++			trim(g_HireJob[g_NpcNum])
+ 		}
+ 	}
+ 	
+@@ -1204,6 +1223,158 @@
+ 	g_MaxSpeed[id] = 0.0
+ }
+ 
++// ---- H9: the recruiting offices (NPC type "recruiter") -------------------------------------------------------------------------------------------
++
++// The team the access letters of a job put a player on: ARP_Core's rule (H9_TeamOfAccess, include\ApolloRP_H9Teams.inc): the police letter, the medical letter or g make him the
++// Middle Sea Republic's (1), a letter of arp_h9_insurgent_access the Insurrection's (2), anything else the Proletarians' (3). A copy of one short rule, so that this plugin needs no
++// native of the core for it; a change of that rule is a change here.
++RecruitTeamOf(Access)
++{
++	new Letters[JOB_ACCESSES + 1],Msr
++	get_cvar_string(g_PoliceAccessCvar,Letters,JOB_ACCESSES)
++	Msr = ARP_AccessToInt(Letters)
++	get_cvar_string(g_MedicalAccessCvar,Letters,JOB_ACCESSES)
++	Msr |= ARP_AccessToInt(Letters)
++	copy(Letters,JOB_ACCESSES,"g")
++	Msr |= ARP_AccessToInt(Letters)
++	if(Access & Msr)
++		return 1
++
++	get_cvar_string("arp_h9_insurgent_access",Letters,JOB_ACCESSES)
++	if(Access & ARP_AccessToInt(Letters))
++		return 2
++
++	return 3
++}
++
++RecruitFactionName(Team,Name[],Len)
++{
++	if(Team == 1)
++		copy(Name,Len,"the Middle Sea Republic")
++	else if(Team == 2)
++		copy(Name,Len,"the Insurrection")
++	else
++		copy(Name,Len,"the Proletarians")
++}
++
++public RecruiterHandle(id,Ent)
++{
++	g_MenuPage[id] = 0
++	Recruiter(id,Ent)
++}
++
++Recruiter(id,Ent)
++{
++	new Npc = FindNpc(Ent)
++
++	g_CurNpc[id] = Npc
++	g_CurNpcId[id] = Ent
++
++	if(!get_pcvar_num(p_Recruit))
++	{
++		client_print(id,print_chat,"[ARP] This office is not hiring.")
++		return
++	}
++
++	new Results[1]
++	if(!g_HireJob[Npc][0] || !ARP_FindJobId(g_HireJob[Npc],Results,1))
++	{
++		client_print(id,print_chat,"[ARP] This office has no post to offer.")
++		return
++	}
++
++	new JobName[33],Faction[40],Line[96]
++	ARP_GetJobName(Results[0],JobName,32)
++	RecruitFactionName(RecruitTeamOf(ARP_GetJobAccess(Results[0])),Faction,39)
++
++	new Menu = menu_create("ARP Recruiting","RecruiterMenuHandle")
++	format(Line,95,"Join %s as %s (%d credits a minute)",Faction,JobName,ARP_GetJobSalary(Results[0]))
++	menu_additem(Menu,Line,"1")
++	format(Line,95,"Leave %s and become unemployed",Faction)
++	menu_additem(Menu,Line,"2")
++
++	arpvgui_menu_display(id,Menu,"arpnpc.recruit","ARP Recruiting","RecruiterMenuHandle")
++}
++
++public RecruiterMenuHandle(id,Menu,Item)
++{
++	menu_destroy(Menu)
++
++	if(Item == MENU_EXIT || !ARP_NpcDistance(id,g_CurNpcId[id]))
++		return
++
++	if(!get_pcvar_num(p_Recruit))
++	{
++		client_print(id,print_chat,"[ARP] This office is not hiring.")
++		return
++	}
++
++	new Npc = g_CurNpc[id],Results[1]
++	if(!g_HireJob[Npc][0] || !ARP_FindJobId(g_HireJob[Npc],Results,1))
++	{
++		client_print(id,print_chat,"[ARP] This office has no post to offer.")
++		return
++	}
++
++	new Float:Now = get_gametime()
++	if(Now < g_RecruitAt[id])
++	{
++		client_print(id,print_chat,"[ARP] Come back in %d seconds.",floatround(g_RecruitAt[id] - Now,floatround_ceil))
++		return
++	}
++
++	new Job = Results[0],NpcTeam = RecruitTeamOf(ARP_GetJobAccess(Job)),MyJob = ARP_GetUserJobId(id)
++	new MyTeam = RecruitTeamOf(ARP_GetJobAccess(MyJob)),Faction[40],Other[40],JobName[33],Name[33],Authid[36]
++	RecruitFactionName(NpcTeam,Faction,39)
++	ARP_GetJobName(Job,JobName,32)
++	get_user_name(id,Name,32)
++	get_user_authid(id,Authid,35)
++
++	if(Item == 0)
++	{
++		if(MyJob == Job)
++			client_print(id,print_chat,"[ARP] You are %s of %s already.",JobName,Faction)
++		else if(MyTeam == NpcTeam)
++			client_print(id,print_chat,"[ARP] You serve %s already. Your superiors give you your rank.",Faction)
++		else if(MyTeam != 3)
++		{
++			RecruitFactionName(MyTeam,Other,39)
++			client_print(id,print_chat,"[ARP] You serve %s. Leave that service first, at its own recruiting office.",Other)
++		}
++		else
++		{
++			ARP_SetUserJobId(id,Job)
++			client_print(id,print_chat,"[ARP] You have joined %s as %s.",Faction,JobName)
++			ARP_Log("Recruit: ^"%s<%d><%s><>^" joins %s as %s",Name,get_user_userid(id),Authid,Faction,JobName)
++			g_RecruitAt[id] = Now + get_pcvar_float(p_RecruitWait)
++		}
++	}
++	else
++	{
++		if(MyTeam == 3)
++			client_print(id,print_chat,"[ARP] You are not in any faction.")
++		else if(MyTeam != NpcTeam)
++			client_print(id,print_chat,"[ARP] You do not serve here.")
++		else
++		{
++			new Unemployed[1]
++			if(!ARP_FindJobId("Unemployed",Unemployed,1))
++			{
++				client_print(id,print_chat,"[ARP] There has been an internal error. Please inform the administrator of this problem.")
++				return
++			}
++
++			ARP_SetUserJobId(id,Unemployed[0])
++			client_print(id,print_chat,"[ARP] You have left %s and are now unemployed.",Faction)
++			ARP_Log("Recruit: ^"%s<%d><%s><>^" leaves %s",Name,get_user_userid(id),Authid,Faction)
++			g_RecruitAt[id] = Now + get_pcvar_float(p_RecruitWait)
++		}
++	}
++}
++
++public client_disconnected(id)
++	g_RecruitAt[id] = 0.0
++
+ FindNpc(Ent)
+ {
+ 	for(new Count;Count < 50;Count++)

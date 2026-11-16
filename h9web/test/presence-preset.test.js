@@ -743,3 +743,66 @@ describe("preset: imports and removals by game mode", () => {
     assert.ok(audit.some((d) => /Siege/.test(d)), "the audit log names the list");
   });
 });
+
+describe("preset: a release's bundle and the build's default plugin set", () => {
+  let build;
+  let bundle;
+  const put = (rel, text) => {
+    const file = path.join(build, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    return hash(text);
+  };
+  const run = (...args) => spawnSync(process.execPath, [SEED, ...args], { encoding: "utf8" });
+  let sums;
+  before(() => {
+    build = fs.mkdtempSync(path.join(os.tmpdir(), "h9bundle-"));
+    bundle = path.join(build, "bundle.json");
+    sums = {
+      a: put("ts/addons/amxmodx/plugins/alpha.amxx", "alpha"),
+      extra: put("ts/addons/amxmodx/plugins/extra.amxx", "extra"),
+      m: put("ts/addons/amxmodx/modules/fakemeta_amxx.dll", "fakemeta"),
+    };
+    put("presets/plugins.Siege.ini", "alpha.amxx\n");
+    // the build's default set: more than the preset names (the plugins only some servers run)
+    put("ts/addons/amxmodx/configs/plugins.ini", "alpha.amxx\nextra.amxx ; some servers\n");
+  });
+  after(() => fs.rmSync(build, { recursive: true, force: true }));
+
+  test("--bundle writes every list as one file, and --live puts the default plugins.ini set on the shared list", () => {
+    const r = run("--h9xash", build, "--live", "--bundle", bundle);
+    assert.equal(r.status, 0, r.stderr);
+    const b = JSON.parse(fs.readFileSync(bundle, "utf8"));
+    assert.equal(b.format, 1);
+    const lists = Object.fromEntries(b.lists.map((l) => [l.gameMode, l.entries.filter((e) => e.kind === "amxx").map((e) => e.file)]));
+    assert.deepEqual(lists.Siege, ["alpha.amxx"], "the preset's own list: what its ini switches on");
+    assert.deepEqual(lists["*"], ["alpha.amxx", "extra.amxx"], "the shared list: the default plugins.ini set, which no preset names in full");
+  });
+
+  test("--import-bundle puts the lists in the database from the files alone, merging files, and refuses what is not a bundle", async () => {
+    const t = await app();
+    try {
+      const other = path.join(build, "other.json");
+      fs.writeFileSync(other, JSON.stringify({ format: 1, lists: [{ gameMode: "*", entries: [{ kind: "module", file: "tsx_amxx.so", sha256: hash("tsx so") }] }] }));
+      const r = run("--import-bundle", bundle + "," + other, "--config", t.configFile);
+      assert.equal(r.status, 0, r.stderr);
+      const rows = () => t.app.db.prepare("SELECT game_mode, kind, file FROM presence_preset ORDER BY game_mode, kind, file").all().map((x) => [x.game_mode, x.kind, x.file].join("|"));
+      assert.ok(rows().includes("*|amxx|extra.amxx"));
+      assert.ok(rows().includes("*|module|tsx_amxx.so"), "the second file's list is merged in");
+      assert.ok(rows().includes("Siege|amxx|alpha.amxx"));
+      const again = run("--import-bundle", bundle, "--config", t.configFile);
+      assert.equal(again.status, 0, "importing again changes nothing");
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM presence_preset").get().n, rows().length);
+      assert.ok(t.app.db.prepare("SELECT 1 FROM audit_log WHERE action = 'presence.preset.import'").get());
+      for (const evil of [{ format: 2, lists: [] }, { format: 1, lists: [{ gameMode: "../x", entries: [] }] },
+        { format: 1, lists: [{ gameMode: "*", entries: [{ kind: "amxx", file: "../evil.amxx", sha256: hash("x") }] }] },
+        { format: 1, lists: [{ gameMode: "*", entries: [{ kind: "amxx", file: "ok.amxx", sha256: "nothex" }] }] }]) {
+        const f = path.join(build, "evil.json");
+        fs.writeFileSync(f, JSON.stringify(evil));
+        assert.equal(run("--import-bundle", f, "--config", t.configFile).status, 2, JSON.stringify(evil).slice(0, 60));
+      }
+    } finally {
+      await t.close();
+    }
+  });
+});

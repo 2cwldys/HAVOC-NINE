@@ -31,7 +31,11 @@ in this file is a secret, and nothing in it may become one. The security design 
 3. CLOUDFLARE DASHBOARD
 -----------------------
   DNS:   havoc9.org and www            proxied (orange cloud)   -> <ORIGIN-IP>
-         game.havoc9.org (any name)    DNS only (grey cloud)    -> <ORIGIN-IP>   (UDP game traffic; put game.havoc9.org:27015 in servers.txt,
+         game.havoc9.org               DNS only (grey cloud)    -> <ORIGIN-IP>   REQUIRED, an A record and no AAAA: the name game servers use
+                                                                                  for h9_presence_url and heartbeats. Cloudflare cannot be told to stop
+                                                                                  answering a proxied name over IPv6, and a server must enroll from its
+                                                                                  IPv4 address (vps/windows/README-WINDOWS.txt step 2). Also UDP game
+                                                                                  traffic; put game.havoc9.org:27015 in servers.txt,
                                                                                   or the address itself, if you do not want the apex to be a UDP name)
          Note: the shipped game also uses havoc9.org:27015 as a seed name; with the apex proxied that name does not carry UDP. Keep a
          DNS-only name for it and list it, or list the IP.

@@ -145,6 +145,6 @@ export function registerCoreRoutes(router, { auth, accounts, limits, servers, st
   }));
 
   router.get("/api/servers", async (req, res, rc) => {
-    rc.json(200, status.snapshot(), { "Cache-Control": "public, max-age=10" });
+    rc.json(200, status.snapshot(), { "Cache-Control": "public, max-age=2" });
   });
 }

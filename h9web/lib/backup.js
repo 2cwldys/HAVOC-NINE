@@ -57,8 +57,10 @@ const COMMUNITY_ROOT = "presence_communit";
 // a backup carries and a JSON file does not. An import leaves the target's pictures as they are.
 const JSON_LEAVE_OUT = { forum: ["forum_avatars"] };
 export const JSON_SELECTIONS = ["forum", "community"];
-// the folder that holds h9web/ (the checkout): nothing this writes may land in it
+// the folder that holds h9web/ (the checkout): nothing this writes may land in it. Only a real repository counts (it has
+// .git): on a Windows host h9web sits in C:\havoc9\h9web beside its own data, and C:\havoc9 is not a checkout
 const CHECKOUT = path.resolve(HOME, "..");
+const IS_CHECKOUT = fs.existsSync(path.join(CHECKOUT, ".git"));
 
 export const VERSION = (() => {
   try {
@@ -105,7 +107,7 @@ export function defaultOut(config) {
 }
 
 export function insideCheckout(p) {
-  if (path.parse(CHECKOUT).root === CHECKOUT) return false;
+  if (!IS_CHECKOUT || path.parse(CHECKOUT).root === CHECKOUT) return false;
   const rel = path.relative(CHECKOUT, path.resolve(p));
   return rel === "" || (rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel));
 }

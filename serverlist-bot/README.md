@@ -10,9 +10,11 @@ bot with three slash commands whose status shows how many servers the list is tr
 
 ## What goes on the list
 
-A server is listed only while it answers an A2S query. Every `poll_seconds` (30 by default)
-the list asks each listed server again, and it takes a server off after `expire_seconds`
-(300) with no answer. A server that shuts down leaves the list by itself.
+A server is listed only while it answers an A2S query. Every `poll_seconds` (5 by default)
+the list asks each server again, and one that does not answer is off the list at that moment
+(it is still asked, and is back when it answers; `expire_seconds`, 120, is when a silent one is
+forgotten). A server that is shutting down says so (h9_heartbeat.ps1 sends `{"port": N, "closing": true}`
+when the game ends) and is taken off at once. A server that shuts down leaves the list by itself.
 
 A server gets on in one of three ways:
 
@@ -89,7 +91,7 @@ The body is JSON, in one of two kinds:
 
 * Without a key, the server announces itself: the list takes the address the heartbeat comes
   from (behind nginx, the X-Real-IP it names) with the port in the body. This is what a
-  dedicated server started with `h9xash_server.bat` sends every two minutes (`h9_heartbeat.ps1`
+  dedicated server started with `h9xash_server.bat` sends every 15 seconds (`h9_heartbeat.ps1`
   beside it; `heartbeat=0` under `[server]` in its `networking.ini` turns that off). Any other
   server can do the same on a timer, for example from cron:
 
@@ -100,7 +102,7 @@ The body is JSON, in one of two kinds:
   Retry-After), `max_per_address` servers from one address (8) and `max_open_servers` in all (100). A server that is
   already on the list is always refreshed. More servers on one address than that need the heartbeat key, which is not
   held to any of them. At most four of these heartbeats are queried at once; the rest are answered 422 and send
-  again two minutes later.
+  again 15 seconds later.
 
   Who a request "comes from" is decided by `proxy_header` in the `[http]` section of `serverlist.ini`: `x-real-ip` (the default:
   nginx sets it in every location and the list believes it only from this machine), `cf-connecting-ip` (behind a Cloudflare

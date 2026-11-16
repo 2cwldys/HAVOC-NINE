@@ -1,0 +1,26 @@
+# Who must approve a change before it can be merged into main (with branch protection's
+# "Require review from Code Owners" on). Everything is the owner's; the lines below name the
+# parts where a hidden change would do the most harm, so they stay owned even if the first line
+# is ever narrowed.
+*                       @2cwldys
+
+# CI, the checks and their settings
+/.github/               @2cwldys
+/.gitleaks.toml         @2cwldys
+/tools/secret-scan.mjs  @2cwldys
+
+# what runs on havoc9.org's host and how it gets there
+/vps/                   @2cwldys
+/deploy-vps.ps1         @2cwldys
+/packaging.ini          @2cwldys
+/make-vps-package.ps1   @2cwldys
+/h9web/                 @2cwldys
+/serverlist-bot/        @2cwldys
+/havoc9.org/            @2cwldys
+
+# what players download and run
+/stage-h9xash.ps1       @2cwldys
+/stage_h9xash.py        @2cwldys
+/tools/updater/         @2cwldys
+/xash3d-h9-patches/     @2cwldys
+/H9XASH/                @2cwldys

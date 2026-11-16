@@ -6,8 +6,8 @@
 .DESCRIPTION
   Each ZIP has one folder in it, named like the ZIP (havoc9-vps-<target>-<build>-<yyyyMMdd-HHmm>\), holding:
     linux:    README-VPS.txt, setup.sh, systemd\, hardening\      from vps\linux\
-    windows:  README-WINDOWS.txt, setup.ps1, setup.cmd,
-              Caddyfile.template                                  from vps\windows\
+    windows:  README-WINDOWS.txt, setup.ps1, setup.cmd, Caddyfile.template, start-all.ps1,
+              receive-deploy.ps1, code-check.ps1                  from vps\windows\
     both:
       h9web\            h9web's code: server.js, package.json, lib, bin, modules, the README
                         and the two example configs; never data\, config.json, servers.json,
@@ -79,7 +79,10 @@ if ($Target -ne 'all') { $Targets = @($Target) }
 $Own = @{
     linux = @(@('vps\linux\README-VPS.txt', 'README-VPS.txt'), @('vps\linux\setup.sh', 'setup.sh'), @('vps\linux\systemd', 'systemd'), @('vps\linux\hardening', 'hardening'))
     windows = @(@('vps\windows\README-WINDOWS.txt', 'README-WINDOWS.txt'), @('vps\windows\setup.ps1', 'setup.ps1'), @('vps\windows\setup.cmd', 'setup.cmd'),
-                @('vps\windows\Caddyfile.template', 'Caddyfile.template'))
+                @('vps\windows\Caddyfile.template', 'Caddyfile.template'), @('vps\windows\start-all.ps1', 'start-all.ps1'),
+                @('vps\windows\receive-deploy.ps1', 'receive-deploy.ps1'), @('vps\windows\code-check.ps1', 'code-check.ps1'),
+                @('vps\windows\restore-backup.ps1', 'restore-backup.ps1'), @('vps\windows\stop-all.ps1', 'stop-all.ps1'),
+                @('vps\windows\delta.py', 'delta.py'))
 }
 # the relay's files, picked by name: its service, never the helper, the tests or a real config
 $P2pFiles = @('lib\service.js', 'lib\wire.js', 'lib\codes.js', 'lib\limits.js', 'lib\auth.js', 'lib\config.js', 'bin\h9rv.js', 'package.json', 'README.txt',
@@ -145,10 +148,11 @@ function Write-Zip([string]$zipPath, $entries, [string]$level) {
     }
 }
 
-# TS 3.0's own config.cfg, as the SHA-256 of the copy tools\make_webclient_game.py takes the stage's from
-# (reTS\game\ts beside this script, else ts3.0\ts); $null when neither is there.
+# The stock config.cfg, as the SHA-256 of the copy tools\make_webclient_game.py takes the stage's from, in its
+# order: the game's own first (H9XASH\ts\config.stock.cfg, which h9xash.bat gives a first run and the client ZIPs
+# ship), else TS 3.0's (reTS\game\ts, else ts3.0\ts); $null when none is there.
 function Get-StockConfigHash([string]$Base) {
-    foreach ($c in @('reTS\game\ts\config.cfg', 'ts3.0\ts\config.cfg')) {
+    foreach ($c in @('H9XASH\ts\config.stock.cfg', 'reTS\game\ts\config.cfg', 'ts3.0\ts\config.cfg')) {
         $p = Join-Path $Base $c
         if (Test-Path -LiteralPath $p) { return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
     }
@@ -156,7 +160,7 @@ function Get-StockConfigHash([string]$Base) {
 }
 
 # True for a web client stage file that must never be served, which stops the web client ZIP: an id, a
-# secret, a game server's settings, or a config.cfg. The one config.cfg that may ship is TS 3.0's own,
+# secret, a game server's settings, or a config.cfg. The one config.cfg that may ship is the stock one,
 # which tools\make_webclient_game.py puts in the stage at game/ts/config.cfg for a new player to start
 # from: it passes only at that path and only when it is byte for byte the stock file ($StockHash, from
 # Get-StockConfigHash). Any other config.cfg, or a changed one, is refused.

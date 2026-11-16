@@ -104,7 +104,9 @@ SKIP_NAMES = set(lower_rules([
     'listip.cfg', 'banned.cfg', 'mail.env', 'accounts.json', 'networking.ini',
     'thumbs.db', 'desktop.ini', '.ds_store',
     # git's attribute file, a Wine prefix's registry files, the updater's timestamp
-    '.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp']))
+    '.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp',
+    # valve/cacert.pem: h9_cacerts.ps1 and h9xash.sh write it on every launch from the machine's own certificates
+    'cacert.pem']))
 SKIP_EXT = set(['.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '.dem', '.env', '.key', '.sav'])
 # File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output, and any database file with its journal,
 # write-ahead log and shared-memory files (SQLite's .sq3, .sqlite, .sqlite3 or .db).
@@ -121,6 +123,9 @@ REPLACEMENTS = [
     {'at': 'networking.ini', 'sources': ['xash3d-h9-patches/overlay/networking.ini'], 'fallback': 'scrub'},
     {'at': 'ts/tempdecal.wad', 'sources': ['reTS/game/ts/tempdecal.wad', 'ts3.0/ts/tempdecal.wad'],
      'fallback': 'drop'},
+    # Mozilla's list as shipped: the launchers add the building machine's own certificates to H9XASH's copy
+    {'at': 'ts/addons/amxmodx/data/amxx_easy_http_cacert.pem',
+     'sources': ['compts/ts/addons/amxmodx/data/amxx_easy_http_cacert.pem'], 'fallback': 'drop'},
 ]
 
 # The Linux launcher, its id tool and their README, in H9XASH from the overlay.
@@ -129,7 +134,7 @@ LINUX_FILES = ['h9xash.sh', 'h9_userid.sh', 'README_LINUX.txt']
 # Files that must reach the ZIP whenever H9XASH has them.
 ESSENTIALS = [slash(e) for e in (
     'HAVOC 9.exe', 'xash.dll', 'menu.dll', 'ref_gl.dll', 'SDL2.dll', 'filesystem_stdio.dll',
-    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'enter_userid.cmd',
+    'h9xash.bat', 'h9_userid.ps1', 'h9_networking.ps1', 'h9_cacerts.ps1', 'enter_userid.cmd',
     'ts\\liblist.gam', 'ts\\gameinfo.txt', 'ts\\delta.lst', 'ts\\dlls\\mp.dll', 'ts\\cl_dlls\\client.dll',
     'ts\\autoexec.cfg', 'ts\\userconfig.cfg', 'ts\\addons\\metamod\\plugins.ini',
     'ts\\addons\\amxmodx\\configs\\plugins.ini', 'ts\\addons\\amxmodx\\configs\\amxx.cfg')] + LINUX_FILES

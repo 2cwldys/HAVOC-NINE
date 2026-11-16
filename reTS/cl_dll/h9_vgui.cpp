@@ -39,6 +39,7 @@ bool s_bInited = false;
 // LOOK: the server's word on the names TS draws over the player the crosshair is on (H9Look).
 bool s_bLookMate = false;       // the teammate's name is left out: the server shows a plaque of him
 bool s_bLookAll = false;        // no name is drawn
+bool s_bLookDots = false;       // the green dots over the teammates are left out (a roleplay map)
 float s_flLookAt = -100.0f;     // when the server last said it
 const float LOOK_LIFE = 15.0f;  // seconds its word holds with nothing to renew it
 
@@ -746,8 +747,8 @@ void OpMark()
 
 // ---- the message ------------------------------------------------------------------------------
 
-// H9Look (protocol 5): byte 1, byte flags (bit 0: no teammate's name, the server shows a plaque of him; bit 1: no name at all). The
-// server says it again every few seconds.
+// H9Look (protocol 5): byte 1, byte flags (bit 0: no teammate's name, the server shows a plaque of him; bit 1: no name at all; bit 2: no green dot over a
+// teammate). The server says it again every few seconds.
 int __MsgFunc_H9Look(const char* pszName, int iSize, void* pbuf)
 {
 	if (iSize < 2)
@@ -760,6 +761,7 @@ int __MsgFunc_H9Look(const char* pszName, int iSize, void* pbuf)
 		return 1;
 	s_bLookMate = (flags & 1) != 0;
 	s_bLookAll = (flags & 2) != 0;
+	s_bLookDots = (flags & 4) != 0;
 	s_flLookAt = gHUD.m_flTime;
 	return 1;
 }
@@ -840,6 +842,7 @@ void CloseAll(bool forgetMenus = true)
 {
 	s_bLookMate = false;
 	s_bLookAll = false;
+	s_bLookDots = false;
 	s_flLookAt = -100.0f;
 	s_bSkinned = false;
 	s_Pending.valid = false;
@@ -1341,6 +1344,16 @@ bool H9Look_HideAimName(bool teammate)
 	if (now < s_flLookAt || now - s_flLookAt > LOOK_LIFE)
 		return false;
 	return s_bLookAll || (teammate && s_bLookMate);
+}
+
+bool H9Look_HideTeamDots()
+{
+	if (!Enabled() || !AimPlaqueOn())
+		return false;
+	const float now = gHUD.m_flTime;
+	if (now < s_flLookAt || now - s_flLookAt > LOOK_LIFE)
+		return false;
+	return s_bLookDots;
 }
 
 bool H9Vgui_MenuArrived(int keys, const char* text)

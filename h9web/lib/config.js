@@ -94,7 +94,9 @@ export const DEFAULTS = {
     maxPendingBytes: 1048576,
     masterQueriesPerSecond: 2,
   },
-  status: { pollSeconds: 30, timeoutMs: 1500, expireSeconds: 120 },
+  // feedUrl: the H9 server list's JSON (serverlist-bot, http://127.0.0.1:8081/v1/servers/ts.json): the servers that announce
+  // themselves to it are on /api/servers too, not only the ones in servers.json. Empty: only servers.json.
+  status: { pollSeconds: 30, timeoutMs: 1500, expireSeconds: 120, feedUrl: "", feedSeconds: 5 },
   modules: [],
   moduleSettings: {},
   // local testing only: { "/": "../havoc9.org", ... } serves those folders as the site; a folder

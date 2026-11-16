@@ -887,7 +887,7 @@ static qboolean AVI_ValidateFFmpegVersion( void )
 // and this hands its pictures to the renderer the way the FFmpeg branch above does. The page
 // answers open(path) with { handle, width, height } or null, frame(handle, heap, dst, width, height)
 // with true once it has written a new picture into heap at dst as width * height RGBA pixels, and
-// close(handle). It loops the video by itself, and no sound is played. The main menu's background
+// close(handle). It loops the menu's video by itself, answers -1 once any other video is over, and no sound is played. The main menu's background
 // (CIN_MENUBG, cl_gameui.c) is what uses it; AVI_Initailize still reports no AVI support, so
 // AVI_LoadVideo's cinematics stay off.
 EM_JS( int, AVI_PageOpen, ( const char *path, int *size ), {
@@ -902,7 +902,9 @@ EM_JS( int, AVI_PageOpen, ( const char *path, int *size ), {
 
 EM_JS( int, AVI_PageFrame, ( int handle, byte *dst, int width, int height ), {
 	var video = Module.video;
-	return video && video.frame && video.frame( handle, HEAPU8, dst, width, height ) ? 1 : 0;
+	// 1: a new picture is in memory, 0: none yet, -1: the video is over (one the page plays once)
+	var r = video && video.frame ? video.frame( handle, HEAPU8, dst, width, height ) : false;
+	return r === -1 ? -1 : ( r ? 1 : 0 );
 });
 
 EM_JS( void, AVI_PageClose, ( int handle ), {
@@ -1007,7 +1009,13 @@ qboolean AVI_Think( movie_state_t *Avi )
 	if( Avi->paused )
 		return true;
 
-	redraw = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres ) != 0;
+	int picture = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres );
+
+	// the page says a video it plays once is over (the startup intro): the movie ends here and the engine goes on
+	if( picture < 0 )
+		return false;
+
+	redraw = picture != 0;
 
 	if( redraw )
 		Avi->shown = true;

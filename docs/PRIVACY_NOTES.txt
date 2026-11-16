@@ -1,0 +1,45 @@
+PRIVACY AND THE GDPR: WHAT THE SITE STORES, WHAT IS DONE, WHAT THE OWNER STILL HAS TO DO
+=======================================================================================
+
+This is an engineering note, not legal advice. It says what havoc9.org and h9web store and how that was checked against the GDPR's
+main duties. The notice visitors read is havoc9.org/privacy/index.html; keep the two in step.
+
+WHAT IS STORED (from h9web's database, lib/db.js and the modules)
+  accounts            username, a salted hash of the password. No email, no real name, no birth date.
+  sessions            a random token's hash; 30 days at most, 14 idle (config.session).
+  forum               posts, threads, wall comments, signatures, profile pictures, votes, reports: all content the user wrote.
+  game link, presence a hashed game-installation id, the name played under, ranked results (rating, career level and XP, matches), playtime,
+                      online state, for servers enrolled with havoc9.org (docs/H9_PRESENCE.txt, docs/H9_COMPETITIVE.txt).
+  discord             Discord user id and display name, only when the user links it.
+  audit_log           what admins and moderators did to accounts; 90 days (config.admin.auditRetentionDays).
+  logs                nginx's access logs (IP address, browser): Debian's logrotate keeps 14 days; the journal keeps 30 days
+                      (vps/linux/hardening/journald-havoc9.conf). Cloudflare also sees every request.
+  backups             daily, 14 kept locally; the encrypted off-site copy keeps 7 (vps/linux/systemd).
+
+DONE IN THE REPOSITORY
+  * The pages no longer load fonts from Google (that sends every visitor's IP address to a third party): the three typefaces are served from
+    havoc9.org/assets/fonts/ (SIL OFL, licenses beside them and in THIRD_PARTY_LICENSES/), and the pages' CSP meta tags no longer allow
+    fonts.googleapis.com or fonts.gstatic.com.
+  * havoc9.org/privacy/index.html says what is stored, why, on what basis, who else sees it, how long, and the user's rights; every page's
+    footer links to it.
+  * The only cookie is the session cookie (needed to sign in): no consent banner is needed for it, and there is no analytics or advertising.
+  * Data minimisation was already the design: no email address is collected.
+
+WHAT THE OWNER STILL HAS TO DO
+  1. The notice names the maintainers and gives the Discord and the GitHub issues as the contact. The GDPR wants the controller's name and a
+     contact address: put your name (or the project's legal name) and an email address in the "WHO IS RESPONSIBLE" paragraph of
+     privacy/index.html. A country's law may also want an imprint.
+  2. Name the hosting provider in "WHO ELSE SEES IT", and accept the data processing terms of Cloudflare and of the provider (both offer a
+     data processing addendum in the account settings).
+  3. After the VPS is installed, check the retention the notice states: cat /etc/logrotate.d/nginx (daily, rotate 14) and
+     journalctl --disk-usage with the journald file in place.
+  4. Answering a user's request (within one month):
+       delete   the account:  node bin/h9web-admin.js delete <username> --yes   (or the admin panel, ACCOUNTS). An account's posts stay, shown
+                as from a deleted account (docs/H9WEB_ADMIN.txt, section 11): when the user asks for erasure, remove their posts first, one by one
+                in the forum moderation tools, then delete the account. Backups age out within 14 days.
+       copy     (access/portability): there is no self-service export yet. Read the account's rows from h9web.db (accounts, forum_posts,
+                forum_signatures, forum_walls, forum_wall_comments, discord_links, presence_*, compete_*) and send them as JSON or CSV.
+  5. Images in forum posts come from a few allowed hosts and the media page embeds YouTube: the notice says so. If you want none of that,
+     remove the hosts from the pages' img-src and the media page's frame-src.
+  6. Keep a short written record of what is processed and why (the notice and this file are most of it) and, if the site ever has a
+     data breach, tell the supervisory authority within 72 hours.

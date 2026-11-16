@@ -1,12 +1,31 @@
 # havoc9.org on Windows, through Caddy: HTTPS from Let's Encrypt (made and renewed by Caddy
 # itself), the site, h9web and the H9 server list. vps\windows\setup.ps1 writes etc\Caddyfile
-# from this template on every run ({DOMAIN}, {ROOT}, {EMAIL_LINE} filled in); additions of your
+# from this template on every run ({DOMAIN}, {GAMEHOST}, {ROOT}, {EMAIL_LINE}, {TRUSTED_PROXIES}, {CF_RANGES} filled in); additions of your
 # own go in etc\Caddyfile.extra, which it imports and never touches. The same rules as the
 # Linux host's nginx (havoc9.org/webclient/DEPLOY.txt section 8), but for the rate limits:
 # Caddy has none built in, so h9web's own limits are the only ones here.
 {
 	storage file_system {ROOT}/data/caddy
 	{EMAIL_LINE}
+	# behind Cloudflare the visitor's address is CF-Connecting-IP, believed only from Cloudflare's published ranges (setup.ps1
+	# writes them into etc\cloudflare-ranges.txt), so h9web's and the list's per-address limits and a game server's enrollment
+	# see the visitor, not Cloudflare. A connection from any other address is taken at its own address.
+	servers {
+		{TRUSTED_PROXIES}
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+# a part an admin closed (below): 503 with the site's closed.html
+(gate_closed) {
+	@closed status 403
+	handle_response @closed {
+		rewrite * /closed.html
+		file_server {
+			root {ROOT}/site
+			status 503
+		}
+	}
 }
 
 {DOMAIN} {
@@ -53,16 +72,38 @@
 		}
 	}
 	@files_blob path_regexp ^/files/[0-9a-f]+$
+	# the parts an admin can close (the admin panel's SITE, h9web/lib/siteflags.js): h9web is asked before every request to them
+	# (204 open, 403 closed), as nginx's auth_request does on Linux. While h9web is down they answer 502. The web client's relay
+	# is closed by h9web itself.
+	@gate_downloads path /downloads/H9XASH.zip /downloads/H9XASH-linux.zip /downloads/files /downloads/files/*
+	@gate_webclient {
+		path /webclient/*
+		not path /webclient/relay
+	}
 	@api {
 		path /api/*
 		not path /api/forum/avatar
 	}
 
+	# The site is reached through Cloudflare: port 443 is open to every address for {GAMEHOST} (below), so a request that
+	# comes straight to this machine for {DOMAIN} is refused first. {CF_RANGES} is Cloudflare's published ranges; the
+	# machine's own checks of the site come from itself.
+	@direct not remote_ip {CF_RANGES} 127.0.0.1 ::1
+
 	route {
+		respond @direct "Use https://{DOMAIN}/" 403
 		respond @hidden 404
 		respond @notes 404
 		respond @files_hidden 404
 		respond @packages_hidden 404
+		forward_auth @gate_downloads 127.0.0.1:8090 {
+			uri /api/site/gate/downloads
+			import gate_closed
+		}
+		forward_auth @gate_webclient 127.0.0.1:8090 {
+			uri /api/site/gate/webclient
+			import gate_closed
+		}
 		header /files/manifest.json {
 			Cache-Control "no-cache"
 			Vary "X-H9-Updater, User-Agent"
@@ -87,17 +128,17 @@
 
 		# h9web: the API and the web client's relay (a WebSocket), from this machine only
 		reverse_proxy /api/* 127.0.0.1:8090 {
-			header_up X-Real-IP {remote_host}
+			header_up X-Real-IP {client_ip}
 		}
 		reverse_proxy /webclient/relay 127.0.0.1:8090 {
-			header_up X-Real-IP {remote_host}
+			header_up X-Real-IP {client_ip}
 		}
 
 		# the H9 server list (networking.ini's list_bot), its prefix taken off
 		handle_path /serverlist/* {
 			header Cache-Control "no-cache"
 			reverse_proxy 127.0.0.1:8081 {
-				header_up X-Real-IP {remote_host}
+				header_up X-Real-IP {client_ip}
 			}
 		}
 
@@ -120,6 +161,43 @@
 			hide .*
 		}
 		file_server
+	}
+}
+
+# {GAMEHOST}: the name game servers use for h9_presence_url and heartbeats. It is a DNS-only record with an IPv4 address and
+# no IPv6 one (Cloudflare answers every proxied name over IPv6 as well, and a game server's enrollment, which h9web proves by
+# asking the server's own address over UDP, must come from its IPv4 address). It carries only what a game server or the game
+# calls; every other address answers 404, and its requests never go through Cloudflare, so the address Caddy sees is the
+# caller's own.
+{GAMEHOST} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	@game_api path /api/presence/* /api/community/* /api/rank/* /api/link/* /api/p2p/*
+
+	route {
+		request_body @game_api {
+			max_size 128KB
+		}
+		request_body /serverlist/* {
+			max_size 4KB
+		}
+		reverse_proxy @game_api 127.0.0.1:8090 {
+			header_up X-Real-IP {client_ip}
+		}
+		handle_path /serverlist/* {
+			header Cache-Control "no-cache"
+			reverse_proxy 127.0.0.1:8081 {
+				header_up X-Real-IP {client_ip}
+			}
+		}
+		respond "This name is for game servers. The site is https://{DOMAIN}/" 404
 	}
 }
 

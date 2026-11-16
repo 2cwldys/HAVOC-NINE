@@ -41,6 +41,13 @@ REM text files older builds kept it in: ts\userid_resolved.cfg and ts\config.cfg
 REM docs\CUSTOM_XASH_USERID.txt.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_userid.ps1"
 
+REM ---- the certificates this PC trusts -------------------------------------------------
+REM The game checks havoc9.org's certificate against lists of its own (the game server's web
+REM module and the engine), not against Windows'. h9_cacerts.ps1 adds the certificates Windows
+REM trusts to both, so an antivirus that scans HTTPS does not cut the game off from havoc9.org.
+REM If it fails, the lists stay as they are and the game starts anyway.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_cacerts.ps1"
+
 set "MUSICLIST=ts\menu_music.txt"
 set "RESOLVED=ts\menu_music_resolved.cfg"
 set "CHOSEN=equilibrium.mp3"
@@ -139,6 +146,12 @@ if /i "!H9PRIO!"=="High" set "H9PRIOSW=/HIGH"
 if /i "!H9PRIO!"=="Realtime" set "H9PRIOSW=/HIGH"
 if /i "!H9PRIO!"=="Realtime" echo [h9xash] priority=Realtime in networking.ini runs as High.
 if defined H9PRIO if /i not "!H9PRIO!"=="Normal" if /i not "!H9PRIO!"=="AboveNormal" if /i not "!H9PRIO!"=="High" if /i not "!H9PRIO!"=="Realtime" echo [h9xash] priority= in networking.ini is not Normal, AboveNormal or High: AboveNormal is used.
+
+REM ---- Create Game on the H9 server list ----------------------------------------------
+REM With listen_heartbeat=1 under [server] in networking.ini, this Create Game tells the H9 server list it is up (the
+REM list then shows it in everyone's Internet tab, which publishes this PC's address: off by default). h9_heartbeat.ps1
+REM -Listen does nothing unless that is set, and ends by itself when the game does.
+start "" /b powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0h9_heartbeat.ps1" -Port !H9PORT! -Listen
 
 REM By full path: a shell with NoDefaultCurrentDirectoryInExePath set will not run a
 REM program from the current folder by its bare name. start /b /wait runs it at the priority

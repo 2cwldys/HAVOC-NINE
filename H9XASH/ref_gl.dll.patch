@@ -842,6 +842,24 @@ Commits on h9 since upstream that touch these paths, oldest first:
 7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
 Diff sha256 6ada159cbc52c6803bc9e96b72b5c81b54b86630b2b36cc68464d71ec63121d7, the diff below.
 
+Generated Sun 11/15/2026 17:19:25.55, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M ref/gl/gl_draw.c
+ M ref/gl/gl_fbo.c
+ M ref/gl/gl_local.h
+ M ref/gl/gl_opengl.c
+ M ref/gl/gl_rmain.c
+ M ref/gl/gl_rsurf.c
+ M ref/gl/gl_studio.c
+?? ref/gl/gl_upscale.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
+Lines of the previous diff that this build replaced, kept here:
++CVAR_DEFINE_AUTO( h9_upscale, "0", FCVAR_GLCONFIG, "upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on)" );
+Diff sha256 06e8f7362a823a5a3c065a2c964ff7c03348a786c7ceb15602313ad5eb904bf0, the diff below.
+
 diff --git a/ref/gl/gl2_shim/fragment.glsl.inc b/ref/gl/gl2_shim/fragment.glsl.inc
 index 803bc2bf..8ecdcad1 100644
 --- a/ref/gl/gl2_shim/fragment.glsl.inc
@@ -1366,14 +1384,14 @@ index 1e4d23e9..b3bcba4a 100644
  //
  // engine shared convars
 diff --git a/ref/gl/gl_opengl.c b/ref/gl/gl_opengl.c
-index f05a3ddf..8f01b964 100644
+index f05a3ddf..b62b3149 100644
 --- a/ref/gl/gl_opengl.c
 +++ b/ref/gl/gl_opengl.c
 @@ -11,6 +11,8 @@ CVAR_DEFINE_AUTO( gl_texture_lodbias, "0.0", FCVAR_GLCONFIG, "LOD bias for mipma
  CVAR_DEFINE_AUTO( gl_texture_nearest, "0", FCVAR_GLCONFIG, "disable texture filter" );
  CVAR_DEFINE_AUTO( gl_lightmap_nearest, "0", FCVAR_GLCONFIG, "disable lightmap filter" );
  CVAR_DEFINE_AUTO( gl_fbo_nearest, "0", FCVAR_GLCONFIG, "disable filter when upscaling the scene rendered with r_scene_scale" );
-+CVAR_DEFINE_AUTO( h9_upscale, "0", FCVAR_GLCONFIG, "upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on)" );
++CVAR_DEFINE_AUTO( h9_upscale, "1", FCVAR_GLCONFIG, "upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on)" );
 +CVAR_DEFINE_AUTO( h9_upscale_sharp, "0.84", FCVAR_GLCONFIG, "how strongly h9_upscale sharpens (RCAS): 0 none, 1 the most, 0.84 is AMD's recommended 0.25 stops" );
  CVAR_DEFINE_AUTO( gl_keeptjunctions, "1", FCVAR_GLCONFIG, "removing tjuncs causes blinking pixels" );
  CVAR_DEFINE_AUTO( gl_check_errors, "1", FCVAR_GLCONFIG, "ignore video engine errors" );

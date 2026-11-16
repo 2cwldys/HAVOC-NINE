@@ -90,7 +90,8 @@ SKIP_NAMES = {"config.cfg", "video.cfg", "opengl.cfg", "vfs.cfg", "server.cfg", 
               "game.cfg", "liblist.gam", "gameinfo.txt", "console_history.txt", "custom.hpk",
               "voice_ban.dt", "tsstats.dat", "vault.ini", "xashcomm.lst", "mapcycle.txt", "motd.txt",
               "bots.txt", "bot_say.txt", "steam_appid.txt", "tempdecal.wad", ".xash_id",
-              "history_servers.lst", "favorite_servers.lst"}
+              "history_servers.lst", "favorite_servers.lst",
+              "cacert.pem"}  # cacert.pem: this PC's trusted certificates, written by h9_cacerts.ps1
 SKIP_EXT = (".exe", ".dll", ".so", ".dylib", ".pdb", ".bat", ".cmd", ".ps1", ".py", ".log", ".fgd",
             ".zip", ".tmp", ".new", ".md")
 
