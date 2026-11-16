@@ -12,6 +12,9 @@ discord-bot/bot.err
 discord-bot/__pycache__/
 rcbot/bot_playerids.ini
 
+# Sensitive SSH or API Keys
+keys/
+
 # H9 Stuff
 *.backup
 # Binary backups beside a rebuilt DLL or EXE (<file>.bak_<tag>) stay in TSM: git is the backup.
