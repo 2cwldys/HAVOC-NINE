@@ -7,7 +7,7 @@ How the deploy uses SSH is in docs\SHIP_A_VERSION.txt; this is only about the ke
 THE ONE RULE
 ------------
 A key is a PAIR of files. The PUBLIC one (ends in .pub, one line starting "ssh-ed25519 ") is meant to be handed over. The PRIVATE one (no
-extension, starts "-----BEGIN OPENSSH PRIVATE KEY-----") is never handed to anybody, never pasted anywhere, never put in a repo, a chat, an
+extension; its first line is five dashes, the word BEGIN, OPENSSH PRIVATE KEY and five dashes again) is never handed to anybody, never pasted anywhere, never put in a repo, a chat, an
 issue, a screenshot or an AI assistant. Whoever holds the private key of an authorized pair can log in to the server as Administrator.
 If a private key was ever shown or pasted anywhere: treat it as leaked, remove its line from the server (step 6) and make a new pair.
 
@@ -28,7 +28,7 @@ ADDING A KEY (a new PC, or a new person)
 1. On the NEW PC, in PowerShell, make the pair (a passphrase is worth it; ssh-agent remembers it):
        ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\havoc9_vps" -C "havoc9-deploy <pc or person>"
    Two files appear in %USERPROFILE%\.ssh: havoc9_vps (PRIVATE, stays there) and havoc9_vps.pub (public).
-2. Send ONLY havoc9_vps.pub to the owner. Before sending, look at it: one line, starting "ssh-ed25519 ". If it starts "-----BEGIN" it is the
+2. Send ONLY havoc9_vps.pub to the owner. Before sending, look at it: one line, starting "ssh-ed25519 ". If its first line is dashes and the word BEGIN, it is the
    private file: stop.
 3. The owner (from a PC that can already log in) puts the line on the server. Copy the file over and append it:
        scp havoc9_new.pub havoc9-vps:C:/setup/new_key.pub
