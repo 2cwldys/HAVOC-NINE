@@ -226,6 +226,17 @@ secrets.json
 id_rsa*
 id_ed25519*
 id_ecdsa*
+id_dsa*
+# SSH private keys by name, whatever the prefix (ssh-keygen -f <name> writes <name> and <name>.pub; the deploy key is havoc9_vps),
+# and the OpenSSH key container's own extension. A public .pub is harmless, but a key pair stays out of the tree together.
+havoc9_vps*
+*_rsa
+*_dsa
+*_ecdsa
+*_ed25519
+*_ecdsa_sk
+*_ed25519_sk
+*.openssh
 # Crash dumps: they hold the memory of the process, a password included.
 /core
 core.[0-9]*

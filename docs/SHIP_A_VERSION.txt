@@ -8,6 +8,8 @@ Never push; no Co-Authored-By line; commits only when the owner says "stage" or 
 0. BEFORE ANYTHING
 ------------------
 - The owner's game must be closed. Never launch or kill a game while they play; ask, or look at the process list (do not probe their PC beyond it).
+- SSH: the deploy logs in with the key behind the shortcut havoc9-vps (docs\ADD_AN_SSH_KEY.txt: adding a PC or a person, removing a key, what never
+  to share). Never ask for, print or paste a private key.
 - ONE heavy job at a time. release-prepare.mjs, build-linux.cmd and export.bat take D:\temp\HEAVY-JOB.lock THEMSELVES. Never create that file yourself
   "to be safe": the job then waits for your lock (release-prepare waits up to 90 minutes, build-linux refuses). 2026-11-15 lost 25 minutes to that.
 - ASCII only in every command and file you write (an em dash breaks the Bash call), temp files in D:\temp, no recursive grep over TSM, run .bat files as

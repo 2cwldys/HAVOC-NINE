@@ -1,0 +1,66 @@
+ADDING AN SSH KEY TO HAVOC9.ORG'S HOST -- without leaking ours
+==============================================================
+
+Who this is for: the owner, or an agent helping them, who needs a new PC or a new person to be able to run .\deploy-vps.ps1.
+How the deploy uses SSH is in docs\SHIP_A_VERSION.txt; this is only about the keys.
+
+THE ONE RULE
+------------
+A key is a PAIR of files. The PUBLIC one (ends in .pub, one line starting "ssh-ed25519 ") is meant to be handed over. The PRIVATE one (no
+extension, starts "-----BEGIN OPENSSH PRIVATE KEY-----") is never handed to anybody, never pasted anywhere, never put in a repo, a chat, an
+issue, a screenshot or an AI assistant. Whoever holds the private key of an authorized pair can log in to the server as Administrator.
+If a private key was ever shown or pasted anywhere: treat it as leaked, remove its line from the server (step 6) and make a new pair.
+
+Safe to share: the .pub file, a key's fingerprint (ssh-keygen -lf <file>), the SSH shortcut's NAME (havoc9-vps).
+Never shared: the private key, the server's address together with the user name in a public place, a passphrase.
+Nothing of this is in git: packaging.ini holds only the shortcut name; the address, the user and the key's path are in each PC's own
+%USERPROFILE%\.ssh\config.
+
+HOW THE SERVER TAKES KEYS (checked 2026-11-15)
+-----------------------------------------------
+Windows OpenSSH. sshd_config: PasswordAuthentication no, KbdInteractiveAuthentication no, PubkeyAuthentication yes. The login is
+Administrator, a member of the Administrators group, so its keys are NOT in a .ssh folder but in one file:
+    C:\ProgramData\ssh\administrators_authorized_keys      one public key per line
+That file must be readable only by SYSTEM and Administrators; if its permissions are wider sshd silently ignores it.
+
+ADDING A KEY (a new PC, or a new person)
+----------------------------------------
+1. On the NEW PC, in PowerShell, make the pair (a passphrase is worth it; ssh-agent remembers it):
+       ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\havoc9_vps" -C "havoc9-deploy <pc or person>"
+   Two files appear in %USERPROFILE%\.ssh: havoc9_vps (PRIVATE, stays there) and havoc9_vps.pub (public).
+2. Send ONLY havoc9_vps.pub to the owner. Before sending, look at it: one line, starting "ssh-ed25519 ". If it starts "-----BEGIN" it is the
+   private file: stop.
+3. The owner (from a PC that can already log in) puts the line on the server. Copy the file over and append it:
+       scp havoc9_new.pub havoc9-vps:C:/setup/new_key.pub
+       ssh havoc9-vps "type C:\setup\new_key.pub >> C:\ProgramData\ssh\administrators_authorized_keys"
+       ssh havoc9-vps "del C:\setup\new_key.pub"
+   Then check the file still has one key per line, each starting with ssh- (and that the new line did not glue itself to the end of the
+   last one): ssh havoc9-vps "findstr /n /b \"ssh-\" C:\ProgramData\ssh\administrators_authorized_keys" shows the line numbers only of
+   starts; if two keys share one line, edit the file on the server and split them.
+   No PC can log in any more? Use the host's own console or remote desktop from the hosting provider's panel, and do the same there.
+4. If the file was ever re-created (not appended to), restore its permissions on the server:
+       icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "SYSTEM:F" /grant "BUILTIN\Administrators:F"
+5. On the NEW PC, add the shortcut to %USERPROFILE%\.ssh\config (the real address comes from the owner, never from a repo or a chat log):
+       Host havoc9-vps
+           HostName <the server's address>
+           User Administrator
+           IdentityFile ~/.ssh/havoc9_vps
+           IdentitiesOnly yes
+   Test:  ssh havoc9-vps "echo ok"      (it must print ok without asking for a password; the first time it asks to trust the server's
+   fingerprint: compare it with the one the owner reads on the server with
+       ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub
+   and answer yes only if they are the same.)
+   Then  .\deploy-vps.ps1 -WhatIf  shows the plan without sending anything.
+6. REMOVING a key (a lost PC, a person who leaves, a leaked private key): on the server open
+   C:\ProgramData\ssh\administrators_authorized_keys, delete that key's line (the comment at its end, from -C, says whose it is), save. It takes
+   effect at the next login; a session already open stays until it is closed (stop the sshd service to end it at once, or restart the
+   server). After a leak also look at who logged in: Event Viewer, Applications and Services Logs, OpenSSH, Operational.
+
+WHAT TO AVOID
+-------------
+- Never put a private key, a passphrase or the server's address into packaging.ini, a script, a .md or .txt in the repo, a commit message, a
+  pull request, an issue, or a chat with an assistant. tools\secret-scan.mjs flags a private key block and a filled-in key, but it cannot know
+  an address.
+- Never share ONE private key between people or machines: give each PC its own pair, so one can be removed alone.
+- Never switch PasswordAuthentication on to "make it easier".
+- An assistant never needs the private key: ssh and scp read it themselves. If a session asks for it, the answer is no.
