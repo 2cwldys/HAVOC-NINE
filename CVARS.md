@@ -1107,7 +1107,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 ### Metamod plugins (reconstructed)
 
-Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both are INERT off the entmaps unless `entmod 1` -- see `entmod` / `entmod_maps`, which also de-rank the server (no career XP or ELO) while active.
+Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both stay INERT unless the current map's name contains "entmap", the map is listed in `entmod_maps`, or `entmod 1` is set -- see `entmod` / `entmod_maps`. While active they de-rank the server (no career XP or ELO). Each prints its on/off decision and the map name it saw to the server console every map (`[EntMod] map '<name>' -> tools ON/off`, `[HookMod] ... -> hook ON/off`), so you can confirm activation in-game.
 
 #### EntMod
 

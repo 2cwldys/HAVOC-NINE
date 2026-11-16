@@ -9,5 +9,7 @@ Build:
   Windows:  MSBuild EntMod4/src/HookMod/msvc/HookMod.vcxproj /p:Configuration=Release;Platform=Win32;PlatformToolset=v143  -> EntMod4/dist/HookMod_MM.dll
   Linux:    make -C EntMod4/src/HookMod  -> HookMod_i386.so
 
-HAVOC9 additions (src/HookMod/h9_gate.cpp): the same entmod / entmod_maps gate as EntMod -- inert off
-the entmaps unless "entmod 1". DF_hook_on is the mod's own master switch. Not yet verified in a game.
+HAVOC9 additions (src/HookMod/h9_gate.cpp): the same entmod / entmod_maps gate as EntMod -- on when
+the map name contains "entmap", the map is in the entmod_maps list, or "entmod 1"; inert otherwise.
+The decision is printed to the server console each map ("[HookMod] map '<name>' -> hook ON/off").
+DF_hook_on is the mod's own master switch.
