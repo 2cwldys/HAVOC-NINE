@@ -329,22 +329,58 @@
 
  13. THE DOWNLOADS
  -----------------
+ THE BUILD FILE. C:\havoc9\site\downloads\.build holds the build number
+ (1.64). Every delivery of deploy-vps.ps1 (receive-deploy.ps1, step 7) writes it, and
+ three things follow it with no one touching them: the file index names the
+ versioned files from it (H9XASH-1.64.zip, H9XASH-linux-1.64.zip,
+ H9XASH-linux-server-1.64.zip, H9XASH-Updater-1.64.exe), the updater's manifest
+ says it, and THE SERVER LIST BOT'S ABOUT ME names it ("Serving H9XASH 1.64";
+ the bot's serverlist.ini has build_file = C:\havoc9\site\downloads\.build and
+ looks at the file every 15 seconds, so there is no restart). deploy-vps.ps1
+ ends with verify-release.ps1, which checks each of these and the game server
+ folder below and prints PASS, WARN or FAIL.
+ THE DELTA (how a release reaches this host). A release does not send the client ZIPs
+ (about 3 GB): it sends a list of the files each one holds and the files this
+ host has not seen yet; receive-deploy.ps1 builds the ZIPs here with delta.py. The
+ host keeps the compressed form of every file it has put in a ZIP (C:\havoc9\store\z),
+ so a ZIP of a gigabyte takes seconds and only new files are compressed. What it
+ needs, all of it on a host the package has been installed on: Python (setup.ps1
+ installs the pinned one into C:\havoc9\tools\python, checking its SHA-256),
+ C:\havoc9\delta.py (in the package, and put in place by each delivery that
+ differs) and tar.exe (part of Windows 10 and Server 2019 or later). delta.py uses
+ only Python's standard library (zlib, zipfile, hashlib, tarfile), nothing to
+ install beside the package; receive-deploy.ps1 checks that before it takes a
+ delta in, and on a host that has no Python or no delta.py yet it installs the
+ host package first, which brings both. The first delta on a host keeps the
+ streams of the ZIPs it serves now (about a minute); after that nothing is
+ compressed twice. The tests: python tools\delta_test.py (any Python 3.8 or later,
+ also the host's: copy delta.py and tools\delta_test.py over).
+ THE GAME SERVER FOLDER (C:\havoc9\H9XASH, the official server's own copy of the
+ game) is not touched by a delivery. Stop the server, then
+   powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1          (what would change)
+   powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1 -Apply   (update it)
+ It runs the site's own H9XASH-Updater.exe: only new or changed files are
+ fetched, each checked, the server's configs, keys and logs are left alone,
+ and -Rollback puts the last files back. Start the server again with
+ h9xash_server.bat.
  The DOWNLOADS page's buttons and its file index (ALL FILES,
  https://havoc9.org/downloads/files/) show files you put in the site folder
  yourself; setup.ps1 keeps them when it puts a new copy of the site in.
    C:\havoc9\site\downloads\         you copy in the buttons' files:
                                      H9XASH.zip, H9XASH-linux.zip,
                                      H9XASH-Updater.exe
-   C:\havoc9\site\downloads\files\   you copy in the two host packages
-                                     (havoc9-vps-linux- and
-                                     havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip);
-                                     setup.ps1 adds the buttons' three files
-                                     and SHA256SUMS.txt (below)
+   C:\havoc9\site\downloads\files\   the index: setup.ps1 puts the buttons'
+                                     files in it as links, and
+                                     SHA256SUMS.txt (below); you put nothing
+                                     in it
  They come from dist\ in the repository on the PC that builds them:
- stage-h9xash.ps1 makes the two client ZIPs, tools\updater\build.cmd makes
- H9XASH-Updater.exe and make-vps-package.ps1 the two host packages. The
- .report.txt files made beside them stay off the index unless the owner
- chooses otherwise: they are the build PC's own records, and
+ stage-h9xash.ps1 makes the two client ZIPs and tools\updater\build.cmd makes
+ H9XASH-Updater.exe. A HOST PACKAGE (make-vps-package.ps1) IS NEVER IN THE
+ INDEX: the index is public, and a package is the site's own installer and
+ code, not a download. setup.ps1 takes any havoc9-vps-* file out of it, and
+ verify-release.ps1 fails when one is there. The .report.txt files made
+ beside the client ZIPs stay off the index too unless the owner chooses
+ otherwise: they are the build PC's own records, and
  H9XASH.report.txt names its folders. Nothing else goes in the index:
  not dist\files (the updater's own files, served at /files/), not the web
  client's files, and never a config, key or token (ts_advertise.cfg,
@@ -366,9 +402,8 @@
  (the same hash twice), and every line of SHA256SUMS.txt against its file:
    cd C:\havoc9\site\downloads\files
    Get-Content SHA256SUMS.txt | ForEach-Object { $h, $n = $_ -split '  ', 2; '{0}  {1}' -f $(if ((Get-FileHash $n).Hash -eq $h) { 'OK' } else { 'DIFFERENT' }), $n }
- Remove a host package's older build when its new one goes in. A player
- checks a download with sha256sum -c SHA256SUMS.txt --ignore-missing
- (Linux) or Get-FileHash <file> (Windows).
+ A player checks a download with sha256sum -c SHA256SUMS.txt
+ --ignore-missing (Linux) or Get-FileHash <file> (Windows).
 
 
  14. WHEN SOMETHING IS WRONG

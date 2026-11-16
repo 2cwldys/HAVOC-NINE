@@ -113,11 +113,17 @@ code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
 # holds one copy and a link always opens the file downloads/ holds now, whatever replaced it.
 # Each link is made again at every run (under a dot name, then moved into place), then checked:
 # its SHA-256 must be that of the file in downloads/. A button file not there yet is skipped (an
-# old link to it goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves.
+# old link to it goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves. The index is public: a host package (havoc9-vps-*,
+# the site's own installer and code) is never in it, and any that someone put there is removed.
 file_index() {
   local dl="$SITE_ROOT/downloads" idx="$SITE_ROOT/downloads/files" f a b n=0
   local -A sums=()
   mkdir -p "$idx"
+  for f in "$idx"/havoc9-vps-*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    rm -f -- "$f"
+    note "downloads/files/${f##*/}: removed, a host package is never in the public file index"
+  done
   for f in H9XASH.zip H9XASH-linux.zip H9XASH-Updater.exe; do
     if [ ! -f "$dl/$f" ]; then
       if [ -L "$idx/$f" ]; then rm -f "$idx/$f"; fi

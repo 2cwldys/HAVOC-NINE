@@ -13,8 +13,7 @@
     * only these names are taken; any other file or folder in the delivery stops it:
         H9XASH.zip, H9XASH-linux.zip, H9XASH-Updater.exe        the DOWNLOADS page's three buttons
         H9XASH-linux-server.zip                                 the native Linux server (file index only)
-        havoc9-vps-windows-<build>-<stamp>.zip                  the host package: installed with its setup.ps1
-        havoc9-vps-linux-<build>-<stamp>.zip                    the file index only
+        havoc9-vps-windows-<build>-<stamp>.zip                  the host package: installed with its setup.ps1, never published
         havoc9-vps-webclient-<build>-<stamp>.zip                the web client's files
         H9XASH.zip.recipe.json, H9XASH-linux.zip.recipe.json, H9XASH-linux-server.zip.recipe.json, webclient.zip.recipe.json,
         blobs-<n>.tar                                           a delta (delta.py): the list of a client ZIP or of the web client
@@ -53,7 +52,6 @@ $Rules = @(
     @{ Re = '^H9XASH-Updater\.exe$'; Kind = 'button' },
     @{ Re = '^H9XASH-linux-server\.zip$'; Kind = 'button' },
     @{ Re = '^havoc9-vps-windows-[A-Za-z0-9._-]+\.zip$'; Kind = 'host' },
-    @{ Re = '^havoc9-vps-linux-[A-Za-z0-9._-]+\.zip$'; Kind = 'index' },
     @{ Re = '^havoc9-vps-webclient-[A-Za-z0-9._-]+\.zip$'; Kind = 'webclient' },
     @{ Re = '^updater-files(-[0-9]{1,3})?\.tar$'; Kind = 'updater' },
     @{ Re = '^(H9XASH|H9XASH-linux|H9XASH-linux-server)\.zip\.recipe\.json$'; Kind = 'recipe' },
@@ -77,7 +75,13 @@ $script:childExit = 0
 function Invoke-Child([string[]]$ChildArgs) {
     $was = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    try { & powershell.exe -NoProfile -ExecutionPolicy Bypass @ChildArgs 2>&1 | ForEach-Object { Write-Host "  $_" }; $script:childExit = $LASTEXITCODE }
+    try {
+        # the child's own headings ("== 3. h9web") get the time since this delivery began, so a slow step shows
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass @ChildArgs 2>&1 | ForEach-Object {
+            if ("$_" -match '^\s*== ') { Write-Host ("  {0}   [{1:N0} s]" -f $_, ((Get-Date) - $script:t0).TotalSeconds) } else { Write-Host "  $_" }
+        }
+        $script:childExit = $LASTEXITCODE
+    }
     finally { $ErrorActionPreference = $was }
 }
 
@@ -120,7 +124,8 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = Join-Path $Root "logs\deploy-$stamp.log"
 Start-Transcript -LiteralPath $log -Append | Out-Null
 function Fail([string]$Text) { Write-Host "[FAIL] $Text" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
-function Say([string]$Text) { Write-Host "== $Text" }
+$script:t0 = Get-Date
+function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-Date) - $script:t0).TotalSeconds) }
 
 # 1. the manifest, and nothing in the delivery but what it names
 $manifest = Join-Path $in 'deploy-manifest.txt'
@@ -197,9 +202,50 @@ $recipes = @($want.Keys | Where-Object { $kinds[$_] -eq 'recipe' } | Sort-Object
 $wcRecipe = $want.Keys | Where-Object { $kinds[$_] -eq 'wcrecipe' } | Select-Object -First 1
 $blobTars = @($want.Keys | Where-Object { $kinds[$_] -eq 'blobs' } | Sort-Object)
 $newTrees = @{}
+# the host package (step 3 installs it): setup.ps1 backs h9web up first and keeps every setting, key and all data. It also brings what the delta
+# needs (the pinned Python, delta.py), so a host that lacks those has the package go in before the delta; any other host takes it at step 3.
+$hostZip = $want.Keys | Where-Object { $kinds[$_] -eq 'host' } | Select-Object -First 1
+$pkgDir = ''
+$hostDone = $false
+function Install-HostPackage {
+    Say "installing $hostZip"
+    $script:pkgDir = Join-Path 'C:\setup' ([IO.Path]::GetFileNameWithoutExtension($hostZip))
+    if (Test-Path -LiteralPath $script:pkgDir) { Remove-Item -LiteralPath $script:pkgDir -Recurse -Force }
+    Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
+    if (-not (Test-Path -LiteralPath (Join-Path $script:pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $script:pkgDir" }
+    Invoke-Child @('-File', (Join-Path $script:pkgDir 'setup.ps1'), '-Root', $Root)
+    if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
+}
+# the standard-library parts of Python that a delta uses; a Python without one of them cannot take a delta
+function Test-PythonTools {
+    $was = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    # no double quote inside the -c text: Windows PowerShell 5.1 (the host's) hands a native program its arguments without escaping them
+    try { $o = & $Py -I -c 'import zlib, zipfile, struct, hashlib, tarfile, json; print(12345)' 2>&1; $ok = ($LASTEXITCODE -eq 0) -and (("$o") -match '12345') }
+    finally { $ErrorActionPreference = $was }
+    return @{ Ok = $ok; Text = (($o | ForEach-Object { "$_" }) -join ' ') }
+}
 if ($recipes.Count -or $wcRecipe -or $blobTars.Count) {
     Say 'the delta: new files in, ZIPs built from recipes'
-    if (-not ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $Delta))) { Fail "no $Py or ${Delta}: install the host package first" }
+    if (-not ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $Delta))) {
+        if (-not $hostZip) { Fail "no $Py or ${Delta}, and this delivery has no host package to bring them: install the host package first" }
+        Write-Host "  this host has no $Py or ${Delta} yet: the host package goes in first (its setup.ps1 installs the pinned Python and puts delta.py in place)"
+        Install-HostPackage
+        $hostDone = $true
+        if (-not ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $Delta))) { Fail "the host package is in, but there is still no $Py or $Delta" }
+    }
+    $tools = Test-PythonTools
+    if (-not $tools.Ok) { Fail "the host's Python ($Py) cannot take a delta: $($tools.Text)" }
+    # the deflate streams the host keeps of the files it has zipped (store\z): a host that has none yet takes them from the ZIPs it serves now, so a first
+    # delta compresses nothing it has compressed before; after that every ZIP built keeps the streams of its new files
+    if ($recipes.Count -and -not (Test-Path -LiteralPath (Join-Path $Store 'z'))) {
+        $serving = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-linux-server.zip') | ForEach-Object { Join-Path $Dl $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+        if ($serving) {
+            Write-Host '  keeping the deflate streams of the ZIPs the site serves now (a first run)'
+            Invoke-Delta (@('seed-zcache') + @($serving) + @('--store', $Store))
+            if ($script:deltaExit -ne 0) { Write-Host '  (not kept: the ZIPs are compressed in full this once)' }
+        }
+    }
     if ($tars.Count) {
         New-Item -ItemType Directory -Force -Path $Files | Out-Null
         foreach ($f in Get-ChildItem -LiteralPath $blobDir -File | Where-Object { $_.Name -ne 'manifest.json' }) {
@@ -221,24 +267,14 @@ if ($recipes.Count -or $wcRecipe -or $blobTars.Count) {
         $newTrees[$zipName] = (Get-Content -Raw -LiteralPath (Join-Path $in $r) | ConvertFrom-Json).tree
     }
     if ($wcRecipe) {
-        Invoke-Delta @('assemble-dir', (Join-Path $in $wcRecipe), (Join-Path $in 'webclient'), '--store', $Store, '--files', $Files)
+        Invoke-Delta @('assemble-dir', (Join-Path $in $wcRecipe), (Join-Path $in 'webclient'), '--store', $Store, '--files', $Files, '--link')
         if ($script:deltaExit -ne 0) { Fail 'delta.py could not lay out the web client (above)' }
         $newTrees['webclient.zip'] = (Get-Content -Raw -LiteralPath (Join-Path $in $wcRecipe) | ConvertFrom-Json).tree
     }
 }
 
-# 3. the host package: its own setup.ps1 (a backup first, every setting and key kept)
-$hostZip = $want.Keys | Where-Object { $kinds[$_] -eq 'host' } | Select-Object -First 1
-$pkgDir = ''
-if ($hostZip) {
-    Say "installing $hostZip"
-    $pkgDir = Join-Path 'C:\setup' ([IO.Path]::GetFileNameWithoutExtension($hostZip))
-    if (Test-Path -LiteralPath $pkgDir) { Remove-Item -LiteralPath $pkgDir -Recurse -Force }
-    Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
-    if (-not (Test-Path -LiteralPath (Join-Path $pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $pkgDir" }
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root)
-    if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
-}
+# 3. the host package: its own setup.ps1 (a backup first, every setting and key kept); already in when the delta needed its tools
+if ($hostZip -and -not $hostDone) { Install-HostPackage }
 if (-not $pkgDir) {
     $pkgDir = Get-ChildItem -LiteralPath 'C:\setup' -Directory -Filter 'havoc9-vps-windows-*' | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
 }
@@ -271,16 +307,19 @@ if ($wcZip -or $wcRecipe) {
 # 5. the downloads: each one put in place whole, by a rename in the same folder
 Say 'the downloads'
 foreach ($n in $want.Keys) {
-    $k = $kinds[$n]
-    if ($k -ne 'button' -and $k -ne 'index' -and $k -ne 'host') { continue }
-    $dest = if ($k -eq 'button') { Join-Path $Dl $n } else { Join-Path $Idx $n }
-    $tmp = Join-Path (Split-Path -Parent $dest) ".$n.new"
-    Copy-Item -LiteralPath (Join-Path $in $n) -Destination $tmp -Force
+    if ($kinds[$n] -ne 'button') { continue }
+    $dest = Join-Path $Dl $n
+    $tmp = Join-Path $Dl ".$n.new"
+    # moved, not copied: the delivery folder is on this volume and goes away afterwards, so a ZIP of a gigabyte is a rename here
+    Move-Item -LiteralPath (Join-Path $in $n) -Destination $tmp -Force
     Move-Item -LiteralPath $tmp -Destination $dest -Force
     Write-Host "  $n -> $dest"
-    # a newer host package of a kind replaces the older ones in the index
-    if ($n -match '^(havoc9-vps-(windows|linux))-') {
-        Get-ChildItem -LiteralPath $Idx -File -Filter "$($Matches[1])-*.zip" | Where-Object { $_.Name -ne $n } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force; Write-Host "  removed the older $($_.Name)" }
+}
+# the file index is public (https://havoc9.org/downloads/files/): a host package is the site's own installer and code, never a download, so none stays in it
+if (Test-Path -LiteralPath $Idx) {
+    foreach ($p in @(Get-ChildItem -LiteralPath $Idx -File -Force | Where-Object { $_.Name -like 'havoc9-vps-*' })) {
+        Remove-Item -LiteralPath $p.FullName -Force
+        Write-Host "  removed $($p.Name) from the public file index (a host package is never published)"
     }
 }
 

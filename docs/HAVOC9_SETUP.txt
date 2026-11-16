@@ -514,19 +514,18 @@
    C:\havoc9\site\downloads\ on Windows:
 
        downloads/        H9XASH.zip, H9XASH-linux.zip, H9XASH-Updater.exe
-       downloads/files/  the two host packages; the setup script adds the
-                         three files above as links, and SHA256SUMS.txt
+       downloads/files/  the setup script fills it: the three files above
+                         as links, and SHA256SUMS.txt. A host package is
+                         never in it (the index is public)
 
    On Linux. From your PC, in PowerShell in the repository's folder:
 
        $D = 'root@havoc9.org:/var/www/havoc9.org/downloads'
        scp dist\H9XASH.zip dist\H9XASH-linux.zip dist\H9XASH-Updater.exe $D/
-       scp dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip $D/files/
 
-   (the Windows package the same way). On Windows copy the files in over
-   Remote Desktop. Then run the setup script for the index alone, on the
-   server, in the unpacked package folder (Windows: in an administrator
-   PowerShell):
+   On Windows copy the files in over Remote Desktop. Then run the setup
+   script for the index alone, on the server, in the unpacked package
+   folder (Windows: in an administrator PowerShell):
 
        sudo bash setup.sh --file-index           (Linux)
        .\setup.ps1 -FileIndex                    (Windows)

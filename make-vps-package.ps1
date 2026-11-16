@@ -49,6 +49,11 @@
 .PARAMETER WebClient
   Also pack the web client's files.
 
+.PARAMETER WebClientList
+  The web client's files as a LIST (dist\webclient.list.json: each file with where it is on this PC), not a ZIP: after the same checks, with no
+  ZIP of a gigabyte written. vps\windows\delta.py plan --list reads it and the host lays the files out itself. deploy-vps.ps1 uses this when
+  its delivery is a delta.
+
 .PARAMETER KeepStage
   Keep the staged folders after zipping, to look through them.
 
@@ -62,6 +67,7 @@ param(
     [ValidateSet('all', 'linux', 'windows')][string]$Target = 'all',
     [string]$OutDir,
     [switch]$WebClient,
+    [switch]$WebClientList,
     [switch]$KeepStage
 )
 
@@ -81,7 +87,7 @@ $Own = @{
     windows = @(@('vps\windows\README-WINDOWS.txt', 'README-WINDOWS.txt'), @('vps\windows\setup.ps1', 'setup.ps1'), @('vps\windows\setup.cmd', 'setup.cmd'),
                 @('vps\windows\Caddyfile.template', 'Caddyfile.template'), @('vps\windows\start-all.ps1', 'start-all.ps1'),
                 @('vps\windows\receive-deploy.ps1', 'receive-deploy.ps1'), @('vps\windows\code-check.ps1', 'code-check.ps1'),
-                @('vps\windows\restore-backup.ps1', 'restore-backup.ps1'), @('vps\windows\stop-all.ps1', 'stop-all.ps1'),
+                @('vps\windows\restore-backup.ps1', 'restore-backup.ps1'), @('vps\windows\stop-all.ps1', 'stop-all.ps1'), @('vps\windows\update-game.ps1', 'update-game.ps1'),
                 @('vps\windows\delta.py', 'delta.py'))
 }
 # the relay's files, picked by name: its service, never the helper, the tests or a real config
@@ -97,7 +103,7 @@ foreach ($n in $need) { if (-not (Test-Path -LiteralPath (Join-Path $Root $n))) 
 $lfsCheck = Join-Path $Root 'tools\check-lfs.ps1'
 if (-not (Test-Path -LiteralPath $lfsCheck)) { Fail "tools\check-lfs.ps1 is missing beside this script ($Root)" }
 $lfsPaths = @('h9web', 'havoc9.org', 'serverlist-bot', 'p2p', 'vps') | ForEach-Object { Join-Path $Root $_ }
-if ($WebClient) { $lfsPaths += Join-Path $Root 'webclient-build\stage' }
+if ($WebClient -or $WebClientList) { $lfsPaths += Join-Path $Root 'webclient-build\stage' }
 & $lfsCheck -Path $lfsPaths
 if ($LASTEXITCODE -ne 0) { Fail 'files this packs are Git LFS pointers or cut short (listed above); no ZIP was written' }
 
@@ -146,6 +152,32 @@ function Write-Zip([string]$zipPath, $entries, [string]$level) {
     } finally {
         $zip.Dispose()
     }
+}
+
+function ConvertTo-JsonString([string]$s) {
+    $s = $s.Replace('\', '\\').Replace('"', '\"')
+    if ($s -cmatch '[^\x20-\x7E]') { $s = [regex]::Replace($s, '[^\x20-\x7E]', [Text.RegularExpressions.MatchEvaluator]{ param($m) '\u' + ([int][char]$m.Value).ToString('x4') }) }
+    return '"' + $s + '"'
+}
+
+# entries: { Src = <file>; Entry = <path in the package, with />; When = <its date> }. A list for delta.py (plan --list), sorted so the same
+# files give the same list whatever order the disk listed them in.
+function Write-WebList([string]$Path, $Entries) {
+    $items = New-Object System.Collections.Generic.List[object]
+    foreach ($e in $Entries) { $items.Add($e) }
+    $items.Sort([Comparison[object]]{ param($a, $b) [string]::CompareOrdinal($a.Entry, $b.Entry) })
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append('{"format":1,"entries":[')
+    $first = $true
+    foreach ($e in $items) {
+        $w = [DateTime]$e.When
+        if ($w.Year -lt 1980 -or $w.Year -gt 2107) { $w = [DateTime]'1980-01-01T00:00:00' }
+        if (-not $first) { [void]$sb.Append(',') }
+        $first = $false
+        [void]$sb.Append('{"path":' + (ConvertTo-JsonString $e.Entry) + ',"src":' + (ConvertTo-JsonString $e.Src) + ',"time":[' + ('{0},{1},{2},{3},{4},{5}' -f $w.Year, $w.Month, $w.Day, $w.Hour, $w.Minute, $w.Second) + '],"attr":0,"system":0,"ct":8}')
+    }
+    [void]$sb.Append(']}')
+    [IO.File]::WriteAllText($Path, $sb.ToString(), (New-Object Text.UTF8Encoding($false)))
 }
 
 # The stock config.cfg, as the SHA-256 of the copy tools\make_webclient_game.py takes the stage's from, in its
@@ -267,33 +299,41 @@ foreach ($t in $Targets) {
     $made += $zipPath
 }
 
-if ($WebClient) {
+if ($WebClient -or $WebClientList) {
     $step++
-    $Name = "havoc9-vps-webclient-$build-$Stamp"
-    Say "$step. $Name"
+    # a list has no stamp in its names: the same files give the same list, so a release that did not touch the web client sends nothing for it
+    $Name = if ($WebClientList) { 'webclient' } else { "havoc9-vps-webclient-$build-$Stamp" }
+    Say "$step. $Name$(if ($WebClientList) { ' (a list, no ZIP)' })"
     $stageDir = Join-Path $Root 'webclient-build\stage'
     $tool = Join-Path $Root 'tools\make_webclient_game.py'
     if (-not (Test-Path -LiteralPath (Join-Path $stageDir 'manifest.json'))) { Fail "no $stageDir\manifest.json: build the web client first with build-webclient.cmd (docs\BUILDING.txt section 9)" }
     if (-not (Test-Path -LiteralPath $tool)) { Fail "no $tool" }
     $entries = New-Object System.Collections.Generic.List[object]
-    $entries.Add([pscustomobject]@{ Src = $tool; Entry = "$Name/tools/make_webclient_game.py" })
+    $entries.Add([pscustomobject]@{ Src = $tool; Entry = "$Name/tools/make_webclient_game.py"; When = (Get-Item -LiteralPath $tool).LastWriteTime })
     $stockHash = Get-StockConfigHash $Root
     $bad = New-Object System.Collections.Generic.List[string]
     foreach ($f in Get-ChildItem -LiteralPath $stageDir -Recurse -File -Force) {
         $rel = $f.FullName.Substring($stageDir.Length + 1) -replace '\\', '/'
         if (Test-StageFileRefused $f $rel $stockHash) { $bad.Add($rel) }
-        $entries.Add([pscustomobject]@{ Src = $f.FullName; Entry = "$Name/webclient-build/stage/$rel" })
+        $entries.Add([pscustomobject]@{ Src = $f.FullName; Entry = "$Name/webclient-build/stage/$rel"; When = $f.LastWriteTime })
     }
     if ($bad.Count -gt 0) {
         foreach ($x in $bad) { Write-Host "  [STOP] $x" -ForegroundColor Red }
         if ($bad -contains 'game/ts/config.cfg') { Write-Host "  game/ts/config.cfg ships only as TS 3.0's own, byte for byte: reTS\game\ts\config.cfg, else ts3.0\ts\config.cfg" }
-        Fail 'the web client stage holds files that never ship; no web client ZIP was written'
+        Fail 'the web client stage holds files that never ship; no web client ZIP or list was written'
     }
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-    $wcZip = Join-Path $OutDir ($Name + '.zip')
-    Write-Zip $wcZip $entries 'Fastest'
-    Say ("  {0} ({1:N0} MB, {2} files)" -f $wcZip, ((Get-Item -LiteralPath $wcZip).Length / 1MB), $entries.Count)
-    $made += $wcZip
+    if ($WebClientList) {
+        $listPath = Join-Path $OutDir 'webclient.list.json'
+        Write-WebList $listPath $entries
+        Say ("  {0} ({1:N0} files; no ZIP: delta.py plan --list reads it)" -f $listPath, $entries.Count)
+        $made += $listPath
+    } else {
+        $wcZip = Join-Path $OutDir ($Name + '.zip')
+        Write-Zip $wcZip $entries 'Fastest'
+        Say ("  {0} ({1:N0} MB, {2} files)" -f $wcZip, ((Get-Item -LiteralPath $wcZip).Length / 1MB), $entries.Count)
+        $made += $wcZip
+    }
 }
 
 if ($KeepStage) { Say "the staged folders stay: $Temp" } elseif (Test-Path -LiteralPath $Temp) { Remove-Item -LiteralPath $Temp -Recurse -Force }

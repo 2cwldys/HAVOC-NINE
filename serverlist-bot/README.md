@@ -84,6 +84,15 @@ The bot's status follows the list, checked every 15 seconds:
 Who may change the list: members with `role_id` (set in `serverlist.ini`), or, when that is
 empty, anyone with Manage Server.
 
+## The build in the bio
+
+The bot's About Me (its Discord profile) names the H9XASH build the site hands out: "Serving H9XASH 1.64". Only the About Me names it; the status line never does. The build
+comes from a file: `build_file` in `serverlist.ini` (on havoc9.org's Windows host `C:\havoc9\site\downloads\.build`, written by every delivery of `deploy-vps.ps1`). The bot
+looks at it every 15 seconds, and when the number changed it sets the bio and logs one line, "Discord: About Me now names H9XASH 1.64"; when Discord refuses, it logs why
+("About Me not changed") and tries again at the next look. So a version increase reaches the bio by itself: raise the build, deploy, and the line is in the bot's log a few seconds
+after the delivery. No restart and nothing to edit. `verify-release.ps1`, the last step of a deploy, waits up to two minutes for that line and prints PASS or FAIL for it.
+An empty `build_file` leaves the bio alone (a local test).
+
 ## Heartbeats
 
 A heartbeat adds a server. The list then keeps it the same way as any other, by querying it.
