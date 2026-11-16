@@ -147,6 +147,12 @@ echo [ts] p2p.ini says enabled=1, but the P2P helper cannot run here ^(see above
 
 :p2pdone
 
+REM ---- first-time setup: the Visual C++ runtime the bots need ----------------------------
+REM rcbot_mm.dll needs msvcp140.dll and vcruntime140.dll, which a fresh Windows (a new VPS) lacks; without them
+REM Windows will not load the plugin and the server says "Unknown command rcbot". h9_vcruntime.ps1 does nothing
+REM when this PC has them, and otherwise copies the pair the package carries (redist\vc14-x86) next to the game.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_vcruntime.ps1"
+
 REM ---- the certificates this PC trusts -------------------------------------------------
 REM The game checks havoc9.org's certificate against lists of its own (the game server's web
 REM module and the engine), not against Windows'. h9_cacerts.ps1 adds the certificates Windows

@@ -242,3 +242,6 @@ havoc9_vps*
 core.[0-9]*
 *.dmp
 *.mdmp
+# The Visual C++ runtime h9_vcruntime.ps1 copies next to HAVOC 9.exe on a PC without it (the tracked pair is H9XASH/redist/vc14-x86)
+/H9XASH/msvcp140.dll
+/H9XASH/vcruntime140.dll
