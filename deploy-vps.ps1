@@ -76,6 +76,33 @@ if (-not $NoBuild) {
     }
 }
 
+# 1b. the host's own scripts. receive-deploy.ps1 and delta.py are what answers and installs, and the host package installs them only AFTER the
+# receiver has run, so an older receiver meets a newer delivery: it refused the preset bundle ("a file this host does not take"). Before the host is
+# asked anything, any of the two that differs from this release's is sent and put in place. The host's SSH shell is cmd.
+if (-not $DryRun) {
+    $selfFiles = @('receive-deploy.ps1', 'delta.py')
+    $selfStale = New-Object System.Collections.Generic.List[string]
+    foreach ($n in $selfFiles) {
+        $local = Join-Path $Here ('vps\windows\' + $n)
+        if (-not (Test-Path -LiteralPath $local)) { Fail "no $local" }
+        $want = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()
+        $out = & ssh @ssh $sshHost "certutil -hashfile C:\havoc9\$n SHA256" 2>$null
+        $have = ''
+        if ($LASTEXITCODE -eq 0) { foreach ($l in $out) { $c = ([string]$l).Replace(' ', '').Trim().ToLowerInvariant(); if ($c -match '^[0-9a-f]{64}$') { $have = $c; break } } }
+        if ($have -ne $want) { $selfStale.Add($n) }
+    }
+    if ($selfStale.Count) {
+        Say "the host's own scripts differ from this release's: $($selfStale -join ', ')"
+        & ssh @ssh $sshHost 'mkdir C:\setup\incoming\self 2>nul & echo ok' | Out-Null
+        foreach ($n in $selfStale) {
+            & scp @ssh -q (Join-Path $Here ('vps\windows\' + $n)) "${sshHost}:C:/setup/incoming/self/$n"
+            if ($LASTEXITCODE) { Fail "scp of $n failed" }
+            & ssh @ssh $sshHost "copy /y C:\setup\incoming\self\$n C:\havoc9\$n"
+            if ($LASTEXITCODE) { Fail "could not put $n in place on the host" }
+        }
+    }
+}
+
 # 2. what the host has
 Say "asking $sshHost what it has"
 $remote = @{}

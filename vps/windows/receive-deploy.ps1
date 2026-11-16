@@ -293,7 +293,19 @@ if ($tars.Count) {
         $dest = Join-Path $Files $f.Name
         if (-not (Test-Path -LiteralPath $dest)) { Move-Item -LiteralPath $f.FullName -Destination $dest; $added++ }
     }
-    foreach ($b in $blobsWanted) { if (-not (Test-Path -LiteralPath (Join-Path $Files $b))) { Fail "updater file $b is named by the new release but is neither here nor in the delivery" } }
+    # a file the delta delivery already put in the store (the same file is in a client ZIP) is the updater's too: copied over, its name is its SHA-256
+    foreach ($b in $blobsWanted) {
+        $dest = Join-Path $Files $b
+        if (Test-Path -LiteralPath $dest) { continue }
+        $inStore = Join-Path (Join-Path $Store $b.Substring(0, 2)) $b
+        if (Test-Path -LiteralPath $inStore) {
+            if ((Sha $inStore) -ne $b) { Fail "the store's copy of $b is not what its name says" }
+            Copy-Item -LiteralPath $inStore -Destination ($dest + '.new') -Force
+            Move-Item -LiteralPath ($dest + '.new') -Destination $dest -Force
+            $added++
+        }
+    }
+    foreach ($b in $blobsWanted) { if (-not (Test-Path -LiteralPath (Join-Path $Files $b))) { Fail "updater file $b is named by the new release but is neither here nor in the delivery nor in the store" } }
     $mj = Join-Path $blobDir 'manifest.json'
     if (Test-Path -LiteralPath $mj) {
         Copy-Item -LiteralPath $mj -Destination (Join-Path $Files '.manifest.json.new') -Force
