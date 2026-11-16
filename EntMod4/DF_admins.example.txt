@@ -1,40 +1,38 @@
-// =====================================================================================
-// DF_admins.txt -- EntMod admin list (EXAMPLE). Deploy as addons/EntMod/DF_admins.txt.
+// ============================================================================
+//  EntMod admin list  --  copy this to:  addons/EntMod/DF_admins.txt
 //
-// One admin per line:
-//     <id>;<password>;<flags>
+//  Each line grants one person EntMod admin. Three fields, separated by ";" :
 //
-//   <id>        The identity that selects this line. EntMod accepts EITHER:
-//                 * the engine auth id from GETPLAYERAUTHID -- a SteamID on a Steam
-//                   server, or "ID_<32 hex>" on H9XASH; OR
-//                 * (HAVOC9 addition) the custom Xash id the H9 client publishes in the
-//                   "h9_clientid" userinfo key -- an account-derived id that survives an
-//                   IP change. See src/h9/h9_admin.cpp.
-//               "-1" is a wildcard that matches the LAN / invalid-auth-id sentinel.
+//        id ; password ; flags
+//        --   --------   -----
+//         |       |        '-- the powers to grant (a number; 65535 = everything)
+//         |       '----------- a password YOU invent for that person (see below)
+//         '------------------- WHO they are (their id)
 //
-//   <password>  The admin's secret. The player must set it on their client with:
-//                   setinfo _entpass <password>
-//               Compared case-insensitively. THIS is the real credential -- the id only
-//               chooses which line; a known id without the password grants nothing. So
-//               salting/hashing the id (as h9_clientid is) does not weaken access.
+//  --- field 1, the id --- use ONE of these to identify a person:
+//        STEAM_0:1:12345678                    a SteamID (on a Steam server)
+//        a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6      an H9XASH id (h9_clientid), 32 hex
+//        ID_0123456789abcdef0123456789abcdef   the engine's ID_ form
+//      On H9XASH prefer the h9_clientid: it follows the person's havoc9.org
+//      account and survives an IP change. Type `status` in the server console
+//      to see the ids of who is connected.
 //
-//   <flags>     The admin flag bits to grant, as a decimal number (see the EntMod docs /
-//               remo_guide.txt for the bit meanings). 65535 = all listed powers.
+//  --- field 2, the password --- IMPORTANT: this is NOT a fixed keyword. It is a
+//      secret string YOU choose for that admin (anything you like). The admin
+//      then types it once in their own game console:
+//            setinfo _entpass THE-SAME-PASSWORD
+//      The id only selects the line; this password is the actual key, so pick a
+//      real one and keep it private. It is compared case-insensitively.
 //
-// Lines starting with '#' or '//', and blank lines, are ignored.
-// =====================================================================================
+//  --- field 3, the flags --- 65535 grants every EntMod power.
+//
+//  Lines starting with # or // are ignored. EntMod re-reads this file every 10
+//  seconds -- no server restart needed after you edit it.
+// ============================================================================
 
-// --- 1) Steam server: selected by SteamID -------------------------------------------
-STEAM_0:1:12345678;changeme_steam;65535
+// Example: an H9XASH admin, identified by h9_clientid, whose password is
+// "my-entmod-pass" (replace BOTH the id and the password with your own):
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6;my-entmod-pass;65535
 
-// --- 2) H9XASH: selected by the custom Xash id (h9_clientid) -------------------------
-//     Account-derived and IP-stable. Read a player's value from their "h9_clientid"
-//     userinfo key. This is the recommended form on HAVOC9.
-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6;changeme_h9;65535
-
-// --- 3) H9XASH: selected by the engine auth id (ID_...) ------------------------------
-//     Tied to the install rather than the account; use when a player is not linked.
-ID_0123456789abcdef0123456789abcdef;changeme_id;255
-
-// --- 4) Wildcard (any id): for a LAN / listen server test only -- NOT for public use.
-// -1;changeme_lan;65535
+// Example: the same person identified by SteamID instead:
+STEAM_0:1:12345678;my-entmod-pass;65535
