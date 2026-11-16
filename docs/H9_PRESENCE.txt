@@ -132,9 +132,11 @@
    2. Load it: in /etc/h9web/config.json, "modules": [..., "presence"], then
       systemctl restart h9web. The tables are made on that start.
    3. Keys: none to make. Each dedicated server enrolls by itself (section
-      4a). One on servers.json goes live as soon as it proves its address;
-      any other waits until an H9 admin approves it on havoc9.org/community/
-      (H9 ADMIN, ENROLLED SERVERS), unless enrollAutoApprove is on. Enrolled
+      4a). It goes live as soon as it proves its address (enrollAutoApprove is on
+      by default; what it may say is judged by the official preset, section
+      4d). With enrollAutoApprove off, one not on servers.json waits until an
+      H9 admin approves it on havoc9.org/community/ (H9 ADMIN, ENROLLED
+      SERVERS). Enrolled
       keys are worked out from a secret h9web makes on its first start,
       /var/lib/h9web/modules/presence/enroll-key (mode 0600), and a salt per
       server: the keys themselves are stored nowhere on the VPS. A new
@@ -191,8 +193,9 @@
                          after it last said so (it says so every minute)
    enrollSameIp          true: a server enrolls only the address its request
                          comes from
-   enrollAutoApprove     false: a proven server not on servers.json waits for
-                         an admin; true: it goes live at once
+   enrollAutoApprove     true (the default): a proven server goes live at
+                         once; false: one not on servers.json waits for an
+                         admin
    enrollStaleDays 30, enrollPendingMinutes 60, enrollProbeSeconds 10,
    enrollProbeTimeoutMs 2500
    limits                reportPerIp, reportPerServer, readPerIp,
@@ -234,7 +237,8 @@
       h9web.
 
  The other cvars (h9_presence.cfg):
-   h9_presence_url        default https://havoc9.org/api/presence/report
+   h9_presence_url        default https://game.havoc9.org/api/presence/report (a DNS-only name with an IPv4 address and
+                        no IPv6 one: a server enrolls from its IPv4 address, and havoc9.org itself is answered over IPv6 too)
    h9_presence_interval   seconds between reports, 30 to 600 (default 60)
    h9_presence_challenge  1: the id proof (section 8); the default. With 0 no
                           one is proven and an announced id can be copied
@@ -276,9 +280,9 @@
       FWGS and HLDS ask for) at that exact address, at most every 10 seconds.
       The code there proves that whoever holds the key runs the server at
       that address.
-   4. The key goes live: at once for a server on servers.json (or with
-      enrollAutoApprove), otherwise once an H9 admin approves it on
-      havoc9.org/community/ (H9 ADMIN). The plugin clears the cvar, keeps
+   4. The key goes live at once (enrollAutoApprove, on by default; with it
+      off, a server not on servers.json waits until an H9 admin approves it
+      on havoc9.org/community/, H9 ADMIN). The plugin clears the cvar, keeps
       the key, the address, the server id and the state in
       addons\amxmodx\data\h9_presence.key, and starts reporting.
  A server h9web cannot reach (behind NAT, a LAN game) never proves its code.

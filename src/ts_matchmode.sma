@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "1.61"
+#define VERSION "1.63"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which
@@ -929,7 +929,7 @@ new g_cv_modelverify;
 new g_cv_modelfallback;
 new g_cv_prune, g_cv_prunedist;
 new g_cv_botreload;
-new g_cv_hoverinfo, g_cv_hoverrange, g_cv_hoverplaque, g_cv_hidenames;
+new g_cv_hoverinfo, g_cv_hoverrange, g_cv_hoverplaque, g_cv_hidenames, g_cv_hidedots;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
@@ -5620,8 +5620,8 @@ public plugin_precache()
 	}
 
 	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprites of the line along it, where the game has the model and TS's trail. TS's own trail
-	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the turret's line is the laser rifle's streak where the game has it, and a
-	// Mech's trail is H9's own picture of TS's (h9_bullet_trail.spr: the same soft ribbon at full brightness), else the same streak as the turret's.
+	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the line without H9's trail is the laser rifle's streak where the game has it,
+	// and the trail a Mech's bullet and the turret's both have is H9's own picture of TS's (h9_bullet_trail.spr: the same soft ribbon at full brightness), else that streak.
 	if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
 	{
 		if (file_exists("sprites/laserrifle_trail.spr", true))
@@ -6822,6 +6822,8 @@ public plugin_init()
 	g_cv_hoverplaque = register_cvar("tsm_hover_plaque", "1");
 	// On a roleplay map (Apollo RP in use) an H9 game draws none of the names TS puts over the player the crosshair is on.
 	g_cv_hidenames   = register_cvar("arp_h9_hidenames", "1");
+	// And, with team play on (Apollo RP's teams follow the jobs), the small green dot TS draws over each teammate's head.
+	g_cv_hidedots    = register_cvar("arp_h9_hideteamdots", "1");
 
 	g_cv_medheal  = register_cvar("tsm_medic_heal",     "50");
 	g_cv_medcool  = register_cvar("tsm_medic_cooldown", "15.0");
@@ -14592,7 +14594,8 @@ hover_plaque(id, hit, const hname[], const cname[], hp)
 /*
  * H9Look to every player whose game reads it (protocol 5), every second: which of the names TS draws over the player the crosshair is on to leave
  * out. A teammate's, in a live round, while the plaque above takes his place (tsm_hover_plaque); every name, on a roleplay map, where Apollo RP
- * says who anyone is (arp_h9_hidenames). The client believes the last word for 15 seconds.
+ * says who anyone is (arp_h9_hidenames); and, on a roleplay map, the green dot over each teammate (arp_h9_hideteamdots). The client believes the
+ * last word for 15 seconds.
  */
 public task_look_sync()
 {
@@ -14604,6 +14607,10 @@ public task_look_sync()
 	if (g_map_rp && get_pcvar_num(g_cv_hidenames))
 	{
 		flags |= 2;
+	}
+	if (g_map_rp && get_pcvar_num(g_cv_hidedots))
+	{
+		flags |= 4;
 	}
 	if (g_state == ST_LIVE && get_pcvar_num(g_cv_hoverinfo) && get_pcvar_num(g_cv_hoverplaque))
 	{
@@ -18054,9 +18061,9 @@ turret_seek(t, Float:muzzle[3])
  * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
  * the barrel to where the round went, with a line along its path. The turret's line is drawn at once
  * from the barrel to where the round went (g_turret_trail: the laser rifle's streak, else TS's
- * bullet_trail, which is faint). A Mech's (mech) is a trail that follows the bullet and fades out
- * behind it (g_mech_trail, H9's own sprite of TS's trail), and is the turret's line where the game
- * lacks that sprite. Only a picture: the round itself landed when it was fired. A plain tracer where
+ * bullet_trail, which is faint). With mech set, which a Mech's shot and the turret's both ask for, it
+ * is a trail that follows the bullet and fades out behind it (g_mech_trail, H9's own sprite of TS's
+ * trail), and is the line above where the game lacks that sprite. Only a picture: the round itself landed when it was fired. A plain tracer where
  * the game has no such files. The answer is the seconds the bullet's entity stays in the world, 0.0
  * for a picture that holds no entity (the plain tracer).
  */
@@ -18214,7 +18221,8 @@ turret_fire(t, Float:pivot[3], Float:yaw, Float:pitch)
 	new hit = get_tr2(0, TR_pHit);
 	get_tr2(0, TR_vecEndPos, end);
 
-	turret_trail(muzzle, end);
+	// the turret's shots look as the Mech's M60 does: the ribbon that follows the bullet (H9's own trail), else its own streak
+	turret_trail(muzzle, end, true);
 
 	if (g_turret_shots[t]++ % 2 == 0)
 	{

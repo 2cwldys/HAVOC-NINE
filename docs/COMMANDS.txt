@@ -3866,9 +3866,10 @@
  fade, so it is 200 units long, shorter than the 218 units between the rounds of a burst, and each bullet has a trail of
  its own. It has the shape of TS's own slow-motion trail (bullet_trail.spr), which peaks at a tenth of full brightness
  and cannot be seen as a line, drawn at a brightness that can; whoever sees the barrels sees it. Where the game lacks
- sprites/h9_bullet_trail.spr the Mech's bullet has the turret's line, the laser rifle's streak
- (sprites/laserrifle_trail.spr, drawn at once from the barrels to where the round lands, seen by everyone), which the
- turret's bullets keep in any case. A shot is the game library's fire event for a round of the M60, which it plays for a
+ sprites/h9_bullet_trail.spr the Mech's bullet has the laser rifle's streak
+ (sprites/laserrifle_trail.spr, drawn at once from the barrels to where the round lands, seen by everyone). The
+ Combat Engineer's sentry turret fires the same slow-motion bullet with the same trail (what whoever sees the
+ barrel sees), and has that streak where the game lacks the sprite. A Mech's shot is the game library's fire event for a round of the M60, which it plays for a
  bot as for a person. The sprite is made by tools/make-mechminigun-trail.py.
  One Mech can have up to tsm_mech_trail_max bullets in the air at once (each is an entity while it flies): a shot fired
  while all of them are still flying shows its flash and no bullet, and none is made within 64 places of the engine's
@@ -4276,6 +4277,18 @@
                                       more authenticated than that. In the
                                       server's rules (docs\H9_PRESENCE.txt
                                       section 4d)
+ h9_public                 0          1: this Create Game announces itself to
+                                      the H9 server list every 15 seconds,
+                                      so it is listed (in everyone's Internet
+                                      tab) and, on havoc9.org, public: its
+                                      players show under it. Its UDP port
+                                      must be open to the internet. 0: not
+                                      listed; the host's address is not
+                                      published. A dedicated server announces
+                                      itself through h9_heartbeat.ps1
+                                      (networking.ini heartbeat=1), not
+                                      through this. In the server's rules
+                                      (docs\H9_PRESENCE.txt section 4d)
  h9_preset                 (empty)    the game-mode preset this server runs
                                       (Assault, Siege, TeamElimination):
                                       havoc9.org judges its files against that

@@ -219,7 +219,7 @@
  Dedicated servers announce themselves. networking.ini's server lists (list_static,
  list_bot) are only what the CLIENT's Internet tab reads; the engine never sends them a
  heartbeat (its own master heartbeat is UDP, to UDP masters, and only with public 1). So
- h9xash_server.bat starts h9_heartbeat.ps1 beside the server: every two minutes while it
+ h9xash_server.bat starts h9_heartbeat.ps1 beside the server: every 15 seconds while it
  runs, it posts {"port": <its port>} to networking.ini's heartbeat_url
  (https://havoc9.org/serverlist) under [server]. The list takes the address the heartbeat
  comes from, queries it, and lists the server while it answers, so its UDP port must be open
@@ -233,7 +233,7 @@
  such heartbeats are queried at once. The key, servers.txt and /addserver are not held to
  them: a machine with more than eight servers heartbeats with the key.
  A heartbeat the list cannot answer (the server is loading a map) is tried again 15 seconds
- later, up to twelve times, and a server the list already knows stays listed for minutes
+ later, up to twelve times, and a server the list already knows stays listed for 45 seconds
  (expire_seconds) whatever one heartbeat does. The window says two things on two lines,
  which are not the same thing: the first line is the LIST (can players find the server),
  the second is havoc9.org's word on the server (the chain: authenticated, or not and why),

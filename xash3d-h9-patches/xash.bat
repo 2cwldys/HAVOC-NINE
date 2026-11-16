@@ -166,6 +166,7 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-glowfix.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-framesize.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-upscale.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatraise.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
@@ -184,9 +185,9 @@ if exist "build\c4che\_cache.py" findstr /C:"%FFMPEG%" "build\c4che\engine_cache
 if defined RECONF (
     call "%FWGS%\waf.bat" configure -s "%SDL%" -T release --msvc_prerelease --enable-ffmpeg --enable-ffmpeg-dlopen --ffmpeg-dir="%FFMPEG%" || (popd & exit /b 1)
 )
-call "%FWGS%\waf.bat" build || (popd & exit /b 1)
+call "%FWGS%\waf.bat" build -j4 || (popd & exit /b 1)
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
-call "%FWGS%\waf.bat" install --destdir="%STAGE%" || (popd & exit /b 1)
+call "%FWGS%\waf.bat" install -j4 --destdir="%STAGE%" || (popd & exit /b 1)
 popd
 
 if not exist "%H9%\valve" mkdir "%H9%\valve"

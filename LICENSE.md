@@ -111,11 +111,15 @@ their own permissive licenses, which ship in the Emscripten release that `build-
 | `AMBuild-LICENSE.txt` | AMBuild (the Linux build) | AMBuild's license |
 | `Emscripten-LICENSE.txt` | Emscripten, the web client's compiler and runtime (`webclient-bin/`) | MIT and University of Illinois/NCSA |
 | `Emscripten-emsdk-MIT.txt` | emsdk, the Emscripten SDK scripts (`emsdk/`) | MIT |
+| `OFL-Orbitron.txt`, `OFL-Rajdhani.txt`, `OFL-ShareTechMono.txt` | the website's three typefaces (`havoc9.org/assets/fonts/`), served from the site | SIL Open Font License 1.1 |
 | `Asset-PPSh-41-ATTRIBUTION.txt` | PPSh-41 weapon models (zillious) | Creative Commons, attribution |
 | `Asset-LaserRifle-ATTRIBUTION.txt` | laser rifle weapon models (Jett Spaulding) | Creative Commons, attribution |
 
 ## Everything else
 
+- **The website's fonts** (Orbitron, Rajdhani and Share Tech Mono, `havoc9.org/assets/fonts/`) are under the SIL Open Font License 1.1. It lets
+  them be bundled and redistributed with software as separate files, and that is how they are used: data served beside the site, not part of
+  its GPLv3 code, and not relicensed. Their license texts sit in that folder and in THIRD_PARTY_LICENSES/.
 - **Xash3D FWGS** (the engine) is a separate, nested project: see [H9XASH/UNLICENSED.MD](H9XASH/UNLICENSED.MD). The
   patches in `xash3d-h9-patches/` are patches to it.
 - **AMX Mod X** (`AMXMODX/`) is GPLv3 with its module exception (its license information is in the folder); **Metamod-R**

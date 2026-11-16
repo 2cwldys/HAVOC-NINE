@@ -321,7 +321,7 @@
       printErr: note,
       locateFile: (name) => new URL(name, engineBase).href,
       net: relayNet(settings.relay),
-      video: pageVideo(() => config.FS),
+      video: pageVideo(() => config.FS, () => menuVideo && menuVideo.name),
       motd: motdOverlay(),
       travel: travelReach(),
       avatar: avatarFeed(),
@@ -561,8 +561,9 @@
   // complete JPEG pictures, which the browser decodes itself. Any other AVI is refused and the menu
   // keeps its colour background (the packer re-encodes such a menu video to MJPEG when it can).
   // open(path) answers { handle, width, height }, frame() writes the picture due now into the engine's
-  // memory as RGBA when it is a new one, and the video loops at the AVI's own frame rate.
-  function pageVideo(fs) {
+  // memory as RGBA when it is a new one, and the menu's video loops at the AVI's own frame rate; any other video (the startup
+  // intro, ts_intro.avi) plays once, and frame() answers -1 when it is over so the engine goes on to the menu.
+  function pageVideo(fs, menuName) {
     const videos = new Map();
     let next = 1;
 
@@ -603,7 +604,9 @@
           note("page: " + path + " is not a Motion-JPEG AVI; the menu keeps its colour background");
           return null;
         }
-        const v = { count: avi.frames.length, frameMs: avi.frameUs / 1000, pictures: null, rgba: [], start: 0, last: -1, ctx: null, closed: false };
+        const wanted = String(menuName ? menuName() || "" : "").toLowerCase();
+        const loop = wanted !== "" && path.split("/").pop().toLowerCase() === wanted.split("/").pop();
+        const v = { count: avi.frames.length, frameMs: avi.frameUs / 1000, pictures: null, rgba: [], start: 0, last: -1, ctx: null, closed: false, loop };
         Promise.all(avi.frames.map(([at, size]) => createImageBitmap(new Blob([bytes.subarray(at, at + size)], { type: "image/jpeg" }))))
           .then((pictures) => {
             if (v.closed) pictures.forEach((p) => p.close());
@@ -619,7 +622,9 @@
         if (!v || !v.pictures) return false;
         const now = performance.now();
         if (!v.start) v.start = now;
-        const i = Math.floor((now - v.start) / v.frameMs) % v.count;
+        const n = Math.floor((now - v.start) / v.frameMs);
+        if (!v.loop && n >= v.count) return -1;
+        const i = n % v.count;
         if (i === v.last) return false;
         v.last = i;
         let px = v.rgba[i];

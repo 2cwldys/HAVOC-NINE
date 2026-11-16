@@ -59,7 +59,9 @@ features is finished in this order:
    touches the web client, `H9XASH-linux\` or the ZIPs.
 2. Check each feature on the Windows game as far as it can be checked without the owner's game (tests, headless servers, renders).
 3. Then, once, after the last feature: `node tools\webclient-sync.mjs`, then `build-linux.cmd -Stage`, which stages the three ZIPs.
-   `docs\H9_RELEASE.txt`, 2, has the same order for a release.
+   `docs\H9_RELEASE.txt`, 2, has the same order for a release. Shipping it to the site is `.\deploy-vps.ps1`, which
+   sends the build's official plugin list with it (the bullet on releases below): the list is never a separate chore.
+   `docs\SHIP_A_VERSION.txt` is the whole run in order (lock rule, commands, the site checks, pitfalls, recovery): read it before shipping.
 4. Report the batch with its parity state. While features are still being written, say plainly that the web client, `H9XASH-linux\`
    and the ZIPs are behind on purpose and what they will pick up, and never call a ZIP current before step 3.
 
@@ -195,14 +197,29 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   Pinned downloads (easy_http) are checked against the SHA-256 in `linux\build-linux.sh`.
 - A plugin, module or preset-list change ships with its hash: `build.bat` rewrites
   `H9XASH\presets\official-preset.json` (`tools\preset-check.mjs --write`); commit it with
-  the `.amxx` files (the workflow `preset-hash.yml` fails otherwise) and have an admin import
-  it into the site (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
+  the `.amxx` files (the workflow `preset-hash.yml` fails otherwise). The site's official plugin
+  list goes with the release, never by hand and never left for later: see the next bullet
+  (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
   `ts_matchmode.sma` (what the plugin registers, so what the site lists): bump it with the update.
   `stage-h9xash.ps1` does the bump and the hashes itself when it packs the ZIPs
   (`tools\release-prepare.mjs`, `docs\H9_RELEASE.txt` 5): a changed plugin or module since the last
   staged package raises the build by one, runs `build.bat` and `export.bat` under the heavy-job
   lock and writes the presets; `-NoPrepare` skips it, `-DryRun` only says what it would do. The
   join gate's release date (`h9_release.txt`) is never touched by it.
+- A release goes to havoc9.org with `.\deploy-vps.ps1` (`packaging.ini` says what it does): it stages the
+  ZIPs (the version bump and the presets come with the stage), packs the host packages, and delivers over
+  SSH only what changed (`vps\windows\delta.py`: the client ZIPs and the web client are rebuilt on the host
+  from recipes), the updater's files, and THE BUILD'S OFFICIAL PLUGIN LIST. That list (`tools\preset_bundle.py`:
+  every game mode, the Windows and the Linux build, plus the plugins of the default `plugins.ini` on the
+  shared list) is built and sent with every release and imported by the host's `receive-deploy.ps1`
+  (`preset-seed.js --import-bundle`, adds only). A rebuilt plugin has a new hash, so a release without its
+  list leaves its own servers "not authenticated" on the site: whenever the version goes up and the ZIPs are
+  staged, the list goes to the site in the same delivery. `[deploy] preset = 1` stays on; a delivery that
+  ends in `[FAIL] the plugin list was not imported` is not done. If a release is ever delivered in pieces
+  by hand, the list is one of the pieces: `python tools\preset_bundle.py --h9xash H9XASH --linux
+  H9XASH-linux --out F`, then on the host `node h9web\modules\presence\bin\preset-seed.js --import-bundle F
+  --config C:\havoc9\etc\config.json`. Check it: the site's servers page shows a server of this build as
+  `ok`, "the official preset".
 - `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
   N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
   rebuild, applies/verifies the whole patch chain above), then `export.bat`

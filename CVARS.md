@@ -37,6 +37,7 @@ The Xash3D FWGS engine of H9XASH, with the H9 patch chain in `xash3d-h9-patches/
 | `cl_h9_userid` | (empty) | H9: this install's regenerable client id -- see docs/CUSTOM_XASH_USERID.txt | `engine-h9-userid.patch` |
 | `con_shownotify` | `0` | draw console notify lines over the game | `engine-h9-consoleoverlay.patch` |
 | `h9_autoconfig` | `1` | H9: exec mapconfigs/&lt;mapname&gt;.cfg once the map and its plugins are up | `engine-h9-autoconfig.patch` |
+| `h9_chatraise` | `16` | raise the chat input line by this many pixels, clear of the HUD in the lower left | `engine-h9-chatraise.patch` |
 | `h9_upscale` | `1` | upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on) | `engine-h9-upscale.patch` |
 | `h9_upscale_sharp` | `0.84` | how strongly h9_upscale sharpens (RCAS): 0 none, 1 the most, 0.84 is AMD's recommended 0.25 stops | `engine-h9-upscale.patch` |
 | `ts_intro` | `1` | play the intro video before the main menu | `engine-h9-intro.patch` |
@@ -233,7 +234,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### h9_presence
 
-`src/h9_presence.sma`. Config: `h9_presence.cfg`. 13 cvars.
+`src/h9_presence.sma`. Config: `h9_presence.cfg`. 14 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
@@ -245,8 +246,9 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `h9_presence_key` | (empty) | a hand-made key; never shown |
 | `h9_presence_names` | `0` | 1: havoc9.org names on H9 maps (needs h9_presence_challenge 1) |
 | `h9_presence_server` | (empty) | a hand-made key's server: its public IPv4:port, as havoc9.org lists it |
-| `h9_presence_url` | `https://havoc9.org/api/presence/report` | Where reports go; without its /report, also where the server enrolls and where h9_community's calls go. |
+| `h9_presence_url` | `https://game.havoc9.org/api/presence/report` | Where reports go; without its /report, also where the server enrolls and where h9_community's calls go. |
 | `h9_preset` | (empty) | the game-mode preset this server runs (Assault, Siege, TeamElimination): havoc9.org judges its files against that mode's list and the shared one. |
+| `h9_public` | `0` | 1: this Create Game announces itself to the H9 server list every 15 seconds, so it is listed (in everyone's Internet tab) and, on havoc9.org, public: its |
 | `h9_require_account` | `0` | 1: havoc9.org accounts only. |
 | `h9_require_account_grace` | `45` | seconds a game has to prove its account (10 to 300) |
 | `h9_require_release` | `1` | 0: any game may join. |
@@ -357,12 +359,13 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### ts_matchmode
 
-`src/ts_matchmode.sma`. Config: `ts_matchmode.cfg`. 286 cvars.
+`src/ts_matchmode.sma`. Config: `ts_matchmode.cfg`. 287 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
 | `amx_tsm_forcedoor` | `0` | 1 lets an admin's tsm_opendoor work |
 | `arp_h9_hidenames` | `1` | on a roleplay map (Apollo RP in use) an H9 game draws none of the names TS puts over the player the crosshair is on (red for anyone there, there being no sides); 0: TS's names as before. |
+| `arp_h9_hideteamdots` | `1` | (no description yet) |
 | `h9_customhands` | `1` | custom first-person hands and kicking legs: 1 a black glove and sleeve, by side in a match (MSR a blue cuff, the Insurgents green) and with no stripe in normal TS and |
 | `h9_fog_b` | `0` | (no description yet) |
 | `h9_fog_density` | `0` | (no description yet) |

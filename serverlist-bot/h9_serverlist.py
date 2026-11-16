@@ -157,17 +157,15 @@ def plural(count, word):
 
 def status_for(served, answering, silent, list_ok):
     """
-    The bot's Discord status as (status, text). "dnd" (red) while the list cannot be reached
-    at public_url, or while servers are on it and none of them answers; "online" (green) while
-    a server on the list answers; "idle" (yellow) when nothing is on the list. While the bot
-    itself is down, Discord shows it offline (grey) on its own.
+    The bot's Discord status as (status, text). "dnd" (red) only while the list itself cannot be reached at public_url;
+    "online" (green) while a server on the list answers; "idle" (yellow) when nothing is on it. A server that does not
+    answer is not on the list, so there is nothing to call unreachable. While the bot itself is down, Discord shows it
+    offline (grey) on its own.
     """
     if not list_ok:
         return "dnd", "server list unreachable"
     if answering:
         return "online", "Tracking " + plural(max(served, answering), "server")
-    if silent:
-        return "dnd", plural(silent, "server") + " unreachable"
     return "idle", "no servers to track"
 
 
@@ -247,6 +245,7 @@ class Settings:
         self.heartbeats_per_minute = ini.getint("http", "heartbeats_per_minute", fallback=60)
         self.guild_id = ini.get("discord", "guild_id", fallback="").strip()
         self.role_id = ini.get("discord", "role_id", fallback="").strip()
+        self.build_file = ini.get("discord", "build_file", fallback="").strip()
         self.heartbeat_key = secrets.get("secrets", "heartbeat_key", fallback="").strip()
         self.discord_token = (secret_from_service("H9_DISCORD_TOKEN", "discord_token")
                               or secrets.get("secrets", "discord_token", fallback="").strip())
@@ -435,30 +434,20 @@ class ServerList:
                 self.entries.pop(key, None)
 
     def live(self, gamedir):
-        """The servers in this game folder that answered within expire_seconds."""
-        now = time.time()
+        """
+        The servers in this game folder that answered their last query. A server that does not answer is not on the list, at
+        once: it stays queried (a seed or a keyed one), or goes with its next heartbeat, and is back the moment it answers.
+        """
         return [entry for entry in self.entries.values()
-                if entry["folder"] == gamedir
-                and entry["seen"]
-                and now - entry["seen"] <= self.settings.expire_seconds]
+                if entry["folder"] == gamedir and entry["seen"] and entry.get("answering")]
 
     def standing(self, gamedir):
         """
-        (served, answering, silent) for the Discord status: how many servers the list serves
-        now (as live() counts them), how many answered at one of the last two polls, and how
-        many are on the list without having answered in that time.
+        (served, answering, silent) for the Discord status: the servers the list serves now, which are the ones that answered
+        their last query, and no silent ones: a server that does not answer is not on the list.
         """
-        now = time.time()
-        recent = 2 * (self.settings.poll_seconds + self.settings.probe_timeout)
-        answering = silent = 0
-        for entry in self.entries.values():
-            if entry["folder"] not in (gamedir, ""):        # "" is a seed that has not answered yet
-                continue
-            if entry["seen"] and now - entry["seen"] <= recent:
-                answering += 1
-            else:
-                silent += 1
-        return len(self.live(gamedir)), answering, silent
+        answering = len(self.live(gamedir))
+        return answering, answering, 0
 
     def refusal(self, host, port, open_):
         """
@@ -516,6 +505,7 @@ class ServerList:
         entry = self.entries.get(address) or new_entry(host, port, source, open_)
         entry.update(info)
         entry["seen"] = time.time()
+        entry["answering"] = True
         self.entries[address] = entry
         log(f"listed {address} ({entry['name']}, {entry['map']}) from {source}")
         return entry, None
@@ -578,9 +568,16 @@ class ServerList:
         now = time.time()
         for key, info in zip(keys, infos):
             entry = self.entries.get(key)
-            if entry is not None and info is not None:
+            if entry is None:
+                continue
+            if info is not None:
                 entry.update(info)
                 entry["seen"] = now
+                entry["answering"] = True
+            else:
+                if entry.get("answering"):
+                    log(f"off the list: {key} does not answer")
+                entry["answering"] = False
         for key, entry in list(self.entries.items()):
             if now - (entry["seen"] or entry["added"]) > self.settings.expire_seconds:
                 log(f"dropped {key}: no answer for {self.settings.expire_seconds:g} s")
@@ -594,8 +591,9 @@ def make_app(state, settings):
     app["settings"] = settings
     app["fails"] = {}                                       # address -> [wrong keys, when the window started]
     app["rates"] = {}                                       # address -> [heartbeats without the key, when the window started]
-    app.router.add_get("/v1/servers/{gamedir}", handle_list)
+    # the .json list first: "{gamedir}" would otherwise take "ts.json" as a gamedir of its own and answer 404
     app.router.add_get("/v1/servers/{gamedir}.json", handle_list_json)
+    app.router.add_get("/v1/servers/{gamedir}", handle_list)
     app.router.add_post("/v1/heartbeat", handle_heartbeat)
     return app
 
@@ -777,6 +775,12 @@ async def handle_heartbeat(request):
             log(f"heartbeat from {sender} refused: more than {settings.heartbeats_per_minute} in {HEARTBEAT_RATE_WINDOW} s")
         return web.json_response({"ok": False, "error": "too many heartbeats from this address; wait"},
                                  status=429, headers={"Retry-After": str(HEARTBEAT_RATE_WINDOW)})
+    if body.get("closing") is True:
+        # the server says it is shutting down: off the list at once (the next query would find it gone, and so would a crash)
+        gone = request.app["state"].remove(target)
+        if gone:
+            log(f"off the list: {target[0]}:{target[1]} said it is closing")
+        return web.json_response({"ok": True, "closed": bool(gone)})
     entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}", open_=not keyed)
     if entry is None:
         return web.json_response({"ok": False, "error": reason}, status=403 if reason == BLACKLISTED else 422)
@@ -862,13 +866,22 @@ def make_bot(state, settings):
             self.shown = None                               # the (status, text) Discord shows now
             self.list_ok = True                             # the last public_url check; true when there is none
             self.status_task = None
+            self.bio_build = None                           # the build the bot's About Me names now
             register_commands(self.tree, state, settings)
 
         async def setup_hook(self):
             if settings.guild_id:
                 guild = discord.Object(id=int(settings.guild_id))
                 self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
+                try:
+                    await self.tree.sync(guild=guild)
+                except discord.Forbidden:
+                    # the bot is not in that server yet (or was invited without applications.commands):
+                    # the commands go everywhere the bot is, and the list keeps running
+                    log(f"Discord: no access to the server guild_id {settings.guild_id} names (invite the bot there, "
+                        f"with the applications.commands scope); the commands are registered globally instead")
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync()
             else:
                 await self.tree.sync()
             self.status_task = asyncio.create_task(self.keep_status())
@@ -892,6 +905,9 @@ def make_bot(state, settings):
                         self.list_ok = await list_reachable(settings)
                         checked = time.monotonic()
                     wanted = status_for(*state.standing(settings.gamedir), self.list_ok)
+                    build = served_build(settings)
+                    if build and build != self.bio_build:
+                        await self.set_bio(build)                   # About Me only: the status line stays as it was
                     if wanted != self.shown:
                         await self.change_presence(status=discord.Status(wanted[0]),
                                                    activity=discord.CustomActivity(name=wanted[1]))
@@ -901,7 +917,33 @@ def make_bot(state, settings):
                     log(f"Discord: status not changed: {exc}")
                 await asyncio.sleep(STATUS_SECONDS)
 
+        async def set_bio(self, build):
+            """The bot's About Me: the H9XASH build the site hands out. Tried again next time when it fails."""
+            try:
+                app = await self.application_info()
+                await app.edit(description=f"The H9 server list for HAVOC 9: every H9 game server, live. "
+                                           f"Serving H9XASH {build}: https://havoc9.org/downloads/")
+                self.bio_build = build
+                log(f"Discord: About Me now names H9XASH {build}")
+            except Exception as exc:                        # noqa: BLE001
+                log(f"Discord: About Me not changed: {exc}")
+
     return ListBot()
+
+
+def served_build(settings):
+    """
+    The H9XASH build the site hands out, from build_file in serverlist.ini (on havoc9.org's host the
+    site's file downloads/.build, which a delivery writes), or None: no file, or not a build number.
+    """
+    if not settings.build_file:
+        return None
+    try:
+        with open(settings.build_file, encoding="ascii", errors="replace") as f:
+            text = f.readline().strip()
+    except OSError:
+        return None
+    return text if re.fullmatch(r"[0-9][A-Za-z0-9._-]{0,31}", text) else None
 
 
 async def poll_forever(state):

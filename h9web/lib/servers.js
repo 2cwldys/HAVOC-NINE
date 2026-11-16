@@ -25,6 +25,8 @@
 // the presence module says whether the server is authenticated (auth: ok, rp, mod or off).
 
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
 import { queryRules as defaultQueryRules } from "./a2s.js";
@@ -201,7 +203,7 @@ export function parseInfoReply(buf) {
 }
 
 export class StatusPoller {
-  constructor({ servers, log = null, pollSeconds = 30, timeoutMs = 1500, expireSeconds = 120, rulesSeconds = 60, gamedir = "ts", queryRules = defaultQueryRules }) {
+  constructor({ servers, log = null, pollSeconds = 30, timeoutMs = 1500, expireSeconds = 120, rulesSeconds = 60, gamedir = "ts", queryRules = defaultQueryRules, feedUrl = "", feedSeconds = 15 }) {
     this.servers = servers;
     this.log = log;
     this.pollMs = pollSeconds * 1000;
@@ -210,6 +212,11 @@ export class StatusPoller {
     this.rulesMs = rulesSeconds * 1000;
     this.queryRules = queryRules;
     this.gamedir = gamedir;
+    // the servers the H9 server list names (feedUrl), board-only: they are never in the relay's or presence's list
+    this.feedUrl = feedUrl;
+    this.feedMs = Math.max(5, Number(feedSeconds) || 15) * 1000;
+    this.feed = [];
+    this.feedTimer = null;
     // target key -> { sentAt, answer, answeredAt, ping, missedAt, rulesAt, rulesBusy, requireAccount }
     this.state = new Map();
     this.boardFilters = new Set(); // modules' fn(address) -> true: not on the board
@@ -220,10 +227,11 @@ export class StatusPoller {
 
   // Whether a module's filter keeps the server at this address off the board. A filter that
   // throws hides nothing.
-  hiddenFromBoard(address) {
+  // source is "feed" for a server the H9 server list names (its operator announced it there), else undefined.
+  hiddenFromBoard(address, source) {
     for (const fn of this.boardFilters) {
       try {
-        if (fn(address)) return true;
+        if (fn(address, source)) return true;
       } catch (e) {
         /* that module's own trouble */
       }
@@ -256,11 +264,57 @@ export class StatusPoller {
     this.timer = setInterval(() => this.poll(), this.pollMs);
     this.timer.unref();
     setTimeout(() => this.poll(), 200).unref();
+    if (this.feedUrl) {
+      this.feedTimer = setInterval(() => this.refreshFeed(), this.feedMs);
+      this.feedTimer.unref();
+      setTimeout(() => this.refreshFeed(), 300).unref();
+    }
+  }
+
+  // The H9 server list's JSON (serverlist-bot's GET /v1/servers/<gamedir>.json), read from this machine's own list (or any https
+  // address), kept as plain, checked fields: an address that is a public IPv4:port, text cut short, numbers made numbers. A list
+  // that does not answer leaves the last answer for expireSeconds and then nothing.
+  // Whether the H9 server list names this address now: its operator announced it there, which is choosing to be public.
+  isFeedListed(address) {
+    const t = Date.now();
+    return this.feed.some((f) => f.address === address && t - f.at <= this.expireMs);
+  }
+
+  refreshFeed() {
+    let u;
+    try {
+      u = new URL(this.feedUrl);
+    } catch (e) {
+      return;
+    }
+    const local = u.protocol === "http:" && (u.hostname === "127.0.0.1" || u.hostname === "localhost");
+    if (!local && u.protocol !== "https:") return;
+    const req = (u.protocol === "https:" ? https : http).get(u, { timeout: 5000, headers: { accept: "application/json" } }, (res) => {
+      const chunks = [];
+      let size = 0;
+      res.on("data", (c) => {
+        size += c.length;
+        if (size > 262144) return res.destroy();
+        chunks.push(c);
+      });
+      res.on("end", () => {
+        if (res.statusCode !== 200) return;
+        try {
+          this.feed = cleanFeed(JSON.parse(Buffer.concat(chunks).toString("utf8")), Date.now());
+        } catch (e) {
+          if (this.log) this.log.warn("status.feed", { error: e.message });
+        }
+      });
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => {});
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.feedTimer) clearInterval(this.feedTimer);
+    this.feedTimer = null;
     if (this.socket) {
       try { this.socket.close(); } catch (e) { /* already closed */ }
     }
@@ -363,6 +417,33 @@ export class StatusPoller {
         players: a.players, max: a.max, bots: a.bots, ping_ms: st.ping, online: true, requireAccount: !!st.requireAccount,
       });
     }
+    // the servers the H9 server list names that servers.json does not: its fields as it measured them, and what the modules add
+    const known = new Set(servers.map((s) => s.address));
+    for (const f of this.feed) {
+      if (known.has(f.address) || t - f.at > this.expireMs || this.hiddenFromBoard(f.address, "feed")) continue;
+      known.add(f.address);
+      const { at, ...fields } = f;
+      servers.push({ ...this.notesFor(f.address), ...fields, online: true, requireAccount: false });
+    }
     return { gamedir: this.gamedir, generated: new Date(t).toISOString().replace(/\.\d+Z$/, "Z"), servers };
   }
+}
+
+// What the H9 server list's JSON may put on the board: only these fields, each cut to what it can be, and only public IPv4 addresses.
+export function cleanFeed(raw, now = Date.now()) {
+  const list = raw && Array.isArray(raw.servers) ? raw.servers : [];
+  const text = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, n);
+  const num = (v, max) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : 0; };
+  const out = [];
+  for (const s of list.slice(0, 200)) {
+    if (!s || typeof s !== "object") continue;
+    const a = parseAddress(s.address);
+    if (!a || unusable(a)) continue;
+    const ping = Number(s.ping_ms);
+    out.push({
+      address: a.key, kind: s.kind === "gs" ? "gs" : "ip", name: text(s.name, 64) || a.key, map: text(s.map, 64), mode: text(s.mode, 48),
+      players: num(s.players, 255), max: num(s.max, 255), bots: num(s.bots, 255), ping_ms: Number.isFinite(ping) && ping >= 0 ? Math.min(Math.floor(ping), 9999) : null, at: now,
+    });
+  }
+  return out;
 }

@@ -25,6 +25,15 @@ inline int TextW(const char* s)
 	return g_textW ? g_textW(s) : (int)strlen(s) * 8;
 }
 
+// The arrow of a row that opens a page of choices is drawn from fills, a chevron: the HUD font's '>' came out as a colon on screen.
+// Its height is odd so that the tip is one row; the stroke is 2 pixels wide.
+inline int ChevronH(int charH)
+{
+	const int h = (charH * 2 / 3) | 1;
+	return h < 5 ? 5 : h;
+}
+inline int ChevronW(int charH) { return (ChevronH(charH) - 1) / 2 + 2; }
+
 struct IRect
 {
 	int x, y, w, h;
@@ -120,7 +129,7 @@ inline CtxLayout BuildLayout(const Model& md, int sw, int sh, int charH, float u
 	Upper(md.title, head, sizeof(head));
 	Upper(md.sub, sub, sizeof(sub));
 	int wide = MaxInt(TextW(head), L.subOn ? TextW(sub) : 0) + 2 * m.pad + 3;
-	const int arrowW = TextW(">");
+	const int arrowW = ChevronW(m.ch);
 	for (int i = 0; i < md.numRows; i++)
 	{
 		const Row& r = md.rows[i];
@@ -356,7 +365,8 @@ struct Painter
 			Txt(tx, L.title.y + m.titleH - 1, sub, DET, p.R() - m.pad);
 
 		// the rows
-		const int arrowW = cv.TextW(">");
+		const int arrowW = ChevronW(m.ch);
+		const int arrowH = ChevronH(m.ch);
 		for (int i = 0; i < md.numRows; i++)
 		{
 			const Row& r = md.rows[i];
@@ -383,7 +393,13 @@ struct Painter
 			int right = rr.R() - m.pad;
 			if (r.flags & F_MORE)
 			{
-				Txt(right - arrowW, ty, ">", on ? LIT : OFF, rr.R());
+				const Col& ac = on ? LIT : OFF;
+				const int ax = right - arrowW, ay = ty + (m.ch - arrowH) / 2;
+				for (int k = 0; k < arrowH; k++)
+				{
+					const int d = k < arrowH - 1 - k ? k : arrowH - 1 - k;
+					cv.Fill(ax + d, ay + k, 2, 1, ac.r, ac.g, ac.b, 255);
+				}
 				right -= arrowW + m.gap;
 			}
 			if (r.note[0])

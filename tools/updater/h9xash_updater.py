@@ -29,6 +29,7 @@ import urllib.request
 import zipfile
 
 import h9link
+import h9tls
 
 VERSION = '1.1.0'
 WEB_URL = 'https://havoc9.org/files/'
@@ -638,7 +639,7 @@ class ZipSource(Source):
             headers['If-Modified-Since'] = meta['last_modified']
         LOG.say('Checking %s ...' % self.url)
         try:
-            resp = urllib.request.urlopen(urllib.request.Request(self.url, headers=headers), timeout=60)
+            resp = h9tls.urlopen(urllib.request.Request(self.url, headers=headers), 60)
         except urllib.error.HTTPError as e:
             if e.code == 304 and have:
                 return self._done(meta, 'unchanged since the last download')
@@ -743,7 +744,7 @@ class WebSource(Source):
     def _open(self, name, headers=None):
         h = dict(WEB_HEADERS)
         h.update(headers or {})
-        return urllib.request.urlopen(urllib.request.Request(self.url + name, headers=h), timeout=60)
+        return h9tls.urlopen(urllib.request.Request(self.url + name, headers=h), 60)
 
     def sync(self):
         os.makedirs(self.dir, exist_ok=True)

@@ -29,5 +29,6 @@
       "bind": { "udp": { "host": "0.0.0.0", "port": 27248 } }
     }
   },
+  "status": { "feedUrl": "http://127.0.0.1:8081/v1/servers/ts.json" },
   "logLevel": "info"
 }

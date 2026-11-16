@@ -130,7 +130,7 @@ export const DEFAULTS = Object.freeze({
   // unproven enrollment is forgotten after this long; the rules are asked at most this often, and
   // waited for this long
   enrollSameIp: true,
-  enrollAutoApprove: false,
+  enrollAutoApprove: true,
   enrollStaleDays: 30,
   enrollPendingMinutes: 60,
   enrollProbeSeconds: 10,
@@ -379,7 +379,10 @@ export function createPresence(deps) {
   // A private community's server (community.js), and a listen server (Create Game, enroll.js: its
   // address is a player's own): left out of everything public, as a hidden "where" is. A private
   // community's members see its servers on the community's own page.
-  const privateServer = (key) => !!community.privateCommunityOf(key) || enrollment.isListen(key);
+  // A Create Game is private, its players "elsewhere", unless its host announced it to the H9 server list, which is asking to be shown; a
+  // private community's server stays private either way.
+  const announced = (key) => !!(servers && typeof servers.announced === "function" && servers.announced(key));
+  const privateServer = (key) => !!community.privateCommunityOf(key) || (enrollment.isListen(key) && !announced(key));
 
   // The official preset (preset.js): which servers are authenticated, for the game's server browser and
   // for rated play.
@@ -1748,7 +1751,11 @@ export function createPresence(deps) {
     if (!confirmAdmin) log.warn("presence.core_hook_missing", { hook: "auth.confirmAdmin", effect: "move-id and reset-id answer 503" });
     netKey = loadNetKey(deps.dataDir, log);
     // the site's server board (/api/servers) leaves out what presence keeps private (lib/modules.js)
-    if (servers && typeof servers.hideFromBoard === "function") offBoard = servers.hideFromBoard((address) => privateServer(address));
+    // a Create Game is private (its host did not ask to be listed); one that announced itself to the H9 server list asked to be shown,
+    // and only a private community's server stays off the board then
+    if (servers && typeof servers.hideFromBoard === "function") {
+      offBoard = servers.hideFromBoard((address, source) => (source === "feed" ? !!community.privateCommunityOf(address) : privateServer(address)));
+    }
     // and says on it whether each server is authenticated (preset.js): the site's chain beside the name
     if (servers && typeof servers.annotateBoard === "function") {
       offNotes = servers.annotateBoard((address) => {
