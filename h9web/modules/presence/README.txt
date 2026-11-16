@@ -248,7 +248,7 @@
    proofMaxAgeSeconds 600      sweepSeconds 30     sessionRetentionDays 90
    netRetentionDays 30    flagRetentionDays 90  batchMax 50   cacheSeconds 15
    mapPicturesDir null (an absolute path)   mapPicturesUrl "/assets/maps/"
-   enrollSameIp true      enrollAutoApprove false    enrollStaleDays 30
+   enrollSameIp true      enrollAutoApprove true     enrollStaleDays 30
    enrollPendingMinutes 60   enrollProbeSeconds 10   enrollProbeTimeoutMs 2500
    pollHoldSeconds 20     chatMaxChars 120      chatRetentionDays 7
    chatCooldownSeconds 2  dataValueMax 512      dataKeysPerAccount 64

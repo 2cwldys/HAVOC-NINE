@@ -130,7 +130,7 @@ export const DEFAULTS = Object.freeze({
   // unproven enrollment is forgotten after this long; the rules are asked at most this often, and
   // waited for this long
   enrollSameIp: true,
-  enrollAutoApprove: false,
+  enrollAutoApprove: true,
   enrollStaleDays: 30,
   enrollPendingMinutes: 60,
   enrollProbeSeconds: 10,

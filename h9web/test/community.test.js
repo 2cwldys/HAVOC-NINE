@@ -161,13 +161,31 @@ async function enroll(t, rules) {
   return { server: r.json.server, key: r.json.key, serverId: r.json.serverId, status: st.json.status, code: r.json.code };
 }
 
+describe("enrollment with the default: the official preset, not an admin, decides", () => {
+  test("a proven server is live at once and reports without anyone approving it", async () => {
+    const rules = await fakeRules();
+    const u = await app({ servers: [] });
+    try {
+      const e = await enroll(u, rules);
+      assert.equal(e.status, "active", "proven is enough");
+      assert.equal((await report(u, e.server, e.key, [])).status, 200, "its report is taken");
+      // a row that waited for an admin before the setting was on is live too
+      u.app.db.prepare("UPDATE presence_enrolled SET approved = 0 WHERE server = ?").run(e.server);
+      assert.equal((await report(u, e.server, e.key, [])).status, 200, "an unapproved row reports all the same");
+    } finally {
+      await u.close();
+      rules.close();
+    }
+  });
+});
+
 describe("enrollment: a key without anyone typing it", () => {
   let t;
   let rules;
   let admin;
   before(async () => {
     rules = await fakeRules();
-    t = await app({ servers: [] });
+    t = await app({ servers: [], settings: { enrollAutoApprove: false } }); // the admin approval path; the default is tested below
     admin = await adminCookie(t, "Oracle");
   });
   after(async () => {

@@ -8,9 +8,9 @@
 //      A2S_RULES over UDP (a2s.js); the code in the answer proves the address answers to whoever
 //      holds the key. A code anyone reads from the rules is worth nothing without the key, and a
 //      key for an address the asker does not run never sees its code there.
-//   3. Proven: a server on servers.json goes live at once; any other waits for an admin
-//      (enrollAutoApprove switches that off). The plugin keeps the key in its data folder and
-//      clears the cvar.
+//   3. Proven: the server goes live at once (enrollAutoApprove, on by default: what a server may say is judged by the
+//      official preset, not by an admin's click; off, a server not on servers.json waits for an admin). The plugin keeps
+//      the key in its data folder and clears the cvar.
 // A listen server (Create Game; h9_presence 1.4, docs\H9_PRESENCE.txt section 8a) enrolls the same
 // way with { listen: true }, always for the caller's own IP, and proves itself differently: h9web
 // answers with a nonce as well, the plugin hands it to its own player over loopback (h9_idlisten, the
@@ -144,12 +144,15 @@ export function createEnrollment(deps) {
 
   // The key a report must be signed with, and whether it may report: a hand-made key for a server
   // on servers.json; an enrolled one once proven and approved.
+  // an enrolled key may report once approved: by an admin, or by the setting (so a row that waited before the setting went on is live too)
+  const approvedRow = (row) => !!row.approved || !!s.enrollAutoApprove;
+
   function reportKey(server) {
     const manual = servers && servers.get(server) ? keys.get(server) : null;
     if (manual) return { key: manual, state: "active", manual: true };
     const row = q.row.get(server);
     if (!row || !row.live_salt) return { key: null, state: row && row.pend_salt ? "not_enrolled" : null };
-    return { key: keyFrom(server, row.live_salt), state: row.approved ? "active" : "pending_approval" };
+    return { key: keyFrom(server, row.live_salt), state: approvedRow(row) ? "active" : "pending_approval" };
   }
 
   // Every key that may sign a signed server call: the live one (hand-made or enrolled, approved),
@@ -223,7 +226,7 @@ export function createEnrollment(deps) {
   function statusOf(row) {
     if (!row) return "unknown";
     if (row.blocked) return "blocked";
-    if (row.live_salt) return row.approved ? "active" : "pending_approval";
+    if (row.live_salt) return approvedRow(row) ? "active" : "pending_approval";
     if (row.pend_salt) return "pending_proof";
     return "unknown";
   }
@@ -400,7 +403,7 @@ export function createEnrollment(deps) {
   // The enrolled or hand-keyed server's row, for the views: { serverId, approved } or null.
   function enrolled(server) {
     const r = q.row.get(server);
-    return r && r.live_salt && !r.blocked ? { serverId: r.server_id, approved: !!r.approved } : null;
+    return r && r.live_salt && !r.blocked ? { serverId: r.server_id, approved: approvedRow(r) } : null;
   }
 
   return { reportKey, candidates, serverIdFor, markReport, enrolled, isListen, sweep, start, byServerId: (id) => q.byId.get(String(id)) || null };
