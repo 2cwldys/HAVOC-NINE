@@ -98,6 +98,7 @@ The name of a map decides which game it plays; [docs/GAME_MODES.txt](docs/GAME_M
 | **Race and Rally** | `rc_` | A map with a `race_rules` entity runs a race: a countdown, checkpoints in order, laps and places. In rally mode each player is a rally car, picked and tuned in the car menu, with chase, bonnet, TV and interior views. The kill key puts the car back at the last checkpoint. The test stage is `rc_rally01`. |
 | **The game as it ships** | `dm_`, `tdm_`, `ts_`, `h9_dm_`, `h9_tdm_`, `h9_ctb_`, `ctb_`, `ctf_` | The Specialists' own deathmatch, team deathmatch and Capture the Briefcase, left as TS plays them. A map with any other name plays the game as it ships too. |
 | **Roleplay** | `rp_`, `tsrp_` | Includes the Apollo RP scripts, played on the roleplay maps. It plays as normal Apollo RP or with H9's additions, by cvar. |
+| **EntMod** | `*entmap*` | An entity-building sandbox for admins: on any map whose name holds `entmap`, the EntMod and HookMod tools come on, to move, spawn, save and reload map entities. The server de-ranks while it runs (no career XP or ELO). |
 
 ## What is in it
 

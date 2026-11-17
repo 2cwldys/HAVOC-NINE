@@ -15,11 +15,11 @@ Deployed file : addons/EntMod/dlls/EntMod_i386.so
 Built by      : EntMod4/src/build-linux.sh (make -C EntMod4/src/EntMod4, g++ -m32)
                 -> EntMod4/dist/EntMod_i386.so, deployed to H9XASH/ts/addons/EntMod/dlls and
                 EntMod4/unix/addons/EntMod/dlls.
-Size          : 141660 bytes
-SHA256        : 2CB4982BAEDE751DACB94DDFCEA11C964BD76E1CE1D16F285B0DAB7F8481EEA7
+Size          : 141708 bytes
+SHA256        : 9AC40CDEF66840BAC423D0C6E65E7CDBDB4ACF6B76A1171A4A5084A46B30092B
 Source base   : the shipped EntMod_i386.so (486547 bytes), reverse-engineered to source; the standalone
                 game-DLL shim and entity trampolines were dropped, since H9XASH runs Metamod-R.
-Latest change : sv_cheats is turned on with the tools, and weapon_entmover toggles off (items 4, 5).
+Latest change : the entity mover blocks the underlying weapon's attack whenever it is equipped (item 6).
 
 The chain (newest last)
 -----------------------
@@ -50,3 +50,9 @@ The chain (newest last)
 
 5. weapon_entmover toggles off. Typing weapon_entmover again while the tool is out now holsters it and
    restores the player's real weapon.
+
+6. The entity mover blocks the underlying weapon's attack wherever it is equipped. The mover's per-frame
+   handling -- which clears the attack button each frame so the real weapon never fires -- ran only
+   while the entmod gate was active, so with the tool equipped off an entmap (through the console) the
+   held weapon still fired its normal attack: the melee "kung fu" on reTS. It now runs whenever the
+   mover is out (NewWeapons id >= 0x5a), gate or not, so attacking only moves entities.

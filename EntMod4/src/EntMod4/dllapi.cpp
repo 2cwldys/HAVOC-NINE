@@ -10,6 +10,7 @@ void DFClientDisconnect(edict_t *pEntity);
 void DFClientPutInServer(edict_t *pEntity);
 int DFClientCommand(edict_t *pEntity);
 void DFStartFrame(void);
+int EntmoverActive(edict_t *player);   // weaponcore.cpp: is the entity-mover weapon out for this player?
 
 // --- metamod-style pre-hook thunks for the DF* entity-dispatch handlers (dispatch.cpp) ---
 // The DF* handlers return int (1 = EntMod handled this call, suppress the game DLL; 0 = pass
@@ -22,8 +23,8 @@ static void mUse(edict_t *a, edict_t *b)   { if (DFDispatchUse(a, b))   RETURN_M
 static void mTouch(edict_t *a, edict_t *b) { if (DFDispatchTouch(a, b)) RETURN_META(MRES_SUPERCEDE); RETURN_META(MRES_IGNORED); }
 static void mBlocked(edict_t *a, edict_t *b){ if (DFDispatchBlocked(a, b)) RETURN_META(MRES_SUPERCEDE); RETURN_META(MRES_IGNORED); }
 static void mKeyValue(edict_t *e, KeyValueData *kvd) { if (DFDispatchKeyValue(e, kvd)) RETURN_META(MRES_SUPERCEDE); RETURN_META(MRES_IGNORED); }
-static void mPlayerPreThink(edict_t *e)    { if (H9EntModActive()) DFPlayerPreThink(e);  RETURN_META(MRES_IGNORED); }
-static void mPlayerPostThink(edict_t *e)   { if (H9EntModActive()) DFPlayerPostThink(e); RETURN_META(MRES_IGNORED); }
+static void mPlayerPreThink(edict_t *e)    { if (H9EntModActive() || EntmoverActive(e)) DFPlayerPreThink(e);  RETURN_META(MRES_IGNORED); }
+static void mPlayerPostThink(edict_t *e)   { if (H9EntModActive() || EntmoverActive(e)) DFPlayerPostThink(e); RETURN_META(MRES_IGNORED); }
 // H9: compute the entmap/entmod gate state at each level start.
 static void mServerActivate(edict_t *l, int c, int m) { DFServerActivate(l, c, m); H9OnServerActivate(l, c, m); RETURN_META(MRES_IGNORED); }
 static void mServerDeactivate(void)        { DFServerDeactivate(); RETURN_META(MRES_IGNORED); }

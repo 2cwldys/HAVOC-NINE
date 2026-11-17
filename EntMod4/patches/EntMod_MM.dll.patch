@@ -16,10 +16,10 @@ Built by      : EntMod4/src/build-windows.ps1 (MSBuild, Win32, Release, Platform
                 -> EntMod4/dist/EntMod_MM.dll, deployed to H9XASH/ts/addons/EntMod/dlls and
                 EntMod4/win/addons/EntMod/dlls.
 Size          : 218112 bytes
-SHA256        : 87F2E2223EC20B5E0A7D3A0063E078EA2F05861A89D6CD72B0562E41EC6A1A8B
+SHA256        : 92180790891F8273FAC8F29814D9A0FF770F94FDCA025BAD3FFD0995829BC2CB
 Source base   : the shipped EntMod_MM.dll (295016 bytes), reverse-engineered to source; the standalone
                 game-DLL shim and entity trampolines were dropped, since H9XASH runs Metamod-R.
-Latest change : sv_cheats is turned on with the tools, and weapon_entmover toggles off (items 4, 5).
+Latest change : the entity mover blocks the underlying weapon's attack whenever it is equipped (item 6).
 
 The chain (newest last)
 -----------------------
@@ -50,3 +50,9 @@ The chain (newest last)
 
 5. weapon_entmover toggles off. Typing weapon_entmover again while the tool is out now holsters it and
    restores the player's real weapon.
+
+6. The entity mover blocks the underlying weapon's attack wherever it is equipped. The mover's per-frame
+   handling -- which clears the attack button each frame so the real weapon never fires -- ran only
+   while the entmod gate was active, so with the tool equipped off an entmap (through the console) the
+   held weapon still fired its normal attack: the melee "kung fu" on reTS. It now runs whenever the
+   mover is out (NewWeapons id >= 0x5a), gate or not, so attacking only moves entities.

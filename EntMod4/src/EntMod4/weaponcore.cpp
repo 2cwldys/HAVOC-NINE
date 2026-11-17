@@ -18,6 +18,14 @@ static inline int &NW(edict_t *player, int off)
 	return *(int *)(NewWeapons + ENTINDEX(player) * 0x48 + off);
 }
 
+// H9: is the entity-mover weapon out for this player (NewWeapons id >= 0x5a)? Used to keep the weapon's
+// per-frame handling (the attack block in DFPlayerPreThink) running wherever the tool is equipped, even
+// on a map where the entmod gate is off, so it never leaves the underlying weapon firing (the kung-fu).
+int EntmoverActive(edict_t *player)
+{
+	return NW(player, 0) >= 0x5a;
+}
+
 // PrimaryAttack @0x58360
 void PrimaryAttack(edict_t *player)
 {
