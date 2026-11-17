@@ -78,10 +78,15 @@ void H9OnServerActivate(edict_t * /*pEdictList*/, int /*edictCount*/, int /*clie
 	// Reflect the computed state in the `entmod` cvar so the console shows whether the tools are live.
 	CVAR_SET_FLOAT("entmod", g_entmod_active ? 1.0f : 0.0f);
 
+	// EntMod's tools (equipping the entmover, spawning entities, noclip, giving weapons) are
+	// cheat-protected, so they silently do nothing with sv_cheats 0. Turn sv_cheats on while the tools
+	// are live and back off when they are not, so an entmap is a sandbox and a normal map is not.
+	CVAR_SET_FLOAT("sv_cheats", g_entmod_active ? 1.0f : 0.0f);
+
 	// Print the decision so it is obvious in the server console why the tools are on or off, and so the
 	// exact map name the gate saw is visible for diagnosis.
-	ALERT(at_console, "[EntMod] map '%s' -> tools %s  (entmod_force=%d, entmap-in-name=%d, in-list=%d)\n",
-		map ? map : "(null)", g_entmod_active ? "ON" : "off", by_force, by_name, by_list);
+	ALERT(at_console, "[EntMod] map '%s' -> tools %s (sv_cheats %s)  (entmod_force=%d, entmap-in-name=%d, in-list=%d)\n",
+		map ? map : "(null)", g_entmod_active ? "ON" : "off", g_entmod_active ? "1" : "0", by_force, by_name, by_list);
 
 	// Save-preset: when active, auto-load the map's chosen preset so an admin's entities persist across
 	// map loads with no manual es_load. `entmod_preset <name>` replays

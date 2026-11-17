@@ -84,6 +84,20 @@ int DFClientCommand(edict_t *player)
 		return 1;
 	}
 
+	// H9: typing weapon_entmover again while the tool is already out puts it away (a toggle), holstering
+	// it and restoring the player's real weapon and view/weapon models.
+	if (FStrEq(cmd, "weapon_entmover") && NW(idx, 0) >= 0x5a)
+	{
+		if (NW(idx, 4))
+			WeaponForceOff(player);
+		WeaponHolster(player);
+		NW(idx, 0) = NW(idx, 0x1c);
+		player->v.weaponmodel = NW(idx, 0x18);
+		player->v.viewmodel = NW(idx, 0x14);
+		NW(idx, 0x18) = 0;
+		return 1;
+	}
+
 	// "weapon_entmover": equip the entity-mover weapon (admin, alive, not already equipped).
 	if (FStrEq(cmd, "weapon_entmover") && IsAlive(player) && IsAdmin(player, 0) && NW(idx, 0) != 0x5a)
 	{
