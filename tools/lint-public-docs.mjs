@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const DEFAULT = ["CLAUDE.md", "CONTEXT.md", "README.txt", "SECURITY.md", "docs/ai_context", "havoc9.org/join/HAVOC9-AI-CONTEXT.md"];
+const DEFAULT = ["CLAUDE.md", "CONTEXT.md", "README.md", "SECURITY.md", "docs/ai_context", "havoc9.org/join/HAVOC9-AI-CONTEXT.md"];
 const TEXT = /\.(md|txt)$/i;
 
 // documentation addresses (RFC 5737, RFC 3849), loopback, private ranges used as examples, and 0.0.0.0
