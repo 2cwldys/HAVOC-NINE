@@ -1,0 +1,218 @@
+ADD AN ENGINE CHANGE BY HAND
+============================
+
+For a person with git and a text editor. Everything here is plain git: no AI, no
+special tooling. tools\h9chain is mentioned twice, where it removes a tedious
+step, and nothing in this file requires it.
+
+Read docs\BUILDING.txt for the compiler and dependency list before you start.
+
+
+1. HOW THE ENGINE IS PUT TOGETHER
+---------------------------------
+xash3d-fwgs is a git SUBMODULE pinned to pristine upstream FWGS -- commit
+e8d773ea of https://github.com/FWGS/xash3d-fwgs. It is upstream's code, not
+H9's, and H9 deliberately keeps NO commits of its own inside it; that tree's
+licensing is upstream's business, not this project's.
+
+So every H9 engine change is a .patch file instead, and xash3d-h9-patches\xash.bat
+applies them in order on top of the pristine submodule. Four repositories are
+involved, because three of FWGS's own submodules are patched too:
+
+    the engine         xash3d-fwgs                      engine-h9-*.patch
+    the menu           xash3d-fwgs\3rdparty\mainui      mainui-h9-*.patch
+    VGUI               xash3d-fwgs\3rdparty\freevgui    freevgui-h9-*.patch
+    library naming     xash3d-fwgs\3rdparty\library_suffix
+
+Patch files live in xash3d-h9-patches\patches\. The handful in
+webassembly-patch\ belong to the browser port and apply first.
+
+The consequence to keep in front of you: the patch set IS the whole engine diff,
+so xash.bat re-verifies EVERY patch on EVERY build, not only the one you added.
+A patch that quietly stopped applying does not fail for the person who broke it.
+It fails for the next person who builds from a clean clone.
+
+
+2. SET UP, ONCE
+---------------
+    git submodule update --init --recursive xash3d-fwgs
+
+The --recursive matters: without the nested submodules there is nothing for the
+mainui, freevgui and library_suffix patches to apply to.
+
+If a later step stops with "already exists in working directory", the submodule's
+working tree is already holding a file that one of the chain's new-file patches
+creates. "git clean -nd" inside the submodule lists them; look before deleting.
+
+
+3. GET A TREE THAT ALREADY HAS EVERY EXISTING PATCH
+---------------------------------------------------
+Your change has to be a diff on top of the current chain, not on top of pristine
+upstream. Otherwise its line numbers are counted against the wrong file.
+
+The patch order is whatever xash.bat says, and that file is the authority:
+
+    cd xash3d-h9-patches
+    findstr /c:"call :patch" xash.bat
+
+Each line names the repository first and the patch second. Apply the ones for the
+repository you are about to edit, in that order. For the engine:
+
+    cd ..\xash3d-fwgs
+    git apply ..\webassembly-patch\engine.patch
+    git apply ..\xash3d-h9-patches\patches\engine-h9-cloak.patch
+    ... and so on, in xash.bat order, skipping lines for the other three repos
+
+Now comes the step people get wrong. The working tree is patched, but git still
+compares it against pristine HEAD, so "git diff" would hand you all sixty-odd
+patches at once. Stage the patched state first, and it becomes your baseline:
+
+    git add -A
+
+From here, "git diff" means "what I changed on top of the chain", which is
+exactly the patch you want. Do not commit anything in the submodule.
+
+
+4. MAKE THE CHANGE AND CUT THE PATCH
+------------------------------------
+Edit the files normally. Then, from inside the same repository:
+
+    git diff > ..\xash3d-h9-patches\patches\engine-h9-yourthing.patch
+
+If you added a NEW file, git will not diff it until it knows about it:
+
+    git add -N engine/client/cl_yourfile.c
+
+For a change in the menu, VGUI or library_suffix, do sections 3 and 4 inside
+THAT nested repository and name the file mainui-h9-, freevgui-h9- or
+engine-library_suffix- to match. The prefix tells xash.bat and the next reader
+which repository the patch belongs to, and it matters. The rest of the name is
+for humans: lowercase, hyphenated, named after what it does, as in
+engine-h9-chatmouse.patch or mainui-h9-browser.patch.
+
+Plain "git diff" output is the expected format. Both variants already on disk are
+accepted, with the "index <pre>..<post>" line and without it.
+
+
+5. WIRE IT INTO xash.bat
+------------------------
+A patch file does nothing until xash.bat calls it. Add one line to
+xash3d-h9-patches\xash.bat among the existing call :patch lines:
+
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-yourthing.patch" || exit /b 1
+
+First argument the repository, second the patch. For a nested one:
+
+    call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-x.patch" || exit /b 1
+
+WHERE you put the line is part of the change. Patches apply in that order and a
+patch's hunk line numbers are counted against the result of everything before
+it, so yours goes AFTER every patch that touches the same region. If your change
+edits lines that another patch ADDS, it must come after that one. There is no
+way around that ordering.
+
+Two traps that have each cost real time here:
+
+  * Do not split one change across two call :patch lines where the second edits
+    lines the first adds in the same region. That was tried on 2026-11-17 and
+    broke the master build: the second patch then applies neither forward nor in
+    reverse, and cannot even be recognised as already applied. Fold it into one
+    patch instead.
+
+  * The :dllpatch description line near the end of xash.bat is near cmd's
+    8,191-character limit -- currently 8,159 characters, so 32 to spare. If you
+    add a name there, keep it short, or the batch file stops parsing and the
+    build dies before it starts.
+
+
+6. RECORD IT. THIS IS NOT OPTIONAL
+----------------------------------
+xash3d-h9-patches\patches\PATCH_CHANGELOG.md is required reading and required
+editing. Two edits, in the same sitting as the patch:
+
+  a. A dated entry at the END of the "Log" section:
+
+         ### YYYY-MM-DD -- engine-h9-yourthing.patch (new)
+         What changed, why, and what you verified.
+
+  b. A row in the "Current patches, in xash.bat apply order" table at the top of
+     that file, in the same position your call :patch line sits in.
+
+That file exists so the next person does not have to rediscover any of this from
+the diffs. Skipping part b is how the table drifted two rows out of step with
+xash.bat and nobody noticed for weeks.
+
+
+7. CHECK IT BEFORE YOU PUSH
+---------------------------
+By hand, from inside the repository the patch targets. A patch has to be right in
+both directions:
+
+    git apply --check <yourpatch>              on a tree WITHOUT the change
+    git apply --reverse --check <yourpatch>    on a tree WITH it
+
+Forward proves it applies; reverse proves a tree that already has the change is
+recognised rather than patched twice. Do not work the line numbers out by hand
+across several hunks. It is easy to get wrong and git will simply tell you.
+
+Then run the whole chain, because yours is not the only patch that still has to
+apply:
+
+    cd xash3d-h9-patches
+    xash.bat engine
+
+One caution about that command on a maintainer's machine. xash.bat applies to
+TSM\xash3d-fwgs, which is a development clone whose branch already carries every
+H9 change as commits. On such a tree each patch reverse-checks clean and is
+reported "in place" and SKIPPED, so all of them pass whether or not they would
+apply to a pristine clone. A green run there is not evidence. The authority is a
+fresh pristine tree, which is what CI uses: the Submodule Engine Build Scan,
+.github\workflows\submodule-engine-build-scan.yml, runs on every push touching
+the patches, xash.bat or webassembly-patch\. If it goes red, a patch does not
+apply to pristine upstream even though it applied for you.
+
+
+8. CHANGING AN EXISTING PATCH
+-----------------------------
+Never hand-edit the engine and leave it there. An edit that is not folded back
+into the matching .patch file breaks the next person's build, not yours.
+
+By hand:
+
+  1. Rebuild the tree as it stands just BEFORE that patch: pristine, then every
+     patch listed before it in xash.bat, for that repository only. "git add -A"
+     as in section 3.
+  2. Apply the patch itself, then make your edit on top of it.
+  3. "git diff" and write that over the patch file.
+  4. Check both ways as in section 7, and write the changelog entry.
+
+Step 1 is the tedious part and the one where mistakes happen, because you have to
+get the subset and the order right. If you would rather not, that exact step is
+what tools\h9chain exists to remove:
+
+    tools\chain.cmd doctor                         which patch is which number,
+                                                   and whether the chain is sound
+    tools\chain.cmd tree <N> --post --worktree DIR the patched files, ready to edit
+    tools\chain.cmd regen <N> --from DIR           your edit, back as a patch
+
+docs\PATCH_CHAIN_HARNESS.txt covers it. It is a convenience. The by-hand route
+above is the whole truth and works with nothing but git.
+
+
+9. WHEN A BUILD FAILS ON SOMEBODY ELSE'S PATCH
+----------------------------------------------
+xash.bat prints one line per patch: "applied", "in place" (already present,
+skipped), or
+
+    [ERROR] <name>.patch does not apply to <repo> -- resolve it by hand
+
+That patch's pre-image no longer matches the tree the patches before it produce,
+nearly always because an earlier patch changed the same region. The fix is to
+regenerate that patch against the chain as it now stands, per section 8. Not to
+delete it, and not to skip the verification.
+
+H9_SKIP_PATCH_VERIFY=1 exists for one narrow case: an already-patched tree where
+some patch overlaps lines an earlier one added, so neither check can pass. It
+checks and applies NOTHING. A clean clone must have it unset. Setting it to turn
+a red build green does not fix anything -- it hands the same failure to the next
+person with no clue attached.

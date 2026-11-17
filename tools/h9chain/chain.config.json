@@ -1,0 +1,13 @@
+{
+  "repo_root":        "D:\\GIT Storage\\ts_h9_team_elimination",
+  "xash_bat":         "",
+  "dev_root":         "D:\\Downloads\\TSM\\xash3d-fwgs",
+  "work":             "D:\\temp\\chain-work\\h9chain",
+  "lock":             "",
+  "protected_roots":  ["D:\\GIT Storage\\ts_h9_team_elimination", "D:\\Downloads\\TSM"],
+  "allow_patch_writes": false,
+  "fail_on":          ["CHAIN", "REJECT", "SHADOW", "RESIDUAL", "THREEWAY", "BASELINE"],
+  "anchor_exempt":    ["engine.patch", "engine-mainui.patch", "freevgui.patch", "engine-library_suffix.patch"],
+  "offset_limit":     0,
+  "timeout_sec":      120
+}

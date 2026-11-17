@@ -65,6 +65,33 @@ work of your own:
    different check from `patch-notes.yml`, which guards the shipped binaries'
    `<binary>.patch` notes, not the engine source patches.
 
+6. **`tools\h9chain` names the stale patch and rebuilds it.** Point 4 by
+   hand is the job that cost hours on both dates above; this does it
+   mechanically. `tools\chain.cmd doctor` replays the chain `xash.bat`
+   lists against the pinned pristine submodule and prints a verdict per
+   link in BOTH directions, so a patch that went stale is named instead of
+   hidden behind a failing full rebuild -- which is the part a development
+   clone cannot tell you, because there the change is already present and
+   every link reads "in place". It then prints the exact `regen <N>` that
+   rebuilds that one patch, and proves the repair by replaying the chain
+   and comparing the four final tree ids. To CHANGE what a patch does
+   rather than refresh it, `tree <N> --post --worktree DIR` materializes
+   its result as ordinary files and `regen <N> --from DIR` turns your edit
+   back into a correctly anchored patch, which removes the line-number
+   arithmetic point 4 warns about. `plan <candidate>` pre-flights a patch
+   that is not wired yet and is the check that catches wiring one change
+   as two links. Nothing is compiled; `adopt`, the only command that
+   replaces a `.patch` file, ships disabled and prints the changelog entry
+   to paste rather than writing it. Measured on this chain: 15 s to name a
+   broken link, about 100 s for the whole find-repair-prove loop. `--json`
+   on every command, stable exit codes, `chain explain <code>`. It does
+   NOT replace the Submodule Engine Build Scan in point 5, which stays the
+   CI gate, and it does not excuse point 3's changelog entry.
+   `docs\PATCH_CHAIN_HARNESS.txt` is the account;
+   `tools\h9chain\README.txt` is the command reference, and
+   `docs\ADD_AN_ENGINE_CHANGE.txt` is the same job done by hand with
+   nothing but git, for a contributor who wants no tooling at all.
+
 ## Parity comes last, once
 
 The web client and the Linux build are heavy builds (the web sync compiles the engine and the client library for about 4 minutes and
