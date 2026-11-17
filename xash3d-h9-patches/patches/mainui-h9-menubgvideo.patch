@@ -1,0 +1,313 @@
+diff --git a/BaseMenu.cpp b/BaseMenu.cpp
+index c8fdc0d..3d4d569 100644
+--- a/BaseMenu.cpp
++++ b/BaseMenu.cpp
+@@ -36,6 +36,8 @@ cvar_t		*ui_show_window_stack;
+ cvar_t		*ui_borderclip;
+ cvar_t		*ui_prefer_won_background;
+ cvar_t		*ui_background_stretch;
++cvar_t		*ui_background_video;
++cvar_t		*ui_background_video_file;
+ cvar_t		*ui_logohorizontal;
+ 
+ uiStatic_t	uiStatic;
+@@ -1208,6 +1210,11 @@ void UI_Init( void )
+ 	ui_borderclip = EngFuncs::CvarRegister( "ui_borderclip", "0", FCVAR_ARCHIVE );
+ 	ui_prefer_won_background = EngFuncs::CvarRegister( "ui_prefer_won_background", "0", FCVAR_ARCHIVE );
+ 	ui_background_stretch = EngFuncs::CvarRegister( "ui_background_stretch", "0", FCVAR_ARCHIVE );
++	ui_background_video = EngFuncs::CvarRegister( "ui_background_video", "1", FCVAR_ARCHIVE );
++	// h9xash.bat picks a random entry from ts\menu_bg_videos.txt on every launch, the same
++	// way it already does for ts\menu_music.txt, and writes its pick here via
++	// menu_bg_video_resolved.cfg (exec'd from userconfig.cfg)
++	ui_background_video_file = EngFuncs::CvarRegister( "ui_background_video_file", "mainmenu_bg.avi", FCVAR_ARCHIVE );
+ 	ui_logohorizontal = EngFuncs::CvarRegister( "ui_logohorizontal", "0", FCVAR_ARCHIVE );
+ 
+ 	// show cl_predict dialog
+diff --git a/BaseMenu.h b/BaseMenu.h
+index ae05457..7a9b826 100644
+--- a/BaseMenu.h
++++ b/BaseMenu.h
+@@ -61,6 +61,8 @@ extern cvar_t   *ui_show_window_stack;
+ extern cvar_t	*ui_borderclip;
+ extern cvar_t	*ui_prefer_won_background;
+ extern cvar_t	*ui_background_stretch;
++extern cvar_t	*ui_background_video;
++extern cvar_t	*ui_background_video_file;
+ extern cvar_t	*ui_logohorizontal;
+ 
+ enum EUISounds
+diff --git a/controls/BackgroundBitmap.cpp b/controls/BackgroundBitmap.cpp
+index 0b087a4..bc9d361 100644
+--- a/controls/BackgroundBitmap.cpp
++++ b/controls/BackgroundBitmap.cpp
+@@ -23,6 +23,7 @@ GNU General Public License for more details.
+ bool CMenuBackgroundBitmap::s_bEnableLogoMovie = false;
+ bool CMenuBackgroundBitmap::s_bGameHasSteamBackground = false;
+ bool CMenuBackgroundBitmap::s_bGameHasWONBackground = false;
++bool CMenuBackgroundBitmap::s_bVideoBackgroundActive = false;
+ CMenuBackgroundBitmap::bstate_e CMenuBackgroundBitmap::s_state;
+ 
+ CMenuBackgroundBitmap::bimage_t CMenuBackgroundBitmap::s_WONBackground;
+@@ -30,6 +31,8 @@ CMenuBackgroundBitmap::bimage_t CMenuBackgroundBitmap::s_WONBackground;
+ Size CMenuBackgroundBitmap::s_SteamBackgroundImageSize;
+ CUtlVector<CMenuBackgroundBitmap::bimage_t> CMenuBackgroundBitmap::s_SteamBackground;
+ 
++Size CMenuBackgroundBitmap::s_VideoBackgroundSize;
++
+ CMenuBackgroundBitmap::CMenuBackgroundBitmap() : CMenuBitmap()
+ {
+ 	szPic = 0;
+@@ -63,11 +66,6 @@ void CMenuBackgroundBitmap::VidInit()
+ 	CMenuBaseItem::VidInit();
+ }
+ 
+-void CMenuBackgroundBitmap::DrawInGameBackground()
+-{
+-	UI_FillRect( m_scPos, m_scSize, uiColorBlack );
+-}
+-
+ void CMenuBackgroundBitmap::DrawColor()
+ {
+ 	if( bDrawStroke )
+@@ -97,6 +95,22 @@ void CMenuBackgroundBitmap::DrawSteamBackgroundLayout( Point p, int xOffset, int
+ 		DrawBackgroundPiece( s_SteamBackground[i], p, xOffset, yOffset, xScale, yScale );
+ }
+ 
++void CMenuBackgroundBitmap::DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale )
++{
++	int w = (int)ceil( s_VideoBackgroundSize.w * xScale );
++	int h = (int)ceil( s_VideoBackgroundSize.h * yScale );
++
++	if( EngFuncs::DrawMenuBgVideo( p.x + xOffset, p.y + yOffset, w, h ))
++		return;
++
++	// the stream died mid-session (asset or FFmpeg DLLs went away while playing) --
++	// fall through to WON/Steam/color in this same frame instead of a blank one
++	Con_Printf( "mainmenu_bg video: DrawMenuBgVideo failed mid-session, falling back\n" );
++	s_bVideoBackgroundActive = false;
++	UpdatePreference();
++	Draw();
++}
++
+ /*
+ =================
+ CMenuBackgroundBitmap::Draw
+@@ -119,18 +133,35 @@ void CMenuBackgroundBitmap::Draw()
+ 
+ 		if( EngFuncs::GetCvarFloat( "ui_renderworld" ) )
+ 		{
+-			DrawInGameBackground();
++			// Same configured background (video/WON/Steam/color) as the main menu,
++			// instead of the plain black fill this used to be -- see DrawConfiguredBackground.
++			DrawConfiguredBackground();
+ 			return;
+ 		}
+ 	}
+ 
++	DrawConfiguredBackground();
++}
++
++/*
++=================
++CMenuBackgroundBitmap::DrawConfiguredBackground
++
++The WON/Steam/video/color dispatch: scales whichever background is configured (s_state)
++to fit, cover-crop by default or distort-to-fill with ui_background_stretch. Shared by
++the main menu's own Draw() and the in-game ESC menu (ui_renderworld case above) so both
++show the same background instead of the in-game one being a flat black fill.
++=================
++*/
++void CMenuBackgroundBitmap::DrawConfiguredBackground()
++{
+ 	if( szPic )
+ 	{
+ 		UI_DrawPic( m_scPos, m_scSize, uiColorWhite, szPic );
+ 		return;
+ 	}
+ 
+-	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ))
++	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ) || FBitSet( ui_background_video->flags, FCVAR_CHANGED ))
+ 	{
+ 		UpdatePreference();
+ 
+@@ -150,6 +181,8 @@ void CMenuBackgroundBitmap::Draw()
+ 	}
+ 	else if( s_state == DRAW_WON )
+ 		s = s_WONBackground.size;
++	else if( s_state == DRAW_VIDEO )
++		s = s_VideoBackgroundSize;
+ 	else
+ 		s = s_SteamBackgroundImageSize;
+ 
+@@ -208,6 +241,8 @@ void CMenuBackgroundBitmap::Draw()
+ 
+ 	if( s_state == DRAW_WON )
+ 		DrawBackgroundPiece( s_WONBackground, p, xOffset, yOffset, xScale, yScale );
++	else if( s_state == DRAW_VIDEO )
++		DrawVideoBackground( p, xOffset, yOffset, xScale, yScale );
+ 	else
+ 		DrawSteamBackgroundLayout( p, xOffset, yOffset, xScale, yScale );
+ }
+@@ -304,9 +339,34 @@ bool CMenuBackgroundBitmap::LoadWONBackground( bool gamedirOnly )
+ 	return false;
+ }
+ 
++bool CMenuBackgroundBitmap::LoadVideoBackground()
++{
++	if( !ui_background_video->value )
++		return false;
++
++	// ui_background_video_file names the launcher's pick from menu_bg_videos.txt
++	// (h9xash.bat, mirroring how it already picks ts\menu_music.txt); the engine does
++	// its own existence/FFmpeg-availability check and fails this call cleanly, same as
++	// it already does for the WON logo.avi banner
++	if( !EngFuncs::PrecacheMenuBgVideo( ui_background_video_file->string ))
++		return false;
++
++	s_VideoBackgroundSize.w = EngFuncs::GetMenuBgVideoWidth();
++	s_VideoBackgroundSize.h = EngFuncs::GetMenuBgVideoHeight();
++
++	if( s_VideoBackgroundSize.w <= 0 || s_VideoBackgroundSize.h <= 0 )
++		return false;
++
++	return true;
++}
++
+ void CMenuBackgroundBitmap::UpdatePreference()
+ {
+-	if( ui_prefer_won_background->value )
++	if( ui_background_video->value && s_bVideoBackgroundActive )
++	{
++		s_state = DRAW_VIDEO;
++	}
++	else if( ui_prefer_won_background->value )
+ 	{
+ 		if( s_bGameHasWONBackground )
+ 			s_state = DRAW_WON;
+@@ -340,6 +400,7 @@ void CMenuBackgroundBitmap::UpdatePreference()
+ 		s_bEnableLogoMovie = false;
+ 
+ 	ClearBits( ui_prefer_won_background->flags, FCVAR_CHANGED );
++	ClearBits( ui_background_video->flags, FCVAR_CHANGED );
+ }
+ 
+ void CMenuBackgroundBitmap::LoadBackground()
+@@ -347,10 +408,15 @@ void CMenuBackgroundBitmap::LoadBackground()
+ 	s_bEnableLogoMovie = false;
+ 	s_bGameHasSteamBackground = false;
+ 	s_bGameHasWONBackground = false;
++	s_bVideoBackgroundActive = false;
+ 
+ 	if( uiStatic.lowmemory )
+ 		return;
+ 
++	s_bVideoBackgroundActive = LoadVideoBackground();
++	Con_Printf( "mainmenu_bg video: %s (%dx%d)\n", s_bVideoBackgroundActive ? "loaded" : "not available",
++		s_VideoBackgroundSize.w, s_VideoBackgroundSize.h );
++
+ 	if( LoadSteamBackground( true ))
+ 	{
+ 		Con_DPrintf( "%s: found %s background in %s directory\n", __func__, "steam", "game" );
+diff --git a/controls/BackgroundBitmap.h b/controls/BackgroundBitmap.h
+index 749845c..2a7a840 100644
+--- a/controls/BackgroundBitmap.h
++++ b/controls/BackgroundBitmap.h
+@@ -50,18 +50,21 @@ private:
+ 		DRAW_COLOR,
+ 		DRAW_WON,
+ 		DRAW_STEAM,
++		DRAW_VIDEO,
+ 	};
+ 
+ 	void DrawBackgroundPiece( const bimage_t &image, Point p, int xOffset, int yOffset, float xScale, float yScale );
+ 	void DrawSteamBackgroundLayout( Point p, int xOffset, int yOffset, float xScale, float yScale );
++	void DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale );
+ 	void DrawColor();
+-	void DrawInGameBackground();
++	void DrawConfiguredBackground(); // the WON/Steam/video/color dispatch, shared by the main menu and the in-game ESC menu
+ 
+ 	static bool LoadSteamBackground( const bool gamedirOnly ); // Steam background loader
+ 	static bool LoadWONBackground( const bool gamedirOnly ); // WON background loader
++	static bool LoadVideoBackground(); // menu background video loader, cvar-gated
+ 	static void UpdatePreference();
+ 
+-	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground;
++	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground, s_bVideoBackgroundActive;
+ 
+ 	static bstate_e s_state;
+ 
+@@ -69,6 +72,8 @@ private:
+ 
+ 	static Size s_SteamBackgroundImageSize;
+ 	static CUtlVector<bimage_t> s_SteamBackground;
++
++	static Size s_VideoBackgroundSize;
+ };
+ 
+ #endif // MENU_BACKGROUNDBITMAP_H
+diff --git a/enginecallback_menu.h b/enginecallback_menu.h
+index 36326cf..748aaf1 100644
+--- a/enginecallback_menu.h
++++ b/enginecallback_menu.h
+@@ -508,6 +508,34 @@ public:
+ 			textfuncs.pfnSetTextInputBuffer( text );
+ 	}
+ 
++	static inline bool PrecacheMenuBgVideo( const char *filename )
++	{
++		if( textfuncs.pfnPrecacheMenuBgVideo )
++			return textfuncs.pfnPrecacheMenuBgVideo( filename ) != 0;
++		return false;
++	}
++
++	static inline bool DrawMenuBgVideo( float x, float y, float w, float h )
++	{
++		if( textfuncs.pfnDrawMenuBgVideo )
++			return textfuncs.pfnDrawMenuBgVideo( x, y, w, h ) != 0;
++		return false;
++	}
++
++	static inline int GetMenuBgVideoWidth( void )
++	{
++		if( textfuncs.pfnGetMenuBgVideoWidth )
++			return textfuncs.pfnGetMenuBgVideoWidth();
++		return 0;
++	}
++
++	static inline int GetMenuBgVideoHeight( void )
++	{
++		if( textfuncs.pfnGetMenuBgVideoHeight )
++			return textfuncs.pfnGetMenuBgVideoHeight();
++		return 0;
++	}
++
+ 	static inline bool GetRenderers( int num, char *sz1, size_t s1, char *sz2, size_t s2 )
+ 	{
+ 		return textfuncs.pfnGetRenderers( num, sz1, s1, sz2, s2 ) != 0;
+diff --git a/sdk_includes/engine/menu_int.h b/sdk_includes/engine/menu_int.h
+index a83a58a..a7f52b1 100644
+--- a/sdk_includes/engine/menu_int.h
++++ b/sdk_includes/engine/menu_int.h
+@@ -201,7 +201,7 @@ typedef struct
+ 	void	(*pfnFinalCredits)( void );	// show credits + game end
+ } UI_FUNCTIONS;
+ 
+-#define MENU_EXTENDED_API_VERSION 1
++#define MENU_EXTENDED_API_VERSION 2
+ 
+ typedef struct ui_extendedfuncs_s {
+ 	// text functions, frozen
+@@ -239,6 +239,13 @@ typedef struct ui_extendedfuncs_s {
+ 	// on the next pfnEnableTextInput( true ), even if text input is enabled already
+ 	// it's used when user activates the text field, for example with gamepad
+ 	void (*pfnSetTextInputBuffer)( const char *text );
++
++	// menu background video (API version 2): a full-screen, cvar-gated, independent
++	// video slot (CIN_MENUBG), separate from the WON-only logo.avi banner
++	int (*pfnPrecacheMenuBgVideo)( const char *filename ); // 0 if missing/corrupt/ffmpeg unavailable
++	int (*pfnDrawMenuBgVideo)( float x, float y, float width, float height ); // 0 if not active this frame
++	int (*pfnGetMenuBgVideoWidth)( void );
++	int (*pfnGetMenuBgVideoHeight)( void );
+ } ui_extendedfuncs_t;
+ 
+ // deprecated export from old engine

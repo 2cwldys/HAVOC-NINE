@@ -1,0 +1,430 @@
+diff --git a/engine/client/avi/avi_ffmpeg.c b/engine/client/avi/avi_ffmpeg.c
+index 8ff2226..e326a0f 100644
+--- a/engine/client/avi/avi_ffmpeg.c
++++ b/engine/client/avi/avi_ffmpeg.c
+@@ -18,6 +18,7 @@ GNU General Public License for more details.
+ #include "defaults.h"
+ #include "common.h"
+ #include "client.h"
++#include "const.h"
+ 
+ static qboolean avi_initialized;
+ static poolhandle_t avi_mempool;
+@@ -70,9 +71,12 @@ struct movie_state_s
+ 	float attn;
+ 	int16_t entnum; // MAX_ENTITY_BITS is 13
+ 	byte volume;
+-	byte active : 1;
+-	byte quiet  : 1;
+-	byte paused : 1;
++	byte active     : 1;
++	byte quiet      : 1;
++	byte paused     : 1;
++	byte load_audio : 1; // remembered so AVI_REWIND's reopen matches the original AVI_OpenVideo call
++
++	char filename[MAX_SYSPATH]; // full resolved disk path, so AVI_REWIND can reopen it
+ };
+ 
+ qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
+@@ -104,14 +108,34 @@ qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
+ 			Avi->h = va_arg( va, int );
+ 			break;
+ 		case AVI_REWIND:
+-			if( Avi->audio_ctx )
+-				pavcodec_flush_buffers( Avi->audio_ctx );
+-			pavcodec_flush_buffers( Avi->video_ctx );
+-			Avi->cached_audio_len = Avi->cached_audio_pos = 0;
+-			Avi->last_time = -1;
+-			Avi->first_time = 0;
+-			pav_seek_frame( Avi->fmt_ctx, -1, 0, AVSEEK_FLAG_FRAME | AVSEEK_FLAG_BACKWARD );
++		{
++			char filename_copy[MAX_SYSPATH];
++			qboolean load_audio_saved;
++			qboolean quiet_saved;
++
++			if( !Avi->active )
++			{
++				ret = false;
++				break;
++			}
++
++			Q_strncpy( filename_copy, Avi->filename, sizeof( filename_copy ));
++			load_audio_saved = Avi->load_audio;
++			quiet_saved = Avi->quiet;
++
++			// Loop by fully closing and reopening the file instead of seeking back to the
++			// start. After a multi-hour menu session (thousands of loops) seek-based rewind
++			// crashed inside FFmpeg's own avio_seek, same address every time -- a usage
++			// intensity no one-shot cutscene/logo playback ever reached before this feature.
++			// Reopening sidesteps that code path entirely. See docs/FFMPEG_ADDITIONS.txt.
++			AVI_CloseVideo( Avi ); // zeroes *Avi -- filename/flags were captured above first
++			AVI_OpenVideo( Avi, filename_copy, load_audio_saved, quiet_saved );
++
++			if( !Avi->active )
++				ret = false;
++
+ 			break;
++		}
+ 		case AVI_ENTNUM:
+ 			val = va_arg( va, int );
+ 			Avi->entnum = bound( 0, val, MAX_EDICTS );
+@@ -446,6 +470,19 @@ qboolean AVI_Think( movie_state_t *Avi )
+ 
+ 		if( redraw )
+ 			ref.dllFuncs.GL_UpdateTexture( cinTexture, Avi->xres, Avi->yres, Avi->xres, Avi->yres, Avi->dst, PF_BGRA_32 );
++
++		// Normalize GL state before drawing, the same way every other 2D draw helper in
++		// this engine does (PIC_DrawGeneric, the SPR_Draw* family) -- blend mode and
++		// vertex color persist across draw calls, and this blit is otherwise the one
++		// 2D draw in the whole tree that assumes a clean state rather than asserting
++		// one. On the plain main menu nothing else has drawn yet that frame, so this
++		// went unnoticed; in the in-game ESC menu, a HUD element drawn earlier the same
++		// frame can leave an additive blend mode active (e.g. CL_DrawScreenFade's
++		// kRenderTransAdd branch), which this blit would otherwise inherit and paint
++		// the video as an additive layer over the already-rendered scene -- that is
++		// the reported "fullbright eye-damaging brightness."
++		ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
++		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
+ 		ref.dllFuncs.R_DrawStretchPic( Avi->x, Avi->y, w, h, 0, 0, 1, 1, cinTexture );
+ 	}
+ 	else if( redraw && Avi->texture > 0 )
+@@ -469,36 +506,48 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 
+ 	Avi->active = false;
+ 	Avi->quiet = quiet;
++	Avi->load_audio = load_audio;
++	Q_strncpy( Avi->filename, filename, sizeof( Avi->filename ));
+ 	Avi->video_ctx = Avi->audio_ctx = NULL;
+ 	Avi->fmt_ctx = NULL;
+ 
+-	if(( ret = pavformat_open_input( &Avi->fmt_ctx, filename, NULL, NULL )) < 0 )
++	// Force the format instead of letting avformat auto-probe every registered demuxer:
++	// probing runs each one's own read_probe() over the file's header bytes in turn, and
++	// on this build gsm_probe() (an unrelated telephony-audio demuxer, never otherwise
++	// used here) segfaults on that input. Every caller of this function already named the
++	// file .avi (COM_DefaultExtension above), so the format is never actually ambiguous.
++	if(( ret = pavformat_open_input( &Avi->fmt_ctx, filename, pav_find_input_format( "avi" ), NULL )) < 0 )
+ 	{
+ 		AVI_SpewAvError( quiet, "avformat_open_input", ret );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+ 	if(( ret = pavformat_find_stream_info( Avi->fmt_ctx, NULL )) < 0 )
+ 	{
+ 		AVI_SpewAvError( quiet, "avformat_find_stream_info", ret );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+ 	if( !( Avi->pkt = pav_packet_alloc( )))
+ 	{
+ 		AVI_SpewAvError( quiet, "av_packet_alloc", 0 );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+ 	if( !( Avi->vframe = pav_frame_alloc( )))
+ 	{
+ 		AVI_SpewAvError( quiet, "av_frame_alloc (video)", 0 );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+ 	if( !( Avi->vframe_copy = pav_frame_alloc( )))
+ 	{
+ 		AVI_SpewAvError( quiet, "av_frame_alloc (video)", 0 );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+@@ -506,7 +555,10 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 	Avi->video_stream = AVI_OpenCodecContext( &Avi->video_ctx, Avi->fmt_ctx, AVMEDIA_TYPE_VIDEO, quiet );
+ 
+ 	if( Avi->video_stream < 0 )
++	{
++		AVI_CloseVideo( Avi );
+ 		return;
++	}
+ 
+ 	Avi->xres     = Avi->video_ctx->width;
+ 	Avi->yres     = Avi->video_ctx->height;
+@@ -520,6 +572,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 		Avi->xres, Avi->yres, AV_PIX_FMT_BGR0, SWS_POINT, NULL, NULL, NULL )))
+ 	{
+ 		AVI_SpewAvError( quiet, "sws_getContext", 0 );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+@@ -528,6 +581,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 	if(( ret = pav_image_alloc( dst, dst_linesize, Avi->xres, Avi->yres, AV_PIX_FMT_BGR0, 1 )) < 0 )
+ 	{
+ 		AVI_SpewAvError( quiet, "av_image_alloc", ret );
++		AVI_CloseVideo( Avi );
+ 		return;
+ 	}
+ 
+@@ -539,6 +593,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 		if( !( Avi->aframe = pav_frame_alloc( )))
+ 		{
+ 			AVI_SpewAvError( quiet, "av_frame_alloc (audio)", 0 );
++			AVI_CloseVideo( Avi );
+ 			return;
+ 		}
+ 
+@@ -546,7 +601,10 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 
+ 		// audio stream was requested but it wasn't found
+ 		if( Avi->audio_stream < 0 )
++		{
++			AVI_CloseVideo( Avi );
+ 			return;
++		}
+ 
+ 		Avi->channels = Q_min( Avi->audio_ctx->ch_layout.nb_channels, 2 );
+ 		if( Avi->audio_ctx->sample_fmt == AV_SAMPLE_FMT_U8 || Avi->audio_ctx->sample_fmt == AV_SAMPLE_FMT_U8P )
+@@ -558,12 +616,14 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 			&Avi->audio_ctx->ch_layout, Avi->audio_ctx->sample_fmt, Avi->audio_ctx->sample_rate, 0, 0 )) < 0 )
+ 		{
+ 			AVI_SpewAvError( quiet, "swr_alloc_set_opts2", ret );
++			AVI_CloseVideo( Avi );
+ 			return;
+ 		}
+ 
+ 		if(( ret = pswr_init( Avi->swr_ctx )) < 0 )
+ 		{
+ 			AVI_SpewAvError( quiet, "swr_init", ret );
++			AVI_CloseVideo( Avi );
+ 			return;
+ 		}
+ 	}
+@@ -573,25 +633,26 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
+ 
+ void AVI_CloseVideo( movie_state_t *Avi )
+ {
+-	if( Avi->active )
+-	{
+-		if( Avi->cached_audio )
+-			Mem_Free( Avi->cached_audio );
++	// Unconditional now (no more `if( Avi->active )` guard): every FFmpeg free below is
++	// documented NULL-safe, so this is safe to call on a partially-populated Avi too --
++	// needed so AVI_OpenVideo can route every failure path through here to avoid leaking
++	// whatever was already allocated before the step that failed.
++	if( Avi->cached_audio )
++		Mem_Free( Avi->cached_audio );
+ 
+-		pswr_free( &Avi->swr_ctx );
+-		pavcodec_free_context( &Avi->audio_ctx );
+-		pav_frame_free( &Avi->aframe );
++	pswr_free( &Avi->swr_ctx );
++	pavcodec_free_context( &Avi->audio_ctx );
++	pav_frame_free( &Avi->aframe );
+ 
+-		pav_free( Avi->dst );
+-		psws_freeContext( Avi->sws_ctx );
+-		pavcodec_free_context( &Avi->video_ctx );
+-		pav_frame_free( &Avi->vframe );
+-		pav_frame_free( &Avi->vframe_copy );
++	pav_free( Avi->dst );
++	psws_freeContext( Avi->sws_ctx );
++	pavcodec_free_context( &Avi->video_ctx );
++	pav_frame_free( &Avi->vframe );
++	pav_frame_free( &Avi->vframe_copy );
+ 
+-		pav_packet_free( &Avi->pkt );
++	pav_packet_free( &Avi->pkt );
+ 
+-		pavformat_close_input( &Avi->fmt_ctx );
+-	}
++	pavformat_close_input( &Avi->fmt_ctx );
+ 
+ 	memset( Avi, 0, sizeof( *Avi ));
+ }
+@@ -621,6 +682,7 @@ static const dllfunc_t libavformat_funcs[] =
+ 	{ F( avformat_close_input ) },
+ 	{ F( avformat_find_stream_info ) },
+ 	{ F( avformat_open_input ) },
++	{ F( av_find_input_format ) },
+ };
+ 
+ static const dllfunc_t libavcodec_funcs[] =
+@@ -1111,7 +1173,7 @@ static void AVI_UnloadFFmpeg( void )
+ }
+ #endif // XASH_AVI == AVI_NULL
+ 
+-static movie_state_t avi[2];
++static movie_state_t avi[3];
+ movie_state_t *AVI_GetState( int num )
+ {
+ 	return &avi[num];
+diff --git a/engine/client/avi/avi_ffmpeg.h b/engine/client/avi/avi_ffmpeg.h
+index c62effb..f5aca6f 100644
+--- a/engine/client/avi/avi_ffmpeg.h
++++ b/engine/client/avi/avi_ffmpeg.h
+@@ -143,6 +143,7 @@ int               (*pav_seek_frame)( AVFormatContext *s, int stream_index, int64
+ void              (*pavformat_close_input)(AVFormatContext **s);
+ int               (*pavformat_find_stream_info)(AVFormatContext *ic, AVDictionary **options);
+ int               (*pavformat_open_input)(AVFormatContext **ps, const char *url, const AVInputFormat *fmt, AVDictionary **options);
++const AVInputFormat *(*pav_find_input_format)( const char *short_name );
+ 
+ // libavcodec
+ unsigned          (*pavcodec_version)( void );
+@@ -201,6 +202,7 @@ int               (*psws_scale)( struct SwsContext *c, const uint8_t *const srcS
+ #define pavformat_close_input avformat_close_input
+ #define pavformat_find_stream_info avformat_find_stream_info
+ #define pavformat_open_input avformat_open_input
++#define pav_find_input_format av_find_input_format
+ 
+ // libavcodec
+ #define pavcodec_version               avcodec_version
+diff --git a/engine/client/client.h b/engine/client/client.h
+index 0dd1dbd..492fcad 100644
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -539,6 +539,10 @@ typedef struct
+ 	int		logo_yres;
+ 	float		logo_length;
+ 
++	int		menubg_xres;
++	int		menubg_yres;
++	float		menubg_length;
++
+ 	qboolean use_extended_api;
+ } gameui_static_t;
+ 
+diff --git a/engine/client/dll_int/cl_gameui.c b/engine/client/dll_int/cl_gameui.c
+index 636929c..87e3b6b 100644
+--- a/engine/client/dll_int/cl_gameui.c
++++ b/engine/client/dll_int/cl_gameui.c
+@@ -352,6 +352,80 @@ static float GAME_EXPORT UI_GetLogoLength( void )
+ 	return gameui.logo_length;
+ }
+ 
++static int GAME_EXPORT UI_PrecacheMenuBgVideo( const char *filename )
++{
++	movie_state_t	*cin_state;
++	string		path;
++	const char	*fullpath;
++
++	cin_state = AVI_GetState( CIN_MENUBG );
++
++	if( AVI_IsActive( cin_state ))
++		return true;
++
++	Q_snprintf( path, sizeof( path ), "media/%s", filename );
++	COM_DefaultExtension( path, ".avi", sizeof( path ));
++	fullpath = FS_GetDiskPath( path, false );
++	Con_Printf( "mainmenu_bg: path=\"%s\" FS_FileExists=%d fullpath=\"%s\"\n",
++		path, FS_FileExists( path, false ), fullpath ? fullpath : "(null)" );
++
++	if( FS_FileExists( path, false ) && !fullpath )
++	{
++		Con_Printf( S_ERROR "Couldn't load %s from packfile. Please extract it\n", path );
++		return false;
++	}
++
++	AVI_OpenVideo( cin_state, fullpath, false, false );
++	if( !( AVI_GetVideoInfo( cin_state, &gameui.menubg_xres, &gameui.menubg_yres, &gameui.menubg_length )))
++	{
++		AVI_CloseVideo( cin_state );
++		return false;
++	}
++
++	return true;
++}
++
++static int GAME_EXPORT UI_DrawMenuBgVideo( float x, float y, float width, float height )
++{
++	movie_state_t	*cin_state;
++
++	cin_state = AVI_GetState( CIN_MENUBG );
++
++	if( !AVI_IsActive( cin_state ))
++		return false;
++
++	AVI_SetParm( cin_state,
++		AVI_RENDER_TEXNUM, 0,
++		AVI_RENDER_X, (int)x,
++		AVI_RENDER_Y, (int)y,
++		AVI_RENDER_W, (int)width,
++		AVI_RENDER_H, (int)height,
++		AVI_PARM_LAST );
++
++	// read the next frame; loop by reopening the file on EOF instead of seeking -- see
++	// AVI_REWIND in avi_ffmpeg.c. If the reopen itself fails, cin_state is no longer
++	// active: report that now so the caller (DrawVideoBackground) falls back to the
++	// static background this same frame instead of calling back in here next frame
++	// against a dead state.
++	if( !AVI_Think( cin_state ))
++	{
++		if( !AVI_SetParm( cin_state, AVI_REWIND, AVI_PARM_LAST ) || !AVI_IsActive( cin_state ))
++			return false;
++	}
++
++	return true;
++}
++
++static int GAME_EXPORT UI_GetMenuBgVideoWidth( void )
++{
++	return gameui.menubg_xres;
++}
++
++static int GAME_EXPORT UI_GetMenuBgVideoHeight( void )
++{
++	return gameui.menubg_yres;
++}
++
+ static void UI_UpdateUserinfo( void )
+ {
+ 	if( !host.userinfo_changed )
+@@ -1318,6 +1392,10 @@ static ui_extendedfuncs_t gExtendedfuncs =
+ 	pfnIsCvarReadOnly,
+ 	pfnSetTextInputRect,
+ 	pfnSetTextInputBuffer,
++	UI_PrecacheMenuBgVideo,
++	UI_DrawMenuBgVideo,
++	UI_GetMenuBgVideoWidth,
++	UI_GetMenuBgVideoHeight,
+ };
+ 
+ void UI_UnloadProgs( void )
+diff --git a/engine/common/common.h b/engine/common/common.h
+index e1b57da..ed5ec12 100644
+--- a/engine/common/common.h
++++ b/engine/common/common.h
+@@ -118,6 +118,7 @@ typedef enum instance_e
+ 
+ #define CIN_MAIN		0
+ #define CIN_LOGO		1
++#define CIN_MENUBG		2
+ 
+ #if XASH_LOW_MEMORY == 0
+ #define MAX_DECALS		512	// touching TE_DECAL messages, etc
+diff --git a/engine/menu_int.h b/engine/menu_int.h
+index a83a58a..a7f52b1 100644
+--- a/engine/menu_int.h
++++ b/engine/menu_int.h
+@@ -201,7 +201,7 @@ typedef struct
+ 	void	(*pfnFinalCredits)( void );	// show credits + game end
+ } UI_FUNCTIONS;
+ 
+-#define MENU_EXTENDED_API_VERSION 1
++#define MENU_EXTENDED_API_VERSION 2
+ 
+ typedef struct ui_extendedfuncs_s {
+ 	// text functions, frozen
+@@ -239,6 +239,13 @@ typedef struct ui_extendedfuncs_s {
+ 	// on the next pfnEnableTextInput( true ), even if text input is enabled already
+ 	// it's used when user activates the text field, for example with gamepad
+ 	void (*pfnSetTextInputBuffer)( const char *text );
++
++	// menu background video (API version 2): a full-screen, cvar-gated, independent
++	// video slot (CIN_MENUBG), separate from the WON-only logo.avi banner
++	int (*pfnPrecacheMenuBgVideo)( const char *filename ); // 0 if missing/corrupt/ffmpeg unavailable
++	int (*pfnDrawMenuBgVideo)( float x, float y, float width, float height ); // 0 if not active this frame
++	int (*pfnGetMenuBgVideoWidth)( void );
++	int (*pfnGetMenuBgVideoHeight)( void );
+ } ui_extendedfuncs_t;
+ 
+ // deprecated export from old engine
