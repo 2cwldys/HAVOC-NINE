@@ -430,7 +430,7 @@ bool scan_map_cfg(FILE *fp)
 
                   item_index = first_item_in_group[num_groups];
 
-                  for (loop = 0; loop < num_in_group; loop++)
+                  for (int loop = 0; loop < num_in_group; loop++)
                   {
                      if (add_item_percent[item_index] > 99.9f)  // 100 percent?
                         add_item_percent[item_index] = unspecified_percent;
