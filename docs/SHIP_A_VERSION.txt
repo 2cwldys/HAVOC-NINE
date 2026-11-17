@@ -14,6 +14,21 @@ changed), stops at the first failure with the log to read, and prints a report. 
 reTS or engine work the master lacks (a merge by hand, 1b) or while the host does not answer. It commits and pushes nothing. The rest of this document says what each step does and
 what to do when one fails.
 
+0a. WATCHING IT RUN: .\ship-status.ps1
+--------------------------------------
+Do not guess whether a step is working, and do not read a whole log to find out. From the git copy, at any time, in any window:  .\ship-status.ps1
+It prints the run's folder, STATE (running, stalled?, failed, done), the active step and how long it has been quiet, the heavy lock's holder, what the step is
+building, a table of the seven steps, and the tail of the active step's log. It reads only; it never touches the run, so a subagent may poll it. Switches:
+-Json (one object for a script or an agent: state, activeStep, quietForMin, lockHeld, busyProcesses, vctipHolding, failure, steps, tail), -Tail <n> (more of
+the active log), -Dir <folder> (an older run under D:\temp\ship-*), -StaleMinutes <n> (how long quiet counts as stalled, default 3).
+
+ship.ps1 writes each step's output to D:\temp\ship-<time>\<step>.log and flushes it line by line, so a step that takes ten minutes can be read while it runs.
+STATE comes from the heavy lock and the log's freshness, NOT from finding the ship.ps1 process: a runner can start it under a command line that does not name
+ship.ps1, which on 2026-11-17 made an earlier version of this tool report "done" in the middle of a run, and a second ship was launched on top of the first
+(the HEAVY-JOB lock refused it, so nothing was damaged). A "stalled?" with vctipHolding = true is the MSVC trap: VCTIP.EXE, the compiler's telemetry helper,
+inherits the build's pipe and holds it open after the compiler itself has exited, so the wait never ends. ship.ps1 now sets VSCMD_SKIP_SENDTELEMETRY=1 and
+sweeps it; if one is ever listed here while a run is stuck, Stop-Process -Name vctip -Force releases it immediately.
+
 0b. BEFORE ANYTHING
 -------------------
 - The owner's game must be closed. Never launch or kill a game while they play; ask, or look at the process list (do not probe their PC beyond it).
