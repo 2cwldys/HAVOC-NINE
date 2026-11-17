@@ -206,6 +206,8 @@ $SkipNames = @(
     'tsstats.dat', 'vault.ini', 'bot_playerids.ini',
     'ts_advertise.cfg', 'ts_advertise_local.cfg', 'h9_presence.cfg',
     'listip.cfg', 'banned.cfg', 'mail.env', 'accounts.json', 'networking.ini',
+    # DF_admins.txt holds real player ids + the admin password (it is gitignored); only DF_admins.example.txt ships.
+    'df_admins.txt',
     'thumbs.db', 'desktop.ini', '.ds_store',
     # valve\cacert.pem: h9_cacerts.ps1 writes it on every launch from the PC's own certificates
     'cacert.pem')
