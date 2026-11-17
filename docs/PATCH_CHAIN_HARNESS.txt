@@ -1,0 +1,174 @@
+PATCH CHAIN HARNESS (tools\h9chain)
+===================================
+
+What it is, when to reach for it, and what it refuses to do. The command
+reference is tools\h9chain\README.txt; the design, the measured git
+mechanics it rests on and the acceptance budgets are tools\h9chain\SPEC.md.
+CLAUDE.md's patch-chain section, point 6, is the short version.
+
+
+1. WHY IT EXISTS
+----------------
+Every H9 engine change is a .patch file in xash3d-h9-patches\patches\, and
+xash.bat replays all 64 of them against the pristine xash3d-fwgs submodule
+on every build. Because the patch set is the whole engine diff, a patch that
+went stale against someone else's change does not fail until the next full
+rebuild, and then it fails for whoever runs it with no indication which of
+the 64 is at fault.
+
+It is worse on a development clone. There the engine changes are already
+committed, so every patch verifies "in place" and is skipped: all 64 read
+green while a fresh clone would fail. That is why 2026-10-23
+(engine-h9-spraypicker.patch) and 2026-11-17 (engine-h9-spraywad.patch) each
+cost hours. Not because the git work is slow -- rebuilding the tree at any
+link with plain git takes about six seconds -- but because nothing told
+anyone which link to look at, or what its pre-image should anchor to.
+
+This tool is that missing signal, plus the repair and a proof.
+
+
+2. THE LOOP
+-----------
+    tools\chain.cmd doctor            which link is wrong, and its fix
+    tools\chain.cmd regen <N>         rebuild that one patch, with a proof
+    tools\chain.cmd adopt <N> --yes   write it
+    tools\chain.cmd check --all       confirm the chain is whole again
+
+doctor runs check --all, then the residual, then the lint rules, and ends
+with an ordered fix plan: one line per distinct command, with real paths.
+Exit 0 is healthy. Every other exit names the next command, and
+"chain explain <code>" says what that code means.
+
+Measured on this chain: 15 s to name a broken link, about 100 s for the
+whole find-repair-prove loop, under 2 s for one link once the cache is warm,
+27 s for a full 64-link replay.
+
+
+3. REFRESHING A PATCH, AND CHANGING ONE
+---------------------------------------
+Different jobs, different commands.
+
+    regen <N> --refresh
+        Re-diff a patch against its own pre-tree. Content-identical by
+        construction, so it clears a stale "index <pre>..<post>" line or a
+        non-zero hunk offset and CANNOT change behaviour.
+
+    tree <N> --post --worktree DIR   (edit the files in DIR)
+    regen <N> --from DIR
+        Materialize the patch's result as ordinary files, edit them like
+        source, and turn the edit back into a correctly anchored patch. This
+        is the fastest way to change what a patch does, and it removes the
+        hand line-number arithmetic CLAUDE.md point 4 warns about.
+
+    plan <candidate.patch> --after <N> | --last
+        Pre-flight a patch that is NOT wired into xash.bat yet: whether it
+        applies at that slot, which earlier links it would shadow and on
+        which lines, whether a wired link already makes the same change, and
+        every SAFE slot -- one where the candidate applies AND every later
+        link still applies. Those are two different questions and both are
+        printed. Wiring one change as two links is what broke the master
+        build on 2026-11-17; this is the check that catches it beforehand.
+
+    fold <source> --into <N>
+        Merge one patch into another in the direction the shape calls for.
+        This is the shape the 2026-11-17 spraywad fix took.
+
+regen and fold are dry runs only; neither writes a .patch file. adopt does.
+
+
+4. WHAT IT WILL NOT DO
+----------------------
+It applies patches. It NEVER compiles anything: no code path reaches waf,
+msvc, gcc, build.bat, export.bat or xash.bat, and "chain selftest" asserts
+that structurally and fails if it ever stops being true.
+
+Exactly one command writes outside the work area. adopt copies one patch
+file, needs --yes, needs a proof record written by regen or fold, refuses any
+destination that is not a patch file in the patches or web directory, and
+ships DISABLED. To enable it set "allow_patch_writes": true in
+tools\h9chain\chain.config.json. That line is the only way in; the matching
+environment variable is read, reported and ignored, because a gate an
+environment variable can open is not a gate.
+
+The repo and the TSM root are protected roots: the tool refuses (exit 4) to
+write anything inside them, and refuses to run git apply in any form against
+either, including --check. The config may ADD protected roots; nothing can
+remove one.
+
+It never writes xash.bat and never writes PATCH_CHANGELOG.md. adopt prints
+the changelog entry to paste, with the true old sha256. Keeping that file
+current is still yours -- CLAUDE.md point 3.
+
+It reads commit trees, not the pristine submodule's own working tree. A
+literal xash.bat run applies into exactly that working tree, so a condition
+there is reported as class WORKTREE and does not fail a run: today it holds
+22 untracked files in engine and 1 in freevgui which are precisely the files
+the chain's new-file patches create, and whether those are work in progress
+or leftovers is not the tool's call.
+
+It does not replace the Submodule Engine Build Scan
+(.github\workflows\submodule-engine-build-scan.yml plus
+tools\submodule-engine-build-scan.sh), which remains the CI gate. The
+harness is not wired into CI.
+
+
+5. ONE RUN PER WORK AREA
+------------------------
+A run holds <work>\run.lock. Two runs sharing one work area would corrupt
+each other's index slots and cache and the survivor would then report
+failures that are not there, so the second refuses to start (exit 3) and says
+so. Give a concurrent run its own area with --work DIR, or pass --break-lock
+if the other run is known dead. A lock older than three times --timeout is
+treated as stale and broken automatically.
+
+Every apply happens in an index-only shared clone under the work area.
+"git worktree add" is never used against anything real, because it writes
+six files into the source .git.
+
+
+6. FOR AGENTS
+-------------
+--json on any command prints exactly one object on stdout -- including every
+refusal and every usage error, so a failure is never an empty stdout plus a
+traceback. Nothing is interactive and nothing reads stdin. Exit codes are
+documented and stable. "chain schema" gives the JSON shape of every
+command's output and "chain explain <code|class|verdict>" needs no
+repository access at all.
+
+Rewrites are dry runs by default, so an agent can run the whole diagnosis
+and repair loop and stop at adopt, which is the only gated step. Every
+non-healthy verdict carries the next command with real paths, not advice.
+
+
+7. THE CHAIN AS IT STANDS
+-------------------------
+Healthy. All 64 links apply plain, no three-way rescues, and the replayed
+chain reproduces the development clone's working tree exactly on all four
+targets. The four final tree ids are engine 1d3b2b36, mainui b20aba45,
+freevgui 713ad34b and library_suffix e6a43e63; a run that does not produce
+those four has changed what the chain builds.
+
+Reported, and deliberately not failing: 23 DRIFT findings (11 stale index
+lines and about 21 non-zero hunk offsets), 2 WORKTREE findings, and the lint
+findings -- the patch table in PATCH_CHANGELOG.md is not in xash.bat apply
+order, and the :dllpatch line in xash.bat is 8,159 characters against cmd's
+8,191 limit, so 32 are left. "regen <N> --refresh" clears any DRIFT finding
+content-identically, but each one is still a patch edit plus a changelog
+entry, so they are a batch to schedule rather than something to do in
+passing. A tool that cries on first contact gets ignored, so these are ranked
+below anything that blocks a build.
+
+
+8. TESTS
+--------
+    tools\h9chain\tests\run-tests.cmd        42 tests, fully offline, ~150 s
+    py -3 tools\h9chain\tests\break-test.py  13 steps end to end, ~310 s
+    tools\chain.cmd selftest --deep          33 read-only checks, ~42 s
+
+break-test.py is the one that proves the point: it copies the chain into
+scratch, staleifies one link THERE, and requires the tool to name that exact
+link, print a repair command, run it, and put the four tree ids back. It also
+checks that adopt against the real tree is still refused. selftest --deep
+additionally replays through a real worktree with plain git apply and
+compares every tree id against the index-only run, which is what makes the
+index-only shortcut trustworthy.

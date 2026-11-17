@@ -1,0 +1,21 @@
+# Hand-written. h9chain reads this file and never writes it.
+#
+#   allow      <path>                 <reason>
+#       a residual difference between the replayed chain and the dev clone's
+#       working tree that is expected and must not fail a run.
+#
+#   temporary  <patch name>  <text>
+#       a line a patch is only allowed to carry for now; lint rule L10
+#       reports it while it is still there.
+#
+#   folded     <patch name>  <reason>
+#       a patch xash.bat deliberately no longer calls, whose row in
+#       PATCH_CHANGELOG.md is kept as a record of where its change went.
+#       Lint rule L9 stops reading that row as a table that names a patch
+#       xash.bat does not call. A patch not declared here is still reported,
+#       so a 'call :patch' line that goes missing by accident still fails.
+
+allow      3rdparty/extras/xash-extras/cacert.pem   self-regenerating Mozilla CA bundle
+temporary  mainui-h9-sprayui.patch   CLogosListModel::Update: %d entr
+folded     engine-h9-chatraise.patch   retired 2026-10-29; its change is inside engine-h9-chatinput.patch
+folded     engine-h9-spraywad.patch    retired 2026-11-17; its change is inside engine-h9-spraypicker.patch
