@@ -864,15 +864,14 @@ if exist "%~dp0xash3d-h9-patches\xash.bat" (
 )
 
 REM ---- xash3d-fwgs -------------------------------------------------------- fwgs-block
-REM The engine source: a recursive clone of FWGS, on the local branch h9 (the
-REM webassembly patches and H9's two). Mirrored without git's own data -- the .git
-REM folder at the top and the .git file in each submodule -- and without what waf
-REM leaves behind: its build folder, its unpacked library and its lock file. The
-REM build folder is named by full path: mpg123 has a source folder called build.
-if exist "%~dp0xash3d-fwgs\wscript" (
-    robocopy "%~dp0xash3d-fwgs" "%EX%\xash3d-fwgs" /MIR /NJH /NJS /NDL /NFL /NP /XD "%~dp0xash3d-fwgs\.git" "%~dp0xash3d-fwgs\build" waf3-* __pycache__ /XF .git .lock-waf* *.bak_* >nul
-    if errorlevel 8 (echo   [WARN] the xash3d-fwgs copy reported errors) else (echo   xash3d-fwgs\ ^(FWGS source, branch h9^))
-)
+REM The engine is a git SUBMODULE in the HAVOC-NINE mirror now (2026-11-17): pristine
+REM upstream FWGS pinned at base commit e8d773ea, with every H9 change carried by
+REM xash3d-h9-patches (xash.bat applies them on build). It is managed with git
+REM submodule, NOT vendored as files -- flattening it here would clobber the submodule,
+REM so the engine is no longer copied into the export. When syncing the export into the
+REM mirror, skip xash3d-fwgs and keep .gitmodules. See docs\BUILDING.txt and
+REM docs\ENGINE_DIFFERENTIALS.txt. (The /MIR robocopy that vendored the engine was
+REM removed 2026-11-17.)
 
 REM ---- AMXMODX ------------------------------------------------------------ amxmodx-block
 REM AMX Mod X's own source -- master, 1.10 -- on the local branch h9 with H9's edits: its

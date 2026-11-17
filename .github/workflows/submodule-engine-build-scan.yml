@@ -1,0 +1,42 @@
+name: Submodule Engine Build Scan
+
+# Proves the H9 patch set still rebuilds the engine from the pristine xash3d-fwgs
+# submodule: it applies every patch xash.bat's :engine applies to the submodule and
+# fails on any reject. Lightweight -- patch-apply only, no engine compile, a couple
+# of minutes. Reads the patch list from xash.bat, so adding a patch never edits this.
+# See tools/submodule-engine-build-scan.sh and docs/BUILDING.txt.
+
+on:
+  push:
+    paths:
+      - 'xash3d-h9-patches/patches/**'
+      - 'xash3d-h9-patches/xash.bat'
+      - 'webassembly-patch/**'
+      - '.gitmodules'
+      - 'tools/submodule-engine-build-scan.sh'
+      - '.github/workflows/submodule-engine-build-scan.yml'
+  pull_request:
+    paths:
+      - 'xash3d-h9-patches/patches/**'
+      - 'xash3d-h9-patches/xash.bat'
+      - 'webassembly-patch/**'
+      - '.gitmodules'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (main repo only)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Initialize the pristine engine submodule and its 3 patched nested submodules
+        run: |
+          git submodule update --init xash3d-fwgs
+          git -C xash3d-fwgs submodule update --init 3rdparty/mainui 3rdparty/freevgui 3rdparty/library_suffix
+
+      - name: Scan - the patch chain must apply cleanly to the pristine submodule
+        run: bash tools/submodule-engine-build-scan.sh "$GITHUB_WORKSPACE"

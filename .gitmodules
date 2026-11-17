@@ -11,3 +11,7 @@
 	url = https://github.com/Source2ZE/StripperCS2
 	branch = master
 	ignore = dirty
+[submodule "xash3d-fwgs"]
+	path = xash3d-fwgs
+	url = https://github.com/FWGS/xash3d-fwgs
+	ignore = dirty

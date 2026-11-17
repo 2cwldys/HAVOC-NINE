@@ -3,7 +3,8 @@
 ===============================================================================
 
  Everything H9 builds has its source here. What is not here is fetched at a
- pinned version (the web client's toolchain, section 9) or comes from your own
+ pinned version (the engine's upstream base -- the xash3d-fwgs submodule,
+ section 2 -- and the web client's toolchain, section 9) or comes from your own
  install of Half-Life and The Specialists 3.0, which is never copied into the
  repository: the stock TS 3.0 base (ts-3-final.exe) and Valve's content.
 
@@ -71,11 +72,38 @@
 
  2. THE ENGINE (Xash3D FWGS, 32-bit Windows)     xash3d-h9-patches\xash.bat
  ---------------------------------------------------------------------------
-   xash3d-fwgs\ is FWGS's source with H9's whole patch chain already applied
-   (the four webassembly-patch\ patches, then xash3d-h9-patches\patches\ in
-   the order xash.bat lists; PATCH_CHANGELOG.md beside them says what each
-   one does). In the PC's own clone, xash.bat replays and checks every patch
-   before it builds; this copy has no .git, so it builds as it stands.
+   xash3d-fwgs\ is a git submodule: pristine upstream FWGS (github.com/FWGS/
+   xash3d-fwgs), pinned at base commit e8d773ea, with no H9 change committed
+   into it. .gitmodules marks it ignore=dirty, so xash.bat patching its working
+   tree at build time never shows up as a change to commit. H9's whole engine
+   change lives as patches beside it: the four webassembly-patch\ patches and
+   the 61 in xash3d-h9-patches\patches\; PATCH_CHANGELOG.md beside the latter
+   says what each one does. xash.bat's :engine routine applies them -- the
+   webassembly ones first, then xash3d-h9-patches\patches\ in the order it
+   lists -- to whichever xash3d-fwgs sits beside it. The set is complete:
+   applied to the pristine submodule it reproduces the H9 engine source byte
+   for byte (each shipped DLL's .patch in H9XASH\ independently holds the same
+   full diff, so "git apply" replays it on a fresh clone).
+
+   xash.bat builds the same engine either way. The PC H9 is made on keeps a
+   full clone of xash3d-fwgs with the changes already in its tree; there
+   xash.bat finds each patch already in place -- it reverses cleanly -- and
+   skips it. A fresh clone of this repository instead gets the pristine
+   submodule, and xash.bat applies the whole patch chain to it. A patch that
+   will not apply plainly falls to xash.bat's "git apply --3way", which
+   resolves it.
+
+   FROM A FRESH CLONE, before the first engine build, bring in the submodule
+   and its three patched nested submodules:
+       git submodule update --init xash3d-fwgs
+       git -C xash3d-fwgs submodule update --init 3rdparty/mainui 3rdparty/freevgui 3rdparty/library_suffix
+   Then "xash.bat engine" applies the patches and builds (it needs the usual
+   deps below: SDL2, the FFmpeg libs and the MSVC toolchain). Check the
+   submodules out with core.autocrlf=false (LF) for the cleanest patch apply:
+   the main engine forces *.c, *.h and wscript to LF through its own
+   .gitattributes, but the three nested submodules carry none, so on Windows
+   they check out CRLF and their LF patches take xash.bat's --3way path
+   instead (which works).
      xash.bat engine          waf with Visual Studio, SDL2 2.32.10 fetched
                               into deps\, FFmpeg from the folder xash.bat
                               names (32-bit, built once with MSYS2), then
@@ -88,6 +116,21 @@
      xash.bat assets          export\ts and the overlay into H9XASH
    xash.bat assemble and assets run make_commands_cfg.ps1 (the repository's
    root) to write commands.cfg from COMMANDS.txt.
+   A guard in CI keeps the patch set honest: the "Submodule Engine Build Scan"
+   workflow (.github\workflows\submodule-engine-build-scan.yml, running
+   tools\submodule-engine-build-scan.sh) applies every patch to the pristine
+   submodule on each push that touches the patches or xash.bat and fails on any
+   reject, so a forgotten or stale patch is caught before it can break a fresh
+   build. It reads the patch list straight from xash.bat, so adding a patch
+   never edits the workflow.
+   LICENSING: the engine is upstream FWGS's own and is not licensed by this
+   project; for its own terms see the upstream repository
+   (https://github.com/FWGS/xash3d-fwgs). It does not fall under this project's
+   GPLv3. It is referenced as a pristine-upstream
+   submodule, not vendored into the tree, with H9's changes kept separately as
+   the patches above. The built engine binaries ship with the game so the
+   gamemode runs, but they remain upstream's -- a nested repository, not H9
+   source.
 
  3. reTS (mp.dll and client.dll)              reTS\scripts\build-win32-dropin.ps1
  ---------------------------------------------------------------------------

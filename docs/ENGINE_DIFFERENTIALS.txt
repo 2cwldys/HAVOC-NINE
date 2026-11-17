@@ -40,8 +40,10 @@ The same in both:
 
 Engine
   Steam  Valve's GoldSrc.
-  Xash   Xash3D FWGS, 32-bit. TSM\xash3d-h9-patches\xash.bat builds it from FWGS
-         master, on the local branch h9. H9XASH\ENGINE.txt names the commit.
+  Xash   Xash3D FWGS, 32-bit. The engine source is the upstream xash3d-fwgs git
+         submodule, pinned to pristine FWGS; H9's changes to it are kept as
+         patches that xash.bat applies at build time, not vendored in this repo.
+         H9XASH\ENGINE.txt names the commit. See section 4.
 
 VGUI1 library (vgui.dll) -- the in-game menus' built-in colours
   Steam  Valve's vgui.dll with six scheme colours changed. That is 18 bytes and
@@ -259,9 +261,11 @@ in every place it ships (the Steam install, export\ and the repo).
       do not target cloaked players.
 
   xash.dll, ref_gl.dll, filesystem_stdio.dll, menu.dll, vgui.dll  (Xash)
-      Source diffs against FWGS master. xash.bat writes them on every engine
-      build, so they always match the binaries beside them, and "git apply"
-      replays them on a fresh FWGS clone.
+      Source diffs against pristine upstream FWGS. xash.bat writes them on every
+      engine build, so they always match the binaries beside them. Each one holds
+      the full diff on its own; the same changes are also kept split into the 61
+      patches in xash3d-h9-patches\patches\, which "git apply" replays on the
+      pristine xash3d-fwgs submodule to rebuild the engine source. See section 4.
 
   Note: the GoldSrc server package (export\ts, the repo's ts\) still ships
   reTSX's stock tsx_amxx.dll. The change only matters on Xash.
@@ -269,10 +273,61 @@ in every place it ships (the Steam install, export\ and the repo).
 Where the sources are:
   TSM\decompile_dll\                the binary-patch builders (build_patch_*.py)
                                     and the original DLLs they start from
-  TSM\xash3d-h9-patches\patches\    H9's engine patches: freevgui-h9-scheme,
-                                    engine-h9-cloak, engine-h9-cmdbuf,
-                                    engine-h9-chatmouse, engine-h9-suddendeath,
-                                    engine-h9-xray and mainui-h9-gamestartup
-  TSM\webassembly-patch\            the four webassembly patches
+  TSM\xash3d-h9-patches\patches\    H9's 61 engine patches (freevgui-h9-scheme, engine-h9-cloak,
+                                    engine-h9-cmdbuf, engine-h9-chatmouse,
+                                    engine-h9-suddendeath, engine-h9-xray,
+                                    mainui-h9-gamestartup and the rest);
+                                    xash.bat's :engine applies them, in order,
+                                    to the pristine xash3d-fwgs submodule
+  TSM\webassembly-patch\            the four webassembly patches (browser-build parts), applied first
   TSM\AMXMODX, branch h9            the same ID_BOT rule in tsx's source
   TSM\rcbot-patch\                  rcbot-ts-teams.patch and its README
+
+
+4. The Xash engine: upstream submodule, H9 patches, licensing
+-------------------------------------------------------------
+
+The Xash engine source is not vendored in this repo. It is the upstream
+xash3d-fwgs git submodule (https://github.com/FWGS/xash3d-fwgs), pinned to
+pristine FWGS at base commit e8d773ea. .gitmodules marks it ignore=dirty, so the
+patching of its working tree at build time never shows as changes to commit.
+
+Every H9 engine change lives as a patch in xash3d-h9-patches\patches\ (61 of
+them). xash3d-h9-patches\xash.bat's :engine routine applies them, in order, to
+whatever xash3d-fwgs sits beside it; the webassembly-patch\*.patch (the
+browser-build parts) go on first. The set is complete: applying it to the
+pristine submodule reproduces the H9 engine source byte-for-byte, and each
+H9XASH\*.dll.patch independently holds the full diff for its own binary.
+
+It is the same engine built either way. The maintainer's dev tree
+(TSM\xash3d-fwgs) is a full clone with the changes already in-tree, so xash.bat
+reports the patches as "in place" and skips them. A fresh clone of this repo
+uses the pristine submodule plus the patches. To build from a fresh clone:
+  * clone the repo, then run  git submodule update --init xash3d-fwgs
+  * inside it, run  git submodule update --init 3rdparty/mainui 3rdparty/freevgui
+    3rdparty/library_suffix  (the 3 patched nested submodules)
+  * run xash.bat, with the usual build deps (SDL2, the FFmpeg libs, the MSVC
+    toolchain).
+For clean plain patch application, check the tree out with core.autocrlf=false
+(LF). The main engine forces *.c, *.h and wscript to LF through .gitattributes,
+but the 3 nested submodules carry none, so on Windows they come out CRLF and
+their LF patches fall to xash.bat's --3way fallback (which works).
+
+The "Submodule Engine Build Scan" CI workflow guards this. On every push that
+touches the patches or xash.bat it applies the whole set to the pristine
+submodule and fails on any reject, so a forgotten or stale patch is caught
+before it can break a fresh build. It reads the patch list straight from
+xash.bat, so adding a patch never edits the CI. See
+.github\workflows\submodule-engine-build-scan.yml,
+tools\submodule-engine-build-scan.sh and docs\BUILDING.txt.
+
+Licensing
+  The engine is upstream FWGS's own and is not licensed by this project; for its
+  own terms see the upstream repository (https://github.com/FWGS/xash3d-fwgs).
+  It does not fall under this project's GPLv3. It is referenced here as a
+  pristine-upstream
+  submodule -- not vendored -- with H9's changes kept separately as the patches
+  above. The built engine binaries ship with the game so the gamemode is
+  functional, but they are upstream's, treated as a nested repository. This note
+  replaces the STUDY_ONLY.MD and UNLICENSED.MD files that used to sit inside the
+  engine folder.

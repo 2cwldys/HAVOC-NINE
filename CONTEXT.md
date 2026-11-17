@@ -31,8 +31,18 @@ class of problem.
 - `reTS\` -- The Specialists' game library (`mp.dll`) and client library (`client.dll`) as H9 builds them. `reTS\cl_dll` holds
   H9's panels (`docs\H9_VGUI.txt`: the menus, the notices, Apollo RP's HUD and inventory windows, the colour cvars). A change
   to a library goes in the `.patch` note beside its DLL (`tools\patch-notes-check.mjs` asks for it).
-- `xash3d-fwgs` -- the engine fork, branch `h9`. Rebuilt via
-  `xash3d-h9-patches\xash.bat`, which replays the patch chain above.
+- `xash3d-fwgs` -- the engine. A git submodule pinned to pristine upstream FWGS
+  (`github.com/FWGS/xash3d-fwgs`, base commit `e8d773ea`), not a vendored fork;
+  `.gitmodules` marks it `ignore = dirty`, so build-time patching of its working
+  tree is never a change to commit. Every H9 engine change lives as a patch under
+  `xash3d-h9-patches\patches\`; `xash.bat`'s `:engine` applies them in order to
+  whichever `xash3d-fwgs` sits beside it. A fresh clone (pristine submodule +
+  patches) and the maintainer's dev tree (changes already in-tree) build the same
+  engine; the "Submodule Engine Build Scan" CI replays every patch onto the
+  pristine submodule on each push touching the patches or `xash.bat`, so a stale
+  patch is caught before it breaks a fresh build. The engine is upstream's own and
+  is not licensed by this project (see the upstream repository for its terms): a
+  nested repository shipped with the game, outside this project's GPLv3.
 - `H9XASH` -- the built client, propagated via `export.bat`.
 - `linux\`, `build-linux.cmd` -- the native Linux i386 server build (WSL2 distro
   `h9build`), laid out as `H9XASH-linux\` and packed by `stage-h9xash`; status and
