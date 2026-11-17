@@ -1,10 +1,10 @@
 {
  "format": 1,
- "builtAt": "2026-11-16T06:04:50.877Z",
+ "builtAt": "2026-11-17T08:36:03.930Z",
  "inputs": {
   "engine": "48e162b64bdea25b00462e4484e372c2573c417e06aa475f544ce934a440b9b5",
   "client": "d80361cab3ec52087a797f1f9c07717dc02a975f3aace45add4930a0a0243e62",
-  "patches": "493b92c6fb30d5d832492007e0aacd314259e5a75e3dbdfa230b9e62e38c4df7",
+  "patches": "97ba28c1a0d19a6843c5739204d2b97522f1a2f253549e9804fb195b95b3a2b0",
   "builder": "70f0e86b45975b540613ad7718c5b82ae283b8a09db2984dbec2070437f65651",
   "stager": "9a6b961d476ebb26d7929724bcd87c7252332af5fcef90a0958fc9370d6ddbcf",
   "pages": "99c4d527d4fa393ac356471a33080407beb503ccd3f75a54fcc6820f128d9105"
@@ -12,7 +12,7 @@
  "counts": {
   "engine": 7039,
   "client": 1241,
-  "patches": 62
+  "patches": 64
  },
  "outputs": {
   "engine/xash.wasm": "cf2bc0402d8a",
@@ -23,14 +23,14 @@
  "smoke": {
   "ok": true,
   "checks": 6,
-  "at": "2026-11-16T06:04:50.894Z",
+  "at": "2026-11-17T08:36:03.950Z",
   "perf": {
-   "fps": 60,
+   "fps": 60.2,
    "frameMs": {
     "p50": 16.7,
     "p95": 16.9,
     "p99": 17,
-    "max": 17
+    "max": 17.2
    },
    "longTasks": {
     "count": 0,
