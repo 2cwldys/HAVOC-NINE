@@ -1,6 +1,9 @@
 # EntMod real admin lists hold ids + passwords; keep them private. Only DF_admins.example.txt is committed.
 DF_admins.txt
 
+# AMXX Precacher Redux auto-generates these per-map precache lists on the server at runtime; not source.
+H9XASH/ts/addons/amxmodx/configs/precache/
+
 # ts_advertise.cfg holds the Discord bot token. Never commit it.
 #
 # The token is the whole bot account, not access to one channel.
