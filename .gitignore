@@ -4,6 +4,9 @@ DF_admins.txt
 # AMXX Precacher Redux auto-generates these per-map precache lists on the server at runtime; not source.
 H9XASH/ts/addons/amxmodx/configs/precache/
 
+# Stripper2 build artifacts (build-linux.sh / build-windows.ps1 output here); source + patch are tracked.
+Stripper2/dist/
+
 # ts_advertise.cfg holds the Discord bot token. Never commit it.
 #
 # The token is the whole bot account, not access to one channel.
