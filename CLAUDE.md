@@ -236,7 +236,7 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   an older run, `-StaleMinutes <n>` how long quiet counts as stalled. STATE (running, stalled?, failed, done) comes from the heavy lock and the log's freshness,
   never from finding the `ship.ps1` process: a runner can start it under a command line that does not name it, and an earlier version that looked for the process
   reported "done" in the middle of a run. A `stalled?` with `vctipHolding` is the MSVC trap -- `Stop-Process -Name vctip -Force` frees the build pipe.
-  `ship.ps1` writes each step to `D:\temp\ship-<time>\<step>.log` and flushes it line by line, so a ten-minute step can be watched while it runs.
+  `ship.ps1` writes each step to `<temp>\ship-<time>\<step>.log` and flushes it line by line, so a ten-minute step can be watched while it runs.
 - `.\deploy-vps.ps1` ends with `.\verify-release.ps1`: the new build must be in the updater's manifest, the host's build file, THE SERVER LIST BOT'S ABOUT ME (the bot follows
   the build file, so a version increase updates it; nothing is done by hand), the versioned downloads, the join gate and the host's game folder (WARN until
   `update-game.ps1 -Apply` has run there). Read its PASS/WARN/FAIL lines in the report; a FAIL makes the deploy exit 1.

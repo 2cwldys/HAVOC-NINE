@@ -309,6 +309,30 @@
     },
     {
       "kind": "meta",
+      "file": "EntMod_i386.so",
+      "sha256": "9ac40cdef66840bac423d0c6e65e7cdbdb4acf6b76a1171a4a5084a46b30092b",
+      "note": "build 1.66"
+    },
+    {
+      "kind": "meta",
+      "file": "EntMod_MM.dll",
+      "sha256": "92180790891f8273fac8f29814d9a0ff770f94fdca025bad3ffd0995829bc2cb",
+      "note": "build 1.66"
+    },
+    {
+      "kind": "meta",
+      "file": "HookMod_i386.so",
+      "sha256": "dbaac07299a3f82a141ee3cfc89a51607569016d3751b22d05f448d87d7dbef0",
+      "note": "build 1.66"
+    },
+    {
+      "kind": "meta",
+      "file": "HookMod_MM.dll",
+      "sha256": "235341592f053068492634c5f2ad6a395a5e36954508de6c9e6ca8160c171a36",
+      "note": "build 1.66"
+    },
+    {
+      "kind": "meta",
       "file": "rcbot_mm.dll",
       "sha256": "03c4a17a081a2666ae4f300c58de4ba235a1501918c1998ca8090d381e24eda7",
       "note": "build 1.66"
