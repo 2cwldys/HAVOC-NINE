@@ -6,3 +6,8 @@
 [submodule "EntMod4/uChmViewer"]
 	path = EntMod4/uChmViewer
 	url = https://github.com/eBookProjects/uChmViewer
+[submodule "StripperCS2"]
+	path = StripperCS2
+	url = https://github.com/Source2ZE/StripperCS2
+	branch = master
+	ignore = dirty
