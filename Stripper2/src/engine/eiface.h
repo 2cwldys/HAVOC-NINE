@@ -33,10 +33,12 @@
 // This is conveniently done for them in extdll.h
 //
 
+#ifndef DLLEXPORT
 #ifdef _WIN32
 #define DLLEXPORT __stdcall
 #else
 #define DLLEXPORT /* */
+#endif
 #endif
 
 typedef enum
@@ -377,7 +379,9 @@ typedef struct
 	short			flags;
 } TYPEDESCRIPTION;
 
+#ifndef ARRAYSIZE
 #define ARRAYSIZE(p)		(sizeof(p)/sizeof(p[0]))
+#endif
 
 typedef struct 
 {
