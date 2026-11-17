@@ -58,7 +58,7 @@
     {
       "kind": "amxx",
       "file": "ARP_Core.amxx",
-      "sha256": "81016d1dde30349c33bafe85eef8915fe9d09d0df9e6a23e5ae021d9a7a934be",
+      "sha256": "dca338122533f812ee4335f047206ee3866882339d6983a796fd2b6b4882b23b",
       "note": "build 1.65"
     },
     {
@@ -136,7 +136,7 @@
     {
       "kind": "amxx",
       "file": "h9_compete.amxx",
-      "sha256": "56eb2b8f1b0c6e66ee134067b13c169d521e922bbe4e84b66b1d23a9dab74592",
+      "sha256": "8cd85c2de3f57a030a6db89f1ab6ec190f88912a4ed19e2e006d1b614fc91d6c",
       "note": "build 1.65"
     },
     {
@@ -154,7 +154,7 @@
     {
       "kind": "amxx",
       "file": "h9_presence.amxx",
-      "sha256": "4feabf180fa27993a88bd55592df02a147203e8eea6a4d94d8d33c731b79f83c",
+      "sha256": "3268820510b4aeb7d02eda42093a79f9ee5ac08bd6db5d91f507520be1d91479",
       "note": "build 1.65"
     },
     {
@@ -305,6 +305,30 @@
       "kind": "meta",
       "file": "amxmodx_mm.dll",
       "sha256": "abb10442c7bde2d0165c4c149568782fbed1afcd39ee8ddf7a6f59415fe00043",
+      "note": "build 1.65"
+    },
+    {
+      "kind": "meta",
+      "file": "EntMod_i386.so",
+      "sha256": "2cb4982baede751dacb94ddfcea11c964bd76e1ce1d16f285b0dab7f8481eea7",
+      "note": "build 1.65"
+    },
+    {
+      "kind": "meta",
+      "file": "EntMod_MM.dll",
+      "sha256": "87f2e2223ec20b5e0a7d3a0063e078ea2f05861a89d6cd72b0562e41ec6a1a8b",
+      "note": "build 1.65"
+    },
+    {
+      "kind": "meta",
+      "file": "HookMod_i386.so",
+      "sha256": "dbaac07299a3f82a141ee3cfc89a51607569016d3751b22d05f448d87d7dbef0",
+      "note": "build 1.65"
+    },
+    {
+      "kind": "meta",
+      "file": "HookMod_MM.dll",
+      "sha256": "235341592f053068492634c5f2ad6a395a5e36954508de6c9e6ca8160c171a36",
       "note": "build 1.65"
     },
     {
