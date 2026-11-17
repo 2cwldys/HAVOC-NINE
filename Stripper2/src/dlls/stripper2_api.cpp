@@ -60,13 +60,13 @@ plugin_info_t Plugin_info = {
    PT_ANYPAUSE,                           // (when) unloadable
 };
 
-char *VNAME=Plugin_info.name;
-char *VVERSION=Plugin_info.version;
-char *VDATE=Plugin_info.date;
-char *VAUTHOR=Plugin_info.author;
-char *VURL=Plugin_info.url;
-char *VLOGTAG=Plugin_info.logtag;
-char *COMPILE_TIME=__DATE__ ", " __TIME__;
+const char *VNAME=Plugin_info.name;
+const char *VVERSION=Plugin_info.version;
+const char *VDATE=Plugin_info.date;
+const char *VAUTHOR=Plugin_info.author;
+const char *VURL=Plugin_info.url;
+const char *VLOGTAG=Plugin_info.logtag;
+const char *COMPILE_TIME=__DATE__ ", " __TIME__;
 
 // Global vars from metamod:
 meta_globals_t *gpMetaGlobals;      // metamod globals

@@ -1,0 +1,100 @@
+diff --git a/Stripper2/src/dlls/config.cpp b/Stripper2/src/dlls/config.cpp
+index 04902623..0c60edd8 100644
+--- a/Stripper2/src/dlls/config.cpp
++++ b/Stripper2/src/dlls/config.cpp
+@@ -430,7 +430,7 @@ bool scan_map_cfg(FILE *fp)
+ 
+                   item_index = first_item_in_group[num_groups];
+ 
+-                  for (loop = 0; loop < num_in_group; loop++)
++                  for (int loop = 0; loop < num_in_group; loop++)
+                   {
+                      if (add_item_percent[item_index] > 99.9f)  // 100 percent?
+                         add_item_percent[item_index] = unspecified_percent;
+diff --git a/Stripper2/src/dlls/h_export.cpp b/Stripper2/src/dlls/h_export.cpp
+index 3de933ca..6bf36a68 100644
+--- a/Stripper2/src/dlls/h_export.cpp
++++ b/Stripper2/src/dlls/h_export.cpp
+@@ -27,7 +27,7 @@
+ */
+ 
+ #include "extdll.h"
+-#include "h_export.h"
++#include "meta_api.h"
+ 
+ // From SDK dlls/h_export.cpp:
+ 
+@@ -38,7 +38,7 @@ globalvars_t  *gpGlobals;
+ // Receive engine function table from engine.
+ // This appears to be the _first_ DLL routine called by the engine, so we
+ // do some setup operations here.
+-void WINAPI GiveFnptrsToDll( enginefuncs_t* pengfuncsFromEngine, globalvars_t *pGlobals )
++C_DLLEXPORT void WINAPI GiveFnptrsToDll( enginefuncs_t* pengfuncsFromEngine, globalvars_t *pGlobals )
+ {
+    memcpy(&g_engfuncs, pengfuncsFromEngine, sizeof(enginefuncs_t));
+    gpGlobals = pGlobals;
+diff --git a/Stripper2/src/dlls/sdk_util.h b/Stripper2/src/dlls/sdk_util.h
+new file mode 100644
+index 00000000..711ddfd2
+--- /dev/null
++++ b/Stripper2/src/dlls/sdk_util.h
+@@ -0,0 +1,34 @@
++//
++// botman's stripper2 - MetaMOD plugin
++//
++// sdk_util.h
++//
++
++/***
++*
++*   Copyright (c) 1999, 2000 Valve LLC. All rights reserved.
++*
++*   This product contains software technology licensed from Id
++*   Software, Inc. ("Id Technology").  Id Technology (c) 1996 Id Software, Inc.
++*   All Rights Reserved.
++*
++*   Use, distribution, and modification of this source code and/or resulting
++*   object code is restricted to non-commercial enhancements to products from
++*   Valve LLC.  All other use, distribution, or modification is prohibited
++*   without written permission from Valve LLC.
++*
++****/
++
++#ifndef SDK_UTIL_H
++#define SDK_UTIL_H
++
++// Helpers defined in sdk_util.cpp. The HLSDK util.h (pulled in through
++// meta_api.h -> mutil.h) also declares these; the matching redeclarations here
++// let the plugin sources include sdk_util.h directly, as the classic tree did.
++
++// Writes message to console with timestamp.
++extern void UTIL_LogPrintf( char *fmt, ... );
++
++extern void UTIL_StringToVector( float *pVector, const char *pString );
++
++#endif // SDK_UTIL_H
+diff --git a/Stripper2/src/dlls/stripper2_api.cpp b/Stripper2/src/dlls/stripper2_api.cpp
+index 831333de..b0e142f6 100644
+--- a/Stripper2/src/dlls/stripper2_api.cpp
++++ b/Stripper2/src/dlls/stripper2_api.cpp
+@@ -60,13 +60,13 @@ plugin_info_t Plugin_info = {
+    PT_ANYPAUSE,                           // (when) unloadable
+ };
+ 
+-char *VNAME=Plugin_info.name;
+-char *VVERSION=Plugin_info.version;
+-char *VDATE=Plugin_info.date;
+-char *VAUTHOR=Plugin_info.author;
+-char *VURL=Plugin_info.url;
+-char *VLOGTAG=Plugin_info.logtag;
+-char *COMPILE_TIME=__DATE__ ", " __TIME__;
++const char *VNAME=Plugin_info.name;
++const char *VVERSION=Plugin_info.version;
++const char *VDATE=Plugin_info.date;
++const char *VAUTHOR=Plugin_info.author;
++const char *VURL=Plugin_info.url;
++const char *VLOGTAG=Plugin_info.logtag;
++const char *COMPILE_TIME=__DATE__ ", " __TIME__;
+ 
+ // Global vars from metamod:
+ meta_globals_t *gpMetaGlobals;      // metamod globals
