@@ -1,0 +1,23 @@
+the main commands are:
+weapon_entmover - equipping the entmover
+e_rotate_x - rotate entity around x axis
+e_rotate_y - rotate entity around y axis
+e_rotate_z - rotate entity around z axis
+e_add entity_type:property:value: (e_add monster_scientist:origin:%HERE%:)
+entmod_keyvalue key value (entmod_keyvalue health 1000)
+e_kill entity_type radius
+entmod_lookingat - prints info about an entity
+es_start save_name - start a new save for a set of entities
+es_grab - adds an entity to the current save
+es_graball entity_type - grabs all entities of a certain type and adds them to the save
+es_save save_flag(0 or 1) (es_save 0) - Complete the save 0=in place, 1=follow player when spawned
+mm_grab - grab an entity for a multiple move selection
+mm_start - begin moving all selected entities
+mm_end - stop moving all selected entities
+e_telestart teleport_name - create the entry side of a teleport with a particular name
+e_teleend teleport_end - create the exit side of a teleport with a particular name
+t_select train_name - selects an entity as a train
+t_start - begin moving around to chart a path for a train
+t_end - stop plotting a path for a train
+
+ty to knee and smiles
