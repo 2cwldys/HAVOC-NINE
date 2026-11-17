@@ -1,0 +1,334 @@
+================================================================================
+EntMod4 -- RECONSTRUCTION MANIFEST
+Disjoint partition of every not-yet-implemented EntMod function into target .cpp
+files, so parallel agents never write the same symbol.
+================================================================================
+
+GROUND TRUTH
+  Decompile : D:\temp\h9vps\decomp\EntMod_i386.so.c              (line ranges below)
+  Symbols   : D:\temp\h9vps\decomp\EntMod_i386.so.functions.txt
+  Decode    : D:\temp\h9vps\decomp\DECODE.txt, ev_offsets.txt    (offset -> field)
+  Contract  : entmod_decl.h (declares every global + cross-module proc below)
+
+SIZE KEY   S < 40 lines | M 40-150 | L 150-500 | XL > 500   (decompile lines)
+TAG        (stock) = copy a HLSDK/TS helper   (custom) = reconstruct from decompile
+
+--------------------------------------------------------------------------------
+SCOPE DECISION -- what is reconstructed vs. what is NOT
+--------------------------------------------------------------------------------
+The existing tree builds EntMod as a PURE METAMOD plugin (modmain/h_export/dllapi/
+engine_api, NULL hook tables). Two large blocks of the original binary belong to its
+OTHER personality -- a standalone game-DLL shim -- and are OUT OF SCOPE here:
+
+  OUT-1  ~612 entity-classname trampolines  aiscripted_sequence..adminmod_timer
+         decompile lines ~5000-22025  (addr 0x38190-0x466b0)
+         Each is identical: dlsym(h_Library,"<name>") cached in a function-local
+         static, then tail-call. They are EntMod's exported entity factories for
+         when it loads AS the game DLL. The metamod build never exports entities
+         (the real game DLL does), and AddGameEntity/Create use the engine's
+         CREATE_NAMED_ENTITY, not dlsym. If ever needed: one generated file
+         gameents.cpp via a LINK(name) macro + h_Library. NOT written now.
+
+  OUT-2  ~380 engine/gamedll pass-through wrappers + Post hooks + the pfnXxx engine
+         interceptors + GiveFnptrsToDll(as gamedll) + GetEntityAPI(v1)
+         decompile lines ~1-5000 and the *_Post block (addr 0x32550-0x37a50)
+         These are the shim's plumbing. In the metamod build they are the NULL
+         table entries already present in dllapi.cpp / engine_api.cpp. NOT written.
+
+IN SCOPE = the custom EntMod logic, decompile lines 22173-33103 (addr 0x46a70-
+0x58a10), plus the dispatch bridges at lines 1434-1680 (addr 0x337f0-0x33c80).
+~150 functions, partitioned below.
+
+--------------------------------------------------------------------------------
+DEVIATIONS FROM THE SUGGESTED MODULE SPLIT
+--------------------------------------------------------------------------------
+  entphaser.cpp  DROPPED -- no distinct "phaser" symbols exist in the decompile.
+                 EntMod has ONE custom weapon framework (Primary*/Weapon*/DFWeaponForId
+                 -> weaponcore.cpp) plus the entity-mover weapon (-> entmover.cpp); any
+                 beam/"phaser" visual is beam.cpp. The task's "flashbang" example is a
+                 stock CS entity (an OUT-1 trampoline, weapon_flashbang), not an EntMod
+                 custom weapon.
+  strutil.cpp, mapcycle.cpp  SPLIT OUT of the suggested single util.cpp, so the ~80
+                 helpers can be reconstructed by separate agents without collision.
+  dispatch.cpp   also carries the Cmd_Argv/Argc/Args command-injection readers and
+                 DFRegisterUserMessages (not just the Dispatch handlers).
+  dll.cpp        is an EXPAND target, not a new file (6 handlers already live there).
+  gameents.cpp   named only as the OUT-1 home if the ~612 trampolines are ever needed.
+
+--------------------------------------------------------------------------------
+GLOBALS  (declared in entmod_decl.h; each needs exactly one defining .cpp)
+--------------------------------------------------------------------------------
+  mr_meta, ModCmd                         -> define in dispatch.cpp
+  ntfDidRegister, ntfMsgId* (11), gmsgShowMenu -> define in dispatch.cpp
+  h_Library                               -> only used by OUT-1; define in dispatch.cpp (or gameents.cpp if that lands)
+  DF_entversion (cvar_t)                  -> define in dll.cpp (registered by DFGameDLLInit)
+  Entities[] (1024 x 0x640)               -> define in admintools.cpp (es_ save table)
+  EntInfo[256]                            -> define in dispatch.cpp (zeroed in DFDispatchSpawn)
+  NewWeapons[] (ENT_MAXPLAYERS x 0x48)    -> define in weaponcore.cpp
+  precached_models (int)                  -> define in dispatch.cpp (set in DFDispatchSpawn)
+  Already defined: moddir, firstserverframe (dll.cpp); EntInfo3, NextAdminCheck (entadmin.cpp)
+  NOTE: the sibling sprite index at DAT_0042a9b4 (zerogxplode.spr) has no recovered
+        symbol name; keep it a file-static in the module that precaches it (dispatch.cpp).
+
+================================================================================
+MODULES
+================================================================================
+
+-------- dispatch.cpp  (metamod bridges + DF* hook handlers + table wiring) --------
+  fn                     @addr     lines        size  tag      deps
+  DFRegisterUserMessages 0x337f0   1434-1453    S     custom   ntfMsgId* globals, REG_USER_MSG
+  m_DispatchSpawn        0x33950   1461-1479    S     custom   DFDispatchSpawn, gpGamedllFuncs, mr_meta
+  m_DispatchUse          0x339a0   1487-1504    S     custom   DFDispatchUse, gpGamedllFuncs
+  m_DispatchTouch        0x33a10   1512-1529    S     custom   DFDispatchTouch, gpGamedllFuncs
+  m_DispatchKeyValue     0x33a80   1537-1554    S     custom   DFDispatchKeyValue, gpGamedllFuncs
+  m_ClientCommand        0x33af0   1562-1578    S     custom   DFClientCommand(dll), gpGamedllFuncs, ModCmd
+  Cmd_Argv               0x33b50   1586-1615    S     custom   ModCmd, mr_meta, gpMetaGlobals
+  Cmd_Argc               0x33bd0   1624-1648    S     custom   ModCmd, mr_meta
+  Cmd_Args               0x33c30   1657-1680    S     custom   ModCmd, mr_meta
+  DFPlayerPreThink       0x52150   27781-28180  L     custom   EntMover*(entmover), Weapon*/Primary*(weaponcore), NewWeapons
+  DFPlayerPostThink      0x52e80   28181-28216  S     custom   NewWeapons
+  DFDispatchKeyValue     0x52f00   28217-28480  L     custom   Entities, FStrEq, UTIL_StringToVector(strutil)
+  DFDispatchThink        0x534b0   28485-28489  S     custom   (returns 0)
+  DFDispatchUse          0x534c0   28497-28501  S     custom   (returns 0)
+  DFDispatchTouch        0x534d0   28509-28513  S     custom   (returns 0)
+  DFDispatchBlocked      0x534e0   28521-28525  S     custom   (returns 0)
+  DFServerDeactivate     0x537d0   28667-28671  S     custom   (empty)
+  DFServerActivate       0x537e0   28680-28684  S     custom   (empty; decompile drops the hook args)
+  DFDispatchSpawn        0x537f0   28692-28740  M     custom   Entities, EntInfo, firstserverframe, NextAdminCheck,
+                                                               precached_models, WeaponPrecache(weaponcore), PRECACHE_*
+  WIRING: fill the NULL pre-hook slots in dllapi.cpp g_DllFunctionTable (pfnSpawn,
+  pfnKeyValue, pfnThink, pfnUse, pfnTouch, pfnBlocked, pfnPlayerPreThink,
+  pfnPlayerPostThink, pfnServerActivate, pfnServerDeactivate). ARCH NOTE: the m_*
+  bridges above are the STANDALONE-shim form (branch on mr_meta, forward via
+  gpGamedllFuncs). In the metamod build the pre-hook slot handlers call the DF*
+  function and translate its int 0/1 into RETURN_META(MRES_IGNORED/SUPERCEDE)
+  (same pattern as dll.cpp DFClientCommand). Reconstruct the m_* bridges faithfully,
+  but wire the TABLE with metamod-style thunks; keep both honest with a short note.
+  count: 19
+
+-------- entfuncs.cpp  (shared entity helpers) --------
+  DFMoveableEnt(CBaseEntity*) 0x48280 23010-23163 L   custom   FStrEq, STRING, pev fields
+  DFCopyableEnt(CBaseEntity*) 0x483d0 23168-23366 L   custom   FStrEq, STRING, pev fields
+  DFMoveableEnt(edict_t*)     0x485b0 23371-23523 L   custom   (edict overload of above)
+  DFCopyableEnt(edict_t*)     0x48700 23528-23725 L   custom   (edict overload of above)
+  DFGetOrigin                0x50ec0  27055-27078 S   custom   pev absmin/absmax/origin  [ret Vector by value]
+  DFGetSize                  0x50f20  27086-27104 S   custom   pev absmin/absmax         [ret Vector by value]
+  DFFindEntityForward        0x53bd0  28895-28968 M   custom   UTIL_MakeVectors/UTIL_TraceLine/UTIL_FindEntityInSphere(util),
+                                                               DFGetOrigin, DFMoveableEnt, DFCopyableEnt
+  Create                     0x53ea0  28976-28998 S   custom   CREATE_NAMED_ENTITY, m_DispatchSpawn(dispatch)
+  D_GiveNamedItem            0x53fa0  29006-29026 S   custom   CREATE_NAMED_ENTITY, m_DispatchSpawn/m_DispatchTouch(dispatch)
+  D_GiveNamedItem2           0x54040  29034-29052 S   custom   CREATE_NAMED_ENTITY, m_DispatchSpawn(dispatch)
+  GameCreateEntity           0x54c80  29753-29765 S   custom   CREATE_NAMED_ENTITY, OFFSET
+  GameKeyValue               0x54cd0  29773-29816 M   custom   m_DispatchKeyValue(dispatch)
+  AddGameEntity              0x54d90  29824-29926 M   custom   GameCreateEntity, GameKeyValue, m_DispatchSpawn(dispatch),
+                                                               UTIL_StringToVector(strutil), SET_SIZE
+  DFNoBuildAreas             0x572f0  31567-31749 L   custom   UTIL_FindEntityByClassname(util), pev fields
+  count: 14
+
+-------- beam.cpp  (HLSDK CBeam logic ported to free functions over pev) --------
+  SetStartEntity  0x46a70  22177-22186  S  stock  pev sequence/skin/body fields
+  SetEndEntity    0x46ab0  22194-22203  S  stock  pev fields
+  GetStartPos     0x46af0  22211-22223  S  stock  INDEXENT; returns vec3 ptr
+  GetEndPos       0x46b30  22231-22246  S  stock  INDEXENT; returns vec3 ptr
+  BeamInit        0x46b80  22254-22277  S  stock  pev fields, ALLOC_STRING
+  BeamCreate      0x46c20  22285-22294  S  stock  CREATE_NAMED_ENTITY, BeamInit
+  RelinkBeam      0x46c90  22302-22360  M  stock  GetEndPos, UTIL_SetSize/UTIL_SetOrigin (util.h inline)
+  EntsInit        0x46db0  22368-22384  S  stock  INDEXENT, RelinkBeam
+  PointEntInit    0x46e60  22392-22408  S  stock  INDEXENT, RelinkBeam
+  HoseInit        0x46ef0  22416-22433  S  stock  RelinkBeam
+  PointsInit      0x46f60  22441-22458  S  stock  RelinkBeam
+  count: 11  (stock = ported from HLSDK CBeam effects.cpp; verify field reuse against ev_offsets.txt)
+
+-------- entmover.cpp  (the move/rotate/train/bind entity-mover tool) --------
+  EntMoverDeploy        0x50fa0  27127-27146  S   custom  NewWeapons, DFSendWeaponAnim(weaponcore)
+  EntMoverAttack        0x51040  27151-27276  M   custom  DFFindEntityForward(entfuncs), DFPrepareUndo(admintools), beam, UTIL_*
+  EntMoverSpecial       0x51420  27281-27474  L   custom  DFGetOrigin/DFGetSize(entfuncs), UTIL_*, beam
+  EntMoverDestroyEffect 0x51950  27479-27496  S   custom  beam, REMOVE_ENTITY
+  EntMoverCreateEffect  0x519b0  27501-27538  S   custom  BeamCreate(beam), precached_models
+  EntMoverUpdateEffect  0x51b00  27543-27566  S   custom  beam SetStart/SetEnd/RelinkBeam
+  EntMoverContinue      0x51b80  27571-27653  M   custom  DFGetOrigin(entfuncs), UTIL_TraceLine(util), beam, pev
+  EntMoverOff           0x51e30  27658-27746  M   custom  EntMoverDestroyEffect, NewWeapons
+  EntMoverPrecache      0x52100  27751-27762  S   custom  PRECACHE_MODEL
+  DFEntMover            0x49170  24009-27050  XL  custom  EntMover*(self), Cmd_Argv(dispatch), IsAdmin(entadmin),
+                                                         Create/D_GiveNamedItem(entfuncs), UTIL_*(util), NewWeapons
+  (DFEntMover is declared in plugin.h; define it here -- this DELETES its stubs.cpp copy.)
+  count: 10   NOTE: DFEntMover is the single largest function (~3045 lines); it is
+  the mover's command parser and may itself be split internally, but it is ONE symbol.
+
+-------- admintools.cpp  (DFEntAdmin + es_ save/load + undo) --------
+  DFPrepareUndo  0x488d0  23730-23764  S   custom  Entities, per-player undo slot in EntInfo3
+  KillEntity     0x48950  23769-23866  M   custom  DFPrepareUndo, REMOVE_ENTITY, Entities
+  DFEntSave      0x48b70  23871-24004  M   custom  Entities, pev snapshot copy
+  DFEntAdmin     0x46fc0  22467-23005  XL  custom  Cmd_Argv(dispatch), AddGameEntity/Create/D_GiveNamedItem(entfuncs),
+                                                   DFEntSave/KillEntity/DFPrepareUndo(self), beam, MOTDText/UTIL_*(util),
+                                                   Entities, IsAdmin(entadmin)
+  (DFEntAdmin is declared in plugin.h; define it here -- this DELETES its stubs.cpp copy.)
+  Owns the global: Entities[].
+  count: 4
+
+-------- weaponcore.cpp  (custom-weapon framework, e.g. _special / entmover weapon) --------
+  PrimaryAttack     0x58360  32664-32685  S   custom  NewWeapons, DFWeaponForId
+  PrimaryAttackOff  0x583b0  32686-32706  S   custom  NewWeapons
+  PrimaryContinue   0x58400  32707-32728  S   custom  NewWeapons
+  PrimaryIdle       0x58450  32729-32740  S   custom  (near-empty)
+  PrimaryAlways     0x58460  32741-32752  S   custom  (near-empty)
+  WeaponPrecache    0x58470  32753-32768  S   custom  PRECACHE_*
+  WeaponDeploy      0x58480  32769-32789  S   custom  DFDefaultDeploy, NewWeapons
+  WeaponHolster     0x584d0  32790-32801  S   custom  NewWeapons
+  WeaponSpecial     0x584e0  32802-32820  S   custom  EntMover*(entmover) or beam, NewWeapons
+  WeaponForceOff    0x58520  32821-32837  S   custom  NewWeapons
+  WeaponCheck       0x58550  32838-32849  S   custom  NewWeapons
+  WeaponDisconnect  0x58560  32850-32875  S   custom  NewWeapons
+  DFWeaponForId     0x58600  32876-33056  L   custom  weapon-id -> classname table (big switch/table)
+  DFDefaultDeploy   0x58960  33057-33084  S   custom  DFSendWeaponAnim, pev viewmodel/weaponmodel
+  DFSendWeaponAnim  0x58a10  33085-33103  S   custom  MESSAGE_BEGIN (SVC_WEAPONANIM), pev
+  Owns the global: NewWeapons[].
+  count: 15
+
+-------- util.cpp  (EXPAND; currently only UTIL_IsValidEntity) --------
+  UTIL_VecToAngles              0x545d0 29342-29361 S stock  VEC_TO_ANGLES            [ret Vector]
+  UTIL_TraceLine (6-arg glass)  0x54610 29362-29377 S stock  TRACE_LINE   (5-arg form is the util.h inline)
+  UTIL_MakeVectors              0x54670 29393-29407 S stock  MAKE_VECTORS
+  UTIL_MakeAimVectors           0x54680 29408-29427 S stock  pfnAngleVectors
+  UTIL_PointContents            0x546b0 29428-29442 S stock  POINT_CONTENTS
+  ClientPrint                   0x54700 29473-29506 S stock  MESSAGE_BEGIN gmsgTextMsg-style
+  UTIL_SayText                  0x54800 29507-29532 S custom MESSAGE_BEGIN (SayText), ntf id
+  IsAlive                       0x54890 29533-29550 S custom pev deadflag/health
+  FInViewCone                   0x548c0 29551-29582 S stock  UTIL_MakeVectors, pev angles
+  FVisible                      0x54980 29583-29618 S stock  TRACE_LINE
+  GetGunPosition                0x54a70 29619-29643 S stock  pev origin/view_ofs      [ret Vector]
+  VecBModelOrigin               0x54ab0 29644-29669 S stock  pev absmin/absmax        [ret Vector]
+  UTIL_ShowMenu                 0x54b00 29670-29692 S custom MESSAGE_BEGIN gmsgShowMenu
+  UTIL_GetGlobalTrace           0x550e0 30029-30062 S stock  gpGlobals->trace_*       [ret TraceResult]
+  VectorRotateX                 0x55180 30063-30081 S custom trig
+  VectorRotateY                 0x551f0 30082-30100 S custom trig
+  VectorRotateZ                 0x55260 30101-30119 S custom trig
+  VectorRotate                  0x552d0 30120-30156 S custom VectorRotateX/Y/Z
+  UTIL_TraceReflect (7-arg)     0x55370 30157-30300 M custom UTIL_TraceLine, recursion
+  UTIL_TraceReflect (6-arg)     0x55860 30301-30442 M custom UTIL_TraceLine, recursion
+  UTIL_WaterLevel               0x55d40 30443-30487 M stock  POINT_CONTENTS
+  UTIL_BubbleTrail              0x55e50 30488-30538 M stock  MESSAGE_BEGIN SVC_TEMPENTITY
+  UTIL_FindEntityInSphere(edict)0x55fb0 30539-30560 S stock  FIND_ENTITY_IN_SPHERE
+  UTIL_FindEntityInSphere(CBase)0x57290 31536-31562 S stock  (CBaseEntity overload)
+  UTIL_SayTextAll               0x56000 30561-30586 S custom MESSAGE_BEGIN
+  ClientPrint2                  0x56090 30587-30607 S custom MESSAGE_BEGIN
+  UTIL_CheckBox                 0x56230 30666-30739 M custom TRACE_HULL / TRACE_MONSTER_HULL
+  UTIL_TossAngleFromSpeed       0x56530 30740-30758 S custom trajectory math          [ret Vector]
+  UTIL_TossSpeedFromAngle       0x56580 30759-30818 M custom trajectory math
+  UTIL_GetTeamColor             0x56710 30819-31106 L custom TS team -> color table    [ret Vector]
+  UTIL_HudMessage               0x56a70 31107-31220 M stock  MESSAGE_BEGIN SVC_DIRECTOR (hudtextparms_s)
+  UTIL_HudMessageAll            0x56dd0 31221-31245 S stock  UTIL_HudMessage
+  UTIL_FindEntityByString(edict)0x574d0 31777-31798 S stock  FIND_ENTITY_BY_STRING
+  UTIL_FindEntityByString(CBase)0x57470 31750-31776 S stock  (CBaseEntity overload)
+  UTIL_FindEntityByClassname(e) 0x57550 31812-31824 S stock  FIND_ENTITY_BY_STRING
+  UTIL_FindEntityByClassname(C) 0x57520 31799-31811 S stock  (CBaseEntity overload)
+  UTIL_FindEntityByTargetname   0x57580 31825-31837 S stock  FIND_ENTITY_BY_STRING
+  UTIL_FindEntityGeneric        0x575b0 31838-31885 M stock  FIND_ENTITY_BY_*
+  UTIL_PlayerByIndex            0x57670 31886-31907 S stock  INDEXENT
+  EMIT_SOUND_DYN                0x576b0 31908-31935 S stock  EMIT_SOUND_DYN2 macro
+  UTIL_ScreenShake              0x57770 31936-32012 M stock  MESSAGE_BEGIN gmsgShake
+  UTIL_ScreenShakeAll           0x57970 32013-32025 S stock  UTIL_ScreenShake
+  UTIL_ScreenFadeBuild          0x579b0 32026-32061 S stock  (ScreenFade)
+  UTIL_ScreenFadeWrite          0x57a80 32062-32096 S stock  MESSAGE_BEGIN (CBaseEntity)
+  UTIL_ScreenFadeAll            0x57b50 32097-32123 S stock  UTIL_ScreenFade*
+  UTIL_ScreenFade               0x57bd0 32124-32140 S stock  UTIL_ScreenFadeBuild/Write
+  IsInWorld                     0x571a0 31512-31535 S stock  pev origin bounds
+  GetPlayerIndex                0x544c0 29271-29319 M custom  name match over players
+  FindPlayerByName              0x545a0 29320-29341 S custom  GetPlayerIndex, INDEXENT
+  MOTDText                      0x540d0 29056-29103 M custom  MESSAGE_BEGIN ntfMsgIdMOTD
+  count: 49  (plus UTIL_IsValidEntity already done)
+  NOTE: UTIL_VarArgs / UTIL_LogPrintf are declared extern in util.h -- define their
+  bodies here too (they are NOT in entmod_decl.h to avoid redeclaration).
+  FStrEq/UTIL_SetSize/UTIL_SetOrigin/UTIL_TraceLine(5-arg) are util.h INLINES -- do
+  NOT redefine (the binary's standalone copies are just the inlines emitted).
+
+-------- strutil.cpp  (string + parse helpers) --------
+  Q_strncasecmp         0x54200 29107-29144 S stock  libc
+  Q_strcasecmp          0x54270 29145-29157 S stock  Q_strncasecmp
+  Q_strcasestr          0x542a0 29158-29270 M stock  Q_strncasecmp
+  FormatLine            0x54fb0 29934-29962 S custom  in-place ^n / \\n -> newline
+  StripReturn           0x56e80 31260-31281 S custom  strip trailing CR/LF
+  Strings_GetFirstWord  0x56ed0 31282-31322 M custom  whitespace split
+  Strings_CountWords    0x56f50 31323-31395 M custom  whitespace split
+  Strings_GetWord       0x57010 31396-31511 M custom  whitespace split
+  strLeft               0x58020 32383-32402 S stock   substring
+  strrev                0x58080 32403-32434 S stock   reverse in place
+  strRight              0x580d0 32435-32487 M stock   substring
+  strRemoveReturn       0x58180 32488-32575 M custom  strip CR/LF
+  strTrim               0x58270 32576-32663 M custom  trim whitespace
+  UTIL_StringToVector   0x54bc0 29693-29748 M custom  strtod x3
+  UTIL_StringToIntArray 0x55010 29971-30028 M custom  strtol loop
+  UTIL_StringSearchReplace 0x56180 30639-30665 S custom  substring replace
+  count: 17
+
+-------- mapcycle.cpp  (HL server map-cycle parser; may be dead in the mm build) --------
+  DestroyMapCycle    0x57c20  32141-32171  S  stock  free list
+  CurrentMap         0x57c70  32172-32199  S  stock  (mapcycle_s)
+  COM_Parse          0x57cd0  32200-32275  M  stock  quake token parser
+  COM_TokenWaiting   0x57e20  32276-32301  S  stock  quake token parser
+  ReloadMapCycleFile 0x57e80  32302-32382  M  stock  LOAD_FILE_FOR_ME, COM_Parse
+  count: 5   NOTE: no caller found in the in-scope set; if confirmed unreachable in
+  the metamod build, this module may be dropped. Keep for parity until verified.
+
+================================================================================
+EXISTING FILES -- EXPAND, do not re-create (symbols already owned there)
+================================================================================
+dll.cpp  (the six admin-path DLL_FUNCTIONS handlers; locally prototyped in dllapi.cpp)
+  DFGameDLLInit     0x52130 27768-27772 S  EXPAND: real body registers DF_entversion
+                                            via CVAR_REGISTER (keep/relocate the GET_GAME_DIR
+                                            that sets moddir -- the decompile sets moddir elsewhere).
+  DFClientConnect   0x53900 28748-28841 M  EXPAND: calls DFRegisterUserMessages(); zeroes the full
+                                            per-player EntInfo3 block (0xfd30 stride) + NewWeapons[idx];
+                                            prints the obfuscated credits line. (current stub only
+                                            zeroes adminflags.)
+  DFClientCommand   0x534f0 28533-28645 M  EXPAND: full admin + weapon dispatch. Calls DFEntMover,
+                                            DFEntAdmin, then _special / weapon_entmover handling via
+                                            WeaponSpecial/WeaponDeploy/WeaponHolster/WeaponForceOff/
+                                            DFWeaponForId(weaponcore), NewWeapons, Cmd_Argv, IsAlive.
+                                            (current stub only does the admin path.)
+  DFClientPutInServer 0x537c0 28654-28657 S  decompile returns 0 -> current stub (RETURN_META IGNORED) OK.
+  DFClientDisconnect  0x53b40 28850-28853 S  decompile is empty -> current stub OK.
+  DFStartFrame        0x53b50 28863-28886 S  matches current recon (10s CheckAdmin loop) -> OK.
+
+================================================================================
+FILES TO DELETE once real impls land (avoid duplicate symbols)
+================================================================================
+stubs.cpp  -- defines DFEntMover (-> entmover.cpp) and DFEntAdmin (-> admintools.cpp).
+  DELETE stubs.cpp in the SAME change that adds entmover.cpp AND admintools.cpp
+  (both DFEntMover and DFEntAdmin must be defined before stubs.cpp is removed, or
+  the link breaks either way).
+
+================================================================================
+BUILD / IMPLEMENTATION ORDER
+================================================================================
+Every module compiles independently against entmod_decl.h, so order affects only
+link-completeness and who-blocks-whom, not per-file compilation.
+
+  1. strutil.cpp, util.cpp        -- leaf helpers, depended on by everyone; no custom deps.
+  2. beam.cpp                      -- depends only on util.h inlines + engine.
+  3. entfuncs.cpp, weaponcore.cpp  -- depend on util + the dispatch bridges (decls only).
+  4. dispatch.cpp                  -- defines mr_meta/ModCmd/ntf*/EntInfo/precached_models;
+                                      wires the DLL_FUNCTIONS table in dllapi.cpp.
+  5. entmover.cpp, admintools.cpp  -- the two big command parsers; when BOTH land,
+                                      DELETE stubs.cpp (defines DFEntMover + DFEntAdmin).
+  6. dll.cpp                       -- EXPAND the six handlers to their full bodies.
+  7. mapcycle.cpp                  -- last; drop if proven unreachable.
+  Verify after each with scripts\debug-compile.ps1 (-ReportOnly) per project rule.
+
+================================================================================
+FUNCTION COUNT PER MODULE (in-scope, not-yet-implemented)
+================================================================================
+  dispatch.cpp     19
+  entfuncs.cpp     14
+  beam.cpp         11
+  entmover.cpp     10   (incl. DFEntMover, from stubs.cpp)
+  admintools.cpp    4   (incl. DFEntAdmin, from stubs.cpp)
+  weaponcore.cpp   15
+  util.cpp         49   (+ UTIL_IsValidEntity already done; + UTIL_VarArgs/UTIL_LogPrintf bodies)
+  strutil.cpp      17
+  mapcycle.cpp      5
+  dll.cpp (expand)  6   (3 real expansions: DFGameDLLInit, DFClientConnect, DFClientCommand)
+  --------------------------------
+  TOTAL in scope  150
+  OUT-1 (trampolines) ~612  | OUT-2 (shim/Post plumbing) ~380  -- not reconstructed.
+================================================================================

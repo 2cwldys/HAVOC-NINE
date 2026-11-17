@@ -1,0 +1,33 @@
+HookMod_i386.so -- HookMod ("Hook Mod v5"), reconstructed from the shipped DLL, with HAVOC9 changes
+====================================================================================================
+
+What this is
+------------
+
+HookMod_i386.so is built from a clean, recompilable C++ reconstruction of the abandoned "Hook Mod v5"
+(Drunken_F00l / Tony Paloma, adminop.net), a grappling hook that shipped only as a Windows binary with
+no source. It was reverse-engineered into EntMod4/src/HookMod/ and is a Metamod-R plugin for The
+Specialists on the H9XASH engine. This file is the Linux build, NEW to HAVOC9 -- no Linux HookMod
+shipped originally; HookMod_MM.dll is the Windows build of the same source.
+
+Deployed file : addons/HookMod/dlls/HookMod_i386.so
+Built by      : EntMod4/src/build-linux.sh (make -C EntMod4/src/HookMod, g++ -m32)
+                -> EntMod4/dist/HookMod_i386.so, deployed to H9XASH/ts/addons/HookMod/dlls.
+Size          : 40068 bytes
+SHA256        : DBAAC07299A3F82A141EE3CFC89A51607569016D3751B22D05F448D87D7DBEF0
+Source base   : NEW -- no Linux HookMod shipped originally. Built from the reconstructed source, whose
+                base is the shipped Windows HookMod_MM.dll (237670 bytes, kept at
+                EntMod4/dependencies/HookMod/).
+Latest change : the HAVOC9 gate (item 2).
+
+The chain (newest last)
+-----------------------
+
+1. Reconstruction. Reverse-engineered from the shipped Windows HookMod_MM.dll into EntMod4/src/HookMod/
+   (hook.cpp, hook_fire.cpp, cvars.cpp with the DF_hook_* cvars, the beam, and the Metamod glue).
+   Metamod-only. This Linux build is NEW; no Linux HookMod shipped originally.
+
+2. HAVOC9 gate. Loaded on every map but inert unless the map name contains "entmap", the map is in the
+   entmod_maps cvar, or the operator set entmod_force 1 -- the same gate EntMod uses. DF_hook_on is the
+   mod's own master switch on top of this. The decision is printed to the server console each map
+   ("[HookMod] map '<name>' -> hook ON/off").

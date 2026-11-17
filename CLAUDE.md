@@ -7,15 +7,25 @@ live install.
 
 ## Before touching the engine: check the patch chain first
 
-`xash3d-h9-patches\xash.bat` rebuilds the `xash3d-fwgs` engine by replaying
-every `.patch` file in `xash3d-h9-patches\patches\`, in order, against the
-real source. It re-verifies **every** patch on **every** build, not just the
-one you're adding -- a patch that silently went stale relative to someone
-else's change does not error until the *next* full rebuild, which then fails
-for whoever runs it with no indication which of 10+ patches is the problem.
-This happened for real on 2026-10-23 (`engine-h9-spraypicker.patch` had gone
-stale against an already-committed, unrelated change) -- see
-`xash3d-h9-patches\patches\PATCH_CHANGELOG.md` for the full account.
+`xash3d-fwgs` is a git **submodule** pinned to pristine upstream FWGS (origin
+`https://github.com/FWGS/xash3d-fwgs`, base commit `e8d773ea`; `.gitmodules`
+carries `ignore = dirty`). It is **not** vendored -- it is upstream's own code,
+not licensed by this project (its terms are the upstream repository's), and H9
+keeps no engine commits of its own in it. Every H9 engine
+change is a `.patch` file in `xash3d-h9-patches\patches\` instead, and
+`xash3d-h9-patches\xash.bat`'s `:engine` routine replays them in order against
+whichever `xash3d-fwgs` sits beside it (the `webassembly-patch\` parts first,
+for the browser build); applied to the pristine submodule they reproduce the
+H9 engine source byte-for-byte. On a fresh clone the submodule -- and its
+three patched nested submodules -- must be initialised before `xash.bat` can
+apply them (`docs\BUILDING.txt` has the exact steps and build deps). Because
+the patch set is the whole engine diff, `xash.bat` re-verifies **every** patch
+on **every** build, not just the one you're adding -- a patch that silently
+went stale against someone else's change does not error until the *next* full
+rebuild, which then fails for whoever runs it with no indication which of 60+
+patches is the problem. This happened for real on 2026-10-23
+(`engine-h9-spraypicker.patch` had gone stale against an unrelated change) --
+see `xash3d-h9-patches\patches\PATCH_CHANGELOG.md` for the full account.
 
 So, before hand-editing anything under `xash3d-fwgs`, or adding new engine
 work of your own:
@@ -39,13 +49,21 @@ work of your own:
    trust hand-derived line-number arithmetic across multiple hunks/patches --
    it's easy to get wrong; reconstruct the real file state (a scratch copy,
    or a real `git apply --check`) and read it instead.
-5. Two different kinds of "already applied" exist in this codebase: a
-   tracked `.patch` file in `xash3d-h9-patches\patches\` (re-verified every
-   build, covered by the changelog above), and an already-committed change
-   on the `h9` branch in `xash3d-fwgs` (`git log --oneline`, never
-   re-verified by `xash.bat`, permanent once committed). A tracked patch can
-   go stale against a committed one without anyone touching the tracked
-   patch file at all -- that's exactly what happened on 2026-10-23.
+5. There is now only **one** place an H9 engine change can live: a tracked
+   `.patch` file in `xash3d-h9-patches\patches\`. The submodule is pristine
+   upstream, so the old second kind -- an H9 commit on an `h9` branch of a
+   vendored `xash3d-fwgs`, never re-verified by `xash.bat` -- is gone: do not
+   go looking for one, and never commit engine changes into the submodule. As
+   a backstop the CI workflow **Submodule Engine Build Scan**
+   (`.github\workflows\submodule-engine-build-scan.yml` +
+   `tools\submodule-engine-build-scan.sh`) applies every patch `xash.bat`
+   lists to a fresh pristine submodule on each push touching the patches,
+   `xash.bat` or `webassembly-patch\`, and fails on any reject, so a forgotten
+   or stale patch is caught before it breaks a fresh-clone build. It reads the
+   list straight from `xash.bat` (adding a patch never edits the CI) and does
+   not replace keeping `PATCH_CHANGELOG.md` current (points 1-3). It is a
+   different check from `patch-notes.yml`, which guards the shipped binaries'
+   `<binary>.patch` notes, not the engine source patches.
 
 ## Parity comes last, once
 
@@ -145,9 +163,10 @@ called from a map generator with `generateForMap()` (same guide, section 7).
 
 ## General project rules
 
-- Never `git commit` anywhere in this project (including the `xash3d-fwgs`
-  clone on branch `h9`) without the user's separate, explicit permission for
-  that specific commit. An approved plan is not that permission.
+- Never `git commit` anywhere in this project (including inside the
+  `xash3d-fwgs` submodule or a bump of its pinned commit) without the user's
+  separate, explicit permission for that specific commit. An approved plan is
+  not that permission.
 - No backup copies of text files (source, scripts, docs, configs): git is the
   backup. Only a binary being replaced (a DLL, EXE, AMXX or the like) may keep
   one beside it: `<file>.bak_<short description>`.
@@ -175,7 +194,7 @@ called from a map generator with `generateForMap()` (same guide, section 7).
      reTS/ (the mod code), and never copy Half-Life SDK code out of reTS/ into the plugin side: the two stay separate.
   4. When it is compatible and goes in, in the same piece of work: its license text sits beside it, a copy goes into
      THIRD_PARTY_LICENSES/, and LICENSE.md gets its row (what it is, where it lives, which license). A removed component loses
-     its row. A part of the repository that is another project's own repository is a git submodule, as SMAK is.
+     its row. A part of the repository that is another project's own repository is a git submodule, as SMAK and the pristine-upstream `xash3d-fwgs` engine are.
   5. If the license does not fit, say so in plain words to the owner and do not add the file.
 - Every cvar added for any reason, on the engine side (a patch's `Cvar_Get` or `CVAR_DEFINE`), the module side (reTS) or the
   plugin side (an AMX Mod X `register_cvar`), is listed in `CVARS.md` in the same piece of work, in parity with
@@ -211,6 +230,13 @@ called from a map generator with `generateForMap()` (same guide, section 7).
 - `.\ship.ps1` runs a whole release in order (engine, plugins and the build number with the join gate's release, linux, export, web client, deploy, a check of the host's game
   server), each step gated by `[ship]` in `packaging.ini`; `-WhatIf` shows the plan, `-From <step>` continues after a failure, `-UpdateServer` also updates the host's game
   folder (stopped server). It commits and pushes nothing. `docs\SHIP_A_VERSION.txt` is what to read when a step stops.
+- `.\ship-status.ps1` says where a running release is, so no agent has to guess: the active step, how long it has been quiet, the heavy lock's holder, what the
+  step is building, and the tail of that step's log. It reads only and is safe to run at any moment, from a subagent too. `-Json` is the machine form (`state`,
+  `activeStep`, `quietForMin`, `lockHeld`, `busyProcesses`, `vctipHolding`, `failure`, `steps`, `tail`), `-Tail <n>` shows more of the active log, `-Dir <folder>`
+  an older run, `-StaleMinutes <n>` how long quiet counts as stalled. STATE (running, stalled?, failed, done) comes from the heavy lock and the log's freshness,
+  never from finding the `ship.ps1` process: a runner can start it under a command line that does not name it, and an earlier version that looked for the process
+  reported "done" in the middle of a run. A `stalled?` with `vctipHolding` is the MSVC trap -- `Stop-Process -Name vctip -Force` frees the build pipe.
+  `ship.ps1` writes each step to `<temp>\ship-<time>\<step>.log` and flushes it line by line, so a ten-minute step can be watched while it runs.
 - `.\deploy-vps.ps1` ends with `.\verify-release.ps1`: the new build must be in the updater's manifest, the host's build file, THE SERVER LIST BOT'S ABOUT ME (the bot follows
   the build file, so a version increase updates it; nothing is done by hand), the versioned downloads, the join gate and the host's game folder (WARN until
   `update-game.ps1 -Apply` has run there). Read its PASS/WARN/FAIL lines in the report; a FAIL makes the deploy exit 1.

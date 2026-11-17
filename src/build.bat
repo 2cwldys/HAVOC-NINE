@@ -49,7 +49,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts h9_p2p"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts h9_p2p h9_shovemod"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="

@@ -130,7 +130,11 @@ function Newer-In-GitCopy([string]$rel, [string[]]$skipDirs) {
     }
     return $differ.ToArray()
 }
-foreach ($t in @(@('reTS', @('.git', 'binaries', 'release_binaries', 'build-win32', 'build-win32-clangcl')), @('xash3d-fwgs', @('.git', 'build', 'build-web', '__pycache__')))) {
+# xash3d-fwgs is NOT compared here any more: since 2026-11-17 the git copy's engine is a PRISTINE upstream
+# FWGS submodule pinned at e8d773ea, deliberately not a copy of the master's patched dev clone, so every
+# patched file would read as "work the master lacks". H9's engine changes live in xash3d-h9-patches, and the
+# Submodule Engine Build Scan checks they still apply. reTS is still a mirrored tree, so it is still compared.
+foreach ($t in @(, @('reTS', @('.git', 'binaries', 'release_binaries', 'build-win32', 'build-win32-clangcl')))) {
     $diff = Newer-In-GitCopy $t[0] $t[1]
     if ($diff.Count) {
         Write-Host "  files in the git copy's $($t[0]) that are newer than, or missing from, the master's:"
@@ -161,25 +165,37 @@ function Run-Bat([string]$name, [string]$bat, [string[]]$batArgs, [bool]$useLock
     $log = Join-Path $LogDir "$name.log"
     Write-Host "  $bat $($batArgs -join ' ')   (log $log)"
     if ($useLock) { Take-Lock $name }
+    # MSVC's telemetry helper (VCTIP.EXE) inherits the build's pipe and can hold it open after the build
+    # itself has exited, which leaves Start-Process -Wait waiting for an EOF that never comes: on
+    # 2026-11-17 that stalled a release for ten minutes with the engine already built and nothing running.
+    # Ask the toolchain not to start it, and sweep a stray one afterwards so the next step is not caught.
+    $env:VSCMD_SKIP_SENDTELEMETRY = '1'
     try {
         $cmd = '""' + $bat + '" ' + ($batArgs -join ' ') + ' < NUL > "' + $log + '" 2>&1"'
         $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', $cmd) -NoNewWindow -PassThru -Wait
         if ($p.ExitCode -ne 0) { Fail "$name failed (exit $($p.ExitCode)); read $log, then continue with: .\ship.ps1 -From $name" }
-    } finally { if ($useLock) { Drop-Lock } }
+    } finally {
+        Get-Process -Name 'vctip' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        if ($useLock) { Drop-Lock }
+    }
 }
 
 function Run-Node([string]$name, [string[]]$nodeArgs, [string]$cwd) {
     $log = Join-Path $LogDir "$name.log"
     Write-Host "  node $($nodeArgs -join ' ')   (log $log)"
     Push-Location $cwd
+    $sw = $null
     try {
-        # not "*> $log": a redirect to a file is an operation -WhatIf skips, and the log was then missing
-        $out = @(& node @nodeArgs 2>&1 | ForEach-Object { "$_" })
+        # not "*> $log": a redirect to a file is an operation -WhatIf skips, and the log was then missing.
+        # The log is written and flushed line by line rather than all at once at the end, so a step that
+        # takes minutes can be watched while it runs (.\ship-status.ps1 tails it) instead of showing
+        # nothing at all until it finishes.
+        if (-not $DryRun) { $sw = [IO.StreamWriter]::new($log, $false) }
+        $out = @(& node @nodeArgs 2>&1 | ForEach-Object { $s = "$_"; if ($sw) { $sw.WriteLine($s); $sw.Flush() }; $s })
         $code = $LASTEXITCODE
-        if (-not $DryRun) { [IO.File]::WriteAllLines($log, [string[]]$out) }
         $out | Select-Object -Last 6 | ForEach-Object { Write-Host "    $_" }
         if ($code -ne 0) { Fail "$name failed (exit $code); read $log, then continue with: .\ship.ps1 -From $name" }
-    } finally { Pop-Location }
+    } finally { if ($sw) { $sw.Dispose() }; Pop-Location }
 }
 
 function Record([string]$step, [string]$what) { $script:results[$step] = $what }

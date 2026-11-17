@@ -1,0 +1,116 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="GENERATOR" CONTENT="Solutionsoft HelpBreeze HTML Help Edition">
+<TITLE>How to Use e_stack</TITLE>
+
+<LINK REL="stylesheet" TYPE="text/css" HREF=htmlhelp.css> 
+<SCRIPT language=javascript SRC="master.js">
+</SCRIPT>
+
+</HEAD>
+
+<BODY><SPAN class=RVTS2>
+<P>
+<TABLE cellSpacing=0 cellPadding=3 width="100%" align=center border=1>
+  <TBODY>
+  
+  <TR>
+    <TD>
+<P><SPAN class=RVTS2><FONT size=2><STRONG> This section will explain to 
+you how to use the e_stack command in Ent Mod:</STRONG> 
+</FONT></SPAN></P>
+<P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+<P><SPAN class=RVTS2><FONT 
+      size=2>Command Use:</FONT></SPAN></P>
+<P><SPAN class=RVTS2><A class=exsection onclick="ExpandSection(c336, img336)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img336 >e_stack</A><BR>
+      <TABLE class=exsectiontext id=c336 style="DISPLAY: none" 
+      onclick="ContractSection(c336, img336)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>e_stack 
+            &lt;amount&gt; &lt;offset x&gt; &lt;offset y&gt; &lt;offset 
+z&gt;</P>
+            <P>Description:<BR>Creates a 
+            certain amount of entities each offseted from the last the specified 
+            amount.</P></TD></TR></TABLE></SPAN></P>
+      <P>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT size=2 
+      >This tutorial will tell you how to use the e_stack command to copy entities 
+      efficiently.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>e_stack is used to copy an entity one or more times each seperated 
+      by the space you specify. If you use the admin_lookingat command on a 
+      entity you will see it's mins and maxs. This helps to determine the size. 
+      If there's an entity you want to copy many times and make a floor out of, 
+      for example, copy it and put it at&nbsp;a corner of&nbsp;the floor your 
+      going to make. Then do admin_lookingat in the console while looking at 
+      it.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Look for the mins and maxs and you'll see something 
+      like:</FONT></SPAN></P><SPAN class=RVTS2>
+      <P><BR>Mins: -129.000000 1167.000000 
+      -253.000000<BR>Maxs: 129.000000 1537.000000 -243.0000</P>
+      <P>&nbsp;</P>
+      <P><FONT size=2>If you subtract the mins from the 
+      maxs you'll get the size of the entity:<BR>Size on the X axis: 
+      129-<sup>-</sup>129 = 258<BR>Size on the 
+      Y axis: 1537-1167= 370<BR>Size on the&nbsp;Z axis: <sup>-</sup>243-<sup>-</sup>253 = 
+      10</FONT></P>
+      <P><FONT size=2></FONT>&nbsp;</P>
+      <P><FONT size=2>Now use the showx and showy commands to see which 
+      direction is positive x and positive y. We'll assume for the command 
+      example that positive x and positive y is the direction we want to copy 
+      our entities.</FONT></P>
+      <P><FONT size=2>So if we use the entity to make a 5 by 5 tile, we run the 
+      following commands while looking at the one we're making copies 
+      of:<BR></FONT><FONT size=2>e_stack 5 258 0 0<BR>e_stack 5 0 370 
+      0</FONT></P>
+      <P><FONT size=2></FONT>&nbsp;</P>
+      <P><FONT size=2>Now we will have the sides of our 5 by 5 tile. To get the 
+      rest do one of the following:</FONT></P>
+      <UL>
+        <LI><FONT size=2>Walk across the X axis and make copies of each new 
+        entity in the Y direction using the e_stack 5 0 370 0 
+        command.</FONT>
+        <LI><FONT size=2>Walk across the Y axis and make copies of each new 
+        entity in the X direction using the e_stack 5 258 0 0 
+        command.</FONT></LI></UL>
+      <P><FONT size=2>You will now have 25 copies of the entity each touching 
+      each other making a perfect floor (assuming you used a rectangluar 
+      entity).</FONT></P>
+      <P><FONT size=2></FONT>&nbsp;</P>
+      <P><FONT size=2>Another example (making a staircase):</FONT></P>
+      <P><FONT size=2>By default, the biggest step you can take is 18 units up. 
+      Any thing more and you won't automatically move up, you'll have to jump. 
+      So for this example, we'll take an entity and use e_stack to create a 
+      staircase with steps 18 units tall.</FONT></P>
+      <P><FONT size=2>Find an entity you want to use and put it on the ground. 
+      Now, to make a staircase in the X direction with 5 steps, run the 
+      following command while looking at the entity on the ground:<BR>e_stack 5 
+      24 0 18</FONT></P>
+      <P><FONT size=2>This makes 5 steps, each of them 24 units out and 18 units 
+      up from the last.</FONT></P>
+      <P><FONT size=2></FONT>&nbsp;</P>
+      <P><FONT size=2><STRONG>Tips:</STRONG></FONT></P><FONT size=2>
+      <UL>
+        <LI>When using e_stack, you might want to try out 
+        only one copy for the stack amount before you make more to see if it 
+        looks good to you 
+        <LI>    It may be easier to 
+        you and prevent entites from getting lost in walls if you stack one by one 
+        <LI>When using the data you got from admin_lookingat 
+        to make a decision on the size, it often looks best if you subtract 2 
+        from the size you detemined after subtracting the mins from the maxs. 
+        <LI>Using an excessively&nbsp;large number for the amount of entities 
+        may cause nearby players to overflow and/or crash the 
+        server.</FONT></SPAN></LI></UL></TD></TR></TBODY></TABLE></P></SPAN>
+</BODY>
+</HTML>

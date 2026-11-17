@@ -2935,6 +2935,28 @@ public client_PreThink(id)
 			NpcUse(Handler,Plugin,id,Index)
 		}
 		
+		// H9: an invisible terminal (the bank kiosks) is SOLID_NOT, so the aim traceline above cannot reach it; use it by distance, like a zone NPC.
+		Index = 0
+		while((Index = find_ent_by_class(Index,g_NpcClassname)))
+		{
+			if(entity_get_int(Index,EV_INT_solid) != SOLID_NOT)
+				continue
+			
+			if(get_entity_distance(id,Index) > 100 || !fm_is_ent_visible(id,Index))
+				continue
+			
+			new Plugin = entity_get_int(Index,EV_INT_iuser3),Handler[32]
+			entity_get_string(Index,EV_SZ_noise,Handler,31)
+			
+			Data[0] = id
+			Data[1] = Index
+			
+			if(_CallEvent("NPC_Use",Data,2))
+				return
+			
+			NpcUse(Handler,Plugin,id,Index)
+		}
+		
 		// H9: the use key on a player (the one aimed at, within 100 units): the event Player_Use (id, the player), which ARP_Inventory takes for an exchange of goods
 		if(Aimed >= 1 && Aimed <= MAX_PLAYERS && is_user_alive(Aimed))
 		{
@@ -6644,7 +6666,9 @@ public _ARP_RegisterNpc(Plugin,Params)
 	entity_set_model(Ent,Model)
 	entity_set_origin(Ent,Origin)
 	entity_set_size(Ent,Float:{-16.0,-16.0,-36.0},Float:{16.0,16.0,36.0})
-	entity_set_int(Ent,EV_INT_solid,SOLID_BBOX)
+	// H9: an invisible terminal (the bank kiosks, models/player/Invisible/invisible.mdl) is SOLID_NOT so players pass through it; the use key still
+	// reaches it by distance in client_PreThink (the invisible-NPC loop), the same way a zone NPC is used.
+	entity_set_int(Ent,EV_INT_solid,(containi(Model,"invisible") != -1) ? SOLID_NOT : SOLID_BBOX)
 	entity_set_byte(Ent,EV_BYTE_controller1,125)
 	entity_set_byte(Ent,EV_BYTE_controller2,125)
 	entity_set_byte(Ent,EV_BYTE_controller3,125)

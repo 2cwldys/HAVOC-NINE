@@ -647,3 +647,9 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    checks every byte of every message, h9_arpctx_ui.h is the geometry, the rules of the clicks and keys and the drawing over a canvas, h9_arpctx.cpp is the engine's part; the inventory window and the menu share the
    cursor and the mouse, and the menu takes the buttons first. Going back is arp_h9_ctxmenu 0, or ARP_H9Ctx out of plugins.ini: ARP_Inventory then finds no such plugin and the use key is what it was. ARP_Inventory,
    ARP_JailMod and ARP_Items change in a few lines each, so they are built again with ARP_H9Ctx and the client.dll with it. docs\ARP_INVENTORY_WINDOW.txt, 7, says what to look at in a game.
+
+51. Invisible bank terminals a player passes through (ARP_Core.sma, carried by H9-arpfix.patch; configs\arp\maps\h9_tsrp_hive\npcs.ini). The hive's bank kiosks wear the invisible
+   model (models\player\Invisible\invisible.mdl) so the counter is clear, but a visible NPC is SOLID_BBOX and a player would bump into the unseen box. An NPC whose model name holds
+   "invisible" is now set SOLID_NOT, so the player walks through it. The use key's aim traceline cannot hit a non-solid entity, so client_PreThink runs a second use path for these: the
+   use press, within 100 units and in view (fm_is_ent_visible), fires the NPC's NPC_Use event and handler the same way a zone NPC is used. A visible NPC is unchanged: SOLID_BBOX, used
+   by the traceline.

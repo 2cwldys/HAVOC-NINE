@@ -1,0 +1,97 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="GENERATOR" CONTENT="Solutionsoft HelpBreeze HTML Help Edition">
+<TITLE>How to Save Ents</TITLE>
+
+<LINK REL="stylesheet" TYPE="text/css" HREF=htmlhelp.css> 
+<SCRIPT language=javascript SRC="master.js">
+</SCRIPT>
+
+</HEAD>
+
+<BODY>
+<P><SPAN class=RVTS2>
+<TABLE cellSpacing=0 cellPadding=3 width="100%" align=center border=1>
+  
+  <TR>
+    <TD>
+<P><SPAN class=RVTS2><FONT size=2><STRONG>    This 
+section will explain how to save entities in Ent Mod:</STRONG> 
+</FONT></SPAN></P>
+<P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+<P><SPAN class=RVTS2><FONT 
+      size=2>Command 
+Use:</FONT></SPAN></P>
+      <P><A class=exsection onclick="ExpandSection(c8, img8)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img8 >es_start</A><BR>
+      <TABLE class=exsectiontext id=c8 style="DISPLAY: none" 
+      onclick="ContractSection(c8, img8)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>es_start 
+            &lt;name&gt;</P>
+            <P>Description:<BR>Starts 
+            the entity saving process with the name specified.</P></TD></TR></TABLE><!- end expanding section -></P>
+      <P><A class=exsection onclick="ExpandSection(c909, img909)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img909 >es_grab</A><BR>
+      <TABLE class=exsectiontext id=c909 style="DISPLAY: none" 
+      onclick="ContractSection(c909, img909)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>es_grab</P>
+            <P>Description:<BR>Adds the 
+            entity to the save list</P></TD></TR></TABLE></P>
+      <P><A class=exsection onclick="ExpandSection(c608, img608)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img608 >es_ungrab</A><BR>
+      <TABLE class=exsectiontext id=c608 style="DISPLAY: none" 
+      onclick="ContractSection(c608, img608)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>es_ungrab</P>
+            <P>Description:<BR>Removes 
+            the last entity added from the save list.</P></TD></TR></TABLE><!- end expanding section -></P>
+      <P><A class=exsection onclick="ExpandSection(c798, img798)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img798 >es_save</A><BR>
+      <TABLE class=exsectiontext id=c798 style="DISPLAY: none" 
+      onclick="ContractSection(c798, img798)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage:<BR>es_save 
+            &lt;follow 0/1&gt;</P>
+            <P>Description:<BR>Saves all 
+            entities grabbed. If follow is set to 1 then the entity save will 
+            follow you when loaded. If it's zero it will load in the exact spot 
+            it was saved in.</P></TD></TR></TABLE></P>
+      <P>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT size=2>In 
+      this example, we will give our creation the name "save01". So to start 
+      saving we must first enter <EM>es_start save01</EM> in the 
+      console.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>After that has been done we can grab each entity with the es_grab 
+      command until we have grabbed every entity we want to 
+      save.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT size=2>If 
+      you grab something you don't want to save, you can run the es_ungrab 
+      command to remove the last entity grabbed from the save 
+      list.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Once all entities have been grabbed, run the es_save command in the 
+      console. There are two variations of this command. <EM>es_save 0 </EM>and 
+      <EM>es_save 1</EM>. Running the command with a 0 at the end causes the entity to load 
+      exactly where it was when it was saved. Running the command with a 1 at 
+      the end causes it to follow you upon load. In this case, you would use the 
+      <EM>mm_end</EM>            
+                    
+                       
+          command when loading to drop them and cause them to 
+      stay in 
+position.</FONT></SPAN></P></TD></TR></TABLE></SPAN></P>
+</BODY>
+</HTML>

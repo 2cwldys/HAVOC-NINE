@@ -98,6 +98,7 @@ The name of a map decides which game it plays; [docs/GAME_MODES.txt](docs/GAME_M
 | **Race and Rally** | `rc_` | A map with a `race_rules` entity runs a race: a countdown, checkpoints in order, laps and places. In rally mode each player is a rally car, picked and tuned in the car menu, with chase, bonnet, TV and interior views. The kill key puts the car back at the last checkpoint. The test stage is `rc_rally01`. |
 | **The game as it ships** | `dm_`, `tdm_`, `ts_`, `h9_dm_`, `h9_tdm_`, `h9_ctb_`, `ctb_`, `ctf_` | The Specialists' own deathmatch, team deathmatch and Capture the Briefcase, left as TS plays them. A map with any other name plays the game as it ships too. |
 | **Roleplay** | `rp_`, `tsrp_` | Includes the Apollo RP scripts, played on the roleplay maps. It plays as normal Apollo RP or with H9's additions, by cvar. |
+| **EntMod** | `*entmap*` | An entity building sandbox: on any map whose name holds `entmap`, the EntMod and HookMod tools come on, to move, spawn, save and reload map entities. |
 
 ## What is in it
 
@@ -301,7 +302,16 @@ Without it the build scripts stop and name the files that are only pointers.
 git submodule update --init
 ```
 
-**3. Every build and where it starts:** [docs/BUILDING.txt](docs/BUILDING.txt).
+**3. Engine.** A git submodule pinned to pristine upstream FWGS; H9's engine changes are the patch chain in `xash3d-h9-patches/`, applied by `xash.bat` at build time (the engine is never edited in place). Step 2 fetched the submodule; then fetch its patched nested submodules and patch-and-build:
+
+```
+git -C xash3d-fwgs submodule update --init 3rdparty/mainui 3rdparty/freevgui 3rdparty/library_suffix
+xash3d-h9-patches\xash.bat engine
+```
+
+Add a change by editing the source, regenerating its `.patch`, and adding its `xash.bat` line; the Submodule Engine Build Scan CI then verifies the chain still applies.
+
+**4. Every build and where it starts:** [docs/BUILDING.txt](docs/BUILDING.txt).
 
 **The web client** builds from a fresh clone on Windows with one command:
 

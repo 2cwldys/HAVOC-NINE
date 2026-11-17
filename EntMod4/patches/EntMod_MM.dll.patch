@@ -1,0 +1,58 @@
+EntMod_MM.dll -- EntMod ("Ent Mod v4"), reconstructed from the shipped DLL, with HAVOC9 changes
+================================================================================================
+
+What this is
+------------
+
+EntMod_MM.dll is built from a clean, recompilable C++ reconstruction of the abandoned EntMod
+("Ent Mod v4", Drunken_F00l / remortal, adminop.net), which shipped only as a binary with no source.
+It was reverse-engineered from the shipped EntMod_MM.dll / EntMod_i386.so into EntMod4/src/EntMod4/
+(the faithful original) and EntMod4/src/h9/ (the HAVOC9 additions). It is a Metamod-R plugin for The
+Specialists on the H9XASH engine. This file is the Windows build; EntMod_i386.so is the Linux build of
+the same source.
+
+Deployed file : addons/EntMod/dlls/EntMod_MM.dll
+Built by      : EntMod4/src/build-windows.ps1 (MSBuild, Win32, Release, PlatformToolset v143)
+                -> EntMod4/dist/EntMod_MM.dll, deployed to H9XASH/ts/addons/EntMod/dlls and
+                EntMod4/win/addons/EntMod/dlls.
+Size          : 218112 bytes
+SHA256        : 92180790891F8273FAC8F29814D9A0FF770F94FDCA025BAD3FFD0995829BC2CB
+Source base   : the shipped EntMod_MM.dll (295016 bytes), reverse-engineered to source; the standalone
+                game-DLL shim and entity trampolines were dropped, since H9XASH runs Metamod-R.
+Latest change : the entity mover blocks the underlying weapon's attack whenever it is equipped (item 6).
+
+The chain (newest last)
+-----------------------
+
+1. Reconstruction, Windows + Linux build, H9XASH wiring, DF_admins parity. The decompiled binary was
+   rebuilt as nine source modules (util, strutil, beam, entfuncs, dispatch, weaponcore, admintools,
+   entmover, dll) plus the Metamod glue, with the H9 layer in src/h9. Builds to Windows (MSBuild) and
+   Linux (make). DF_admins.txt admin recognition accepts the h9_clientid Xash id as well as the engine
+   auth id / SteamID; _entpass is still the password. (The real DF_admins.txt is gitignored;
+   DF_admins.example.txt is the committed template.)
+
+2. HAVOC9 gate. Loaded on every map but inert unless the map name contains "entmap", the map is one of
+   the ";"-separated names in the entmod_maps cvar, or the operator set entmod_force 1. The entmod
+   cvar is a state readout the gate sets each map (1 = tools live, 0 = inert). While active the server
+   de-ranks (no career XP / ELO) through the AMXX entmod_map() gate. The decision is printed to the
+   server console each map ("[EntMod] map '<name>' -> tools ON/off").
+
+3. Console-command registration restored. The original registered its commands with the engine; the
+   first reconstruction had dropped that and only caught them through the ClientCommand hook, so they
+   never showed in the console and were not recognised on a listen server. Every command (e_*, es_*,
+   t_*, mm_*, entmod_*, weapon_entmover) registers again, so they appear in the console and run when
+   typed. Added entmod_myid, which privately prints a player's own ids so they can be added to
+   DF_admins.txt.
+
+4. sv_cheats with the tools. The tools (equipping the entmover, spawning, noclip, giving weapons) are
+   cheat-protected, so they did nothing with sv_cheats 0. The gate now sets sv_cheats 1 while the tools
+   are live and back to 0 otherwise.
+
+5. weapon_entmover toggles off. Typing weapon_entmover again while the tool is out now holsters it and
+   restores the player's real weapon.
+
+6. The entity mover blocks the underlying weapon's attack wherever it is equipped. The mover's per-frame
+   handling -- which clears the attack button each frame so the real weapon never fires -- ran only
+   while the entmod gate was active, so with the tool equipped off an entmap (through the console) the
+   held weapon still fired its normal attack: the melee "kung fu" on reTS. It now runs whenever the
+   mover is out (NewWeapons id >= 0x5a), gate or not, so attacking only moves entities.

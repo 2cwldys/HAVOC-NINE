@@ -95,6 +95,9 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_cybernetc','h9_pc_cybernetics');
 -- Paradise Bank: the bank building's automatic glass doors (opened by their own trigger, so not locked); open state property that nobody can buy
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_bank','Paradise Bank','','',0,0,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_bankdoor','h9_pc_bank');
+-- Paradise Bank: the inner key panels pc_estategatekey and pc_estategatekey2, hooked to the bank property; they already drive pc_estategateseq, which moves the blast panels pc_estategatep1-p4.
+INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_estategatekey','h9_pc_bank');
+INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_estategatekey2','h9_pc_bank');
 -- Pawn Prawn Staff Room: the staff door behind the Pawn Prawn bar counter; also the hatch in the floor of the chamber behind the staff door, the hideout under it and its far door: the flood fill of the map's space joins the staff door, the chamber, the hatch and the hideout, and the doors are named pp
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pawn_prawn','Pawn Prawn Staff Room','','',29000,1,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_noodles1','h9_pc_pawn_prawn');
@@ -237,12 +240,11 @@ INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pikkys_back','Uncle Pikkys Piz
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_unclepikkyse','h9_pc_pikkys_back');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_oven_door','h9_pc_pikkys_back');
 -- Gear Guys (South West): front door of the second Gear Guys, south west (a GEARGUYS sign hangs over it; it starts open)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys_sw','Gear Guys (South West)','','',110000,0,'',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys_sw','Gear Guys (South West)','','',110000,1,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_gearshop1','h9_pc_gear_guys_sw');
 -- Gear Guys (South West): the shop's side door and pc_edenoffice2, an Eden office door of the same walled compound (the compound's other office door, pc_edenoffice1, wears the same name as the back office of the first Gear Guys and cannot be bound)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys_sw_back','Gear Guys (South West)','','',57000,1,'',0);
-INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_gearshop2','h9_pc_gear_guys_sw_back');
-INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_edenoffice2','h9_pc_gear_guys_sw_back');
+INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_gearshop2','h9_pc_gear_guys_sw');
+INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_edenoffice2','h9_pc_gear_guys_sw');
 -- Eden News: front door of the news office (a PCN sign hangs by it; a button works it, it starts open)
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_eden_news','Eden News','','',29000,0,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_edennews','h9_pc_eden_news');
@@ -329,6 +331,8 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_orghqroma3','h9_pc_org_hq');
 INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_msr_gate','MSR Gate','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_MSRGATEUP','h9_pc_msr_gate');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_MSRGATEDOWN','h9_pc_msr_gate');
+-- MSR Gate: the inner key panels (both named pc_MSRGATEKEY), hooked to the MSR property; they drive pc_MSRGATESEQ and so the two gate halves above.
+INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_MSRGATEKEY','h9_pc_msr_gate');
 
 -- Xenon City
 -- Guns n Stuff: the back door at the end of the back hall (shut in the map)

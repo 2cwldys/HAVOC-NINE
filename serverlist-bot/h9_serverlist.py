@@ -165,7 +165,7 @@ def status_for(served, answering, silent, list_ok):
     if not list_ok:
         return "dnd", "server list unreachable"
     if answering:
-        return "online", "Tracking " + plural(max(served, answering), "server")
+        return "online", "tracking " + plural(max(served, answering), "server")
     return "idle", "no servers to track"
 
 

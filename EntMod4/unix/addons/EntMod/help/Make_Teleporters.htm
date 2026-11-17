@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="GENERATOR" CONTENT="Solutionsoft HelpBreeze HTML Help Edition">
+<TITLE>How to Make Teleporters</TITLE>
+
+<LINK REL="stylesheet" TYPE="text/css" HREF=htmlhelp.css> 
+<SCRIPT language=javascript SRC="master.js">
+</SCRIPT>
+
+</HEAD>
+
+<BODY>
+<P><SPAN class=RVTS2>
+<TABLE cellSpacing=0 cellPadding=3 width="100%" align=center border=1>
+  <TBODY>
+  
+  <TR>
+    <TD>
+<P><SPAN class=RVTS2><FONT size=2><STRONG>       This 
+section will explain how to make teleporters in Ent Mod:</STRONG> 
+</FONT></SPAN></P>
+<P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+<P><SPAN class=RVTS2><FONT 
+      size=2>Command Use:</FONT></SPAN></P><SPAN class=RVTS2>
+      <P><A class=exsection onclick="ExpandSection(c916, img916)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img916 >e_telestart</A><BR>
+      <TABLE class=exsectiontext id=c916 style="DISPLAY: none" 
+      onclick="ContractSection(c916, img916)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage: <BR>e_telestart 
+            &lt;name&gt;</P>
+            <P>Description:<BR>Creates a 
+            teleporter entrance that leads to the exit with the matching 
+name</P></TD></TR></TABLE><!- end expanding section -></P>
+      <P><A class=exsection onclick="ExpandSection(c346, img346)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img346 >e_teleend</A><BR>
+      <TABLE class=exsectiontext id=c346 style="DISPLAY: none" 
+      onclick="ContractSection(c346, img346)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage: <BR>e_teleend 
+            &lt;name&gt;</P>
+            <P>Description:<BR>Creates a 
+            teleporter exit that comes from the entrance with a matching 
+name</P></TD></TR></TABLE><!- end expanding section -></P>
+      <P><A class=exsection onclick="ExpandSection(c28, img28)" href="#nowhere" ><IMG height=11 hspace=0 src="rtex.gif" width=11 border=0 name=img28 >e_teledelete</A><BR>
+      <TABLE class=exsectiontext id=c28 style="DISPLAY: none" 
+      onclick="ContractSection(c28, img28)" cellSpacing=0 cellPadding=3 
+      width="100%" align=center bgColor=#c0c0c0 border=0>
+        
+        <TR>
+          <TD>
+            <P>Usage: <BR>e_teledelete 
+            &lt;name&gt;</P>
+            <P>Description:<BR>Deletes 
+            the teleporter entrances and exit with the name specified</P></TD></TR></TABLE></P>
+      <P></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT size=2 
+      >First, you will need to enter the command in the 
+      console:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2><IMG height=507 hspace=0 src="Images/e_telestart-console.JPG" 
+      width=596 border=1></FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>As you can see in the picture above the 
+      e_telestart command was entered. The 001 is just the name that this set of 
+      teleporters was called. The 001 part of the command can be changed to 
+      anything as long as it has <EM>no</EM> spaces. 
+      Remember, for each teleporter set you will need to use a different 
+        name. 
+  </FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Next, you can see the effect of the command after enter is 
+      pressed:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=604 hspace=0 src="Images/e_telestart.JPG" width=577 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>This is the start of the teleporter, or the place that you enter 
+      it.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Next, we will look at how you create then ending 
+      teleporter:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=488 hspace=0 src="Images/e_teleend-console.JPG" width=602 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>As you can see in the picture above the e_teleend command was entered. The 
+      001 is the&nbsp;name of the starting teleporter that we want to make 
+      a end or destination for. If the 001 was not entered here and something else 
+      was in its place, you have an exit teleporter under that name with 
+      no&nbsp;entrance. This is not a problem, as you can always add an e_telestart to 
+      go with the e_teleend but for this example we will be only making one 
+      teleporter set.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Now, we can see the effect this command has after enter is 
+      pressed:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=494 hspace=0 src="Images/e_teleend.JPG" width=592 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Now we have a fully working teleporter, walk into the teleporter 
+      you created with the e_telestart 001 command it will send you to the place 
+      you created the e_teleend 001 teleporter.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Next, we will look at how you delete teleporters:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=476 hspace=0 src="Images/e_teledelete-console.JPG" width=579 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>In the picture above you can see e_teledelete command was entered. 
+      The 001 is the name of the teleporter(s) that we want to delete from the 
+      map. Since we have a start and ending teleporter named 001, both of these 
+      will be deleted by using this command.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>Here, we can see the effect of this command after enter is 
+      pressed:</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><IMG 
+      height=493 hspace=0 src="Images/e_teledelete.JPG" width=603 
+      border=1></SPAN></P>
+      <P><SPAN class=RVTS2></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>As you can see in the picture above, the teleporters we created are 
+      now gone.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>More Examples:</FONT></SPAN></P>
+      <UL>
+        <UL>
+          <LI>
+      <DIV><SPAN class=RVTS2><FONT 
+          size=2>e_telestart tele1<BR>e_teleend tele1</FONT></SPAN></DIV>
+          <LI>
+      <DIV><SPAN class=RVTS2><FONT 
+          size=2>e_telestart 1a<BR>e_teleend 1a</FONT></SPAN></DIV>
+          <LI>
+      <DIV><SPAN class=RVTS2><FONT 
+          size=2>e_telestart wazup<BR>e_teleend 
+      wazup</FONT></SPAN></DIV></LI></UL></UL>
+      <P><SPAN class=RVTS2><FONT 
+      size=2>All of the above examples would create a start and end teleporter 
+      at the place you are standing when you do the commands.<BR>Try standing 
+      in the same place and making a start and end teleporter, just an example 
+      of fun with teleporters.</FONT></SPAN></P>
+      <P><SPAN class=RVTS2><FONT 
+      size=2></FONT></SPAN>&nbsp;</P><SPAN class=RVTS2><P>
+      <SPAN class=RVTS2><FONT size=2><EM 
+      >This example was done 
+      with the Deathmatch Classic mod but this example holds true for all 
+      Half-Life 
+mods.</EM></FONT></SPAN>          
+      </P></SPAN></TD></TR></TBODY></TABLE></SPAN></P>
+</BODY>
+</HTML>

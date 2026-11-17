@@ -1,0 +1,11 @@
+{
+	classname "func_wall
+	model "*201
+
+	origin "-1872.033691 247.108521 0.000000
+	angles "0.000000 90.000000 0.000000
+	rendermode "0
+	renderamt "0.000000
+	rendercolor "0.000000 0.000000 0.000000
+	renderfx "0
+}

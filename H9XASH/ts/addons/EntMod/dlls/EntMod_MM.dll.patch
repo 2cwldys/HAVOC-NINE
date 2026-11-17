@@ -1,0 +1,21 @@
+EntMod_MM.dll -- EntMod (reconstructed), a Metamod plugin for The Specialists on H9XASH.
+
+NOT a patch of an upstream binary. The original EntMod ("Ent Mod v4", Drunken_F00l / remortal,
+adminop.net) was abandoned with no source; it was reverse-engineered from the shipped EntMod_MM.dll /
+EntMod_i386.so into clean, recompilable C++ at EntMod4/src/EntMod4/ (faithful original) +
+EntMod4/src/h9/ (HAVOC9 additions). Metamod-only (the standalone game-DLL shim + entity trampolines
+were dropped; H9XASH runs Metamod-R).
+
+Build:
+  Windows:  MSBuild EntMod4/src/EntMod4/msvc/EntMod.vcxproj /p:Configuration=Release;Platform=Win32;PlatformToolset=v143  -> EntMod4/dist/EntMod_MM.dll
+  Linux:    make -C EntMod4/src/EntMod4  -> EntMod_i386.so
+
+HAVOC9 additions (src/h9): DF_admins admin parity (accept the h9_clientid Xash id as well as the
+engine auth id / SteamID; _entpass still required); the entmod / entmod_maps gate -- the tools turn
+ON when the map name contains "entmap" (the entmod-map naming convention), the map is one of the
+";"-separated names in the entmod_maps cvar, or the operator set "entmod_force 1"; inert otherwise.
+The gate sets the "entmod" cvar to the result (1 = live, 0 = inert) so it is visible in the console,
+and prints the decision each map ("[EntMod] map '<name>' -> tools ON/off"). While active the server
+de-ranks (no career XP / ELO) via the h9_compete.sma / h9_presence.sma entmod_map() gate. EntMod also
+registers all its commands with the engine (restored from the original, which the first
+reconstruction had dropped), so they appear in the console and run when typed.

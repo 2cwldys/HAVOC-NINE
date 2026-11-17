@@ -1289,7 +1289,9 @@ build_report(const reason[], const server[])
 	{
 		app_raw(",^"names^":true");
 	}
-	g_auth_flight = get_pcvar_num(g_cv_auth) != 0;
+	// h9_authenticated 0 opts out; so does an active entmap / entmod 1 (EntMod is a sandbox, not
+	// competitive), so the report says authenticated: false and h9web rates nothing. Held per map.
+	g_auth_flight = (get_pcvar_num(g_cv_auth) != 0) && !entmod_map(map);
 	if (!g_auth_flight)
 	{
 		app_raw(",^"authenticated^":false");
@@ -2843,6 +2845,13 @@ tell(id)
 bool:roleplay_map(const name[])
 {
 	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
+}
+
+/// An entmap (name contains "entmap"), or the server set "entmod 1": EntMod/HookMod are active, so
+/// the server is a sandbox -- not competitive. Keep in step with entmod_map() in h9_compete.sma.
+bool:entmod_map(const name[])
+{
+	return containi(name, "entmap") != -1 || get_cvar_num("entmod") != 0;
 }
 
 /** Names are free on roleplay maps and on stock TS maps (ts_), and fixed on every other map. */

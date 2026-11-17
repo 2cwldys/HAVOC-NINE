@@ -1,0 +1,32 @@
+HookMod_MM.dll -- HookMod ("Hook Mod v5"), reconstructed from the shipped DLL, with HAVOC9 changes
+===================================================================================================
+
+What this is
+------------
+
+HookMod_MM.dll is built from a clean, recompilable C++ reconstruction of the abandoned "Hook Mod v5"
+(Drunken_F00l / Tony Paloma, adminop.net), a grappling hook that shipped only as a Windows binary with
+no source. It was reverse-engineered into EntMod4/src/HookMod/ and is a Metamod-R plugin for The
+Specialists on the H9XASH engine. This file is the Windows build; HookMod_i386.so is the Linux build of
+the same source, new to HAVOC9 (none shipped originally).
+
+Deployed file : addons/HookMod/dlls/HookMod_MM.dll
+Built by      : EntMod4/src/build-windows.ps1 (MSBuild, Win32, Release, PlatformToolset v143)
+                -> EntMod4/dist/HookMod_MM.dll, deployed to H9XASH/ts/addons/HookMod/dlls.
+Size          : 129024 bytes
+SHA256        : 235341592F053068492634C5F2AD6A395A5E36954508DE6C9E6CA8160C171A36
+Source base   : the shipped HookMod_MM.dll (237670 bytes, kept at EntMod4/dependencies/HookMod/),
+                reverse-engineered to source; the standalone game-DLL shim was dropped (Metamod-R only).
+Latest change : the HAVOC9 gate (item 2).
+
+The chain (newest last)
+-----------------------
+
+1. Reconstruction. Reverse-engineered from the shipped Windows HookMod_MM.dll into EntMod4/src/HookMod/
+   (hook.cpp, hook_fire.cpp, cvars.cpp with the DF_hook_* cvars, the beam, and the Metamod glue).
+   Metamod-only. The Linux HookMod_i386.so is NEW; no Linux HookMod shipped originally.
+
+2. HAVOC9 gate. Loaded on every map but inert unless the map name contains "entmap", the map is in the
+   entmod_maps cvar, or the operator set entmod_force 1 -- the same gate EntMod uses. DF_hook_on is the
+   mod's own master switch on top of this. The decision is printed to the server console each map
+   ("[HookMod] map '<name>' -> hook ON/off").

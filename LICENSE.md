@@ -95,6 +95,7 @@ their own permissive licenses, which ship in the Emscripten release that `build-
 | `HLFC-GPLv2.txt` | HLFC (HLFC/) | GPLv2 |
 | `SDHLT-goldsrc-net-LICENSE.md` | SDHLT map compilers (export-map/sdhlt-goldsrc-net/) | GPL with the Valve SDK and id Software terms its text names |
 | `SDHLT-v1.3.1-xash-LICENSE.md` | SDHLT map compilers, Xash build (export-map/compilers-xash/) | GPL with the Valve SDK and id Software terms its text names |
+| `Stripper2-GPLv2.txt` | Stripper2, the GoldSrc entity stripper (Stripper2/) | GPLv2 (or newer) |
 | `SMAK-MIT.txt` | SMAK, the map kit (git submodule of deoroot/SMAK) | MIT |
 | `compts-MIT.md` | compts, the Elo plugin backend (compts/) | MIT |
 | `bat2exe-MIT.md` | bat2exe (bat2exe/) | MIT |

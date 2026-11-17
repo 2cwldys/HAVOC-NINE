@@ -227,6 +227,13 @@ bool:roleplay_map(const name[])
 	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
 }
 
+/** An entmap (name contains "entmap"), or the server set "entmod 1": EntMod/HookMod are active, so
+    this is a sandbox map -- not competitive, so nothing is rated (like a roleplay map). */
+bool:entmod_map(const name[])
+{
+	return containi(name, "entmap") != -1 || get_cvar_num("entmod") != 0;
+}
+
 pick_ladder()
 {
 	if (!get_pcvar_num(g_cv_on))
@@ -251,6 +258,10 @@ pick_ladder()
 	new map[64];
 	get_mapname(map, charsmax(map));
 	if (roleplay_map(map))
+	{
+		return LADDER_OFF;
+	}
+	if (entmod_map(map))
 	{
 		return LADDER_OFF;
 	}
