@@ -15,6 +15,12 @@
 	path = xash3d-fwgs
 	url = https://github.com/FWGS/xash3d-fwgs
 	ignore = dirty
+	# The engine declares 17 nested submodules and most are not initialised here: H9 patches
+	# pristine upstream and never builds its vendored opus, vorbis, bzip2 or freetype from a
+	# pull. Without this a recursive fetch walks into them and fails on every one, which reads
+	# like a broken clone. Updating the engine on purpose still works:
+	#     git submodule update --init --recursive xash3d-fwgs
+	fetchRecurseSubmodules = false
 [submodule "hyperframes"]
 	path = hyperframes
 	url = https://github.com/heygen-com/hyperframes
