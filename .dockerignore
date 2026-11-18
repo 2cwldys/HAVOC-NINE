@@ -1,0 +1,124 @@
+# The build context for dockerfiles/Dockerfile, which is the repository root so the image can
+# take the game straight from the clone.
+#
+# Everything is excluded first and the few things the image needs are let back in. The rules after
+# that re-inclusion are what matter, and they are kept in PARITY with the lists the project
+# already maintains:
+#
+#   tools/updater/h9xash_updater.py   SKIP_DIR_NAMES, SKIP_DIR_PATHS, SKIP_NAMES, SKIP_EXT
+#   .gitignore                        the H9XASH/** entries
+#   stage-h9xash.ps1                  the same rules, for the shipped packages
+#
+# If you add a file to one of those, add it here too. Three groups matter and each is marked
+# below: SECRETS (must never reach an image anyone might push), PLAYER FILES (belong to whoever
+# runs the game, not to a release), and WINDOWS (dead weight in a Linux server image).
+*
+
+!H9XASH
+!linux
+!dockerfiles
+!VERSION.txt
+
+# The built 32-bit binaries, for H9_BINARIES=local. Git-ignored and only 44 MiB, and NOT covered
+# by the !H9XASH line above: that pattern matches the folder named exactly H9XASH and its
+# children, not a sibling whose name merely starts the same way.
+!H9XASH-linux
+
+# ---- the HD textures ---------------------------------------------------------------------------
+# 19.7 GiB across 9,764 files (docs/HD_TEXTURES.txt). Left in, every build would spend minutes
+# sending a context the image does not want, and a server has no use for them at all.
+H9XASH/ts/materials
+
+# ---- SECRETS: never in an image ------------------------------------------------------------------
+# These are in the updater's SKIP_NAMES as "a player's, a server's or a secret file". They hold
+# this server's own keys and addresses. Give them to a container at run time with a mount or a
+# Docker secret; docs/DOCKER.txt says how. Baking one into an image and pushing it publishes it.
+**/h9_presence.cfg
+**/ts_advertise.cfg
+**/ts_advertise_local.cfg
+**/mail.env
+**/accounts.json
+**/listip.cfg
+**/banned.cfg
+**/users.ini
+**/sql.cfg
+**/*.env
+**/*.key
+**/*.pem
+!H9XASH/ts/addons/amxmodx/data/amxx_easy_http_cacert.pem
+!H9XASH/valve/cacert.pem
+!H9XASH-linux/ts/addons/amxmodx/data/amxx_easy_http_cacert.pem
+
+# ---- PLAYER FILES: belong to whoever runs the game -------------------------------------------------
+**/user_id.ini
+**/device_id.ini
+**/.xash_id
+**/config.cfg
+**/config.cfg.bak
+**/video.cfg
+**/opengl.cfg
+**/custom.hpk
+**/voice_ban.dt
+**/tempdecal.wad
+**/tsstats.dat
+**/vault.ini
+**/bot_playerids.ini
+**/console_history.txt
+**/history_servers.lst
+**/favorite_servers.lst
+**/xashcomm.lst
+**/networking.ini
+**/*_resolved.cfg
+**/userid_resolved.cfg
+
+# ---- generated, transient, or a machine's own ------------------------------------------------------
+**/logs
+**/save
+**/screenshots
+**/scrshots
+**/ts_downloads
+**/downloads
+**/.fontcache
+**/userconfig.d
+**/drive_c
+**/dosdevices
+**/presets/backup
+H9XASH/ts/addons/amxmodx/data/vault
+H9XASH/ts/addons/amxmodx/data/sqlite3
+H9XASH/ts/addons/amxmodx/configs/precache
+H9XASH/.h9xash-updater
+**/*.log
+**/*.pid
+**/*.tmp
+**/*.new
+**/*.orig
+**/*.rej
+**/*.dmp
+**/*.mdmp
+**/*.dem
+**/*.sav
+**/thumbs.db
+**/desktop.ini
+**/.ds_store
+
+# ---- WINDOWS: dead weight in a Linux server image ---------------------------------------------------
+# The engine, the game library and every module in this image are i386 ELF; nothing here can load
+# a PE. Leaving them in would add hundreds of megabytes that can never run.
+**/*.exe
+**/*.dll
+**/*.bat
+**/*.ps1
+**/*.pdb
+H9XASH/webview2
+H9XASH/discord-bot
+H9XASH/ts/h9tts
+H9XASH/ts/cl_dlls
+
+# ---- never useful in a build context -----------------------------------------------------------------
+**/.git
+**/__pycache__
+**/node_modules
+**/.venv
+**/venv
+dockerfiles/server
+dockerfiles/server.env

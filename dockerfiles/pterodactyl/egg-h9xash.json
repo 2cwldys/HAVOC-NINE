@@ -1,0 +1,180 @@
+{
+    "_comment": "GENERATED from dockerfiles/pterodactyl/egg-h9xash.yml by build-egg.py. Edit the YAML and install.sh, not this file. HAVOC 9 -- https://github.com/2cwldys/HAVOC-NINE",
+    "meta": {
+        "version": "PTDL_v1",
+        "update_url": null
+    },
+    "exported_at": "2026-11-18T04:07:34-05:00",
+    "name": "HAVOC 9",
+    "author": "support@havoc9.org",
+    "description": "HAVOC 9 dedicated server: The Specialists 3.0 on Xash3D FWGS, with Metamod-R, AMX Mod X, RCBot and H9's own game modes (Team Elimination, Assault, Uplink, Wave Survival, Mech Warrior and the Apollo roleplay set). The server is native 32-bit Linux. A server refuses a player whose game is a different release than its own, so keep this server's build in step with the one your players have (docs/H9_RELEASE.txt).\n\nThis egg is generated for H9XASH build 1.66.",
+    "features": [],
+    "images": [
+        "ghcr.io/2cwldys/h9xash-server:latest"
+    ],
+    "file_denylist": [
+        "xashds",
+        "*.so",
+        "ts/h9_release.txt"
+    ],
+    "startup": "./h9xash_server.sh -port {{SERVER_PORT}} +ip 0.0.0.0 +map {{H9_MAP}} +maxplayers {{H9_MAXPLAYERS}} +hostname \"{{H9_HOSTNAME}}\" +sv_lan {{H9_SV_LAN}} +mp_teamplay {{H9_TEAMPLAY}} +h9_customweapons {{H9_CUSTOMWEAPONS}} +tsm_bots {{H9_BOTS}} +tsm_roundtime {{H9_ROUNDTIME}} +h9_require_release {{H9_REQUIRE_RELEASE}} +tsm_latejoin {{H9_LATEJOIN}} +tsm_classchange {{H9_CLASSCHANGE}} +rcon_password \"{{RCON_PASSWORD}}\" {{H9_ARGS}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\": \"player server started\"}",
+        "logs": "{}",
+        "stop": "quit"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# Prepended by build-egg.py from the `install.packages` list in egg-h9xash.yml: the\n# installer image is a bare Debian and has none of these.\nset -e\napt-get update\napt-get install -y --no-install-recommends curl ca-certificates unzip git git-lfs file\n# HAVOC 9 dedicated server -- the Pterodactyl / Pelican install script.\n#\n# This runs ONCE when a server is created or reinstalled, in a throwaway installer container,\n# with the server's files at /mnt/server. It is embedded into egg-h9xash.json by build-egg.py;\n# edit it here and regenerate, do not edit the JSON.\n#\n# Two sources, chosen by the H9_SOURCE variable in the egg:\n#\n#   release   the published H9XASH-linux-server.zip. Fast, about 300 MB, and it is the build the\n#             servers on havoc9.org are running. This is the default.\n#   git       clone this repository and pull its LFS objects, then lay the published Linux\n#             binaries over it. Slower and about 2 GB, but it is the newest content there is.\n#\n# Either way the 32-bit binaries come from the published package: they are build output and are\n# NOT in git (docs/LINUX_SUPPORT.txt).\nset -euo pipefail\n\nsay() { printf '\\n\\033[1m\\033[33m[h9-install]\\033[0m %s\\n' \"$*\"; }\ndie() { printf '\\n\\033[1m\\033[31m[h9-install]\\033[0m %s\\n' \"$*\" >&2; exit 1; }\n\nSOURCE=${H9_SOURCE:-release}\nREPO=${H9_REPO:-https://github.com/2cwldys/HAVOC-NINE.git}\nBRANCH=${H9_BRANCH:-main}\nZIP_URL=${H9_SERVER_ZIP_URL:-https://havoc9.org/downloads/H9XASH-linux-server.zip}\n\nmkdir -p /mnt/server\ncd /mnt/server\n\nsay \"HAVOC 9 dedicated server -- installing from: $SOURCE\"\n\n# ---- the published package, always: it carries the 32-bit binaries -------------------------------\nsay \"fetching $ZIP_URL\"\ncurl -fsSL \"$ZIP_URL\" -o /tmp/h9server.zip || die \"could not download $ZIP_URL\n   If havoc9.org is up and this still fails, the Linux server package may not be published for\n   this build yet. Set H9_SERVER_ZIP_URL to a package you have.\"\n\nmkdir -p /tmp/pkg\nunzip -q -o /tmp/h9server.zip -d /tmp/pkg\nPKG=$(dirname \"$(find /tmp/pkg -name xashds -type f -print -quit)\")\n[ -n \"$PKG\" ] && [ -f \"$PKG/xashds\" ] || die \"that archive holds no xashds: it is not a Linux server package\"\n\nif [ \"$SOURCE\" = \"git\" ]; then\n    # ---- the newest content, from the repository -------------------------------------------------\n    say \"cloning $REPO ($BRANCH) -- this is about 2 GB with its LFS objects\"\n    command -v git >/dev/null || die \"git is not in the installer image\"\n    git clone --depth 1 --branch \"$BRANCH\" \"$REPO\" /tmp/repo || die \"could not clone $REPO\"\n    cd /tmp/repo\n\n    # Without this every map, model and wad is a 130-byte pointer and no map will load.\n    if command -v git-lfs >/dev/null || git lfs version >/dev/null 2>&1; then\n        say \"pulling Git LFS objects (the maps, models and wads)\"\n        git lfs pull || die \"git lfs pull failed: without it the maps are pointers, not maps\"\n    else\n        die \"git-lfs is not in the installer image, and the maps are LFS objects.\n   Use H9_SOURCE=release, or use an installer image that has git-lfs.\"\n    fi\n\n    [ -d H9XASH ] || die \"this clone has no H9XASH folder\"\n    say \"copying the game from the clone\"\n    cp -a H9XASH/. /mnt/server/\n    # The optional HD textures are a separate 19.7 GB download and are never part of a server.\n    rm -rf /mnt/server/ts/materials\n    cp -f linux/h9xash_server.sh /mnt/server/h9xash_server.sh\n    cd /mnt/server\nelse\n    say \"copying the published package\"\n    cp -a \"$PKG/.\" /mnt/server/\nfi\n\n# ---- the Linux overlay, over whatever content is now in place ------------------------------------\n# Every item here is Linux-specific and must win over the clone's Windows copy. In particular\n# liblist.gam and gameinfo.txt name the game library: the clone's say dlls/ts.dll, and the engine\n# would look for a Windows DLL. metamod/plugins.ini is scoped by full path on purpose, because\n# amxmodx/configs/plugins.ini is a different file (the list of plugins to run) that must stay as\n# the content left it. Every .patch note travels with its binary, as it does everywhere else in\n# this project -- note xashds.patch is not *.so.patch.\nsay \"laying the Linux binaries and their patch notes over it\"\ncd \"$PKG\"\nfind . \\( -name '*.so' -o -name 'xashds' -o -name '*.patch' \\\n          -o -name 'BUILDINFO.txt' -o -name 'INPUTS.json' \\\n          -o -path './ts/liblist.gam' -o -path './ts/gameinfo.txt' \\\n          -o -path './ts/addons/metamod/plugins.ini' \\\n          -o -name 'easy_http_LICENSE.txt' -o -name 'amxx_easy_http_cacert.pem' \\) \\\n    -exec cp -a --parents {} /mnt/server/ \\;\ncd /mnt/server\n\n# ---- make it runnable, and check it -----------------------------------------------------------------\nchmod +x ./xashds ./h9xash_server.sh 2>/dev/null || true\nfind . -name '*.so' -exec chmod 0644 {} + 2>/dev/null || true\n\n[ -x ./xashds ]                            || die \"no runnable ./xashds after the install\"\n[ -x ./h9xash_server.sh ]                  || die \"no runnable ./h9xash_server.sh after the install\"\n[ -f ./ts/liblist.gam ]                    || die \"no ts/liblist.gam: the engine would not find the game\"\n[ -f ./ts/addons/metamod/plugins.ini ]     || die \"no ts/addons/metamod/plugins.ini: Metamod would load nothing\"\n[ -d ./ts/maps ]                           || die \"no ts/maps: there is no game content here\"\n\npointers=$(find ./ts -type f \\( -name '*.bsp' -o -name '*.mdl' -o -name '*.wad' \\) -size -1k \\\n           -exec grep -l '^version https://git-lfs' {} + 2>/dev/null | head -n 3 || true)\n[ -z \"$pointers\" ] || die \"some game files are Git LFS pointers, not the files:\n$pointers\n   The clone was made without Git LFS. Reinstall with H9_SOURCE=release, or fix git-lfs.\"\n\nmaps=$(find ./ts/maps -name '*.bsp' | wc -l)\nsay \"done: $maps map(s), engine $(ls -la ./xashds | awk '{print $5}') bytes\"\nsay \"the join gate release is: $(head -n1 ./ts/h9_release.txt 2>/dev/null || echo 'unknown')\"\nsay \"GoldSrc is UDP. The allocation for this server must be UDP or nothing can reach it.\"\n",
+            "container": "debian:bookworm-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Server name",
+            "description": "What the server calls itself in the browser. Shown to players before they join.",
+            "env_variable": "H9_HOSTNAME",
+            "default_value": "HAVOC 9 TEAM ELIMINATION",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:120"
+        },
+        {
+            "name": "Starting map",
+            "description": "The map the server loads on start. The prefix chooses the mode: h9_te_ Team Elimination, h9_as_ Assault, h9_up_ Uplink, h9_ws_ Wave Survival. A ts_ or roleplay map plays stock.",
+            "env_variable": "H9_MAP",
+            "default_value": "h9_te_neuropolis",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64|regex:/^[a-zA-Z0-9_-]+$/"
+        },
+        {
+            "name": "Player slots",
+            "description": "128 slots are built in; 64 is the default. Above 64 needs the stagger fix for bot joins (docs/PLAYER_LIMIT_128.txt).",
+            "env_variable": "H9_MAXPLAYERS",
+            "default_value": "64",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,128"
+        },
+        {
+            "name": "Public server",
+            "description": "0 is a public server that heartbeats to the master and appears in the browser. 1 is LAN only.",
+            "env_variable": "H9_SV_LAN",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean"
+        },
+        {
+            "name": "Team play",
+            "description": "1 for teams, 0 for free-for-all.",
+            "env_variable": "H9_TEAMPLAY",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean"
+        },
+        {
+            "name": "H9 weapons",
+            "description": "1 puts the weapons H9 adds to The Specialists in play (the PPSh-41, the laser rifle, and any added since). 0 is TS 3.0's own roster only. Every H9 weapon is behind this one cvar on purpose, so a server can be exactly stock.",
+            "env_variable": "H9_CUSTOMWEAPONS",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean"
+        },
+        {
+            "name": "Bots",
+            "description": "How many bots to keep on the server; 0 kicks them all. The cvar's own default is 0 and the shipped config sets 10, which is what this follows. The plugin sets it to 0 by itself on a map that is not one of H9's.",
+            "env_variable": "H9_BOTS",
+            "default_value": "10",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:0,63"
+        },
+        {
+            "name": "Require matching release",
+            "description": "The join gate (docs/H9_RELEASE.txt). 1 holds a joiner who has H9's client to this server's release and tells an out-of-date one where to update; a stock Specialists client still plays, unranked. 2 requires H9's client of everyone. 0 lets anyone in.",
+            "env_variable": "H9_REQUIRE_RELEASE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:0,2"
+        },
+        {
+            "name": "Late join",
+            "description": "Someone arriving after the match began, or leaving the spectators, may pick a side and comes in at that side's next respawn rather than waiting for the next map.",
+            "env_variable": "H9_LATEJOIN",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:0,2"
+        },
+        {
+            "name": "Class change",
+            "description": "A player may ask for another class with .class at any time and has it from their next respawn.",
+            "env_variable": "H9_CLASSCHANGE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:0,2"
+        },
+        {
+            "name": "Round time (seconds)",
+            "description": "How long a round runs. Match mode keeps its own clock, so changing this changes the round, not the map: mp_timelimit ships at 0 and the map never rotates on its own.",
+            "env_variable": "H9_ROUNDTIME",
+            "default_value": "300",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:30,3600"
+        },
+        {
+            "name": "RCON password",
+            "description": "The remote console password, over the same UDP port as the game. Leave it empty to refuse rcon entirely, which is the right answer unless you actually use it.",
+            "env_variable": "RCON_PASSWORD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:64"
+        },
+        {
+            "name": "Extra startup arguments",
+            "description": "Passed to the engine verbatim, after everything else, so these win. For example: +sv_cheats 0 +mp_timelimit 20",
+            "env_variable": "H9_ARGS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:512"
+        },
+        {
+            "name": "Install source",
+            "description": "release takes the published H9XASH-linux-server.zip: fast, and the build the public servers run. git clones the repository and pulls its LFS objects for the newest content, which is slower and about 2 GB. Either way the 32-bit binaries come from the published package, because they are build output and are not in git.",
+            "env_variable": "H9_SOURCE",
+            "default_value": "release",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|in:release,git"
+        },
+        {
+            "name": "Repository",
+            "description": "Only used when the install source is git.",
+            "env_variable": "H9_REPO",
+            "default_value": "https://github.com/2cwldys/HAVOC-NINE.git",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|max:255"
+        },
+        {
+            "name": "Branch",
+            "description": "Only used when the install source is git.",
+            "env_variable": "H9_BRANCH",
+            "default_value": "main",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|max:120"
+        }
+    ]
+}

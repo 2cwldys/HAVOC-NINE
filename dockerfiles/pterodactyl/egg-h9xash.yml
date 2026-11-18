@@ -1,0 +1,249 @@
+# HAVOC 9 dedicated server -- the Pterodactyl / Pelican egg, in a form a person can read.
+#
+# THIS is the file to edit. egg-h9xash.json is generated from it by build-egg.py and is what the
+# panel imports; the panel's own export writes a machine-made JSON with no comments in it, which
+# is why the source lives here instead.
+#
+#     python build-egg.py            regenerate egg-h9xash.json
+#     python build-egg.py --check    fail if the JSON is out of date (for CI)
+#
+# The install script is NOT inlined here: it is install.sh beside this file, and build-egg.py
+# embeds it. Edit that as an ordinary shell script.
+
+name: HAVOC 9
+author: support@havoc9.org
+
+description: >-
+  HAVOC 9 dedicated server: The Specialists 3.0 on Xash3D FWGS, with Metamod-R, AMX Mod X,
+  RCBot and H9's own game modes (Team Elimination, Assault, Uplink, Wave Survival, Mech
+  Warrior and the Apollo roleplay set). The server is native 32-bit Linux.
+
+  A server refuses a player whose game is a different release than its own, so keep this
+  server's build in step with the one your players have (docs/H9_RELEASE.txt).
+
+# The build this egg was generated for. tools/release-prepare.mjs writes dockerfiles/VERSION with
+# every bump and build-egg.py reads it, so an imported egg always names the build it belongs to
+# and an operator can see when theirs is behind.
+build_from_file: ../VERSION
+
+# Panel features offered on the server page. Not steam_disk_space: nothing here uses SteamCMD.
+features: []
+
+# The image the server runs in. Build and push it from dockerfiles/pterodactyl/Dockerfile; the
+# tag should be the build, so a panel admin picks the one matching their players.
+images:
+  - "ghcr.io/2cwldys/h9xash-server:latest"
+
+# Files a user may not edit from the panel's file manager. The binaries and the join gate's
+# release are the server's identity: editing them is how you get a server that refuses everyone
+# or loads nothing.
+file_denylist:
+  - xashds
+  - "*.so"
+  - ts/h9_release.txt
+
+# The command the panel runs. {{...}} are substituted from the variables below plus the panel's
+# own SERVER_PORT, SERVER_IP and SERVER_MEMORY.
+#
+# Note -port and +ip come first so h9xash_server.sh does not add its own from networking.ini, and
+# H9_ARGS comes last so anything an operator adds wins over everything above it.
+startup: >-
+  ./h9xash_server.sh -port {{SERVER_PORT}} +ip 0.0.0.0
+  +map {{H9_MAP}} +maxplayers {{H9_MAXPLAYERS}}
+  +hostname "{{H9_HOSTNAME}}" +sv_lan {{H9_SV_LAN}} +mp_teamplay {{H9_TEAMPLAY}}
+  +h9_customweapons {{H9_CUSTOMWEAPONS}} +tsm_bots {{H9_BOTS}}
+  +tsm_roundtime {{H9_ROUNDTIME}} +h9_require_release {{H9_REQUIRE_RELEASE}}
+  +tsm_latejoin {{H9_LATEJOIN}} +tsm_classchange {{H9_CLASSCHANGE}}
+  +rcon_password "{{RCON_PASSWORD}}"
+  {{H9_ARGS}}
+
+config:
+  # The line that tells the panel the server has finished starting. The engine prints it from
+  # sv_init.c when the map is up: "64 player server started". Matching the tail of it is stable
+  # across any slot count.
+  startup_done: "player server started"
+
+  # GoldSrc takes `quit` on its console. The panel writes it to stdin, the engine saves and exits.
+  stop: "quit"
+
+  # No log file to follow: the engine writes to its console, which the panel already captures.
+  # (h9xash_server.sh passes -log, so engine.log exists too, but following both would double
+  # every line in the console.)
+  logs: {}
+
+  # No configuration file is rewritten by the panel. Everything configurable is a startup
+  # variable, which keeps the panel and the server.cfg from fighting over the same values.
+  files: {}
+
+# The installer. Debian bookworm because the install script needs curl, unzip, git and git-lfs,
+# and because glibc 2.34 is the floor for these binaries anyway (see dockerfiles/Dockerfile).
+install:
+  container: "debian:bookworm-slim"
+  entrypoint: "bash"
+  # Packages the script needs that the bare image lacks. Prepended to install.sh by build-egg.py.
+  packages:
+    - curl
+    - ca-certificates
+    - unzip
+    - git
+    - git-lfs
+    - file
+
+variables:
+  - name: Server name
+    description: >-
+      What the server calls itself in the browser. Shown to players before they join.
+    env_variable: H9_HOSTNAME
+    default_value: "HAVOC 9 TEAM ELIMINATION"
+    user_viewable: true
+    user_editable: true
+    rules: "required|string|max:120"
+
+  - name: Starting map
+    description: >-
+      The map the server loads on start. The prefix chooses the mode: h9_te_ Team Elimination,
+      h9_as_ Assault, h9_up_ Uplink, h9_ws_ Wave Survival. A ts_ or roleplay map plays stock.
+    env_variable: H9_MAP
+    default_value: h9_te_neuropolis
+    user_viewable: true
+    user_editable: true
+    rules: "required|string|max:64|regex:/^[a-zA-Z0-9_-]+$/"
+
+  - name: Player slots
+    description: >-
+      128 slots are built in; 64 is the default. Above 64 needs the stagger fix for bot joins
+      (docs/PLAYER_LIMIT_128.txt).
+    env_variable: H9_MAXPLAYERS
+    default_value: "64"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:1,128"
+
+  - name: Public server
+    description: >-
+      0 is a public server that heartbeats to the master and appears in the browser.
+      1 is LAN only.
+    env_variable: H9_SV_LAN
+    default_value: "0"
+    user_viewable: true
+    user_editable: true
+    rules: "required|boolean"
+
+  - name: Team play
+    description: "1 for teams, 0 for free-for-all."
+    env_variable: H9_TEAMPLAY
+    default_value: "1"
+    user_viewable: true
+    user_editable: true
+    rules: "required|boolean"
+
+  - name: H9 weapons
+    description: >-
+      1 puts the weapons H9 adds to The Specialists in play (the PPSh-41, the laser rifle, and
+      any added since). 0 is TS 3.0's own roster only. Every H9 weapon is behind this one cvar
+      on purpose, so a server can be exactly stock.
+    env_variable: H9_CUSTOMWEAPONS
+    default_value: "1"
+    user_viewable: true
+    user_editable: true
+    rules: "required|boolean"
+
+  - name: Bots
+    description: >-
+      How many bots to keep on the server; 0 kicks them all. The cvar's own default is 0 and the
+      shipped config sets 10, which is what this follows. The plugin sets it to 0 by itself on a
+      map that is not one of H9's.
+    env_variable: H9_BOTS
+    default_value: "10"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:0,63"
+
+  - name: Require matching release
+    description: >-
+      The join gate (docs/H9_RELEASE.txt). 1 holds a joiner who has H9's client to this server's
+      release and tells an out-of-date one where to update; a stock Specialists client still
+      plays, unranked. 2 requires H9's client of everyone. 0 lets anyone in.
+    env_variable: H9_REQUIRE_RELEASE
+    default_value: "1"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:0,2"
+
+  - name: Late join
+    description: >-
+      Someone arriving after the match began, or leaving the spectators, may pick a side and
+      comes in at that side's next respawn rather than waiting for the next map.
+    env_variable: H9_LATEJOIN
+    default_value: "1"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:0,2"
+
+  - name: Class change
+    description: >-
+      A player may ask for another class with .class at any time and has it from their next
+      respawn.
+    env_variable: H9_CLASSCHANGE
+    default_value: "1"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:0,2"
+
+  - name: Round time (seconds)
+    description: >-
+      How long a round runs. Match mode keeps its own clock, so changing this changes the round,
+      not the map: mp_timelimit ships at 0 and the map never rotates on its own.
+    env_variable: H9_ROUNDTIME
+    default_value: "300"
+    user_viewable: true
+    user_editable: true
+    rules: "required|integer|between:30,3600"
+
+  - name: RCON password
+    description: >-
+      The remote console password, over the same UDP port as the game. Leave it empty to refuse
+      rcon entirely, which is the right answer unless you actually use it.
+    env_variable: RCON_PASSWORD
+    default_value: ""
+    user_viewable: true
+    user_editable: true
+    rules: "nullable|string|max:64"
+
+  - name: Extra startup arguments
+    description: >-
+      Passed to the engine verbatim, after everything else, so these win. For example:
+      +sv_cheats 0 +mp_timelimit 20
+    env_variable: H9_ARGS
+    default_value: ""
+    user_viewable: true
+    user_editable: true
+    rules: "nullable|string|max:512"
+
+  - name: Install source
+    description: >-
+      release takes the published H9XASH-linux-server.zip: fast, and the build the public servers
+      run. git clones the repository and pulls its LFS objects for the newest content, which is
+      slower and about 2 GB. Either way the 32-bit binaries come from the published package,
+      because they are build output and are not in git.
+    env_variable: H9_SOURCE
+    default_value: release
+    user_viewable: true
+    user_editable: false
+    rules: "required|string|in:release,git"
+
+  - name: Repository
+    description: "Only used when the install source is git."
+    env_variable: H9_REPO
+    default_value: "https://github.com/2cwldys/HAVOC-NINE.git"
+    user_viewable: true
+    user_editable: false
+    rules: "required|string|max:255"
+
+  - name: Branch
+    description: "Only used when the install source is git."
+    env_variable: H9_BRANCH
+    default_value: main
+    user_viewable: true
+    user_editable: false
+    rules: "required|string|max:120"

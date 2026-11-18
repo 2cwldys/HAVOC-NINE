@@ -1,0 +1,238 @@
+HAVOC 9 IN DOCKER, AND ON A PTERODACTYL PANEL
+=============================================
+
+The native Linux dedicated server, in a container built from this clone. Two shapes of it:
+dockerfiles/ for plain Docker or Compose, and dockerfiles/pterodactyl/ for a game panel.
+
+Status, and read this first: the native Linux server builds and runs, but NO CLIENT HAS EVER
+JOINED IT and no match has been played on it (docs/LINUX_SUPPORT.txt, section 0). There is also
+no native Linux client, so the client side of any test is the Windows game, the Wine package or
+the browser client. Nothing below has been played on; it has been built and started.
+
+
+1. THE SHORT WAY
+----------------
+
+    git clone https://github.com/2cwldys/HAVOC-NINE
+    cd HAVOC-NINE
+    git lfs pull                       the maps and models are LFS objects
+    cd dockerfiles
+    cp server.env.example server.env   edit it, or leave it alone
+    docker compose up -d --build
+    docker compose logs -f
+
+The first build takes a while: it copies 1.89 GiB of game out of the clone.
+
+
+2. WHERE THE SERVER COMES FROM, AND WHY IT IS IN TWO PIECES
+-----------------------------------------------------------
+
+A clone gives you the whole game: 7,330 files, 1.89 GiB of maps, models, sounds, configs and
+compiled plugins under H9XASH/. That is what makes building from git worth doing -- you get the
+newest content without waiting for a published package.
+
+What a clone does NOT give you is the 32-bit Linux binaries. H9XASH-linux/ is build output and is
+git-ignored on purpose: the engine (xashds), the game library (ts_i386.so), Metamod-R and the AMX
+Mod X modules are made by linux/build-linux.sh and are not in version control. They are 44 MiB
+across 46 files, so they are a small overlay on top of the content.
+
+    H9_BINARIES=download   fetch the published H9XASH-linux-server.zip and take its binaries.
+                           The default. Needs nothing of you but a network.
+    H9_BINARIES=local      use the H9XASH-linux/ folder in this clone, if you built it yourself.
+
+WHERE THE CONTENT COMES FROM, AND WHAT GIT LFS COSTS
+
+    H9_CONTENT=clone     from this clone's H9XASH/. The default, and the newest content there
+                         is. It costs NO LFS bandwidth at build time: the files are already on
+                         your disk, so COPY fetches nothing. The LFS cost was the one-off
+                         `git lfs pull` you already did.
+    H9_CONTENT=release   from the published H9XASH-linux-server.zip. No clone, no LFS at all,
+                         and the build context needs nothing but dockerfiles/. This is the one
+                         for CI, for a machine that should not hold a 2 GB checkout, and for
+                         anyone who would rather not spend LFS quota.
+
+GitHub meters LFS bandwidth, and the maps, models and wads here are LFS objects: about 1.89 GiB
+of them. Anything that clones PER BUILD or PER INSTALL burns that quota fast, and when it runs
+out the clone does not fail cleanly -- it hands you 130-byte pointer files that look like maps.
+
+So: building repeatedly from a clone you already have is free. Cloning afresh each time is not.
+That is why the Pterodactyl egg installs from the published package by default (section 7): a
+panel creating servers would otherwise clone the whole repository for every one of them.
+
+There is deliberately no build-from-source mode. linux/build-linux.sh compiles reTS, Metamod-R,
+the engine, AMX Mod X through AMBuild and RCBot, and it has only ever run in the WSL2 distro the
+project sets up (docs/BUILDING.txt 7b). Wiring that into a container and calling it supported
+would be a claim nobody has tested.
+
+WHAT THE OVERLAY CARRIES, AND WHY EACH PIECE IS THERE
+
+    *.so, xashds          the engine, the game library, Metamod, RCBot, the AMX Mod X modules
+    *.patch               the patch-chain note that ships beside every patched or rebuilt binary
+                          in this project, so a shipped binary always says what went into it.
+                          Note xashds.patch is NOT *.so.patch: a rule matching only the latter
+                          silently drops the engine's own note.
+    BUILDINFO.txt         the hashes and glibc floors of all of the above
+    INPUTS.json           what each step was built from
+    ts/liblist.gam        name the game library. The clone's copies say dlls/ts.dll, which is a
+    ts/gameinfo.txt       Windows DLL: without these the engine looks for the wrong file.
+    metamod/plugins.ini   Metamod loads nothing at all without it. Scoped by full path, because
+                          amxmodx/configs/plugins.ini is a DIFFERENT file -- the list of plugins
+                          to run -- and that one must stay as the content left it.
+
+
+3. THE BASE IMAGE IS NOT NEGOTIABLE
+-----------------------------------
+
+    Alpine cannot run this. Its libc is musl; these are glibc binaries and will not load.
+    The glibc must be 2.34 or newer. H9XASH-linux/BUILDINFO.txt records the floor of every
+    library and the highest is GLIBC_2.34 (amxmodx_mm_i386.so, and the engine, fun, fakemeta and
+    hamsandwich modules). Debian 11 is glibc 2.31 and fails at load with an unhelpful
+    "version `GLIBC_2.34' not found".
+
+Debian 12 is glibc 2.36, which clears it. Ubuntu 22.04 (2.35) and 24.04 (2.39) work too.
+
+
+4. THE THINGS THAT GO WRONG
+---------------------------
+
+THE PORT. GoldSrc is UDP, rcon included. `-p 27015:27015` without /udp publishes a TCP port: the
+container comes up, the healthcheck is the only thing that notices, and nothing can reach the
+server. It is the most common mistake there is with a game server in Docker.
+
+    -p 27015:27015/udp
+
+GIT LFS. A clone made without it -- or one whose LFS quota ran out mid-pull -- leaves a
+130-byte text pointer where every map, model and wad
+should be. The build refuses rather than making an image that starts and loads no map. If you see
+that, run `git lfs pull` and build again.
+
+LINE ENDINGS. A Windows checkout hands the build CRLF shell scripts, because the root
+.gitattributes has no *.sh rule. Linux then reads `#!/usr/bin/env bash` with a trailing
+carriage return as an interpreter literally named "bash\r" and the container dies with
+`/usr/bin/env: 'bash\r': No such file or directory`. The image strips the CRs itself rather
+than depending on how the clone was made, so this is handled -- but it is worth knowing if
+you add a script of your own.
+
+PID 1. Use `--init` (or `init: true` in Compose). Without it the engine is PID 1, PID 1 ignores
+the default signals, and `docker stop` waits the full timeout and then kills it.
+
+CERTIFICATES. h9xash_server.sh rebuilds the game's own certificate lists from the system bundle
+on every launch. The image installs ca-certificates for this; without a bundle the web module
+that talks to havoc9.org can fail its TLS handshake with nothing obvious in the log.
+
+
+5. WHAT NEVER GOES IN AN IMAGE
+------------------------------
+
+.dockerignore at the repository root is kept in PARITY with the lists the project already keeps:
+the updater's SKIP_NAMES, SKIP_DIR_NAMES, SKIP_DIR_PATHS and SKIP_EXT
+(tools/updater/h9xash_updater.py), and .gitignore's H9XASH/** entries. If you add a file to one
+of those, add it here too.
+
+SECRETS. These are in the updater's skip list as "a player's, a server's or a secret file", and
+they hold this server's own keys and addresses:
+
+    h9_presence.cfg      ts_advertise.cfg     ts_advertise_local.cfg
+    users.ini            sql.cfg              mail.env
+    accounts.json        listip.cfg           banned.cfg      *.env  *.key
+
+None of them is in the image. Give them to a container at run time instead:
+
+    docker run -v /srv/h9/h9_presence.cfg:/opt/h9xash/ts/addons/amxmodx/configs/h9_presence.cfg:ro ...
+
+Baking one in and pushing the image publishes it.
+
+PLAYER FILES. config.cfg, user_id.ini, device_id.ini, networking.ini and the rest belong to
+whoever runs the game, not to a release. The server writes its own.
+
+THE HD TEXTURES. H9XASH/ts/materials is 19.7 GiB (docs/HD_TEXTURES.txt) and a server has no use
+for it. Excluded, or every build would spend minutes sending a context the image does not want.
+
+Verified: the context is 7,122 files and 1.45 GiB, with 10,051 paths excluded, no secret or
+player file present, and every essential present.
+
+
+6. CONFIGURING IT
+-----------------
+
+Set a variable and it is passed to the engine; leave it unset and h9xash_server.sh keeps its own
+default. That is deliberate -- an unset variable never overwrites the launcher with an empty
+string. See dockerfiles/server.env.example. CVARS.md is the full index of every cvar.
+
+    H9_PORT  H9_HOSTNAME  H9_MAP  H9_MAXPLAYERS  H9_SV_LAN  H9_TEAMPLAY
+    H9_RCON_PASSWORD (or H9_RCON_PASSWORD_FILE, with a Docker secret)
+    H9_ARGS          anything else, verbatim, last, so it wins
+
+THE MAP CHOOSES THE MODE. h9_te_ Team Elimination, h9_as_ Assault, h9_up_ Uplink, h9_ws_ Wave
+Survival, h9_mw_ Mech Warrior. A ts_ or roleplay map plays stock. So H9_MAP is the mode setting;
+there is no separate one.
+
+Everything else lives in the config files, which are ordinary files in the image and can be
+mounted over: ts/server.cfg for the server's own cvars, and
+ts/addons/amxmodx/configs/ts_matchmode.cfg (130 KB) for the modes.
+
+
+7. A PTERODACTYL / PELICAN PANEL
+--------------------------------
+
+    dockerfiles/pterodactyl/
+      egg-h9xash.yml     EDIT THIS: the egg in a form a person can read, with comments
+      egg-h9xash.json    generated from it; this is what the panel imports
+      build-egg.py       regenerates the JSON  (--check fails when it is out of date)
+      install.sh         the install script, embedded into the JSON by build-egg.py
+      Dockerfile         the image the panel runs, separate from the ordinary one
+      entrypoint.sh      expands the panel's {{VARIABLE}} startup line
+
+The panel fixes three things an ordinary image is free to choose, which is why the image is
+separate: the server lives at /home/container, it runs as uid 988, and the panel supplies the
+startup command from the egg rather than the image having an entrypoint of its own.
+
+TO USE IT: build and push dockerfiles/pterodactyl/Dockerfile, put its tag in the egg's `images`,
+regenerate, and import egg-h9xash.json in the panel under Nests. Give the server a UDP
+allocation.
+
+THE INSTALL takes H9_SOURCE=release (the published package: fast, and the build the public
+servers run) or H9_SOURCE=git (clone and git lfs pull for the newest content, slower and about
+2 GB). Either way the binaries come from the published package.
+
+TWO FORMAT DETAILS that are easy to get wrong, both handled by build-egg.py:
+  * meta.version must be "PTDL_v1"; the panel refuses anything else.
+  * config.files, config.startup and config.logs are JSON *strings*, not objects. A nested
+    object imports as an empty config and the server then never reports as started.
+
+THE DONE STRING is "player server started", which the engine prints from sv_init.c when the map
+is up ("64 player server started"). THE STOP COMMAND is `quit`.
+
+
+8. THE BUILD NUMBER
+-------------------
+
+dockerfiles/VERSION holds the build this tree is for, and tools/release-prepare.mjs writes it
+with every bump like every other place the number appears (docs/H9_RELEASE.txt, 5b). Tag images
+with it:
+
+    docker build --build-arg H9_BUILD=$(cat ../VERSION) -t h9xash-server:$(cat ../VERSION) ..
+
+This matters because of the join gate: a server refuses a player whose game is a different
+release than its own. An operator wants to see at a glance whether their container is behind the
+players they are trying to serve. The gate still decides who may play; the tag only makes the
+answer visible before anyone tries.
+
+
+9. TESTING ONE
+--------------
+
+There is no native Linux client, so a client is the Windows game, the Wine package or the
+browser client. The browser client reaches 127.0.0.1:27015 only, which makes it the easiest
+first real join against a container on the same machine:
+
+    docker run -d --init -p 27015:27015/udp h9xash-server
+
+Then connect from the web client. Short of a client, these say whether the server is alive:
+
+    docker compose logs -f                      the engine, Metamod, AMX Mod X and the plugins
+    docker inspect --format '{{.State.Health.Status}}' h9xash
+    docker exec h9xash sh -c 'cat engine.log | tail -40'
+
+The healthcheck sends a Source engine query to the server's own port and fails when nothing
+answers, which catches an engine that is wedged but still running as a process.

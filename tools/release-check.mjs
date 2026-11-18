@@ -104,6 +104,34 @@ if (build && release && release !== build) {
   problems.push("the release (xash3d-h9-patches/overlay/ts/h9_release.txt) says " + release + " and the build is " + build + ": the join gate is the build (node tools/release-prepare.mjs --release makes it so, and every bump does)");
 }
 
+// ---- the container image's build (docs/DOCKER.txt, 8)
+// dockerfiles/VERSION is what a Docker or Pterodactyl operator sees, and the Pterodactyl egg is
+// generated with it. A server refuses a player of another release, so an image left behind serves
+// players it will then refuse: the number has to move with every bump like the others.
+{
+  const dv = path.join(root, "dockerfiles", "VERSION");
+  if (build && canOpen(dv)) {
+    const carried = (read(dv) || "").trim().split(/\s+/)[0] || "";
+    if (carried !== build) {
+      if (write) {
+        fs.writeFileSync(dv, build, "latin1");
+        notes.push(rel(dv) + ": now says " + build);
+      } else {
+        problems.push(rel(dv) + " says " + (carried || "nothing") + " and the build is " + build +
+          " (node tools/release-check.mjs --write, then regenerate the egg: python dockerfiles/pterodactyl/build-egg.py)");
+      }
+    }
+    // The egg is generated FROM that file, so it goes stale the same way.
+    const egg = path.join(root, "dockerfiles", "pterodactyl", "egg-h9xash.json");
+    if (canOpen(egg) && !(read(egg) || "").includes("build " + build)) {
+      problems.push(rel(egg) + " was not generated for build " + build +
+        " (python dockerfiles/pterodactyl/build-egg.py)");
+    }
+  } else if (build) {
+    notes.push("(no dockerfiles/VERSION in this tree: the container image's build is not checked)");
+  }
+}
+
 for (const n of notes) console.log(n);
 if (problems.length) {
   for (const p of problems) console.error("release-check: " + p);
