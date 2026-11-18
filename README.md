@@ -359,13 +359,6 @@ run `python build-egg.py`, and import the `egg-h9xash.json` it writes. The serve
 published package or from a fresh clone, and the panel exposes the settings most operators change:
 hostname, map, slots, bots, round time, the H9 weapon set, the release gate, late join and class change.
 
-> **What is proven, and what is not.** A container built this way starts and reports healthy: the engine,
-> reTS, Metamod, AMX Mod X, RCBot and the H9 plugins all load, the map comes up, the join gate reports its
-> release, and bots join. What has **not** happened is a human player connecting to one -- no client has ever
-> joined a Linux server here and no match has been played on one
-> ([docs/LINUX_SUPPORT.txt](docs/LINUX_SUPPORT.txt)). There is no native Linux client either, so a client is
-> the Windows game, the Wine package or the browser client.
-
 
 ## Licensing and notices
 
