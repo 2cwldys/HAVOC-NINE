@@ -113,7 +113,16 @@ if (flag("--write")) {
       recipe: prev && prev.recipe === r.id ? prev.recipe : r.id,
     };
   }
-  fs.writeFileSync(MANIFEST, JSON.stringify({ recipe: r, images }, null, 1));
+  // Written to one side and renamed over, which the filesystem does in a single step. This file
+  // was read at the top of this run and is being written back here, and a plain write over it has
+  // two problems: another run can change it in between, and a process killed part way through
+  // leaves it truncated. The second one is the expensive one -- this manifest is the only record
+  // of which textures have been upscaled and by which recipe, so a truncated copy means the next
+  // pass can vouch for none of the 6,189 outputs and redoes all of them. A rename leaves either
+  // the old manifest or the new one on disk, never half of each.
+  const tmp = MANIFEST + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify({ recipe: r, images }, null, 1));
+  fs.renameSync(tmp, MANIFEST);
 }
 
 if (flag("--prune")) {

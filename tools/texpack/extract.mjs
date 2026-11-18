@@ -251,7 +251,16 @@ function main() {
     fs.mkdirSync(outDir, { recursive: true });
     for (const img of images.values()) {
       const out = path.join(outDir, `${img.sha}.png`);
-      if (!fs.existsSync(out)) fs.writeFileSync(out, png(img.width, img.height, img.rgba));
+      // "wx" creates the file only if it is absent, in ONE operation the OS does not interrupt.
+      // Asking existsSync first and writing afterwards leaves a gap: a second run of this scan,
+      // or an upscale reading the folder, can see the file between the two. The name is the hash
+      // of the pixels so the content would be the same either way -- but a half-written PNG is
+      // not the same as anything, and the upscaler would read it as a damaged source.
+      try {
+        fs.writeFileSync(out, png(img.width, img.height, img.rgba), { flag: "wx" });
+      } catch (e) {
+        if (e.code !== "EEXIST") throw e; // already extracted by an earlier run, which is normal
+      }
     }
   }
 

@@ -94,7 +94,7 @@ for (const [rel, sha] of wanted) {
   if (DRY) continue;
   const out = path.join(DEST, rel);
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  if (fs.existsSync(out)) fs.rmSync(out);
+  fs.rmSync(out, { force: true }); // force: absent is not an error, so there is no check to race
   if (LINK) {
     try {
       fs.linkSync(src, out);
