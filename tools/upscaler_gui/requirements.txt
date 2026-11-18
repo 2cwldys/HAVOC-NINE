@@ -1,0 +1,17 @@
+# H9 Upscaler's dependencies. setup.cmd and setup.sh install these into a virtual environment
+# beside this file; nothing is installed into the system Python.
+#
+# The ONNX runtime is NOT listed here because the right one differs by platform, and installing
+# the wrong one silently falls back to the CPU, which turns a one-hour job into a day:
+#
+#   Windows   onnxruntime-directml   runs on any DX12 card: NVIDIA, AMD or Intel
+#   Linux     onnxruntime-gpu        CUDA, so NVIDIA only
+#   either    onnxruntime            CPU, the fallback when there is no usable card
+#
+# The setup scripts choose, and say which they chose.
+#
+# torch is deliberately absent. The model was converted to ONNX once, by a maintainer, precisely
+# so that this program never carries a 2.5 GB dependency. See README.txt.
+
+numpy>=1.24
+Pillow>=10.0
