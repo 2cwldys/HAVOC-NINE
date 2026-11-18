@@ -334,10 +334,17 @@ $send.Add([pscustomobject]@{ Path = $man; Name = 'deploy-manifest.txt'; Sha = ''
 # several scp at once ([deploy] streams, default 4): one SSH stream to the host is held to a few MB/s by the distance,
 # and the connection carries more; the biggest files start first
 $streams = 4; if ([string]$cfg['deploy.streams'] -match '^[1-9][0-9]?$') { $streams = [int]$cfg['deploy.streams'] }
+# A dropped stream used to be fatal, and the HD pack is 4.55 GB in twelve archives: one broken
+# pipe out of twelve and every one had to go again. scp cannot resume, but an archive is at most
+# 400 MB, so a failed one is re-queued and only that piece is re-sent. It goes to the BACK of the
+# queue, which is the backoff too: a stream usually drops because the link is saturated, so the
+# rest drains first. [deploy] tries is the total number of goes at any one file.
+$tries = 3; if ([string]$cfg['deploy.tries'] -match '^[1-9]$') { $tries = [int]$cfg['deploy.tries'] }
 $queue = New-Object System.Collections.Generic.Queue[object]
 foreach ($s in ($send | Sort-Object Size -Descending)) { $queue.Enqueue($s) }
 $running = New-Object System.Collections.Generic.List[object]
 $failed = New-Object System.Collections.Generic.List[string]
+$attempts = @{}
 $t0 = Get-Date
 while ($queue.Count -or $running.Count) {
     while ($queue.Count -and $running.Count -lt $streams) {
@@ -352,11 +359,22 @@ while ($queue.Count -or $running.Count) {
     foreach ($r in $running.ToArray()) {
         if (-not $r.Proc.HasExited) { continue }
         [void]$running.Remove($r)
-        if ($r.Proc.ExitCode -ne 0) { $failed.Add($r.File.Name); Write-Host "  [FAIL] scp $($r.File.Name)" -ForegroundColor Red }
+        if ($r.Proc.ExitCode -ne 0) {
+            $n = 1 + [int]$attempts[$r.File.Name]
+            $attempts[$r.File.Name] = $n
+            if ($n -lt $tries) {
+                Write-Host ("  [retry {0} of {1}] scp {2}" -f ($n + 1), $tries, $r.File.Name) -ForegroundColor Yellow
+                $queue.Enqueue($r.File)
+            }
+            else {
+                $failed.Add($r.File.Name)
+                Write-Host ("  [FAIL] scp {0}, {1} attempt(s)" -f $r.File.Name, $n) -ForegroundColor Red
+            }
+        }
         else { Write-Host ('  sent {0} ({1:N0} s since the start)' -f $r.File.Name, ((Get-Date) - $t0).TotalSeconds) }
     }
 }
-if ($failed.Count) { Fail "scp failed for: $($failed -join ', ') (nothing was installed; run it again)" }
+if ($failed.Count) { Fail "scp failed for: $($failed -join ', ') after $tries attempt(s) each (nothing was installed; run it again)" }
 Say 'the host checks and installs it'
 & ssh @ssh $sshHost "powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Incoming C:\setup\incoming\$stamp"
 $rc = $LASTEXITCODE
