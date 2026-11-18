@@ -15,3 +15,8 @@
 	path = xash3d-fwgs
 	url = https://github.com/FWGS/xash3d-fwgs
 	ignore = dirty
+[submodule "hyperframes"]
+	path = hyperframes
+	url = https://github.com/heygen-com/hyperframes
+	ignore = dirty
+	branch = main
