@@ -4,8 +4,9 @@ HD TEXTURES (AI upscaled, materials/)
 Every texture in the mod, upscaled 4x and handed to the engine as loose TGA files, with the
 original art untouched. A player can switch between the two.
 
-Status: the upscaling tools and the texture pass are built. The detail-texture pass (section 7)
-and the download script (section 8) are NOT built yet and are marked where they appear.
+Status: built and shipping, except the detail-texture pass (section 7), which is marked where
+it appears. The pack itself, the tools that make it, the publish, the delivery to the host and
+the player's download all work.
 
 
 1. THE IDEA, AND WHY IT COSTS NOTHING TO SWITCH OFF
@@ -146,6 +147,30 @@ Measured on an RTX 3070: 200 images in 97 s, the whole 6,189 in about an hour, r
 distinct output. RLE roughly halves a TGA, and the engine reads type 10 at 32 bits
 (engine\common\imagelib\img_tga.c:112-119 and 149), so there is no reason to ship uncompressed.
 
+ALL OF THAT IN ONE COMMAND
+
+    tools\texpack\hd-pass.ps1
+
+Runs the four steps in order and stops early when there is nothing to do, which is the usual
+answer. A pass that finds no new art takes about thirteen seconds. -WhatIfOnly says what it
+would do and changes nothing; -Publish also writes dist\files\hd, ready for a deploy; -Tile
+lowers the tile size if video memory is tight.
+
+This is deliberately NOT part of a release. Scanning the mod and upscaling ten gigabytes
+belongs to the day somebody adds a map or a model, not to every build. A release only ever
+PUBLISHES what a pass already made, and only when packaging.ini says to (section 10).
+
+BY HAND, WITHOUT ANY OF THIS
+
+    tools\upscaler_gui
+
+A window that upscales a folder of ordinary images with no agent, no command line and no
+repository: pick a folder, choose 2x, 3x or 4x, set how much of the model's invention to keep,
+and look at every result at 1:1 against a Lanczos control before anything is written. It is
+for one-off work and for judging a setting. It is not how the pack is made: it carries the
+model as ONNX, whose output differs slightly from the torch run above, so a texture made in
+the window has a different recipe id and would show up as stale in a pack made by hd-pass.
+
 
 6. THE DELTA: NEVER DOING THE SAME WORK TWICE
 ---------------------------------------------
@@ -175,6 +200,12 @@ each distinct texture: 9,765 installed files come from 6,182 blobs, so an instal
 third fewer files than copying path by path, and an update that changes fifty textures is fifty
 blobs rather than a new ten-gigabyte download.
 
+ONE THING IN THIS FOLDER IS NOT WHAT SHIPS. tools\texpack\pack.mjs lays the pack out as
+hd/<ab>/<sha>.tga with hd-pack.json beside it. That was the first design and it was replaced
+by publishing through the updater's own publisher (section 8), which writes a flat store and a
+manifest.json the updater already knows how to read. pack.mjs is still used by
+modelling\make-repuheavy-pack.mjs for a single model's textures. Do not use it for the pack.
+
 
 7. DETAIL TEXTURES -- NOT BUILT YET
 -----------------------------------
@@ -195,39 +226,74 @@ write: ts\opengl.cfg also ships gl_vbo "0" and gl_vbo_detail "0", so the detail 
 ref\gl\gl_rsurf.c:2568 is code this project has never exercised. Prove it on one map first.
 
 
-8. THE DELTA PATCHING PROCESS -- NOT BUILT YET
-----------------------------------------------
-The pack is not in git and not in the base install. A script that ships with the client fetches
-it, after the player gives a code their havoc9.org account issues.
+8. THE DELTA PATCHING PROCESS
+-----------------------------
+The pack is not in git and not in the base install. H9XASH-Updater downloads it, into
+ts\materials, for a player whose install is linked to a havoc9.org account.
 
-No address, host name, key, token or account number appears in this file, in the shipped script,
-or anywhere in the repository. They come from configuration that is not tracked. A reader of this
-document learns the MECHANISM and nothing that would let them reach the service.
+No address, host name, key, token or account number appears in this file, in the shipped
+updater, or anywhere in the repository. The site's own name is in the updater's default URL and
+on the download page, and that is all a reader learns here.
 
-WHAT THE SERVER PUBLISHES
+WHY THERE IS NO SEPARATE DOWNLOADER
 
-    hd-pack.json     the manifest of section 6: install path -> blob hash, plus every blob's size
-    a blob store     one file per DISTINCT texture, named by the sha256 of its own bytes
+There was one, briefly: h9_hdtextures.ps1, which fetched a manifest, downloaded blobs, checked
+hashes, resumed, linked an account and pruned. Every one of those was already written, tested
+and shipping in H9XASH-Updater. The script was deleted and the updater was given a second
+source instead. A delta downloader is not the hard part; being certain it never half-installs
+is, and that part already existed.
 
-Nothing is named after a map or a model, so the store is write-once: a blob that exists is never
-rewritten, only referenced by more paths.
+WHAT THE UPDATER DOES
 
-WHAT THE CLIENT KEEPS
+    H9XASH-Updater.exe --hd          install the HD textures, or bring them up to date
+    H9XASH-Updater.exe --no-hd       skip them entirely, and do not ask
+    H9XASH-Updater.exe --hd-remove   take them back out
+    H9XASH-Updater.exe --status      says whether they are installed, and how many files
 
-Its own copy of hd-pack.json, saved after a successful install. That copy is the whole of its
-state. If it is lost the client can rebuild it by hashing what it has on disk.
+On a first run it asks once, and only if there is somebody to ask. Say no and nothing is
+downloaded; the game plays exactly as it did. Once they are installed, every later run keeps
+them up to date without --hd, because an installed pack is a thing to maintain, not a thing to
+ask about again.
+
+THE ACCOUNT
+
+The pack is for linked accounts. If the install is not linked, the updater runs the same
+device-code link it already offers for the game: it opens havoc9.org in a browser, shows a short
+code to approve, and waits. No password comes near the updater. Nothing about the pack is
+secret -- the link is what ties a download to an account, not what protects the files.
+
+WHERE IT COMES FROM
+
+The HD store sits beside the client's own files, as its own store with its own manifest:
+
+    files/manifest.json       the client. What H9XASH-Updater has always read.
+    files/<sha256>            the client's files, one per distinct file.
+    files/hd/manifest.json    the HD pack. A player who does not want it never reads this.
+    files/hd/<sha256>         the textures, one per DISTINCT texture.
+
+A separate folder, not a second manifest over the same blobs, and the reasons are practical:
+the pack can be served from somewhere else entirely by pointing --hd-url at it; the client's
+prune lists files/ without recursing, so it can never reach into the pack; and removing the
+pack from a host is deleting one folder rather than working out which blobs were whose.
 
 AN UPDATE, STEP BY STEP
 
-    1. fetch the current hd-pack.json
-    2. compare it with the local copy and work out three lists:
-         blobs whose hash the client does not already hold   -> download
-         paths whose blob hash changed, or that are new      -> write from the blob
-         paths that are no longer in the manifest            -> delete
-    3. download only the blobs in the first list
-    4. verify each downloaded blob against the sha256 it was asked for, BEFORE using it
-    5. write the changed paths, delete the removed ones, delete blobs nothing references
-    6. save the new manifest as the local copy
+    1. fetch files/hd/manifest.json (answered 304 when it has not changed)
+    2. compare it against what this install has, file by file, by hash
+    3. download only the blobs that are missing, resuming any that were cut short
+    4. check every downloaded blob against the SHA-256 it was asked for, BEFORE using it
+    5. stage the changed files, then move them into place through the rollback journal
+    6. remove the files the new manifest no longer names
+
+Steps 3 to 6 are the updater's own, unchanged. Step 5 is why this is worth reusing: an update
+that is interrupted, or that cannot replace a file because something has it open, puts every
+file back as it was and says so. --rollback undoes a finished one.
+
+WHAT A PLAYER SEES
+
+    [#########-------------]  42%  2174 of 6185 files, 4.4 GB of 10.5 GB
+
+Plain # and -, so it survives any console code page.
 
 WHY THIS SHAPE
 
@@ -235,24 +301,19 @@ WHY THIS SHAPE
     path or is now used by more maps.
   * A texture used in many places is downloaded once. 9,765 installed files come from 6,182
     blobs today.
-  * An interrupted update resumes. Blobs already verified are kept, so step 2 simply finds fewer
-    to fetch next time.
-  * Corruption is detectable without a separate checksum file, because a blob's name IS its hash.
-    A blob that does not hash to its own name is discarded and fetched again.
+  * An interrupted update resumes. Blobs already verified are kept.
+  * Corruption is detectable without a separate checksum file, because a blob's name IS its
+    hash. A blob that does not hash to its own name is discarded and fetched again.
   * A changed pack is cheap to publish: regenerate the manifest, upload the blobs that are new.
     Fifty changed textures is fifty blobs, not a fresh ten-gigabyte archive.
 
-ON THE CODE AND THE TOKEN
+ROOM ON THE DISK
 
-The code the account issues identifies the PLAYER, so it should be exchanged once for a
-short-lived token, and the token is what authorises the fetch. The script keeps the token for its
-lifetime and never the account password. The manifest and the blobs are ordinary files addressed
-by hash, so the gate belongs at the fetch, not in the naming.
-
-The pieces this builds on, all of which already exist: h9web owns the accounts and sessions, the
-player id is already an HMAC rather than the raw account number (h9web\lib\playerid.js), the host
-already serves behind an allowlist, and *.h9pk is already a tracked package format here.
-
+A first install wants about 40 GB free while it runs, and that surprises people, so: the
+download cache holds the 10.5 GB of blobs, the staging copy holds the files built from them,
+and the installed pack is about 19.7 GB because 9,765 files come from 6,182 blobs and the
+duplicates are real files on disk. The cache is emptied when the install finishes. An update
+needs only what it is actually changing.
 
 9. CHECKING IT WORKED
 ---------------------
@@ -271,3 +332,46 @@ or a folder mistake. FAIL means it was found and could not be read, which is a b
 that log and diff it against the index -- that is the pack's ground truth, and it is automatic.
 
 Remember the cvar is latched: set it, then reload the map, or it will appear to do nothing.
+
+
+10. PUBLISHING IT, AND GETTING IT TO THE HOST
+---------------------------------------------
+Three switches, all off by default, because none of this belongs in an ordinary release.
+
+    packaging.ini  [stage]  hd = 1    publish dist\files\hd when the stage runs
+    packaging.ini  [deploy] hd = 1    send it to the host with the deploy
+    tools\texpack\hd-pass.ps1 -Publish    publish without a release at all
+
+PUBLISHING. The same publisher the client's files go through (tools\updater\publish_files.py),
+pointed at ts\materials alone with --subtree. It writes dist\files\hd: manifest.json, one file
+per distinct texture named by its SHA-256, and an .htaccess that serves nothing but those two
+shapes and refuses a listing. The manifest keeps the full ts/materials/... paths, which is why
+the updater installs the pack at the H9XASH folder and the paths put the files in the right
+place by themselves.
+
+DELIVERING. deploy-vps.ps1 asks the host which blobs it already holds and sends only the rest,
+in archives of at most 400 MB so several upload streams carry them at once; receive-deploy.ps1
+checks every file against its own name, puts the new ones in, swaps manifest.json LAST, and
+then removes the blobs the new manifest does not name. A delivery carrying no HD archive leaves
+the folder exactly as it is, which is what hd = 0 means: it never deletes a pack already up.
+
+THE FIRST DELIVERY IS THE AWKWARD ONE. About 10.5 GB over SSH is slow, and it is usually better
+carried to the host some other way. Copy dist\files\hd into the host's site\files\hd directly,
+blobs first and manifest.json last, and every delivery after that is a delta like any other.
+
+THE ORDER MATTERS AND IT IS NOT OPTIONAL. Upload blobs first, swap the manifest last. A manifest
+that names blobs which are not there yet gives every client that polls in between a run of 404s,
+and the updater reports exactly that: "the site has no file <sha> that its manifest names".
+
+WHAT NEVER CARRIES THE TEXTURES
+
+H9XASH\ts\materials is skipped by every package, in four separate places, because each of them
+would otherwise sweep up 19.7 GB:
+
+    stage-h9xash.ps1       $SkipDirPaths           the client ZIPs
+    stage_h9xash.py        the same list           the Linux packages
+    tools\make_webclient_game.py  TS_SKIP_DIRS     the browser game
+    tools\updater\h9xash_updater.py               reads the stage script's rules, so it inherits it
+
+The last one is why the HD pass uses a plain rule set rather than the stage script's: those rules
+skip ts\materials on purpose, and reading them for the pack would skip the entire pack.

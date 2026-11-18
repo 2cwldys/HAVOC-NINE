@@ -267,7 +267,7 @@ $ssl_main
         add_header Cache-Control "no-cache" always;
         add_header Vary "X-H9-Updater, User-Agent" always;
     }
-    location ~ "^/files/[0-9a-f]{64}\$" {
+    location ~ "^/files/(hd/)?[0-9a-f]{64}\$" {
         if (\$h9_updater = 0) { return 404; }
         default_type application/octet-stream;
         include snippets/$DOMAIN-headers.conf;

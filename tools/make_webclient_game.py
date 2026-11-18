@@ -84,8 +84,13 @@ NEVER_EXT = (".key", ".env", ".pem")
 
 # Under ts\ and valve\: folders that are the server's, a player's own (saves, the engine's font
 # cache of the PC's Windows fonts), or replaced by the browser build.
+# "materials" is the AI-upscaled HD textures (docs\HD_TEXTURES.txt): about 10.5 GB of TGA, an
+# optional download for the desktop client. Nobody is streaming that into a browser, and the
+# engine falls back to the textures inside the maps and wads when it is not there, so the web
+# build looks exactly as it did before.
 TS_SKIP_DIRS = {"addons", "dlls", "cl_dlls", "mapconfigs", "logs", "save", "screenshots",
-                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads", "h9tts"}
+                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads", "h9tts",
+                "materials"}
 SKIP_NAMES = {"config.cfg", "video.cfg", "opengl.cfg", "vfs.cfg", "server.cfg", "listenserver.cfg",
               "game.cfg", "liblist.gam", "gameinfo.txt", "console_history.txt", "custom.hpk",
               "voice_ban.dt", "tsstats.dat", "vault.ini", "xashcomm.lst", "mapcycle.txt", "motd.txt",

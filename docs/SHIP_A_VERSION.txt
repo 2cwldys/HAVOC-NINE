@@ -68,6 +68,10 @@ sweeps it; if one is ever listed here while a run is stuck, Stop-Process -Name v
     builds the preset bundle (tools\preset_bundle.py), plans the delta, uploads in 6 parallel scp streams (~5 MB/s, a normal release sends 100-300 MB),
     and runs C:\havoc9\receive-deploy.ps1 on the host. packaging.ini switches each part. First it refreshes the host's OWN receive-deploy.ps1 and
     delta.py when they differ (an older receiver meets a newer delivery otherwise).
+    THE HD TEXTURES ARE NOT IN A RELEASE. packaging.ini has [stage] hd and [deploy] hd and both ship at 0, so an ordinary release neither
+    publishes nor sends them. They are made on their own day with tools\texpack\hd-pass.ps1, and a deploy moves them only when you turn
+    [deploy] hd on deliberately (docs\HD_TEXTURES.txt sections 5 and 10). H9XASH\ts\materials is skipped by every package, in four places.
+
  g. The game server on the VPS (C:\havoc9\H9XASH) is NOT touched by the deploy: stop it, then on the host run
        powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1            (what would change; changes nothing)
        powershell -ExecutionPolicy Bypass -File C:\havoc9\update-game.ps1 -Apply     (update it; -StopServer ends a running one)

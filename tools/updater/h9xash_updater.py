@@ -210,6 +210,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def bar(done, total, width=22):
+    """A plain ASCII meter: [#####-----]. No block characters, so it survives any code page."""
+    if total <= 0:
+        return '[' + '-' * width + ']'
+    filled = min(width, max(0, done * width // total))
+    return '[' + '#' * filled + '-' * (width - filled) + ']'
+
+
 def mb(n):
     return '%.0f MB' % (n / 1048576.0) if n >= 1048576 else '%.1f MB' % (n / 1048576.0)
 
@@ -727,6 +735,18 @@ def _safe_rel(path):
     return '\\'.join(parts)
 
 
+# The optional HD textures sit beside the client's files, as their own store with their own
+# manifest: files/hd/manifest.json and files/hd/<sha256>. A separate manifest is what makes
+# them optional -- a player who does not want 10.5 GB never reads it -- and a separate folder
+# is what lets them be served from somewhere else entirely. They install into ts\materials,
+# which the engine reads INSTEAD of the textures inside the maps and models, and falls back
+# to those the moment the folder is gone (docs\HD_TEXTURES.txt).
+HD_SUBDIR = 'hd/'
+HD_CACHE = 'web-hd'
+HD_INSTALL = os.path.join('ts', 'materials')
+HD_STATE = 'hd'          # the pack's own installed.json, under the client's state folder
+
+
 class WebSource(Source):
     """The release stage-h9xash.ps1 publishes on the site (tools\\updater\\publish_files.py):
     files/manifest.json, and each file under files/<its SHA-256>. Only the files an update needs
@@ -734,8 +754,10 @@ class WebSource(Source):
     stopped."""
     kind = 'web'
 
-    def __init__(self, cache, url):
-        self.dir = os.path.join(cache, 'web')
+    def __init__(self, cache, url, name='web'):
+        # `name` keeps two of these apart in the cache: the client under web/, the optional
+        # HD textures under web-hd/. Without it the second overwrites the first's manifest.
+        self.dir = os.path.join(cache, name)
         self.blobs = os.path.join(self.dir, 'files')
         self.url = url if url.endswith('/') else url + '/'
         self.info = {}
@@ -846,7 +868,10 @@ class WebSource(Source):
             def tick(n, k=k):
                 done[0] += n
                 if prog:
-                    prog.update('%d of %d files, %s of %s' % (k, len(todo), mb(done[0]), mb(total)))
+                    pct = (done[0] * 100 // total) if total else 100
+                    prog.update('%s %3d%%  %d of %d files, %s of %s'
+                                % (bar(done[0], total), pct, k, len(todo),
+                                   mb(done[0]), mb(total)))
             self._download(sha, size, tick)
         if prog:
             prog.done('%d files, %s, every one matches its SHA-256' % (len(todo), mb(total)))
@@ -1518,10 +1543,173 @@ def show_status(install, cache, state_dir):
         LOG.say('installed:       %s on %s, %d files' % (describe_info(state.source), state.installed, len(state.files)))
     else:
         LOG.say('installed:       nothing yet by the updater')
+    hd = State(os.path.join(state_dir, HD_STATE))
+    if hd.exists:
+        LOG.say('HD textures:     %d files, %s on %s'
+                % (len(hd.files), describe_info(hd.source), hd.installed))
+    else:
+        LOG.say('HD textures:     not installed (H9XASH-Updater.exe --hd)')
     j = read_journal(state_dir)
     LOG.say('rollback:        %s' % ('the update of %s can be rolled back' % j[0].get('started') if j and j[2] else 'none'))
     if h9link.supported():
         LOG.say('account:         %s' % h9link.status(install)[1])
+    return 0
+
+
+def hd_installed(state_dir):
+    """True when this folder's HD textures were put there by the updater."""
+    return os.path.isfile(os.path.join(state_dir, HD_STATE, 'installed.json'))
+
+
+def hd_url_for(args):
+    base = args.web_url if args.web_url.endswith('/') else args.web_url + '/'
+    return args.hd_url or (base + HD_SUBDIR)
+
+
+def hd_source(args, cache):
+    return WebSource(cache, hd_url_for(args), name=HD_CACHE)
+
+
+def hd_rules():
+    """The player-file rules, and deliberately not the ones read from stage-h9xash.ps1.
+
+    That script skips ts/materials on purpose, so that the ordinary release never carries ten
+    gigabytes of textures. Reading its rules here would skip the entire HD pack instead.
+    """
+    return Rules()
+
+
+def hd_wanted(args, state_dir, interactive):
+    """Whether to do the HD pass at all, asking once if there is nobody to ask later."""
+    if args.no_hd:
+        return False
+    if args.hd or hd_installed(state_dir):
+        return True        # already installed means keep it up to date, like any other file
+    if not interactive or args.check:
+        LOG.say('HD textures: not installed. H9XASH-Updater.exe --hd downloads them.')
+        return False
+    print()
+    print('Optional HD textures')
+    print('  Every texture in the game, AI-upscaled, installed into ts\\materials. The engine')
+    print('  reads those in place of the textures inside the maps and the models, and goes')
+    print('  straight back to the originals if they are removed.')
+    print('  It is a large download and it needs a linked havoc9.org account.')
+    print('  Saying no costs nothing: the game plays exactly as it does now, and')
+    print('  H9XASH-Updater.exe --hd adds them whenever you want.')
+    if not ask_yes('Download the HD textures now?', default=False):
+        LOG.say('HD textures: skipped.')
+        return False
+    return True
+
+
+def hd_account_ok(args, install, interactive):
+    """The pack is for linked accounts, so link first if this install is not.
+
+    This is the same device-code link the updater already offers: it opens havoc9.org in a
+    browser and waits for the code shown there. Nothing about the pack is secret; the link is
+    what ties a download to an account.
+    """
+    if not h9link.supported():
+        return True        # no linking on this platform; the pack is not held back for it
+    state, detail = h9link.status(install)
+    if state == 'linked':
+        LOG.say('  account: %s' % detail)
+        return True
+    if not interactive:
+        raise UpdaterError('the HD textures need a linked havoc9.org account: run '
+                           'H9XASH-Updater.exe --link first, then --hd')
+    print()
+    print('The HD textures are for linked accounts, and this install is %s.' % detail)
+    h9link.link(install, say=LOG.say, interactive=True, site=args.link_site)
+    state, detail = h9link.status(install)
+    if state != 'linked':
+        LOG.say('HD textures: skipped, the account was not linked.')
+        return False
+    return True
+
+
+def hd_step(args, install, cache, state_dir, interactive):
+    """The optional HD textures, as their own delta update into the same folder."""
+    if not hd_wanted(args, state_dir, interactive):
+        return 0
+    if not hd_account_ok(args, install, interactive):
+        return 0
+
+    hd_dir = os.path.join(state_dir, HD_STATE)
+    os.makedirs(hd_dir, exist_ok=True)
+    source = hd_source(args, cache)
+    LOG.say()
+    LOG.say('HD textures')
+    source.sync()
+    rules = hd_rules()
+    release = source.release(rules)
+    if not release:
+        raise UpdaterError('%s lists no files' % hd_url_for(args))
+    state = State(hd_dir)
+    plan = make_plan(release, install, state, rules)
+    LOG.say('  new %d, changed %d, removed %d, unchanged %d'
+            % (len(plan.add), len(plan.replace), len(plan.remove), plan.same))
+    for word, items in (('new', plan.add), ('changed', plan.replace), ('removed', plan.remove)):
+        for rel, _size, _sha in items:
+            LOG.note('  %s %s' % (word, rel))
+    if plan.empty():
+        if not state.exists or state.source != source.info:
+            state.save(source.info, installed_files(release, install))
+        LOG.say('  up to date (%d textures).' % len(release))
+        return 0
+    LOG.say('  to download: %s' % mb(plan.copy_bytes()))
+    if args.check:
+        LOG.say('  Check only (--check): nothing was changed.')
+        return 0
+
+    # the download cache, then the staged copies, then the files themselves. The same three
+    # the client update needs, but on a pack this size it is worth saying so before starting.
+    free = shutil.disk_usage(install).free
+    need = plan.copy_bytes() * 2 + 64 * 1048576
+    if free < need:
+        raise UpdaterError('not enough free space on the drive of %s for the HD textures: %s '
+                           'needed while they install, %s free' % (install, mb(need), mb(free)))
+    refuse_if_running(install)
+    source.fetch(plan.add + plan.replace)
+    apply_plan(plan, source, install, hd_dir, state, release, source.info)
+    LOG.say()
+    LOG.say('  HD textures: %d in %s.' % (len(release), os.path.join(install, HD_INSTALL)))
+    LOG.say('  Turn them on in the game with host_allow_materials 1, then restart it.')
+    LOG.say('  host_allow_materials 0 goes back to the textures inside the maps and models.')
+    return 0
+
+
+def hd_remove(args, install, cache, state_dir, interactive):
+    """Take the HD textures back out, leaving nothing of them behind.
+
+    Done as an update to an empty release rather than a delete, so it goes through the same
+    journal: every file the updater put there is removed, anything else in the folder is left
+    alone, and a removal interrupted half way is finished or undone on the next run.
+    """
+    hd_dir = os.path.join(state_dir, HD_STATE)
+    state = State(hd_dir)
+    if not state.exists:
+        LOG.say('The HD textures are not installed in %s.' % install)
+        return 1
+    rules = hd_rules()
+    plan = make_plan({}, install, state, rules)
+    LOG.say('HD textures: %d files to remove from %s.'
+            % (len(plan.remove), os.path.join(install, HD_INSTALL)))
+    if plan.kept_changed:
+        LOG.say('  %d were edited here, so they stay.' % len(plan.kept_changed))
+    if args.check:
+        LOG.say('  Check only (--check): nothing was changed.')
+        return 0
+    if interactive and not ask_yes('Remove them?', default=True):
+        LOG.say('Stopped: nothing was changed.')
+        return 1
+    refuse_if_running(install)
+    apply_plan(plan, hd_source(args, cache), install, hd_dir, state, {}, {'kind': 'none'})
+    try:
+        os.remove(state.path)
+    except OSError:
+        pass
+    LOG.say('The HD textures are gone. The game uses its own textures again.')
     return 0
 
 
@@ -1554,6 +1742,15 @@ def parse_args(argv):
                                                               'unless --link is given)')
     p.add_argument('--force', action='store_true', help='install into a folder that holds other files')
     p.add_argument('--no-pause', action='store_true', help='do not wait for Enter at the end')
+    p.add_argument('--hd', action='store_true',
+                   help='also install the optional HD textures into ts\\materials, or update '
+                        'them. Once installed they are kept up to date without this')
+    p.add_argument('--no-hd', action='store_true',
+                   help='do not ask about the HD textures and do not update them')
+    p.add_argument('--hd-remove', action='store_true',
+                   help='remove the HD textures this updater installed')
+    p.add_argument('--hd-url', default=None,
+                   help='where the HD textures are published (default: hd/ under --web-url)')
     p.add_argument('--version', action='version', version='H9XASH-Updater ' + VERSION)
     return p.parse_args(argv)
 
@@ -1564,7 +1761,7 @@ def run(args):
     print()
     install, cache = choose_install_dir(args, interactive)
     state_dir = os.path.join(install, STATE_DIR)
-    if (args.status or args.rollback) and not os.path.isdir(state_dir):
+    if (args.status or args.rollback or args.hd_remove) and not os.path.isdir(state_dir):
         LOG.say('The updater has not installed anything in %s yet.' % install)
         return 0 if args.status else 1
     os.makedirs(state_dir, exist_ok=True)
@@ -1583,9 +1780,16 @@ def run(args):
             return show_status(install, cache, state_dir)
         if args.rollback:
             return run_rollback(install, state_dir, interactive)
+        if args.hd_remove:
+            return hd_remove(args, install, cache, state_dir, interactive)
         account_step(args, install, state_dir, interactive)
         LOG.say()
-        return run_update(args, install, cache, state_dir, interactive)
+        rc = run_update(args, install, cache, state_dir, interactive)
+        if rc == 0:
+            # after the client, so a fresh install has its ts folder before the textures
+            # land in it, and so a failure here never leaves the game itself half updated
+            rc = hd_step(args, install, cache, state_dir, interactive)
+        return rc
 
 
 def main(argv=None):

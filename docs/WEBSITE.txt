@@ -150,7 +150,12 @@
        DOWNLOADS page): a read-only listing of the .zip, .exe and .txt files
        in --files, the H9WEB_FILES variable or dist\ in the checkout, where
        the packager and stage-h9xash write; an empty index with none. It is
-       not H9XASH-Updater's /files/, which is not served here. (h9web's
+       not H9XASH-Updater's /files/, which is not served here, and not
+       /files/hd/, the optional HD texture pack that sits inside it as
+       its own store with its own manifest.json (docs\HD_TEXTURES.txt).
+       Neither is listed and neither is a download page: the updater
+       fetches them by name, and the .htaccess beside them answers 404
+       to anything else. (h9web's
        devStatic setting mounts such a folder as { "dir": <folder>,
        "listing": true }: h9web\README.txt section 12.)
    The relay sends game traffic only to the servers in servers.json, and this

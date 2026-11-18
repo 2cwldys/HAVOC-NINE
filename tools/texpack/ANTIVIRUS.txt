@@ -1,0 +1,53 @@
+ANTIVIRUS
+=========
+
+Your antivirus may flag the tools in this folder, or the files they make. That is expected and it
+does not mean something is wrong. Here is what to do about it.
+
+
+WHY IT HAPPENS
+--------------
+Nothing here is signed, and most of it is brand new on your disk the moment you build it. A
+scanner that has never seen a file before guesses from behaviour, and these tools behave like the
+things it is told to be suspicious of: they write thousands of files at once, convert executables
+and game data, and some of them open a listening socket. A guess like that is reported as
+IDP.Generic or a similar name. It is a guess, not a match against anything known.
+
+
+WHAT IT LOOKS LIKE
+------------------
+  * A file you just built is simply not there any more.
+  * A build says a tool is missing when you can see it on disk.
+  * A download or a local test stops part way through for no reason.
+
+
+WHAT TO DO
+----------
+1. CHECK QUARANTINE FIRST. The file is usually sitting there, not deleted. Restoring it from
+   quarantine is quicker than rebuilding, and it tells you for certain what was taken.
+
+2. If it keeps happening, add an exclusion for the folder you build into, or turn real-time
+   protection off for the few minutes a job takes. Be careful: that is a real decision about
+   your machine, and it is yours to make. Turn it back on afterwards.
+
+   Prefer a narrow exclusion over turning the whole thing off. Excluding a folder you build INTO
+   is a much smaller decision than excluding one you download into. Nothing here needs you to
+   exclude a download folder.
+
+3. DON'T TAKE ANYONE'S WORD FOR IT. Upload the file to virustotal.com and look at the result.
+   One or two engines guessing on an unsigned new file is ordinary; a dozen naming the same
+   thing is not, and is worth stopping for. Everything here is built from source in this
+   repository, so you can also just read what made it.
+
+
+THE ONE CASE THAT WASTES THE MOST TIME
+--------------------------------------
+tools\updater\test_updater.py serves a release from a stand-in server on 127.0.0.1 and downloads
+it back. A web shield that inspects local HTTP cuts those transfers part way, and the test fails
+in ways that look like a bug in the updater. If you see this in the install's updater.log:
+
+    download of <sha> stopped ([WinError 10054] An existing connection was forcibly closed by
+    the remote host); going on from where it stopped
+
+that is the scanner, not the network -- nothing was on the network. Turn the web shield off for
+the few minutes the suite takes and it ends in ALL PASSED. Don't go changing the updater for it.
