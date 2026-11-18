@@ -1,0 +1,9 @@
+# The build context is this folder, and it should stay tiny: the image carries a runtime, never
+# game files. Anything a person unpacks or configures here is excluded so a stray multi-gigabyte
+# server folder cannot be swept into a build.
+server/
+*/server/
+server.env
+*.zip
+*.log
+.env

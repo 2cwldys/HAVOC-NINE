@@ -254,3 +254,18 @@ core.[0-9]*
 # The Visual C++ runtime h9_vcruntime.ps1 copies next to HAVOC 9.exe on a PC without it (the tracked pair is H9XASH/redist/vc14-x86)
 /H9XASH/msvcp140.dll
 /H9XASH/vcruntime140.dll
+
+# AI-upscaled HD textures: a local copy for testing. They ship as an optional pack from the
+# site (docs\HD_TEXTURES.txt), never in git -- about 10 GiB of blobs across ~9,800 files.
+/H9XASH/ts/materials/
+
+# The upscaler's model is build output, not source: 64 MB, made from the .pth by
+# tools/upscaler_gui/README.txt's conversion step. It ships inside the built exe.
+/tools/upscaler_gui/model/
+/tools/upscaler_gui/build/dist/
+/tools/upscaler_gui/build/build/
+
+# The upscaler's own virtual environment, made by its setup.cmd / setup.sh: about 240 MB of
+# installed packages, and a build artefact like the model beside it.
+/tools/upscaler_gui/.venv/
+/tools/upscaler_gui/dist/

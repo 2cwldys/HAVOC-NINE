@@ -68,10 +68,10 @@
 		not {
 			header X-H9-Updater 1
 			header User-Agent H9XASH-Updater/*
-			path_regexp ^/files/([0-9a-f]+|manifest\.json)$
+			path_regexp ^/files/(hd/)?([0-9a-f]+|manifest\.json)$
 		}
 	}
-	@files_blob path_regexp ^/files/[0-9a-f]+$
+	@files_blob path_regexp ^/files/(hd/)?[0-9a-f]+$
 	# the parts an admin can close (the admin panel's SITE, h9web/lib/siteflags.js): h9web is asked before every request to them
 	# (204 open, 403 closed), as nginx's auth_request does on Linux. While h9web is down they answer 502. The web client's relay
 	# is closed by h9web itself.

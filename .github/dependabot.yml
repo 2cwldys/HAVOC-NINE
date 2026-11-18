@@ -13,6 +13,8 @@ updates:
     # asked to. EntMod4/uChmViewer and StripperCS2 are vendored and pinned on purpose.
     allow:
       - dependency-name: "SMAK"
+      - dependency-name: "sdhlt"
+      - dependency-name: "ES"
   - package-ecosystem: github-actions
     directory: /
     schedule:

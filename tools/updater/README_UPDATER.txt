@@ -46,6 +46,10 @@ Options (H9XASH-Updater.exe --help lists them all):
   --source zip       the published H9XASH.zip instead, downloaded whole
   --cache <folder>   where the download cache goes (default: <folder>-updater-cache beside it)
   --yes              ask nothing, for scripts (the account step is skipped unless --link is given)
+  --hd               also install the optional HD textures, or update them (section 9)
+  --no-hd            do not ask about the HD textures and do not update them
+  --hd-remove        take the HD textures back out again
+  --hd-url <url>     where the HD textures are published (default: hd/ under --web-url)
 
 
 2. WHERE H9XASH COMES FROM
@@ -220,3 +224,43 @@ and the account step against a stand-in for havoc9.org.
 Sources: h9xash_updater.py (everything but the account), h9link.py (the account step, after
 h9web\lib\link.js and the engine's store), publish_files.py (the web files), test_updater.py,
 build.ps1 and build.cmd. git tracks only two files in dist\: H9XASH-Updater.exe and .keep.
+
+
+9. THE HD TEXTURES (OPTIONAL)
+
+Every texture in the game, upscaled by an AI model and installed into ts\materials. The engine
+reads those in place of the textures inside the maps and the models. Nothing of the game's own
+art is changed or removed, so turning them off, or deleting them, goes straight back to what was
+always there. The game plays exactly the same either way; it only looks sharper.
+
+    H9XASH-Updater.exe --hd          install them, or bring them up to date
+    H9XASH-Updater.exe --no-hd       skip them, and do not be asked
+    H9XASH-Updater.exe --hd-remove   take them out again
+
+On a first run the updater asks once. Say no and nothing is downloaded. Once they are installed
+every later run keeps them up to date on its own, without --hd, the same as any other file.
+
+They need a linked havoc9.org account. If this install is not linked yet, the updater offers the
+same link it offers for the game: it opens the site in your browser, shows you a short code to
+approve, and waits. No password is typed into the updater.
+
+THE DOWNLOAD. About 10.5 GB the first time, and it is the same delta download as everything else
+here: each texture is stored once under its own SHA-256, so a texture used by fifty maps is
+fetched once, every file is checked against its hash before it is used, and a download cut short
+goes on from where it stopped. After the first install, an update that changes fifty textures
+downloads fifty files. You will see:
+
+    [#########-------------]  42%  2174 of 6185 files, 4.4 GB of 10.5 GB
+
+ROOM ON THE DISK. A first install wants about 40 GB free while it runs: the download cache, the
+staged copy, and the installed textures themselves (about 19.7 GB, because many of the 9,765
+files are the same texture under different names). The cache is emptied when it finishes. The
+updater checks for the space first and stops before downloading anything if there is not enough.
+
+TURNING THEM ON IN THE GAME. Installing them is not the same as using them:
+
+    host_allow_materials 1      then reload the map, or restart the game
+    host_allow_materials 0      back to the game's own textures
+
+That setting is latched, which means it only takes effect on the next map load. It is also saved
+in your config, so it stays as you left it.

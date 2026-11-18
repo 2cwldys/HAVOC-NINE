@@ -195,7 +195,7 @@ $SkipDirNames = @('logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'do
 # webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own WebView2 runtime.
 # data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
 # its first roleplay map and loads that map's SQL file, which ships, into it.
-$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime')
+$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime', 'ts\materials')
 $RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'ts\addons\amxmodx\logs')
 
 # Files left out wherever they are (lower case).
@@ -1057,6 +1057,41 @@ if (-not $NoWebFiles) {
             if (Test-Path -LiteralPath (Join-Path $stage $r.At) -PathType Leaf) { $seedArgs += @('--seed', $r.At) }
         }
         $pyOut = @(& py -3 -I $publisher $stage $FilesDir --build $build --name $Name @seedArgs)
+        # The HD textures, when packaging.ini asks for them. They are an optional download of
+        # about 10.5 GB and have no business in an ordinary release, so this is off unless
+        # [stage] hd = 1. They go to <FilesDir>\hd as their own store with their own
+        # manifest.json: a separate folder is what lets the pack live on another host, and what
+        # makes removing it a deletion rather than a prune. The textures themselves are in
+        # H9XASH\ts\materials, which every package deliberately skips (docs\HD_TEXTURES.txt).
+        $hdOn = $false
+        $iniPath = Join-Path $Here 'packaging.ini'
+        if (Test-Path -LiteralPath $iniPath) {
+            $sec = ''
+            foreach ($line in [IO.File]::ReadAllLines($iniPath)) {
+                $t = $line.Trim()
+                if ($t -match '^\[(.+)\]$') { $sec = $Matches[1].Trim().ToLower(); continue }
+                if ($t -match '^(hd)\s*=\s*(\S+)' -and $sec -eq 'stage') { $hdOn = ($Matches[2] -eq '1') }
+            }
+        }
+        if ($hdOn) {
+            $hdSource = Join-Path $Source 'ts\materials'
+            if (-not (Test-Path -LiteralPath $hdSource)) {
+                Warn 'packaging.ini asks for the HD textures, but H9XASH\ts\materials is not there'
+            } else {
+                $hdDir = Join-Path $FilesDir 'hd'
+                # publish_files walks a staged tree, so it is given one holding only ts\materials
+                $hdStage = Join-Path $OutDir '.stage-hd'
+                if (Test-Path -LiteralPath $hdStage) { Remove-Item -LiteralPath $hdStage -Recurse -Force }
+                New-Item -ItemType Directory -Force -Path (Join-Path $hdStage 'ts') | Out-Null
+                cmd /c mklink /J "$hdStage\ts\materials" "$hdSource" | Out-Null
+                Say "   the HD textures: $hdDir"
+                $hdOut = @(& py -3 -I $publisher $hdStage $hdDir --build $build --name 'H9XASH-HD' --subtree 'ts/materials')
+                foreach ($l in $hdOut) { Say "   $l" }
+                if ($LASTEXITCODE) { Warn 'the HD textures were not published' }
+                cmd /c rmdir "$hdStage\ts\materials" | Out-Null
+                Remove-Item -LiteralPath $hdStage -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
         $pyRc = $LASTEXITCODE
         foreach ($l in $pyOut) { Say "  $l" }
         if ($pyRc -ne 0) { Warn "the web files were not published (Python exit $pyRc); the ZIPs are done" }

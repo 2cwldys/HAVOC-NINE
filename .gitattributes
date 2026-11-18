@@ -23,3 +23,11 @@
 # and manifest.txt holds the SHA-256 of the helper's program files, so no checkout may change a line ending in them.
 H9XASH/ts/h9tts/** -text
 h9tts/** -text
+
+# Shell scripts run on Linux, where a shebang ending in a carriage return makes the system look
+# for an interpreter literally named bash followed by that carriage return:
+#     /usr/bin/env: 'bash^M': No such file or directory
+# git stores them LF already; it is the CHECKOUT that converts. With the usual Windows setting
+# linux/h9xash_server.sh came out CRLF and the native Linux dedicated server would not start
+# from it (docs/DOCKER.txt). eol=lf keeps them LF wherever they are checked out.
+*.sh text eol=lf

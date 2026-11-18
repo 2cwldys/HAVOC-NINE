@@ -45,6 +45,9 @@ $Site = Join-Path $Root 'site'
 $Dl = Join-Path $Site 'downloads'
 $Idx = Join-Path $Dl 'files'
 $Files = Join-Path $Site 'files'
+# the optional HD textures: their own store inside the updater's, with their own manifest.json.
+# The prune in step 6 lists $Files without -Recurse, so nothing there ever reaches into this.
+$FilesHd = Join-Path $Files 'hd'
 $Inbox = 'C:\setup\incoming'
 $Buttons = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe')
 $Rules = @(
@@ -57,6 +60,7 @@ $Rules = @(
     @{ Re = '^(H9XASH|H9XASH-linux|H9XASH-linux-server)\.zip\.recipe\.json$'; Kind = 'recipe' },
     @{ Re = '^webclient\.zip\.recipe\.json$'; Kind = 'wcrecipe' },
     @{ Re = '^blobs-[0-9]{1,3}\.tar$'; Kind = 'blobs' },
+    @{ Re = '^hd-files-[0-9]{1,3}\.tar$'; Kind = 'hd' },
     @{ Re = '^preset-bundle\.json$'; Kind = 'preset' }
 )
 $Config = Join-Path $Root 'etc\config.json'
@@ -104,6 +108,11 @@ if ($Hashes) {
         $m = Join-Path $Files 'manifest.json'
         if (Test-Path -LiteralPath $m) { "file $(Sha $m) manifest.json" }
     }
+    if (Test-Path -LiteralPath $FilesHd) {
+        Get-ChildItem -LiteralPath $FilesHd -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' } | ForEach-Object { "hd $($_.Name)" }
+        $hm = Join-Path $FilesHd 'manifest.json'
+        if (Test-Path -LiteralPath $hm) { "file $(Sha $hm) hd-manifest.json" }
+    }
     $w = Join-Path $Site 'webclient\manifest.json'
     if (Test-Path -LiteralPath $w) { "file $(Sha $w) webclient-manifest.json" }
     if (Test-Path -LiteralPath $TreeFile) {
@@ -132,12 +141,16 @@ $manifest = Join-Path $in 'deploy-manifest.txt'
 if (-not (Test-Path -LiteralPath $manifest)) { Fail 'no deploy-manifest.txt in the delivery' }
 $want = @{}
 $blobsWanted = New-Object System.Collections.Generic.HashSet[string]
+$hdWanted = New-Object System.Collections.Generic.HashSet[string]
 $manifestJsonSha = ''
+$hdManifestSha = ''
 $build = ''
 foreach ($line in [IO.File]::ReadAllLines($manifest)) {
     if ($line -match '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$') { $want[$Matches[2]] = $Matches[1]; continue }
     if ($line -match '^blob ([0-9a-f]{64})$') { [void]$blobsWanted.Add($Matches[1]); continue }
     if ($line -match '^updater-manifest ([0-9a-f]{64})$') { $manifestJsonSha = $Matches[1]; continue }
+    if ($line -match '^hd ([0-9a-f]{64})$') { [void]$hdWanted.Add($Matches[1]); continue }
+    if ($line -match '^hd-manifest ([0-9a-f]{64})$') { $hdManifestSha = $Matches[1]; continue }
     if ($line -match '^build ([0-9][A-Za-z0-9._-]{0,31})$') { $build = $Matches[1]; continue }
     if ($line.Trim() -eq '' -or $line.StartsWith('#')) { continue }
     Fail "a line deploy-manifest.txt may not have: $line"
@@ -194,6 +207,28 @@ if ($tars.Count) {
         if ((Sha $f.FullName) -ne $f.Name) { Fail "updater file $($f.Name) is not what its name says" }
     }
     Write-Host "  $($tars.Count) updater archive(s)  ok ($(@(Get-ChildItem -LiteralPath $blobDir -File).Count) files)"
+}
+
+# the HD textures, checked the same way and kept apart from the client's files until step 6b
+$hdDir = Join-Path $in 'hd-files'
+$hdTars = @($want.Keys | Where-Object { $kinds[$_] -eq 'hd' } | Sort-Object)
+if ($hdTars.Count) {
+    New-Item -ItemType Directory -Force -Path $hdDir | Out-Null
+    foreach ($tarName in $hdTars) {
+        $list = & tar.exe -tf (Join-Path $in $tarName)
+        if ($LASTEXITCODE -ne 0) { Fail "$tarName cannot be read" }
+        foreach ($e in $list) { if ($e -notmatch '^([0-9a-f]{64}|manifest\.json)$') { Fail "$tarName holds a name the HD textures never have: $e" } }
+        & tar.exe -xf (Join-Path $in $tarName) -C $hdDir
+        if ($LASTEXITCODE -ne 0) { Fail "$tarName could not be unpacked" }
+    }
+    foreach ($f in Get-ChildItem -LiteralPath $hdDir -File) {
+        if ($f.Name -eq 'manifest.json') {
+            if ((Sha $f.FullName) -ne $hdManifestSha) { Fail 'the HD manifest.json is not the one that was sent' }
+            continue
+        }
+        if ((Sha $f.FullName) -ne $f.Name) { Fail "HD texture $($f.Name) is not what its name says" }
+    }
+    Write-Host "  $($hdTars.Count) HD archive(s)  ok ($(@(Get-ChildItem -LiteralPath $hdDir -File).Count) files)"
 }
 
 # 2b. the delta, before anything stops: the updater's new files and the delta's new files go in, and the client ZIPs and the web client
@@ -353,6 +388,29 @@ if ($tars.Count) {
     $gone = 0
     if ($blobsWanted.Count) {
         foreach ($f in Get-ChildItem -LiteralPath $Files -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' -and -not $blobsWanted.Contains($_.Name) }) { Remove-Item -LiteralPath $f.FullName -Force; $gone++ }
+    }
+    Write-Host "  $added new in this step, $gone no longer named"
+}
+
+# 6b. the HD textures: the new ones first, manifest.json last, then the ones the new manifest does not name.
+# A delivery that carries no HD archive leaves the folder exactly as it is, which is what [deploy] hd = 0 means.
+if ($hdTars.Count) {
+    Say 'the HD textures'
+    New-Item -ItemType Directory -Force -Path $FilesHd | Out-Null
+    $added = 0
+    foreach ($f in Get-ChildItem -LiteralPath $hdDir -File | Where-Object { $_.Name -ne 'manifest.json' }) {
+        $dest = Join-Path $FilesHd $f.Name
+        if (-not (Test-Path -LiteralPath $dest)) { Move-Item -LiteralPath $f.FullName -Destination $dest; $added++ }
+    }
+    foreach ($b in $hdWanted) { if (-not (Test-Path -LiteralPath (Join-Path $FilesHd $b))) { Fail "HD texture $b is named by the new manifest but is neither here nor in the delivery" } }
+    $hmj = Join-Path $hdDir 'manifest.json'
+    if (Test-Path -LiteralPath $hmj) {
+        Copy-Item -LiteralPath $hmj -Destination (Join-Path $FilesHd '.manifest.json.new') -Force
+        Move-Item -LiteralPath (Join-Path $FilesHd '.manifest.json.new') -Destination (Join-Path $FilesHd 'manifest.json') -Force
+    }
+    $gone = 0
+    if ($hdWanted.Count) {
+        foreach ($f in Get-ChildItem -LiteralPath $FilesHd -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' -and -not $hdWanted.Contains($_.Name) }) { Remove-Item -LiteralPath $f.FullName -Force; $gone++ }
     }
     Write-Host "  $added new in this step, $gone no longer named"
 }

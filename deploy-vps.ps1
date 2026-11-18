@@ -130,11 +130,13 @@ Say "asking $sshHost what it has"
 $remote = @{}
 $remoteTree = @{}
 $blobsThere = New-Object System.Collections.Generic.HashSet[string]
+$hdThere = New-Object System.Collections.Generic.HashSet[string]
 $answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
 if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
 foreach ($l in $answer) {
     if ($l -match '^file ([0-9a-f]{64}) (\S+)$') { $remote[$Matches[2]] = $Matches[1] }
     elseif ($l -match '^(blob|have) ([0-9a-f]{64})$') { [void]$blobsThere.Add($Matches[2]) }
+    elseif ($l -match '^hd ([0-9a-f]{64})$') { [void]$hdThere.Add($Matches[1]) }
     elseif ($l -match '^tree (\S+) ([0-9a-f]{64})$') { $remoteTree[$Matches[1]] = $Matches[2] }
 }
 function Sha([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -202,6 +204,43 @@ if ((On 'deploy.updater_files') -and (Test-Path -LiteralPath (Join-Path $files '
             }
         }
     } else { Write-Host "  same on the host: the updater's files ($($blobs.Count))" }
+}
+
+# The HD textures, when packaging.ini asks for them. Their own store at dist\files\hd, delivered
+# into site\files\hd on the host: the host says which blobs it already holds and only the rest
+# go over. The first delivery is about 10.5 GB, which is better carried there by hand; after that
+# a pass that re-upscales fifty textures sends fifty files (docs\HD_TEXTURES.txt).
+$hdFiles = Join-Path $files 'hd'
+if ((On 'deploy.hd') -and (Test-Path -LiteralPath (Join-Path $hdFiles 'manifest.json'))) {
+    $hdBlobs = @(Get-ChildItem -LiteralPath $hdFiles -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' } | ForEach-Object { $_.Name })
+    $hdMissing = @($hdBlobs | Where-Object { -not $hdThere.Contains($_) })
+    $hmj = Sha (Join-Path $hdFiles 'manifest.json')
+    if ($hdMissing.Count -or $remote['hd-manifest.json'] -ne $hmj -or ($hdThere.Count -ne $hdBlobs.Count)) {
+        foreach ($b in $hdBlobs) { $lines.Add("hd $b") }
+        $lines.Add("hd-manifest $hmj")
+        $hdPieces = New-Object System.Collections.Generic.List[object]
+        $cur = New-Object System.Collections.Generic.List[string]; $cur.Add('manifest.json'); $curSize = 0
+        foreach ($b in $hdMissing) {
+            $sz = (Get-Item -LiteralPath (Join-Path $hdFiles $b)).Length
+            if ($cur.Count -gt 0 -and $curSize + $sz -gt 400MB) { $hdPieces.Add($cur); $cur = New-Object System.Collections.Generic.List[string]; $curSize = 0 }
+            $cur.Add($b); $curSize += $sz
+        }
+        if ($cur.Count) { $hdPieces.Add($cur) }
+        $hdBytes = 0; foreach ($b in $hdMissing) { $hdBytes += (Get-Item -LiteralPath (Join-Path $hdFiles $b)).Length }
+        Say ("the HD textures: {0} of {1} are new to the host ({2:N1} GB), in {3} archive(s)" -f $hdMissing.Count, $hdBlobs.Count, ($hdBytes / 1GB), $hdPieces.Count)
+        if (-not $DryRun) {
+            for ($i = 0; $i -lt $hdPieces.Count; $i++) {
+                $name = 'hd-files-{0}.tar' -f ($i + 1)
+                $t = Join-Path $Scratch $name
+                $list = Join-Path $Scratch "$name.list"
+                [IO.File]::WriteAllLines($list, [string[]]$hdPieces[$i])
+                if (Test-Path -LiteralPath $t) { [IO.File]::Delete($t) }
+                & "$env:SystemRoot\System32\tar.exe" -cf $t -C $hdFiles -T $list
+                if ($LASTEXITCODE) { Fail "could not make $name" }
+                $send.Add([pscustomobject]@{ Path = $t; Name = $name; Sha = (Sha $t); Size = (Get-Item -LiteralPath $t).Length })
+            }
+        }
+    } else { Write-Host "  same on the host: the HD textures ($($hdBlobs.Count))" }
 }
 $pyArgs = @(); $pyExe = 'python'
 if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }

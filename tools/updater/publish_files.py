@@ -41,7 +41,7 @@ Options -Indexes
     RewriteCond %{HTTP:X-H9-Updater} !^1$ [OR]
     RewriteCond %{HTTP_USER_AGENT} !^H9XASH-Updater/
     RewriteRule ^ - [R=404,L]
-    RewriteRule !^([0-9a-f]{64}|manifest\\.json)$ - [R=404,L]
+    RewriteRule !^(hd/)?([0-9a-f]{64}|manifest\\.json)$ - [R=404,L]
 </IfModule>
 <IfModule !mod_rewrite.c>
     Require all denied
@@ -122,9 +122,18 @@ def main():
     ap.add_argument('--seed', action='append', default=[],
                     help='a file a new player starts from (installed only where there is none); repeatable')
     ap.add_argument('--verify', action='store_true', help='check the SHA-256 of the files already published too')
+    ap.add_argument('--manifest-name', default='manifest.json',
+                    help='the manifest to write; a second component (the HD textures) shares the same'
+                         ' blob store under another name, so it can be installed on its own')
+    ap.add_argument('--subtree', default='',
+                    help='publish only this path within the stage, e.g. ts/materials')
     a = ap.parse_args()
     stage, out = os.path.abspath(a.stage), os.path.abspath(a.out)
-    if not os.path.isdir(os.path.join(stage, 'ts')):
+    if a.subtree:
+        if not os.path.isdir(os.path.join(stage, a.subtree.replace('/', os.sep))):
+            print('STOPPED: %s has no %s' % (stage, a.subtree))
+            return 1
+    elif not os.path.isdir(os.path.join(stage, 'ts')):
         print('STOPPED: %s has no ts folder' % stage)
         return 1
     os.makedirs(out, exist_ok=True)
@@ -133,7 +142,10 @@ def main():
 
     files, seed_rows, problems = [], [], []
     sources = {}
+    want = a.subtree.strip('/').lower()
     for rel, full in walk(stage):
+        if want and not rel.lower().startswith(want + '/'):
+            continue
         size = os.path.getsize(full)
         sha = sha256_of(full)
         row = {'path': rel, 'size': size, 'sha256': sha, 'mode': '0755' if rel.lower().endswith('.sh') else '0644'}
@@ -176,8 +188,10 @@ def main():
         new_blobs += 1
         new_bytes += size
 
-    manifest_path = os.path.join(out, 'manifest.json')
-    previous_path = os.path.join(out, 'manifest.previous.json')
+    name = a.manifest_name
+    manifest_path = os.path.join(out, name)
+    previous_path = os.path.join(out, name[:-5] + '.previous.json' if name.endswith('.json')
+                                 else name + '.previous')
     current = load(manifest_path)
     manifest = {'format': 1, 'name': a.name, 'build': a.build,
                 'published': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),

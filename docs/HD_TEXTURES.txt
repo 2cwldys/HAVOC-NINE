@@ -1,0 +1,377 @@
+HD TEXTURES (AI upscaled, materials/)
+=====================================
+
+Every texture in the mod, upscaled 4x and handed to the engine as loose TGA files, with the
+original art untouched. A player can switch between the two.
+
+Status: built and shipping, except the detail-texture pass (section 7), which is marked where
+it appears. The pack itself, the tools that make it, the publish, the delivery to the host and
+the player's download all work.
+
+
+1. THE IDEA, AND WHY IT COSTS NOTHING TO SWITCH OFF
+---------------------------------------------------
+The engine looks for a replacement texture on disk BEFORE it looks in the .wad and before it
+reads the copy embedded in the map. The order is commented in the source, at
+xash3d-fwgs\engine\common\mod_bmodel.c:2849:
+
+    // Texture loading order:
+    // 1. HQ from disk
+    // 2. From WAD
+    // 3. Internal from map
+
+So an upscaled texture is an ADDITION. No .bsp, .wad or .mdl is edited, and with the feature off
+the engine simply falls through to the art that was always there. That is also why the pack can
+be optional: a player without it loses nothing.
+
+It is the only approach that can work here. MAX_MAP_MIPTEX is 0x2000000, 32 MiB of texture data
+per map (xash3d-fwgs\common\bspfile.h:86), and Xash does NOT raise it above GoldSrc.
+h9_tsrp_hive.bsp already carries 22.2 MiB, so putting 4x art inside the map would need about
+355 MiB and the map would not load. Recompiling from the .map sources hits the same wall.
+
+
+2. WHERE THE ENGINE LOOKS
+-------------------------
+All paths are under the mod folder, so ts\materials\. TGA only -- the extension is hardcoded in
+every one of these call sites. The pack is built to match them exactly.
+
+  world, shared by every map   materials\common\<name>.tga
+  world, one map only          materials\maps\<map>.bsp\<name>.tga
+  decals                       materials\decals\<name>.tga
+  studio models                materials\models\<model>\<texture>.tga
+  sprites                      materials\sprites\<sprite>\frame00.tga
+
+Where each comes from:
+
+  * World textures: Mod_SearchForTextureReplacement, mod_bmodel.c:2643. It tries two folders, in
+    order: the model's own name (which for a map is "maps\<name>.bsp") and then "common".
+  * Decals: cl_tent.c:2983 builds "materials/decals/%s.tga" and never looks anywhere else. A
+    decal left in common\ is simply not found.
+  * Studio models: gl_studio.c:3441, "materials/%s/%s.tga" over the model name and the texture's
+    own internal name. Note this one lives in the RENDERER, not the engine, so it works under
+    ref_gl and not under the software renderer.
+  * Sprites: cl_sprite.c:173. The sprite's name has its EXTENSION STRIPPED first (line 252-253),
+    so sprites\foo.spr is looked up under materials\sprites\foo\. The file is
+    <group_suffix><NN>.tga, where group_suffix is "frame", "group" or "angle" depending on the
+    frame's type (lines 307-315), and NN is the frame number as two digits.
+
+NAMES. The engine rewrites exactly one character: a leading '*' becomes '!' (mod_bmodel.c:2855).
+A leading '{' is KEPT -- the engine's own documented example is materials/decals/{shot2.tga. A
+texture name is char[16], so fifteen characters at most.
+
+
+3. THE TWO SWITCHES
+-------------------
+They are independent and they stack.
+
+  host_allow_materials   the texture itself: upscaled, or stock
+  r_detailtextures       the bump overlay on top: on, or off
+
+host_allow_materials (engine\common\host.c:82) ships at "0" and is FCVAR_LATCH|FCVAR_ARCHIVE.
+LATCH means a change only takes effect on the next map load, because textures are uploaded to the
+GPU when the map loads. So it is the cvar AND a reload:
+
+    alias h9_tex_hd    "host_allow_materials 1; restart"
+    alias h9_tex_stock "host_allow_materials 0; restart"
+
+r_detailtextures (ref\gl\gl_opengl.c:28) ships at "1" and is FCVAR_GLCONFIG, NOT latched, and
+Xash has a "toggle" command (engine\common\cvar.c:1282). So that one is a real instant A/B:
+
+    bind F6 "toggle r_detailtextures"
+
+Two things to know about host_allow_materials. It is forced to 0 on a dedicated server, which is
+correct -- a server draws nothing. And because it is FCVAR_ARCHIVE, a player whose config has
+already saved a value keeps that value: shipping the default at 1 reaches NEW installs only. A
+saved config belongs to the player and is not migrated.
+
+There is also a hard gate: Mod_AllowMaterials() requires that the mod has not set
+ENGINE_DISABLE_HDTEXTURES (common\enginefeatures.h:30, bit 1<<30). Nothing in reTS sets it, and
+TS has no custom renderer, so this is expected to be clear -- but it is worth confirming in game
+the first time (section 6).
+
+
+4. WHAT IS COVERED
+------------------
+Measured, not estimated. 13,383 places a texture is used, which dedupe to 6,189 distinct images.
+
+  viewmodels        v_*.mdl              1,525 textures      114 unique
+  world weapons     w_*.mdl                 59                54
+  player weapons    p_*.mdl                106                62
+  player models     models\player\        2,117               743
+  matchmode models  models\matchmode\     1,355               109
+  h9 models         models\h9\              296               210
+  other models                              394               274
+  map textures      inside the .bsp       6,136             3,517
+  wad textures                            1,486               878
+  decals            decals.wad              244               231
+  sprites                                 1,051               962
+
+NOT covered, and why:
+
+  * Skyboxes. gfx\env\ is 154 loose TGA files the engine loads by worldspawn's skyname, not
+    through any wad, bsp, mdl or spr, and sky replacement uses a different path with _solid and
+    _alpha suffixes. A separate pass.
+  * HUD sprites. cl_sprite.c:163 sends them down the other branch entirely; materials\ is never
+    consulted for them.
+  * Colormap model skins. gl_studio.c:3439 refuses a replacement for a texture flagged
+    STUDIO_NF_COLORMAP, commented "colormaps must have the palette for properly work", because
+    that is the team-colour remap path. A skin is that path when its name begins DM_Base or remap
+    (ref\soft\r_studio.c:3016). Exactly ONE texture in the whole mod is one, so this costs
+    nothing here.
+  * Alias models. Upstream does not support replacement for them. TS does not use them.
+
+
+5. RUNNING A PASS
+-----------------
+The tools are in tools\texpack\. They need node for the two .mjs and a Python with torch+CUDA for
+the upscaler; the venv built for this lives outside the repo because torch is 2.5 GB.
+
+    node tools\texpack\extract.mjs
+        Reads every .bsp, .wad, .mdl and .spr, converts each texture to RGBA, hashes the PIXELS,
+        and writes one PNG per distinct image named by that hash. Records every place each one is
+        used. About a minute for the whole mod.
+
+    <venv>\python.exe tools\texpack\upscale.py
+        Upscales each PNG 4x on the GPU and writes a 32-bit RLE TGA named by the same hash.
+        Takes the project's heavy-job lock for the run. Resumable: stop it and run it again.
+        --sample 200 does a spread of sizes first, which is how to get a real time estimate.
+
+    node tools\texpack\place.mjs --dry
+        Works out where every texture has to go by the rules in section 2 and reports, writing
+        nothing. Drop --dry to place them, --link to hard link instead of copying.
+
+    node tools\texpack\manifest.mjs --write
+        Stamps what has been made, with the recipe that made it (section 6).
+
+Measured on an RTX 3070: 200 images in 97 s, the whole 6,189 in about an hour, roughly 10 GiB of
+distinct output. RLE roughly halves a TGA, and the engine reads type 10 at 32 bits
+(engine\common\imagelib\img_tga.c:112-119 and 149), so there is no reason to ship uncompressed.
+
+ALL OF THAT IN ONE COMMAND
+
+    tools\texpack\hd-pass.ps1
+
+Runs the four steps in order and stops early when there is nothing to do, which is the usual
+answer. A pass that finds no new art takes about thirteen seconds. -WhatIfOnly says what it
+would do and changes nothing; -Publish also writes dist\files\hd, ready for a deploy; -Tile
+lowers the tile size if video memory is tight.
+
+This is deliberately NOT part of a release. Scanning the mod and upscaling ten gigabytes
+belongs to the day somebody adds a map or a model, not to every build. A release only ever
+PUBLISHES what a pass already made, and only when packaging.ini says to (section 10).
+
+BY HAND, WITHOUT ANY OF THIS
+
+    tools\upscaler_gui
+
+A window that upscales a folder of ordinary images with no agent, no command line and no
+repository: pick a folder, choose 2x, 3x or 4x, set how much of the model's invention to keep,
+and look at every result at 1:1 against a Lanczos control before anything is written. It is
+for one-off work and for judging a setting. It is not how the pack is made: it carries the
+model as ONNX, whose output differs slightly from the torch run above, so a texture made in
+the window has a different recipe id and would show up as stale in a pack made by hd-pass.
+
+
+6. THE DELTA: NEVER DOING THE SAME WORK TWICE
+---------------------------------------------
+Everything is keyed by the sha256 of a texture's PIXELS, not by its name or its file. One wall
+texture used in fifty maps is one image and one upscale. A map recompiled without touching its
+art produces the same hashes and is not redone.
+
+Dedupe alone is not enough, though, because an old output would be reused even after the model
+changed. So an entry also carries a RECIPE ID: a hash of the model's own sha256 plus the scale,
+format, compression, bit depth and alpha handling. An output counts as reusable only when the
+manifest says this recipe made it. Change the model and every entry goes stale, correctly,
+instead of leaving a pack half in one style and half in another.
+
+    manifest.mjs           reports fresh / stale / to do / orphaned
+    manifest.mjs --write   records the current state
+    manifest.mjs --prune   deletes outputs whose source is gone
+
+There are TWO manifests and they do different jobs:
+
+    manifest.json   source image hash -> output. Stops US redoing work. Lives with the work.
+    hd-pack.json    install path -> blob hash. Ships INSIDE the pack. Stops PLAYERS
+                    redownloading work. Written by place.mjs.
+
+hd-pack.json is what makes an update small. It lists every file the pack installs and the blob
+that fills it. Because a blob is named by the hash of its bytes, the server keeps ONE copy of
+each distinct texture: 9,765 installed files come from 6,182 blobs, so an install pulls about a
+third fewer files than copying path by path, and an update that changes fifty textures is fifty
+blobs rather than a new ten-gigabyte download.
+
+ONE THING IN THIS FOLDER IS NOT WHAT SHIPS. tools\texpack\pack.mjs lays the pack out as
+hd/<ab>/<sha>.tga with hd-pack.json beside it. That was the first design and it was replaced
+by publishing through the updater's own publisher (section 8), which writes a flat store and a
+manifest.json the updater already knows how to read. pack.mjs is still used by
+modelling\make-repuheavy-pack.mjs for a single model's textures. Do not use it for the pack.
+
+
+7. DETAIL TEXTURES -- NOT BUILT YET
+-----------------------------------
+A second, separate effect: a grey normal-map overlay that adds surface bump without changing
+resolution. This is what the reference guide at
+github.com/The-Specialists-Archive/ai-texture-upscaling (by Dementei) actually produces.
+
+Engine support is complete, unmodified, and already switched on -- r_detailtextures is "1" in
+ts\opengl.cfg:54 -- and there is not one detail asset in the mod. Adding them needs no engine
+change and no recompile, only two new kinds of file:
+
+    ts\gfx\detail\<map>\*.tga
+    ts\maps\<map>_detail.txt      format: 'texturename' 'detailtexture' 'xScale' 'yScale'
+
+Mod_ParseDetailTextures is at mod_bmodel.c:3190-3279 and resolves an asset as gfx/<name>. Strip
+the leading '{' from a masked name in the list, as the guide says. One caveat before a mod-wide
+write: ts\opengl.cfg also ships gl_vbo "0" and gl_vbo_detail "0", so the detail pass in
+ref\gl\gl_rsurf.c:2568 is code this project has never exercised. Prove it on one map first.
+
+
+8. THE DELTA PATCHING PROCESS
+-----------------------------
+The pack is not in git and not in the base install. H9XASH-Updater downloads it, into
+ts\materials, for a player whose install is linked to a havoc9.org account.
+
+No address, host name, key, token or account number appears in this file, in the shipped
+updater, or anywhere in the repository. The site's own name is in the updater's default URL and
+on the download page, and that is all a reader learns here.
+
+WHY THERE IS NO SEPARATE DOWNLOADER
+
+There was one, briefly: h9_hdtextures.ps1, which fetched a manifest, downloaded blobs, checked
+hashes, resumed, linked an account and pruned. Every one of those was already written, tested
+and shipping in H9XASH-Updater. The script was deleted and the updater was given a second
+source instead. A delta downloader is not the hard part; being certain it never half-installs
+is, and that part already existed.
+
+WHAT THE UPDATER DOES
+
+    H9XASH-Updater.exe --hd          install the HD textures, or bring them up to date
+    H9XASH-Updater.exe --no-hd       skip them entirely, and do not ask
+    H9XASH-Updater.exe --hd-remove   take them back out
+    H9XASH-Updater.exe --status      says whether they are installed, and how many files
+
+On a first run it asks once, and only if there is somebody to ask. Say no and nothing is
+downloaded; the game plays exactly as it did. Once they are installed, every later run keeps
+them up to date without --hd, because an installed pack is a thing to maintain, not a thing to
+ask about again.
+
+THE ACCOUNT
+
+The pack is for linked accounts. If the install is not linked, the updater runs the same
+device-code link it already offers for the game: it opens havoc9.org in a browser, shows a short
+code to approve, and waits. No password comes near the updater. Nothing about the pack is
+secret -- the link is what ties a download to an account, not what protects the files.
+
+WHERE IT COMES FROM
+
+The HD store sits beside the client's own files, as its own store with its own manifest:
+
+    files/manifest.json       the client. What H9XASH-Updater has always read.
+    files/<sha256>            the client's files, one per distinct file.
+    files/hd/manifest.json    the HD pack. A player who does not want it never reads this.
+    files/hd/<sha256>         the textures, one per DISTINCT texture.
+
+A separate folder, not a second manifest over the same blobs, and the reasons are practical:
+the pack can be served from somewhere else entirely by pointing --hd-url at it; the client's
+prune lists files/ without recursing, so it can never reach into the pack; and removing the
+pack from a host is deleting one folder rather than working out which blobs were whose.
+
+AN UPDATE, STEP BY STEP
+
+    1. fetch files/hd/manifest.json (answered 304 when it has not changed)
+    2. compare it against what this install has, file by file, by hash
+    3. download only the blobs that are missing, resuming any that were cut short
+    4. check every downloaded blob against the SHA-256 it was asked for, BEFORE using it
+    5. stage the changed files, then move them into place through the rollback journal
+    6. remove the files the new manifest no longer names
+
+Steps 3 to 6 are the updater's own, unchanged. Step 5 is why this is worth reusing: an update
+that is interrupted, or that cannot replace a file because something has it open, puts every
+file back as it was and says so. --rollback undoes a finished one.
+
+WHAT A PLAYER SEES
+
+    [#########-------------]  42%  2174 of 6185 files, 4.4 GB of 10.5 GB
+
+Plain # and -, so it survives any console code page.
+
+WHY THIS SHAPE
+
+  * A texture that did not change is never downloaded again, even if it moved to a different
+    path or is now used by more maps.
+  * A texture used in many places is downloaded once. 9,765 installed files come from 6,182
+    blobs today.
+  * An interrupted update resumes. Blobs already verified are kept.
+  * Corruption is detectable without a separate checksum file, because a blob's name IS its
+    hash. A blob that does not hash to its own name is discarded and fetched again.
+  * A changed pack is cheap to publish: regenerate the manifest, upload the blobs that are new.
+    Fifty changed textures is fifty blobs, not a fresh ten-gigabyte archive.
+
+ROOM ON THE DISK
+
+A first install wants about 40 GB free while it runs, and that surprises people, so: the
+download cache holds the 10.5 GB of blobs, the staging copy holds the files built from them,
+and the installed pack is about 19.7 GB because 9,765 files come from 6,182 blobs and the
+duplicates are real files on disk. The cache is emptied when the install finishes. An update
+needs only what it is actually changing.
+
+9. CHECKING IT WORKED
+---------------------
+The engine will tell you, per texture, which is better than any amount of looking:
+
+    host_allow_materials 2
+
+At that setting every lookup is logged at any developer level, in the form
+
+    Looking for maps/<map>.bsp:<texture> tex replacement...OK (materials/common/<texture>.tga)
+    Looking for <texture> ... MISS (not found)
+    Looking for models/<model> ... FAIL (materials/models/<model>/<texture>.tga)
+
+OK means found and loaded. MISS means the file is not where the engine looked, which is a naming
+or a folder mistake. FAIL means it was found and could not be read, which is a bad TGA. Capture
+that log and diff it against the index -- that is the pack's ground truth, and it is automatic.
+
+Remember the cvar is latched: set it, then reload the map, or it will appear to do nothing.
+
+
+10. PUBLISHING IT, AND GETTING IT TO THE HOST
+---------------------------------------------
+Three switches, all off by default, because none of this belongs in an ordinary release.
+
+    packaging.ini  [stage]  hd = 1    publish dist\files\hd when the stage runs
+    packaging.ini  [deploy] hd = 1    send it to the host with the deploy
+    tools\texpack\hd-pass.ps1 -Publish    publish without a release at all
+
+PUBLISHING. The same publisher the client's files go through (tools\updater\publish_files.py),
+pointed at ts\materials alone with --subtree. It writes dist\files\hd: manifest.json, one file
+per distinct texture named by its SHA-256, and an .htaccess that serves nothing but those two
+shapes and refuses a listing. The manifest keeps the full ts/materials/... paths, which is why
+the updater installs the pack at the H9XASH folder and the paths put the files in the right
+place by themselves.
+
+DELIVERING. deploy-vps.ps1 asks the host which blobs it already holds and sends only the rest,
+in archives of at most 400 MB so several upload streams carry them at once; receive-deploy.ps1
+checks every file against its own name, puts the new ones in, swaps manifest.json LAST, and
+then removes the blobs the new manifest does not name. A delivery carrying no HD archive leaves
+the folder exactly as it is, which is what hd = 0 means: it never deletes a pack already up.
+
+THE FIRST DELIVERY IS THE AWKWARD ONE. About 10.5 GB over SSH is slow, and it is usually better
+carried to the host some other way. Copy dist\files\hd into the host's site\files\hd directly,
+blobs first and manifest.json last, and every delivery after that is a delta like any other.
+
+THE ORDER MATTERS AND IT IS NOT OPTIONAL. Upload blobs first, swap the manifest last. A manifest
+that names blobs which are not there yet gives every client that polls in between a run of 404s,
+and the updater reports exactly that: "the site has no file <sha> that its manifest names".
+
+WHAT NEVER CARRIES THE TEXTURES
+
+H9XASH\ts\materials is skipped by every package, in four separate places, because each of them
+would otherwise sweep up 19.7 GB:
+
+    stage-h9xash.ps1       $SkipDirPaths           the client ZIPs
+    stage_h9xash.py        the same list           the Linux packages
+    tools\make_webclient_game.py  TS_SKIP_DIRS     the browser game
+    tools\updater\h9xash_updater.py               reads the stage script's rules, so it inherits it
+
+The last one is why the HD pass uses a plain rule set rather than the stage script's: those rules
+skip ts\materials on purpose, and reading them for the pack would skip the entire pack.

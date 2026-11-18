@@ -71,6 +71,8 @@ component keeps its own license text beside it, and is not relicensed.
 | MIT | **ONNX Runtime** (Microsoft; runs the speech model) | `H9XASH/ts/h9tts/bin/LICENSE-onnxruntime-mit.txt` |
 | Apache 2.0 | **Kokoro** speech model and voices (hexgrad) | `h9tts/LICENSE-kokoro-apache-2.0.txt`, `H9XASH/ts/h9tts/` |
 | Apache 2.0 | **misaki**, the phoneme dictionaries and algorithm (hexgrad) | `h9tts/LICENSE-misaki-apache-2.0.txt`, `H9XASH/ts/h9tts/` |
+| Apache 2.0 | **hyperframes**, HTML-to-video rendering (git submodule of [heygen-com/hyperframes](https://github.com/heygen-com/hyperframes)) | `hyperframes/LICENSE`, `THIRD_PARTY_LICENSES/hyperframes-Apache-2.0.txt` |
+| MIT | **ES**, the command line for Everything (git submodule of [voidtools/ES](https://github.com/voidtools/ES)) | `ES/LICENSE`, `THIRD_PARTY_LICENSES/ES-MIT.txt` |
 
 Other permissive files keep their notices beside them too: **AsmJit** (zlib license, `AMXMODX/extern/asmjit/`) and
 Microsoft's **WebView2** loader (`H9XASH/h9webview.WebView2-LICENSE.txt`).
@@ -97,6 +99,7 @@ their own permissive licenses, which ship in the Emscripten release that `build-
 | `SDHLT-v1.3.1-xash-LICENSE.md` | SDHLT map compilers, Xash build (export-map/compilers-xash/) | GPL with the Valve SDK and id Software terms its text names |
 | `Stripper2-GPLv2.txt` | Stripper2, the GoldSrc entity stripper (Stripper2/) | GPLv2 (or newer) |
 | `SMAK-MIT.txt` | SMAK, the map kit (git submodule of deoroot/SMAK) | MIT |
+| `ES-MIT.txt` | ES, the command line for Everything (git submodule of voidtools/ES) | MIT |
 | `compts-MIT.md` | compts, the Elo plugin backend (compts/) | MIT |
 | `bat2exe-MIT.md` | bat2exe (bat2exe/) | MIT |
 | `AMD-FSR1-MIT.txt` | AMD FidelityFX Super Resolution 1 (the scene upscaler) | MIT |

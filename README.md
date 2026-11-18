@@ -323,6 +323,50 @@ It fetches Emscripten 6.0.12 (with its own Python, Node and Ninja) and CMake 4.3
 pinned SHA-256. It then builds the engine and the reTS client for WebAssembly and lays out the game files in `webclient-build\`.
 The first run takes about 10 minutes. Versions, checksums and steps: [docs/BUILDING.txt](docs/BUILDING.txt), section 9.
 
+## Running a server in Docker
+
+The native Linux dedicated server runs in a container built from this clone. Full notes, including the
+Pterodactyl egg, are in [docs/DOCKER.txt](docs/DOCKER.txt).
+
+```sh
+git clone https://github.com/2cwldys/HAVOC-NINE
+cd HAVOC-NINE
+git lfs pull                       # the maps and models are LFS objects
+cd dockerfiles
+cp server.env.example server.env   # edit it, or leave it alone
+docker compose up -d --build
+docker compose logs -f
+```
+
+The image takes the game from the clone, so you get the newest content without waiting for a published
+package. The 32-bit Linux binaries are build output and are not in git, so they come from the published
+server package instead (44 MiB) -- or from your own `H9XASH-linux/` with `H9_BINARIES=local`.
+
+Building from a clone you already have spends no Git LFS bandwidth, because the files are already on
+disk. If you would rather not clone at all -- on CI, or anywhere a 2 GB checkout is unwelcome -- build
+with `H9_CONTENT=release` and everything comes from the published package instead.
+
+Configure it with environment variables in `server.env`; anything you leave unset keeps the launcher's own
+default. The map chooses the game mode (`h9_te_` Team Elimination, `h9_as_` Assault, `h9_up_` Uplink,
+`h9_ws_` Wave Survival, `h9_mw_` Mech Warrior), so there is no separate mode setting. [CVARS.md](CVARS.md)
+is the full index of every cvar.
+
+**The port must be UDP.** GoldSrc is UDP only, rcon included: `-p 27015:27015/udp`. Published as TCP, the
+container comes up looking healthy and nothing can reach it.
+
+**For a game panel**, `dockerfiles/pterodactyl/` holds an egg. Edit `egg-h9xash.yml` (it is commented),
+run `python build-egg.py`, and import the `egg-h9xash.json` it writes. The server installs either from the
+published package or from a fresh clone, and the panel exposes the settings most operators change:
+hostname, map, slots, bots, round time, the H9 weapon set, the release gate, late join and class change.
+
+> **What is proven, and what is not.** A container built this way starts and reports healthy: the engine,
+> reTS, Metamod, AMX Mod X, RCBot and the H9 plugins all load, the map comes up, the join gate reports its
+> release, and bots join. What has **not** happened is a human player connecting to one -- no client has ever
+> joined a Linux server here and no match has been played on one
+> ([docs/LINUX_SUPPORT.txt](docs/LINUX_SUPPORT.txt)). There is no native Linux client either, so a client is
+> the Windows game, the Wine package or the browser client.
+
+
 ## Licensing and notices
 
 > [!IMPORTANT]

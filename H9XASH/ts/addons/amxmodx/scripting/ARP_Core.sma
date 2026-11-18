@@ -6666,7 +6666,7 @@ public _ARP_RegisterNpc(Plugin,Params)
 	entity_set_model(Ent,Model)
 	entity_set_origin(Ent,Origin)
 	entity_set_size(Ent,Float:{-16.0,-16.0,-36.0},Float:{16.0,16.0,36.0})
-	// H9: an invisible terminal (the bank kiosks, models/player/Invisible/invisible.mdl) is SOLID_NOT so players pass through it; the use key still
+	// H9: an invisible terminal (the bank kiosks, models/player/Invisible/Invisible.mdl) is SOLID_NOT so players pass through it; the use key still
 	// reaches it by distance in client_PreThink (the invisible-NPC loop), the same way a zone NPC is used.
 	entity_set_int(Ent,EV_INT_solid,(containi(Model,"invisible") != -1) ? SOLID_NOT : SOLID_BBOX)
 	entity_set_byte(Ent,EV_BYTE_controller1,125)
