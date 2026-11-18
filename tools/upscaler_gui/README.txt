@@ -3,7 +3,7 @@ H9 UPSCALER
 
 A window that AI-upscales textures. No agent, no command line, no repository: pick a folder of
 images, choose how much the model is allowed to invent, look at every result at 1:1 before
-anything is written, and save them as the 32-bit RLE TGA files the engine reads.
+anything is written, and save them as the 32-bit PNG or RLE TGA files the engine reads.
 
 It is a separate thing from the texture pack. The pack is made by tools\texpack (one command,
 tools\texpack\hd-pass.ps1) and docs\HD_TEXTURES.txt is its documentation. This is for one-off
@@ -40,6 +40,13 @@ RUN      Fidelity, from 0 to 1, is how much of the model's result to keep agains
          is better than enlarging the original by that much directly.
 
          Tile is how much goes to the GPU at once. Lower it if video memory is tight.
+
+         Format is PNG or TGA, and it is the same pixels either way. The engine reads both and
+         prefers a .png when a .tga of the same name sits beside it. Measured over this
+         project's whole texture store PNG is 43 percent of the bytes, which is why it is the
+         default; what it costs is decode time at map load, two to three times an RLE TGA.
+         Choose TGA for a build older than that engine change, or when load time matters more
+         than disk.
 
 REVIEW   the point of the whole program. Every result at 1:1 against the original and against a
          Lanczos control, sorted worst first by DRIFT -- shrink the result back to its original

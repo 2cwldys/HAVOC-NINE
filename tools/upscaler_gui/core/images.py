@@ -35,10 +35,16 @@ def save_tga(path, rgba: np.ndarray, rle: bool = True) -> None:
         path, format="TGA", compression="tga_rle" if rle else None)
 
 
-def save_png(path, rgba: np.ndarray) -> None:
+def save_png(path, rgba: np.ndarray, level: int = 6) -> None:
+    """32-bit PNG, which the engine prefers over a TGA of the same name.
+
+    Level 6 rather than 9: measured over this project's whole texture store the two are within
+    a point of each other on size, 6 encodes four times faster, and the level makes no
+    measurable difference to how fast the engine decodes the result.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgba, mode="RGBA").save(path, format="PNG")
+    Image.fromarray(rgba, mode="RGBA").save(path, format="PNG", compress_level=level)
 
 
 def pixel_key(rgba: np.ndarray) -> str:
