@@ -25,3 +25,8 @@
 	url = https://github.com/2cwldys/sdhlt
 	ignore = dirty
 	branch = main
+[submodule "ES"]
+	path = ES
+	url = https://github.com/voidtools/ES.git
+	branch = main
+	ignore = dirty
