@@ -36,6 +36,13 @@ HOLDER = "texpack upscale"
 # The recipe: what an output was made WITH. Kept identical to tools/texpack/manifest.mjs, because
 # the two have to agree on what "already done" means. Change either and both must change.
 SCALE, FORMAT, COMPRESSION, BITS = 4, "tga", "rle", 32
+# Deliberately unchanged when the threshold became conditional (threshold only a 1-bit alpha,
+# keep a gradient smooth). The recipe id is a promise that an output can be vouched for, and the
+# new rule is a strict superset of the old one: every source the old rule ever saw was either
+# fully opaque or 1-bit, because nothing carried a gradient until extract.mjs was fixed to read
+# decals and index-alpha sprites properly. On those inputs both rules produce identical bytes.
+# Bumping it would mark all 6,203 outputs stale and spend hours of GPU time rewriting files that
+# cannot differ.
 ALPHA = "bleed4+bicubic+threshold128"
 
 
@@ -254,7 +261,25 @@ def main():
                 a = Image.fromarray(alpha, mode="L").resize(
                     (up.shape[1], up.shape[0]), Image.BICUBIC
                 )
-                a = (np.array(a) >= 128).astype(np.uint8) * 255  # GoldSrc masks are hard-edged
+                # Two kinds of transparency reach this point and they must not be treated alike.
+                #
+                # A CUTOUT -- a '{' texture with a blue palette base, a SPR_ALPHTEST sprite, a
+                # model skin flagged STUDIO_NF_MASKED -- is 1-bit by construction: every pixel is
+                # either clear or solid. Resizing softens its edge, so it is thresholded back to a
+                # hard edge, which is what the engine draws.
+                #
+                # A GRADIENT -- a classic decal, a SPR_INDEXALPHA sprite -- carries a smooth ramp
+                # where the palette index IS the alpha. Thresholding that turns a soft crack,
+                # stain or puff of smoke into a hard blob. It has to stay smooth.
+                #
+                # The source says which it is without any extra bookkeeping: a cutout's alpha
+                # only ever holds 0 and 255.
+                hard = bool(np.isin(alpha, (0, 255)).all())
+                a = np.array(a)
+                if hard:
+                    a = (a >= 128).astype(np.uint8) * 255
+                else:
+                    a = a.astype(np.uint8)
             else:
                 a = np.full(up.shape[:2], 255, dtype=np.uint8)
             save_tga(out, up, a, rle=not args.no_rle)

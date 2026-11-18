@@ -21,7 +21,7 @@ import { readWad } from "../../SMAK/core/maps/wad.mjs";
 import { readBsp, embeddedTexture } from "../../SMAK/core/maps/bsp.mjs";
 import { rgbaOf, png } from "../../SMAK/core/image.mjs";
 import { textureOf, texturesInside, withTextures } from "../../SMAK/core/mdl.mjs";
-import { readSpr } from "../../SMAK/make/maps/sprites.mjs";
+import { readSpr, spriteFrameRgba } from "../../SMAK/make/maps/sprites.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TS = path.join(REPO, "H9XASH", "ts");
@@ -44,6 +44,45 @@ const KINDS = new Set(value("--kinds", "world,models,sprites").split(",").map((s
 const safeName = (name) => (name.startsWith("*") ? "!" + name.slice(1) : name);
 const isMasked = (name) => name.startsWith("{");
 
+// A '{' texture is transparent in one of two ways, and img_wad.c:453-469 chooses:
+//
+//   if( !Image_CheckFlag( IL_LOAD_DECAL ) || palette[255] is blue (0,0,255) )  ->  LUMP_MASKED
+//   else                                                                      ->  LUMP_GRADIENT
+//
+//   LUMP_MASKED   the cutout: every pixel takes its own palette colour, index 255 alone is clear.
+//   LUMP_GRADIENT the classic decal: EVERY pixel takes the colour in palette[255], and the
+//                 palette index IS the alpha -- 0 clear, 255 solid.
+//
+// img_utils.c:302-310 is the whole of it:
+//     case LUMP_GRADIENT: d_table[i] = HostFourCC( pal[765], pal[766], pal[767], i );
+//     case LUMP_MASKED:   d_table[i] = pal[i], alpha 0xFF;  d_table[255] = 0;
+//
+// THE FIRST HALF OF THAT CONDITION IS THE EASY ONE TO MISS. A '{' texture that is not being
+// loaded AS A DECAL is a cutout whatever its palette holds. Only a real decal can be a gradient.
+// Applying the gradient rule to ordinary world textures turns '{cable' and '{eastline2' into
+// blue smears, because their palette[255] is some arbitrary colour that was never meant to be
+// read as one.
+//
+// Reading a decal as a cutout is the other half of the same mistake, and is what put an opaque
+// box behind every crack, stain and sign: a gradient's index 255 is almost never used, so
+// nothing came out clear.
+const isDecalSource = (source) => /decals\.wad$/i.test(String(source).replace(/\\/g, "/"));
+const blueBase = (palette) =>
+  Boolean(palette) && palette[765] === 0 && palette[766] === 0 && palette[767] === 255;
+
+/** A gradient decal as RGBA, by the engine's own table. */
+function gradientRgba({ width, height, pixels, palette }) {
+  const rgba = new Uint8Array(width * height * 4);
+  const r = palette[765], g = palette[766], b = palette[767];
+  for (let i = 0; i < width * height; i++) {
+    rgba[i * 4] = r;
+    rgba[i * 4 + 1] = g;
+    rgba[i * 4 + 2] = b;
+    rgba[i * 4 + 3] = pixels[i]; // the index is the alpha
+  }
+  return rgba;
+}
+
 // ref/soft/r_studio.c:3016 -- a studio texture named DM_Base* or remap* is the team-colour remap
 // path. gl_studio.c:3439 refuses a replacement for those ("colormaps must have the palette for
 // properly work"), so they stay at original resolution and the index must say so.
@@ -53,15 +92,21 @@ const occurrences = []; // one per place a texture is used
 const images = new Map(); // sha256 -> { sha, width, height, bytes, masked }
 const problems = [];
 
-function note(texture, { kind, source, name, owner, status }) {
+function note(texture, { kind, source, name, owner, status, rgba: given }) {
   if (!texture || !texture.width || !texture.height) {
     problems.push({ kind, source, name, reason: "no pixels" });
     return;
   }
-  const masked = kind === "world" ? isMasked(name) : Boolean(texture.flags & 0x0040); // STUDIO_NF_MASKED
+  // A sprite frame arrives already converted, because only the .spr header says which of the four
+  // formats it is and SMAK's reader is the thing that knows.
+  const curly = kind === "world" && isMasked(name);
+  const gradient = curly && isDecalSource(source) && !blueBase(texture.palette);
+  const masked = given ? Boolean(texture.transparent)
+    : kind === "world" ? curly
+    : Boolean(texture.flags & 0x0040); // STUDIO_NF_MASKED
   let rgba;
   try {
-    rgba = rgbaOf(texture, masked);
+    rgba = given ?? (gradient ? gradientRgba(texture) : rgbaOf(texture, masked));
   } catch (e) {
     problems.push({ kind, source, name, reason: e.message.slice(0, 160) });
     return;
@@ -176,8 +221,16 @@ function scanSpr(file) {
     const suffix = grouped.has(i) ? "group" : "frame";
     // the engine formats the number as %i%i of num/10 and num%10, so 100+ frames would collide
     const nn = `${Math.floor(i / 10)}${i % 10}`;
-    note({ width: frame.width, height: frame.height, pixels: frame.pixels, palette: spr.palette },
-      { kind: "sprite", source: file, name: suffix + nn, owner, status: i >= 100 ? "frame_over_99" : "ok" });
+    // Only the .spr header says which of the four formats a sprite is, and the two transparent
+    // ones are not interchangeable (sprites.mjs:151-152): "index alpha" takes the colour from the
+    // last palette entry and uses the index as alpha, exactly like a gradient decal, while "alpha
+    // test" is a cutout on index 255. Converting either with the plain palette rule, as this did,
+    // leaves every frame fully opaque. SMAK's reader already knows the difference, so let it.
+    const transparent = spr.format === "index alpha" || spr.format === "alpha test";
+    note({ width: frame.width, height: frame.height, pixels: frame.pixels,
+           palette: spr.palette, transparent },
+      { kind: "sprite", source: file, name: suffix + nn, owner,
+        status: i >= 100 ? "frame_over_99" : "ok", rgba: spriteFrameRgba(spr, i).rgba });
   });
   return frames.length;
 }

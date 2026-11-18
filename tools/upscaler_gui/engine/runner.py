@@ -134,7 +134,24 @@ class Upscaler:
 
         if masked:
             a = Image.fromarray(alpha, mode="L").resize((big.shape[1], big.shape[0]), Image.BICUBIC)
-            a = ((np.asarray(a) >= 128).astype(np.uint8)) * 255
+            # Two kinds of transparency reach this point and they must not be treated alike.
+            #
+            # A CUTOUT is 1-bit by construction -- a GoldSrc '{' texture with a blue palette base,
+            # a SPR_ALPHTEST sprite, a model skin flagged STUDIO_NF_MASKED. Every pixel is clear
+            # or solid; resizing softens the edge and thresholding puts it back, which is what the
+            # engine draws.
+            #
+            # A GRADIENT carries a smooth ramp: a classic decal, or a SPR_INDEXALPHA sprite, where
+            # the palette index IS the alpha. Threshold one of those and a soft crack, stain or
+            # puff of smoke turns into a hard blob.
+            #
+            # The source says which it is without any extra bookkeeping: a cutout's alpha only
+            # ever holds 0 and 255.
+            a = np.asarray(a)
+            if bool(np.isin(alpha, (0, 255)).all()):
+                a = (a >= 128).astype(np.uint8) * 255
+            else:
+                a = a.astype(np.uint8)
         else:
             a = np.full(big.shape[:2], 255, dtype=np.uint8)
         return np.dstack([big, a])
