@@ -254,3 +254,7 @@ core.[0-9]*
 # The Visual C++ runtime h9_vcruntime.ps1 copies next to HAVOC 9.exe on a PC without it (the tracked pair is H9XASH/redist/vc14-x86)
 /H9XASH/msvcp140.dll
 /H9XASH/vcruntime140.dll
+
+# AI-upscaled HD textures: a local copy for testing. They ship as an optional pack from the
+# site (docs\HD_TEXTURES.txt), never in git -- about 10 GiB of blobs across ~9,800 files.
+/H9XASH/ts/materials/

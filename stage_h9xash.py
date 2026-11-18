@@ -91,7 +91,11 @@ SKIP_DIR_NAMES = lower_rules([
 # data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
 # its first roleplay map and loads that map's SQL file, which ships, into it.
 SKIP_DIR_PATHS = lower_rules(['presets\\backup', 'ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3',
-                              'webview2\\data', 'webview2\\runtime'])
+                              'webview2\\data', 'webview2\\runtime',
+                              # ~10.5 GiB of AI-upscaled TGA: a LOCAL copy for testing only.
+                              # The pack ships as an optional download from the site, never
+                              # inside a package (docs/HD_TEXTURES.txt).
+                              'ts\\materials'])
 RECREATE_DIRS = [slash(d) for d in ('ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3',
                                     'ts\\addons\\amxmodx\\logs')]
 

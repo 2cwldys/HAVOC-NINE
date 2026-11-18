@@ -195,7 +195,7 @@ $SkipDirNames = @('logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'do
 # webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own WebView2 runtime.
 # data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
 # its first roleplay map and loads that map's SQL file, which ships, into it.
-$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime')
+$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime', 'ts\materials')
 $RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'ts\addons\amxmodx\logs')
 
 # Files left out wherever they are (lower case).
