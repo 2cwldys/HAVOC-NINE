@@ -20,3 +20,8 @@
 	url = https://github.com/heygen-com/hyperframes
 	ignore = dirty
 	branch = main
+[submodule "sdhlt"]
+	path = sdhlt
+	url = https://github.com/2cwldys/sdhlt
+	ignore = dirty
+	branch = main
