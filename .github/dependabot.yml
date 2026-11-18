@@ -5,6 +5,14 @@ updates:
     directory: /
     schedule:
       interval: daily
+    # Only SMAK, which is what the line above was always meant to cover. The engine's
+    # pin cannot move on its own: every H9 engine change is a patch applied on top of
+    # pristine upstream, so a bump has to carry the re-anchored patches in the SAME
+    # commit or a fresh clone stops building (docs\ADD_AN_ENGINE_CHANGE.txt, and
+    # PATCH_CHANGELOG.md's 2026-11-17 entry). A bot cannot do that, so it is not
+    # asked to. EntMod4/uChmViewer and StripperCS2 are vendored and pinned on purpose.
+    allow:
+      - dependency-name: "SMAK"
   - package-ecosystem: github-actions
     directory: /
     schedule:
