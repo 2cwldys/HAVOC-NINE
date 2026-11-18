@@ -221,9 +221,32 @@ change and no recompile, only two new kinds of file:
     ts\maps\<map>_detail.txt      format: 'texturename' 'detailtexture' 'xScale' 'yScale'
 
 Mod_ParseDetailTextures is at mod_bmodel.c:3190-3279 and resolves an asset as gfx/<name>. Strip
-the leading '{' from a masked name in the list, as the guide says. One caveat before a mod-wide
-write: ts\opengl.cfg also ships gl_vbo "0" and gl_vbo_detail "0", so the detail pass in
-ref\gl\gl_rsurf.c:2568 is code this project has never exercised. Prove it on one map first.
+the leading '{' from a masked name in the list, as the guide says.
+
+AND THE RENDERER IS READY, which an earlier draft of this section got wrong. It said the detail
+pass sat behind gl_vbo, which ts\opengl.cfg ships at "0", and so had never run here. It does not.
+In ref\gl\gl_rsurf.c:
+
+    1932   if( !allow_vbo || !R_AddSurfToVBO(...) ) R_RenderBrushPoly( ... );
+    1526       R_RenderDetailsForSurface( fa, t );      inside R_RenderBrushPoly
+    1945   R_RenderDetails( allow_vbo ? 2 : 3 );        runs either way, 3 passes without VBO
+
+The detail code from about line 2095 is the VBO variant, and that is all gl_vbo 0 switches off.
+The non-VBO path is complete and is the one this mod draws through. Nothing in the engine needs
+changing, and nothing needs recompiling: this is assets and two text files.
+
+ONE DETAIL TEXTURE PER BASE TEXTURE IS THE WRONG DEFAULT. There are 3,860 distinct world
+textures here. Generating one detail image for each is more VRAM and more uploads for no gain,
+because a detail texture is a high-frequency tile and almost none of it is specific to the
+surface under it. The usual GoldSrc practice is a handful shared across many base textures --
+stone, metal, fabric, concrete -- and the automatic part is choosing WHICH of those few each
+texture gets, not drawing a new one for every name.
+
+The scale pair is the part that actually needs judgement. Too low and the tile reads as noise;
+too high and it bands. It is per texture, and a sane starting rule is to scale with the base
+texture's own size so the detail lands at roughly the same world frequency everywhere.
+
+Prove it on one map before any mod-wide write.
 
 
 8. THE DELTA PATCHING PROCESS
