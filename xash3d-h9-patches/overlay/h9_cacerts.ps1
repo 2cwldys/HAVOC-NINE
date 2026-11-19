@@ -8,8 +8,14 @@
 # Both start as Mozilla's list (curl.se). An antivirus that scans HTTPS (Avast, AVG, Kaspersky, ESET, Bitdefender
 # and others) puts its own certificate in front of every site, and only Windows knows it: without this step the
 # game cannot reach havoc9.org on such a PC. h9xash.bat and h9xash_server.bat run it on every launch, so each list
-# is Mozilla's plus the certificates in Windows' trusted root stores right now (one that Windows has since dropped,
-# or an antivirus since switched off, drops out again). This is the trust a browser on this PC gives.
+# is Mozilla's plus the certificates in Windows' trusted root stores right now. This is the trust a browser on this
+# PC gives.
+#
+# A LIST IS NEVER SHORTENED. This used to drop a root that Windows had since stopped trusting, or an antivirus had
+# switched off. That is wrong here: the file is in version control and shipped, so one PC's change of mind removed a
+# certificate for everybody, and a missing root is a TLS handshake that used to work and now blocks -- which presents
+# as the game freezing during plugin init with nothing in the console. If this PC trusts fewer certificates than the
+# file already holds, the file is left alone and a line is printed.
 #
 # The Mozilla part is everything above the marker line in amxx_easy_http_cacert.pem; an update that ships a new list
 # replaces the whole file, and the next launch adds this PC's certificates below it again. If anything fails, the
@@ -53,9 +59,21 @@ try {
 
     # written only when it changed, through a temporary file, so a game that is starting never reads half a list
     $ascii = New-Object System.Text.ASCIIEncoding
+    $newCount = ([regex]::Matches($full, '-----BEGIN CERTIFICATE-----')).Count
     foreach ($out in $amxx, $engine) {
         if (-not (Test-Path -LiteralPath (Split-Path -Parent $out))) { continue }
-        if ((Test-Path -LiteralPath $out) -and [IO.File]::ReadAllText($out) -eq $full) { continue }
+        if (Test-Path -LiteralPath $out) {
+            $have = [IO.File]::ReadAllText($out)
+            if ($have -eq $full) { continue }
+            # Never shorten a list. What this PC trusts today is not the authority on what the game needs: this file
+            # is tracked and shipped, so dropping a root here drops it for everyone, and the symptom is a blocked
+            # handshake that looks like a freeze rather than a certificate error.
+            $haveCount = ([regex]::Matches($have, '-----BEGIN CERTIFICATE-----')).Count
+            if ($newCount -lt $haveCount) {
+                Write-Host "[h9_cacerts] $([IO.Path]::GetFileName($out)) left alone: this PC trusts $newCount certificates, the file holds $haveCount, and a shorter list is never written."
+                continue
+            }
+        }
         $tmp = "$out.h9new"
         [IO.File]::WriteAllText($tmp, $full, $ascii)
         Move-Item -LiteralPath $tmp -Destination $out -Force
