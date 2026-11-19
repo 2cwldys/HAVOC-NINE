@@ -653,3 +653,17 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    "invisible" is now set SOLID_NOT, so the player walks through it. The use key's aim traceline cannot hit a non-solid entity, so client_PreThink runs a second use path for these: the
    use press, within 100 units and in view (fm_is_ent_visible), fires the NPC's NPC_Use event and handler the same way a zone NPC is used. A visible NPC is unchanged: SOLID_BBOX, used
    by the traceline.
+52. vformat read an argument that was never passed, on every ARP_ClientPrint (ARP_Core.sma, carried by H9-arpfix.patch). ARP_Core threw AMX_ERR_PARAMS --
+   logged as "Run time error 25 (plugin ARP_Core.amxx)" -- during a join, every session, and a run time error aborts whatever function was running, so the
+   character load did not finish and the HUD showed a bank of 0. The owner reported an empty bank he had never emptied; nothing had taken his money. The
+   property tax had never run (arp_h9_tax, arp_h9_taxdue and arp_h9_taxbase were all empty) and all three save paths are guarded by
+   g_GotInfo >= STD_USER_QUERIES, so nothing overwrote the row either. The 0 was the in-memory value of a load that never completed.
+   Four places read argument 3 of their own call unconditionally while accepting a call that has only two, and vformat throws for that. _ARP_ClientPrint
+   formats its message and then hands the result ALONE to UTIL_ARP_ClientPrint, which formats again with no arguments left, so every ARP_ClientPrint from any
+   plugin threw and its caller got the matching "error 10 ... native ARP_ClientPrint" (ARP_TS has four two-argument calls). H9_PlaqueAdd has four callers that
+   pass a plain string, "Status: Locked" among them, so it fired for nearly every property plaque drawn. _ARP_ThrowError had it too, which made the error
+   reporter the thing that threw. Guarded at the four definitions rather than the eight call sites, so a future caller passing a plain string cannot arm it
+   again: numargs() in the two stock functions, Params in the two natives. Not formatting an already-formatted string is independently right, because a per
+   cent sign in a player's own text is text and not a format specifier.
+   H9-arpfix.patch is NOT regenerated for this: no stock Apollo RP tree is in this repository to diff against, so the patch files carry what they carried
+   before. The change is in apollo-rpase and in this log, which is what a rebuild from this repository uses.
