@@ -87,10 +87,10 @@ index 1d8bbcc9..fa1cc5c1 100644
 +IDI_ICON1	ICON    DISCARDABLE		"havoc9.ico"
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..c6f8a5ce
+index 00000000..afc81c4f
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,733 @@
+@@ -0,0 +1,761 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
@@ -495,12 +495,40 @@ index 00000000..c6f8a5ce
 +all), each side's captures in Capture the Flag (tsm_pres_prog "1/2/3": side 1's, side 2's, the
 +captures that win), the wave in Wave Survival. State is the players alive on each side out
 +of the total, the bots, and the map, or the totals alone from a plugin that does not publish
-+the alive counts. The large image is the map's snapshot, named after the map in the
-+application's art assets. The two buttons link to the Discord invite and the site. The party
++the alive counts. The large image is the place's snapshot, named after the base map in the
++application's art assets (H9P_ImageKey). The two buttons link to the Discord invite and the site. The party
 +is the people on the server out of its slots, bots left out ("3 of 64" beside the state), from
 +the server's own status reply.
 +=================
 +*/
++
++/*
++=================
++H9P_ImageKey
++
++The art asset the card's large image names. The application holds one picture per PLACE, not one
++per mode: h9_<mode>_<base> is cut down to <base>, so a single "wasteland" asset serves the six
++wasteland maps and a single "drainage" the five of drainage. A name of any other shape, a stock
++ts_ map among them, is used whole. The map's own name still goes in the card's title and state;
++this is the asset key alone.
++=================
++*/
++static const char *H9P_ImageKey( const char *map )
++{
++	const char	*p;
++
++	if( !map || !map[0] || Q_strnicmp( map, "h9_", 3 ))
++		return map;
++
++	// the mode is the run from h9_ to the next underscore; the base map is what follows it
++	for( p = map + 3; *p; p++ )
++	{
++		if( *p == '_' )
++			return p[1] ? p + 1 : map;
++	}
++	return map;
++}
++
 +static void H9P_Activity( char *out, size_t size )
 +{
 +	// each value copied out at once: Info_ValueForKey hands back one of four buffers it reuses,
@@ -519,7 +547,7 @@ index 00000000..c6f8a5ce
 +
 +	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
 +	const char	*mode = H9P_Mode( h9p.map, key, siege );
-+	char		e_details[192], e_state[320], e_map[160], e_title[320], party[64];
++	char		e_details[192], e_state[320], e_img[160], e_title[320], party[64];
 +
 +	if( siege[0] && atk[0] )
 +	{
@@ -570,7 +598,7 @@ index 00000000..c6f8a5ce
 +
 +	H9P_Escape( e_details, sizeof( e_details ), details );
 +	H9P_Escape( e_state, sizeof( e_state ), state );
-+	H9P_Escape( e_map, sizeof( e_map ), h9p.map );
++	H9P_Escape( e_img, sizeof( e_img ), H9P_ImageKey( h9p.map ));
 +	H9P_Escape( e_title, sizeof( e_title ), title );
 +
 +	// the people out of the slots: the game itself is one of them, so never fewer than 1
@@ -584,7 +612,7 @@ index 00000000..c6f8a5ce
 +		"\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\","
 +		"\"small_image\":\"%s\",\"small_text\":\"HAVOC 9\"},"
 +		"\"buttons\":[{\"label\":\"%s\",\"url\":\"%s\"},{\"label\":\"%s\",\"url\":\"%s\"}]}",
-+		e_details, e_state, h9p.start, party, e_map, e_title, H9P_SMALL_KEY,
++		e_details, e_state, h9p.start, party, e_img, e_title, H9P_SMALL_KEY,
 +		H9P_BUTTON1_LABEL, H9P_BUTTON1_URL, H9P_BUTTON2_LABEL, H9P_BUTTON2_URL );
 +}
 +

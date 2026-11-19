@@ -2,7 +2,7 @@ diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,588 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -22,7 +22,8 @@ new file mode 100644
 +hooks (menu_int.h's UI_EXTENDED_FUNCTIONS: H9's mainui, menus/ConnectionProgress.cpp as
 +mainui-h9-joinscreen.patch makes it), the menu stays up from the moment a join starts (connect, retry,
 +the local server's own client) and at each map change (svc_changing, reconnect) until the player is in
-+the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
++the game (ca_active): its background, or its video, full screen, and a panel with the map it loads (both
++maps, while a map change is on), the mode that map plays and the server under them, the stage, an overall
 +bar (scr_loading) and, while a file downloads, its name, n of N and its own bar with KB of KB, over H9's
 +HTTP fast download or the netchan, and the downloads together (the bytes done and to go, the time that takes)
 +under the bar. ESC on it cancels the join. A join or a game the server or the engine
@@ -34,6 +35,12 @@ new file mode 100644
 +  _h9join_stage     what happens: Connecting, Server info, Downloading, Loading the map, Precaching
 +                    resources, Spawning, Changing level
 +  _h9join_server    the server it joins (its address; the local server says so)
++  _h9join_map       the map it loads, or the one left behind while a map change is on; empty while the
++                    address is all that is known
++  _h9join_mapnext   the map a map change brings, from the moment that map's server info says so; empty
++                    without one
++  _h9join_mode      the mode that map and the server's own word name (CL_H9_ModeName); empty when neither
++                    names one
 +  _h9join_file      the file downloading, "<name>   n of N   a of b KB"; empty without a download
 +  _h9join_fileprog  that file's bar, 0 to 100
 +  _h9join_total     the downloads together: "<done> of <all>   <left> to go   about <time> left" ("<done> so far"
@@ -63,6 +70,9 @@ new file mode 100644
 +static CVAR_DEFINE( h9join_up, "_h9join", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: 1 while the join screen is up (set by the engine)" );
 +static CVAR_DEFINE( h9join_stage, "_h9join_stage", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the join screen's stage (set by the engine)" );
 +static CVAR_DEFINE( h9join_server, "_h9join_server", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the server the join screen joins (set by the engine)" );
++static CVAR_DEFINE( h9join_map, "_h9join_map", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the map the join screen loads (set by the engine)" );
++static CVAR_DEFINE( h9join_mapnext, "_h9join_mapnext", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the map a map change brings, for the join screen (set by the engine)" );
++static CVAR_DEFINE( h9join_mode, "_h9join_mode", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the mode that map plays, for the join screen (set by the engine)" );
 +static CVAR_DEFINE( h9join_file, "_h9join_file", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the file the join screen downloads (set by the engine)" );
 +static CVAR_DEFINE( h9join_fileprog, "_h9join_fileprog", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: that file's progress, 0 to 100 (set by the engine)" );
 +static CVAR_DEFINE( h9join_total, "_h9join_total", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the downloads together, for the join screen (set by the engine)" );
@@ -71,6 +81,8 @@ new file mode 100644
 +static struct
 +{
 +	qboolean up;          // the screen is up, for a join or a map change this file began
++	char     map[64];     // the map joined, or the one left behind while a map change is on, "" while not known
++	char     mapnext[64]; // the map that change brings, "" without one
 +	int      files;       // the downloads this join counted when they began (n of N), 0 before
 +	int      dl_done;     // the bytes of the files this join's downloads have finished
 +	int      dl_got;      // the bytes of the file coming now, so far
@@ -90,6 +102,30 @@ new file mode 100644
 +{
 +	if( Q_strcmp( cv->string, value ))
 +		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// the mode the map being loaded plays, from its name and the server's own word for it
++static void H9J_Mode( void )
++{
++	// Info_ValueForKey hands back one of the buffers it reuses, so each value is copied out at once
++	char		key[32], siege[16];
++	const char	*map = h9j.mapnext[0] ? h9j.mapnext : h9j.map;
++	const char	*mode;
++
++	Q_strncpy( key, Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" ), sizeof( key ));
++	Q_strncpy( siege, Info_ValueForKey( cl.serverinfo, "tsm_pres_siege" ), sizeof( siege ));
++	mode = CL_H9_ModeName( map, key, siege );
++	H9J_Set( &h9join_mode, mode ? mode : "" );
++}
++
++// the map the screen names, and with it the mode: "" for a map that is not known yet
++static void H9J_Map( const char *map, const char *next )
++{
++	Q_strncpy( h9j.map, map, sizeof( h9j.map ));
++	Q_strncpy( h9j.mapnext, next, sizeof( h9j.mapnext ));
++	H9J_Set( &h9join_map, h9j.map );
++	H9J_Set( &h9join_mapnext, h9j.mapnext );
++	H9J_Mode();
 +}
 +
 +// no download is coming: the file, its bar and the totals go, and the next ones are counted from nothing
@@ -149,6 +185,7 @@ new file mode 100644
 +	h9j.reason[0] = '\0';
 +	H9J_Set( &h9_drop, "" );
 +	H9J_Set( &h9join_server, server );
++	H9J_Map( "", "" );
 +	H9J_NoDownload();
 +	Cvar_SetValue( "scr_loading", 0.0f );
 +	H9J_Stage( stage, loading );
@@ -166,6 +203,7 @@ new file mode 100644
 +	h9j.up = false;
 +	H9J_Set( &h9join_up, "0" );
 +	H9J_Set( &h9join_stage, "" );
++	H9J_Map( "", "" );
 +	H9J_NoDownload();
 +}
 +
@@ -218,6 +256,8 @@ new file mode 100644
 +	if( !H9J_Usable( ) || h9j.up || cls.state == ca_disconnected || cl.background || ( SV_Active( ) && sv_background.value ))
 +		return;
 +	H9J_Raise( cls.servername, "Changing level", 5.0f );
++	// the map being left: the next one's name comes with its server info, and the two show together
++	H9J_Map( clgame.mapname, "" );
 +	gameui.dllFuncs2.pfnConnectionProgress_ChangeLevel( );
 +}
 +
@@ -231,6 +271,8 @@ new file mode 100644
 +*/
 +qboolean CL_H9Join_ServerInfo( void )
 +{
++	char	from[sizeof( h9j.map )];
++
 +	if( !h9j.up )
 +		return false;
 +	if( cl.background || cls.demoplayback )
@@ -238,6 +280,11 @@ new file mode 100644
 +		H9J_Lower();
 +		return false;
 +	}
++	// the map is known from here on; a map change keeps the one it leaves beside the one it brings
++	Q_strncpy( from, h9j.map, sizeof( from ));
++	if( from[0] && Q_strcmp( from, clgame.mapname ))
++		H9J_Map( from, clgame.mapname );
++	else H9J_Map( clgame.mapname, "" );
 +	H9J_Stage( "Server info", 15.0f );
 +	return true;
 +}
@@ -394,6 +441,9 @@ new file mode 100644
 +	if( !h9j.up )
 +		return;
 +
++	// the server's own word for its mode comes in its serverinfo, after the map's name
++	H9J_Mode();
++
 +	remaining = host.downloadcount;
 +	if( remaining <= 0 && ( scr_download.value < 0.0f ))
 +	{
@@ -532,6 +582,9 @@ new file mode 100644
 +	Cvar_RegisterVariable( &h9join_up );
 +	Cvar_RegisterVariable( &h9join_stage );
 +	Cvar_RegisterVariable( &h9join_server );
++	Cvar_RegisterVariable( &h9join_map );
++	Cvar_RegisterVariable( &h9join_mapnext );
++	Cvar_RegisterVariable( &h9join_mode );
 +	Cvar_RegisterVariable( &h9join_file );
 +	Cvar_RegisterVariable( &h9join_fileprog );
 +	Cvar_RegisterVariable( &h9join_total );
