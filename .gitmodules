@@ -36,3 +36,6 @@
 	url = https://github.com/voidtools/ES.git
 	branch = main
 	ignore = dirty
+[submodule "bat2exe"]
+	path = bat2exe
+	url = https://github.com/julianollivieira/b2executable.git
