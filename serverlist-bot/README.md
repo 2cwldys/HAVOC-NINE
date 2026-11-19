@@ -93,6 +93,23 @@ looks at it every 15 seconds, and when the number changed it sets the bio and lo
 after the delivery. No restart and nothing to edit. `verify-release.ps1`, the last step of a deploy, waits up to two minutes for that line and prints PASS or FAIL for it.
 An empty `build_file` leaves the bio alone (a local test).
 
+## Announcing a release
+
+Set `release_channel` in `serverlist.ini` to a channel id and the bot posts one embed there when that same build number changes: "HAVOC 9 1.68", the download link, and how many servers
+are live at that moment. It rides the signal the bio already follows, which is the point. `downloads/.build` is written when the site is actually handing the build out, so the
+announcement cannot run ahead of the release. On 2026-11-19 the 1.68 package built, uploaded every file, and was then refused by the host's free-space check; nothing anywhere said so
+and the bio simply stayed on 1.66. Anything driven from the sending end would have announced a release that did not exist.
+
+The build it last announced is kept in `announced_build` beside `serverlist.ini`, because restarting the service must not post the same release again. The first run with no such file
+records what is being served and says nothing: announcing a release that happened before any of this existed would be wrong. Delete that file to have the current build announced once.
+The file is written only after Discord accepts the message, so an outage retries at the next look rather than losing the post.
+
+The embed is H9 orange. A Discord embed carries exactly one colour, so `release_image` is the only place the purple can go; an empty or unreachable URL simply leaves the image out.
+An empty `release_channel` means no announcement, and the bio still follows the build as before.
+
+It carries nothing but the build number, static text and a count: no addresses, no server names, no player names. The build is the string `build_file` held, and only after it matched
+`[0-9][A-Za-z0-9._-]{0,31}` -- the bot refuses anything else as "not a build number" and leaves both the bio and the announcement alone.
+
 ## Heartbeats
 
 A heartbeat adds a server. The list then keeps it the same way as any other, by querying it.
