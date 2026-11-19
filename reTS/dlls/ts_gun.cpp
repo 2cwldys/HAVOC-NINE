@@ -589,7 +589,10 @@ bool CTSGun::MultiplyClips()
 // sequence names — the original looks it up at init into the weapon anim set, item+0x28 +4).
 static const int s_drawSeq[TSW_COUNT] = {
 	1, 2, 4, 2, 5, 2, 4, 2, 2, 4, 5, 2, 2, 2, 2, 1, 4, 1, 2, 2,
-	5, 2, 2, 1, 1, 2, 7, 2, 3, 2, 1, 3, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2};
+	5, 2, 2, 1, 1, 2, 7, 2, 3, 2, 1, 3, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1};
+// [41] mechrocket draw = v_mechrocket.mdl seq 1 "draw". That model has six sequences of its own
+// (0 idle, 1 draw, 2 shoot, 3 shoot2, 4 reload, 5 stock), so the M4A1's 2 drew the launcher by
+// playing its shoot. Its anim block is set with the rest in compile_weapons_info.
 // [16] uzi_akimbo draw = v_uzi_akimbo.mdl seq 4 "akimbo_draw" (was 2 = "left_idle", a one-uzi looping
 // idle → the akimbo deployed showing ONE left-hand uzi for ~1s until the idle corrected). cont.89.
 

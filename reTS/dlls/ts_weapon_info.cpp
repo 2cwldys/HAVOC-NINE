@@ -1013,9 +1013,10 @@ void compile_weapons_info()
   }
 
   // Mech rocket launcher (H9 addition, table index TSW_MECHROCKET). It fires a rocket entity (CMechRocket, ts_mechrocket.cpp),
-  // not bullets. The row starts as the M4A1's, whole, so its animation blocks and its draw, fire and reload sequences are
-  // the M4A1's (models/h9/{v,p,w}_mechrocket.mdl keep that layout; a server without the files gives the row the M4A1's
-  // models). What is the launcher's own is set below: name, models, no fire sound (the launch sound is the server's), no
+  // not bullets. The row starts as the M4A1's, whole, but v_mechrocket.mdl carries six sequences of its own
+  // (0 idle, 1 draw, 2 shoot, 3 shoot2, 4 reload, 5 stock) where v_m4.mdl has sixteen, so the anim block is set below
+  // instead of inherited.
+  // What is the launcher's own is set below: name, models, no fire sound (the launch sound is the server's), no
   // shell, a four-rocket clip that one pull empties (a salvo of four rockets 0.12 s apart, 1.5 s from a salvo to the next
   // pull, 3.0 s to reload, the length of the viewmodel's reload sequence), two fire modes (the volley, the default, and one rocket a pull), the Barrett's caliber for
   // the reserve (the M60E3's belt is another, so the two never share one), a light weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or
@@ -1064,6 +1065,33 @@ void compile_weapons_info()
     r.iHoldFireAnim = -1;
     r.iHoldReloadAnim = -1;
     r.iIdleAnimHold = -1;
+    // The launcher's own viewmodel sequences. The client's fire handler plays the anim block, taking block [6]
+    // whenever the pull empties the clip and block [3 + RandomLong(0, 2)] otherwise; a salvo of four from a
+    // four-rocket clip empties it on every pull, and in semi mode block [4] comes up on a third of the shots.
+    // The M4A1's block holds sequence 4 at both of those entries, which on v_mechrocket.mdl is the 3 s reload,
+    // and sequence 1 at the reload entry, which is the draw.
+    static const short kMechRocketBlock[29] = {
+      0,  // [0] idle
+      4,  // [1] reload
+      1,  // [2] draw (s_drawSeq[TSW_MECHROCKET] in ts_gun.cpp carries the same index for the server's send)
+      2,  // [3] shoot
+      3,  // [4] shoot
+      2,  // [5] shoot
+      3,  // [6] shoot, on the pull that empties the clip
+      0,  // [7] empty idle
+      -1, -1, -1, -1, -1, -1, -1,  // [8..14] pump reload family: not a pump
+      -1, -1, -1, -1,              // [15..18] melee swings: not a blade
+      -1, -1, -1,                  // [19..21] grenade pin and throws
+      -1, -1, -1, -1, -1, -1,      // [22..27] akimbo barrels
+      -1,                          // [28] coldcock: iColdCockDamage is 0, the launcher cannot bash
+    };
+    for (int k = 0; k < 29; k++)
+    {
+      r.animBlock[k] = kMechRocketBlock[k];
+      r.animBlockHold[k] = -1; // no hold stance (iHoldChange -1), so the hold set is never read
+    }
+    r.iFireAnim = 2;   // "shoot"
+    r.iReloadAnim = 4; // "reload", the 3.03 s sequence that flReloadTime above matches
     r.iAkimboType = -1;
     r.iSingleType = TSW_MECHROCKET;
     SetSpartaWeapon(TSW_MECHROCKET, 0.0f, 6.0f, 0.0f, 200.0f);
