@@ -152,9 +152,10 @@ foreach ($l in $answer) {
 # host keeps a failed one so it can be looked at, so two failures in a row fill the disk. On
 # 2026-11-19 they did: the box reached zero bytes free, delta.py died mid-write, and sshd could no
 # longer complete a login, so the only way in to clear it was the provider's console. The host's own
-# receive-deploy.ps1 now refuses under 20 GB, but refusing there is still forty minutes of upload
-# spent first. Refusing here costs one ssh call. The number is deliberately the host's threshold plus
-# a margin, because the host needs room to take the delivery IN as well as to hold it.
+# receive-deploy.ps1 refuses too, but refusing there is forty minutes of upload spent first, so the
+# cheap check belongs here as well. Both are now sized to the delivery rather than fixed: a flat 20 GB
+# on the host turned a 0.25 GB delta away from a box with 8.9 GB free, after the upload had finished,
+# and 1.68 silently never landed. A delta exists so a small change is a small delivery.
 # A floor only. The real check is further down, once the size of THIS delivery is known: a flat
 # figure here either refuses a 200 MB delivery for no reason or waves through a 10 GB one. This
 # just refuses to begin against a host that is already at death's door, where even building the

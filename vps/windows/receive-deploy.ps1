@@ -181,7 +181,18 @@ function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-
 # delivery and the self folder are never touched, and neither is a recent failure -- there is still a
 # day to look at one.
 $KeepDays = 2
-$NeedGB = 20
+
+# How much room THIS delivery wants, measured, not assumed. The ingest unpacks the package and
+# writes its blobs into the store, so the figure is a multiple of the delivery itself plus a
+# working margin. It is deliberately not a flat number: on 2026-11-19 a flat 20 GB refused a
+# 0.25 GB delta on a box with 8.9 GB free, AFTER the upload had already finished -- so it cost
+# a full send, forty minutes, and a release that silently never landed. A delta exists so that
+# a small change is a small delivery; a fixed threshold throws that away and makes every
+# delivery as expensive as the largest one. The guard is right and stays. Its size was wrong.
+$deliveryBytes = (Get-ChildItem -LiteralPath $in -Recurse -File -Force -ErrorAction SilentlyContinue |
+                  Measure-Object -Property Length -Sum).Sum
+$deliveryGB = [math]::Round(([double]$deliveryBytes) / 1GB, 2)
+$NeedGB = [math]::Max(2.0, [math]::Round(($deliveryGB * 3) + 2, 1))
 $swept = 0
 $freed = 0L
 foreach ($d in Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue) {
@@ -204,7 +215,7 @@ if ($freeGB -lt $NeedGB) {
     $keep = Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -ne $in -and $_.Name -ne 'self' } |
             ForEach-Object { "    $($_.Name)  (last written $($_.LastWriteTime.ToString('yyyy-MM-dd')))" }
-    Write-Host "[FAIL] $freeGB GB free, and a delivery needs about $NeedGB GB to take in." -ForegroundColor Red
+    Write-Host "[FAIL] $freeGB GB free; this delivery is $deliveryGB GB and wants about $NeedGB GB to take in." -ForegroundColor Red
     Write-Host "  Nothing has been written, so the delivery is intact and can simply be run again."
     if ($keep) {
         Write-Host "  These deliveries are still here and are the usual thing to remove:"
