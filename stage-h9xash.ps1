@@ -185,6 +185,10 @@ if (-not $OutDir) { $OutDir = Join-Path $Here 'dist' }
 if (-not $StageDir) { $StageDir = Join-Path $OutDir '.stage' }
 if (-not $FilesDir) { $FilesDir = Join-Path $OutDir 'files' }
 if (-not $LinuxNative) { $LinuxNative = Join-Path $Here 'H9XASH-linux' }
+# H9XASH-Updater.exe, put inside the Windows ZIP so the download already carries the thing that
+# keeps the game current and fetches the HD textures. It is never staged, so it never lands in
+# manifest.json: see the note where the ZIP adds it.
+$UpdaterExe = Join-Path $OutDir 'H9XASH-Updater.exe'
 
 # ---- rules ----------------------------------------------------------------------------
 
@@ -958,6 +962,12 @@ if ($Lists) {
         $rows.Add([pscustomobject]@{ Path = 'H9XASH/' + $rel.Replace('\', '/'); Src = $f.FullName; When = $f.LastWriteTime })
         $winFiles++
     }
+    # the updater rides in the ZIP, never in the stage: see the note beside the other branch
+    if (Test-Path -LiteralPath $UpdaterExe) {
+        $ue = Get-Item -LiteralPath $UpdaterExe
+        $rows.Add([pscustomobject]@{ Path = 'H9XASH/H9XASH-Updater.exe'; Src = $ue.FullName; When = $ue.LastWriteTime })
+        $winFiles++
+    }
     Write-PackageList ($zipPath + '.list.json') $rows 0
     Say ("  {0:N0} files listed" -f $winFiles)
 } else {
@@ -975,6 +985,19 @@ try {
         if ($leaveOut.Contains($rel)) { continue }
         [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, $f.FullName, 'H9XASH/' + $rel.Replace('\', '/'), $level)
         $winFiles++
+    }
+    # H9XASH-Updater.exe rides in the ZIP so a player who downloads the game already has the thing
+    # that keeps it current and fetches the HD textures (--hd). It is added HERE, at zip time, and
+    # never put in the stage: the stage is what publish_files.py turns into manifest.json, and a
+    # managed updater would be asked to overwrite itself while it runs, which Windows refuses. Out
+    # of the manifest it is simply a file in the download. Run from inside the folder it works the
+    # same (choose_install_dir takes the exe's own folder when that looks like an H9XASH).
+    if (Test-Path -LiteralPath $UpdaterExe) {
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, (Resolve-Path -LiteralPath $UpdaterExe).Path, 'H9XASH/H9XASH-Updater.exe', $level)
+        $winFiles++
+        Say "  H9XASH-Updater.exe added to the ZIP (not manifest-managed)"
+    } else {
+        Say "  [warn] no $UpdaterExe : the ZIP ships without the updater"
     }
 } finally {
     $za.Dispose()
