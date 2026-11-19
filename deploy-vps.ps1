@@ -102,7 +102,9 @@ if (-not $NoBuild) {
 # receiver has run, so an older receiver meets a newer delivery: it refused the preset bundle ("a file this host does not take"). Before the host is
 # asked anything, any of the two that differs from this release's is sent and put in place. The host's SSH shell is cmd.
 if (-not $DryRun) {
-    $selfFiles = @('receive-deploy.ps1', 'delta.py')
+    # lockwatch.cmd travels with them: it is the thing to run when a received file stays unreadable
+    # for longer than the receiver's Sha() waits, and it is no use sitting in the repo instead.
+    $selfFiles = @('receive-deploy.ps1', 'delta.py', 'lockwatch.cmd')
     $selfStale = New-Object System.Collections.Generic.List[string]
     foreach ($n in $selfFiles) {
         $local = Join-Path $Here ('vps\windows\' + $n)

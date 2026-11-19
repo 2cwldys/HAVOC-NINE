@@ -70,7 +70,40 @@ $Delta = Join-Path $Root 'delta.py'
 $Store = Join-Path $Root 'store'
 $TreeFile = Join-Path $Dl '.trees.json'
 
-function Sha([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+# A file that has just arrived over SFTP can still be held by the session that wrote it, and the read
+# then fails with "The process cannot access the file because it is being used by another process".
+# That is not a bad file and not a bad delivery: it is a handle that has not closed yet. Two deliveries
+# of build 1.67 died here on 2026-11-19, both on blobs-6.tar, after all 10.9 GB had already arrived, and
+# the file hashed perfectly as soon as the handle went. A just-written file being briefly locked is
+# ordinary on Windows, so this waits for it instead of giving up on the first attempt: seven retries
+# over about 36 s, which costs nothing at all when the handle is already free.
+#
+# The hash is computed from a stream opened here, so the open that is retried is the same open that has
+# to succeed. Testing readability separately and then calling Get-FileHash would leave the identical
+# race in the gap between the two. A handle still held after all the retries is stuck rather than
+# closing: lockwatch.cmd releases a stale sftp-server, and h9_find_lock.ps1 names the holder when it is
+# an orphaned sshd session instead.
+function Sha([string]$Path) {
+    $delays = @(1, 2, 3, 5, 5, 8, 12)
+    for ($try = 0; ; $try++) {
+        try {
+            $fs = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+            try {
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '').ToLowerInvariant() }
+                finally { $sha.Dispose() }
+            }
+            finally { $fs.Dispose() }
+        }
+        catch [IO.IOException] {
+            if ($try -ge $delays.Count) {
+                throw "cannot read $Path after $try tries over $(($delays | Measure-Object -Sum).Sum) s: something is holding it open. h9_find_lock.ps1 names what, and lockwatch.cmd once releases a stale sftp-server."
+            }
+            Write-Host ("  {0}: still held by the session that wrote it, waiting {1} s" -f (Split-Path -Leaf $Path), $delays[$try])
+            Start-Sleep -Seconds $delays[$try]
+        }
+    }
+}
 
 # A child PowerShell script (setup.ps1, start-all.ps1 ...): its output shown, its exit code in $script:childExit. Under
 # $ErrorActionPreference 'Stop' a line a program writes to its error stream (Caddy logs its ordinary lines there) would stop
