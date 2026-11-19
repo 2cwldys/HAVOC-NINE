@@ -2004,6 +2004,16 @@ This is the same resolution the site already uses for its own map pictures (h9we
 
 The patch reverse-checks "in place" and the sections it does not own were compared byte for byte against the copy taken before the edit. Needs the next engine build (`xash.dll`); no menu or game-DLL change, and the browser build takes it at the next `webclient-sync`.
 
+### 2026-11-18 -- engine-h9-userinfo-client.patch: its number moved, its content did not
+
+No change to this patch. `chain lint` reports it as changed since the baseline
+(`f6d594056d08 -> d5abe2599143`) because the entry below inserts `engine-h9-png.patch` at
+#63, which moves this one from #63 to #64: the baseline's hash for one number is now the
+hash of the next. Its own sha256 is `d5abe2599143`, the value the baseline recorded for the
+number it used to hold, and `chain show 64` reads `dev in_place`. The entry exists so the
+lint has the dated heading it asks for, and so the next reader is not sent looking for a
+change that never happened.
+
 ### 2026-11-18 -- engine-h9-png.patch recorded: a materials replacement may be a .png
 
 The patch itself is not new -- it is applied in the tree and `xash.bat` has wired it at line 176, inside the `:ffmpeg_ready` block, for some time -- but it had no row in the table above and no entry here, so `chain lint` reported it twice: `LINT_PATCH_UNLOGGED` for #63 and `LINT_CHANGELOG_TABLE_MISSING`. Both are closed by this entry and the new row 60.
