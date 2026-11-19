@@ -876,13 +876,16 @@ def make_bot(state, settings):
         imported in this function on purpose: without a token the list runs on its own and the
         library need not be installed at all, so nothing outside this scope may name discord.
         """
+        # The title carries the link, so the body says the one thing a reader needs and stops.
+        # There was a line about the updater taking only what changed and a field naming the
+        # exe: the first repeated the title, and the second only looked like a download link
+        # without being one, since a field value renders markdown but was never a link here.
         embed = discord.Embed(
             title=f"HAVOC 9  {build}",
-            description="A new build is live. The updater takes only what changed.",
+            description="A new version is available.",
             colour=H9_ORANGE,
             url="https://havoc9.org/downloads/",
         )
-        embed.add_field(name="Get it", value="**H9XASH-Updater.exe**", inline=True)
 
         try:
             _served, answering, _silent = state.standing(settings.gamedir)
@@ -896,7 +899,8 @@ def make_bot(state, settings):
             # correctly, so this is safe to set before the artwork exists.
             embed.set_image(url=settings.release_image)
 
-        embed.set_footer(text="havoc9.org")
+        # No footer text: the site name added nothing the linked title does not already say.
+        # The timestamp stands on its own, where Discord shows it in each reader's own clock.
         embed.timestamp = datetime.now(timezone.utc)
         return embed
 
