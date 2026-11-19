@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "1.66"
+#define VERSION "1.68"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which
@@ -5942,6 +5942,7 @@ public plugin_natives()
 	register_native("tsm_match_desc",    "native_match_desc");
 	register_native("tsm_set_class",     "native_set_class");
 	register_native("tsm_class_hp",      "native_class_hp");
+	register_native("tsm_class_of",      "native_class_of");
 	register_native("tsm_set_progress",  "native_set_progress");
 	register_native("tsm_refresh_abilities", "native_refresh_abilities");
 	register_native("tsm_class_count",   "native_class_count");
@@ -28769,6 +28770,19 @@ public native_class_hp(plugin, params)
 	}
 	new ci = resolved_class(id) - 1;
 	return (ci >= 0 && ci < g_class_count) ? g_class_hp[ci] : 0;
+}
+
+// The class a player is playing, for a mode plugin that has to tell its own classes apart
+// (ts_mechwarrior asks which players are the Mech). The same resolution the health, armour,
+// model and perk come from, so it never names a class the player is not actually on.
+public native_class_of(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id > g_maxplayers || !g_class_count)
+	{
+		return 0;
+	}
+	return resolved_class(id);
 }
 
 print_status(id)

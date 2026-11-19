@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "1.66"
+#define VERSION "1.68"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which

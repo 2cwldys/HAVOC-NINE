@@ -3015,7 +3015,14 @@ H9_PlaqueAdd(Kind,const Text[],{Float,Sql,Result,_}:...)
 	if(g_PlaqueNum >= PLAQUE_LINES)
 		return
 
-	vformat(g_PlaqueText[g_PlaqueNum],HUDP_LINE_LEN - 1,Text,3)
+	// H9: vformat reads argument 3 of THIS call, so a caller that passes a plain string and no
+	// format arguments made it read one that was never passed: AMX_ERR_PARAMS, which the log
+	// records as "Run time error 25" against ARP_Core and which aborts the function that was
+	// running. Four callers below do exactly that, "Status: Locked" among them, so it fired for
+	// nearly every property plaque drawn
+	if(numargs() > 2)
+		vformat(g_PlaqueText[g_PlaqueNum],HUDP_LINE_LEN - 1,Text,3)
+	else copy(g_PlaqueText[g_PlaqueNum],HUDP_LINE_LEN - 1,Text)
 	g_PlaqueKind[g_PlaqueNum++] = Kind
 }
 
@@ -5006,7 +5013,10 @@ public _ARP_ClientPrint(Plugin,Params)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
 	}
 	
-	vformat(g_Query,4095,g_Query,3)
+	// H9: only when the caller passed format arguments; ARP_ClientPrint(id,"plain text") is two
+	// arguments and vformat would read a third
+	if(Params >= 3)
+		vformat(g_Query,4095,g_Query,3)
 	
 	UTIL_ARP_ClientPrint(id,g_Query)
 	
@@ -6666,7 +6676,7 @@ public _ARP_RegisterNpc(Plugin,Params)
 	entity_set_model(Ent,Model)
 	entity_set_origin(Ent,Origin)
 	entity_set_size(Ent,Float:{-16.0,-16.0,-36.0},Float:{16.0,16.0,36.0})
-	// H9: an invisible terminal (the bank kiosks, models/player/Invisible/Invisible.mdl) is SOLID_NOT so players pass through it; the use key still
+	// H9: an invisible terminal (the bank kiosks, models/player/Invisible/invisible.mdl) is SOLID_NOT so players pass through it; the use key still
 	// reaches it by distance in client_PreThink (the invisible-NPC loop), the same way a zone NPC is used.
 	entity_set_int(Ent,EV_INT_solid,(containi(Model,"invisible") != -1) ? SOLID_NOT : SOLID_BBOX)
 	entity_set_byte(Ent,EV_BYTE_controller1,125)
@@ -7093,7 +7103,10 @@ public _ARP_ThrowError(Plugin,Params)
 	get_string(2,g_Query,4095)
 	new Mode = get_param(1)
 	
-	vformat(g_Query,4095,g_Query,3)
+	// H9: as above, and it matters most here: ARP_ThrowError(mode,"plain message") made the error
+	// reporter itself throw AMX_ERR_PARAMS instead of reporting what went wrong
+	if(Params >= 3)
+		vformat(g_Query,4095,g_Query,3)
 	
 	UTIL_ARP_ThrowError(0,Mode,g_Query,Plugin)
 	
@@ -8327,7 +8340,15 @@ UTIL_ARP_ThrowError(Error,Fatal,Message[],Plugin)
 
 UTIL_ARP_ClientPrint(id,Message[],{Float,Sql,Result,_}:...)
 {
-	vformat(g_Query,4095,Message,3)
+	// H9: the same AMX_ERR_PARAMS as H9_PlaqueAdd. _ARP_ClientPrint formats its message and then
+	// calls this with the result ALONE, so vformat read argument 3 of a two-argument call: that
+	// is the error 25 every ARP_ClientPrint threw, and the "error 10 ... native ARP_ClientPrint"
+	// its caller was given with it. Copying an already-formatted string rather than formatting it
+	// again is independently right: a per cent sign in a player's own text is text, not a format
+	// specifier
+	if(numargs() > 2)
+		vformat(g_Query,4095,Message,3)
+	else copy(g_Query,4095,Message)
 	
 	//if(equali(g_Query,g_LastMsg[id]))
 	//	return

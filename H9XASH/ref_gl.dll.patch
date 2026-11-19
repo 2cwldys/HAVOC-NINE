@@ -16,6 +16,7 @@ The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scen
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin), engine-h9-brushshell.patch (kRenderFxGlowShell drawn on a brush entity too, its faces again pushed out, additive, in its rendercolor: ts_matchmode's siege objectives) and engine-h9-serverfog.patch (the server's movevars fog, sudden death's bog, drawn whatever gl_fog says: The Specialists' client.dll registers its own gl_fog with a default of 0, which the engine gives the existing cvar). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin), engine-h9-brushshell.patch (kRenderFxGlowShell drawn on a brush entity too, its faces again pushed out, additive, in its rendercolor: ts_matchmode's siege objectives) and engine-h9-serverfog.patch (the server's movevars fog, sudden death's bog, drawn whatever gl_fog says: The Specialists' client.dll registers its own gl_fog with a default of 0, which the engine gives the existing cvar) and engine-h9-glowfix.patch (R_Set2DMode binds GL_MODULATE before the bloom compose: a studio draw leaves GL_REPLACE bound, which dropped the blur taps' weights and blew a glowing mesh out to a white square). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin), engine-h9-brushshell.patch (kRenderFxGlowShell drawn on a brush entity too, its faces again pushed out, additive, in its rendercolor: ts_matchmode's siege objectives) and engine-h9-serverfog.patch (the server's movevars fog, sudden death's bog, drawn whatever gl_fog says: The Specialists' client.dll registers its own gl_fog with a default of 0, which the engine gives the existing cvar) and engine-h9-glowfix.patch (R_Set2DMode binds GL_MODULATE before the bloom compose: a studio draw leaves GL_REPLACE bound, which dropped the blur taps' weights and blew a glowing mesh out to a white square) and engine-h9-upscale.patch (h9_upscale: the scene target's blit into the screen target drawn by AMD FidelityFX Super Resolution 1.0, EASU then RCAS, as GLSL 1.10 shaders through the ARB shader objects, in the new file gl_upscale.c under AMD's MIT licence, which ships beside this DLL as ref_gl.FSR1-LICENSE.txt; with h9_upscale 0 the plain blit is untouched; the OpenGL ES and WebGL renderers compile it to a stub; see docs\H9_UPSCALE.txt). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
+engine-h9-png.patch: a materials replacement may be a .png as well as a .tga, and a .png is preferred when both are there -- the same pixels in 41 percent of the bytes.
 == Patch history ==
 Generated Wed 10/21/2026 23:42:17.30, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -860,6 +861,23 @@ Lines of the previous diff that this build replaced, kept here:
 +CVAR_DEFINE_AUTO( h9_upscale, "0", FCVAR_GLCONFIG, "upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on)" );
 Diff sha256 06e8f7362a823a5a3c065a2c964ff7c03348a786c7ceb15602313ad5eb904bf0, the diff below.
 
+Generated Wed 11/18/2026 22:07:46.51, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M ref/gl/gl_draw.c
+ M ref/gl/gl_fbo.c
+ M ref/gl/gl_image.c
+ M ref/gl/gl_local.h
+ M ref/gl/gl_opengl.c
+ M ref/gl/gl_rmain.c
+ M ref/gl/gl_rsurf.c
+ M ref/gl/gl_studio.c
+?? ref/gl/gl_upscale.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
+Diff sha256 4850d3bb93b840e43e4a4cf566c62f2c1554d9a266bb8b4a4df9c06ea3c9c6b2, the diff below.
+
 diff --git a/ref/gl/gl2_shim/fragment.glsl.inc b/ref/gl/gl2_shim/fragment.glsl.inc
 index 803bc2bf..8ecdcad1 100644
 --- a/ref/gl/gl2_shim/fragment.glsl.inc
@@ -1314,6 +1332,33 @@ index 4d063a62..cfb5fa3d 100644
  		if( GL_Support( GL_FRAMEBUFFER_BLIT_EXT ))
  		{
  			GL_BlitTarget( &tr.targets.scene, screen->fbo, screen->width, screen->height, filter );
+diff --git a/ref/gl/gl_image.c b/ref/gl/gl_image.c
+index fb0af14f..9b7b2530 100644
+--- a/ref/gl/gl_image.c
++++ b/ref/gl/gl_image.c
+@@ -2125,6 +2125,22 @@ qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *mode
+ 		return false;
+ 	}
+ 
++	// H9: prefer a PNG replacement over the TGA of the same name. Mod_MaterialExists in
++	// engine/common/mod_bmodel.c carries the reasoning; this is the renderer's half of it, for
++	// studio model skins. The path is rewritten in place so the report and the load that follows
++	// both name the file that was really found.
++	{
++		char *dot = Q_strrchr( out, '.' );
++
++		if( dot != NULL && (size_t)( dot - out ) + 5 <= size )
++		{
++			memcpy( dot, ".png", 5 );
++			if( gEngfuncs.fsapi->FileExists( out, false ))
++				return true;
++			memcpy( dot, ".tga", 5 );
++		}
++	}
++
+ 	if( gEngfuncs.fsapi->FileExists( out, false ))
+ 		return true;
+ 
 diff --git a/ref/gl/gl_local.h b/ref/gl/gl_local.h
 index 1e4d23e9..b3bcba4a 100644
 --- a/ref/gl/gl_local.h

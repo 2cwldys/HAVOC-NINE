@@ -1,1 +1,1 @@
-#define H9_RELEASE "1.66"
+#define H9_RELEASE "1.68"

@@ -954,3 +954,32 @@ both locations, with the game client closed.
 
 Original: cfc60e4e96c51903e6ef7d2b9839b3b7
 Patched : 74fc8b3039032a31f7d81440bbde0e80
+
+Mech rocket launcher viewmodel sequences (2026-11-18)
+-------------------------------------------------------------
+
+The Mech rocket launcher's weapon row (TSW_MECHROCKET) starts as a whole copy of the M4A1's, so
+it inherited the M4A1's viewmodel anim block as well. models/h9/v_mechrocket.mdl carries six
+sequences of its own -- 0 idle, 1 draw, 2 shoot, 3 shoot2, 4 reload, 5 stock -- where v_m4.mdl
+has sixteen, so the inherited indices landed on the wrong sequences. The M4A1's block holds
+sequence 4 at the shoot entries [4] and [6], which on this model is the 3.03 s reload, and
+sequence 1 at the reload entry [1], which is the draw.
+
+The client's fire handler plays block [6] when the pull empties the clip and block
+[3 + RandomLong(0, 2)] otherwise. A salvo of four rockets from a four-rocket clip empties it on
+every pull, so a volley always took [6]; in semi mode [4] came up on about a third of the shots.
+Either way the launcher played its own reload animation in place of a shot, and a real reload
+played the draw while the draw played a shot.
+
+The row now sets its own anim block (idle 0, reload 4, draw 1, the shoots 2/3/2/3, empty idle 0,
+the pump, melee, grenade and akimbo entries unset, and coldcock unset because iColdCockDamage is
+0 for this weapon), its own iFireAnim 2 and iReloadAnim 4, and an all-unset hold set because the
+launcher has no hold stance. s_drawSeq[TSW_MECHROCKET] in dlls/ts_gun.cpp goes from 2 to 1 for
+the same reason: the server's draw was sending the launcher's shoot sequence. No other weapon's
+block is touched and the M4A1's own block is unchanged.
+
+Source: reTS dlls/ts_weapon_info.cpp (the TSW_MECHROCKET row) and dlls/ts_gun.cpp (s_drawSeq).
+Built from source rather than applied as a binary patch, so this entry's hash below supersedes
+the Patched line earlier in this file.
+
+client.dll MD5 : a8fdbfbbc69347deeae451f3725ad5b4
