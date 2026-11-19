@@ -697,6 +697,18 @@ index 7b963c4..d8073c8 100644
  
  	cls.state = ca_connecting;
  	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
+@@ -2819,7 +2836,10 @@ static void CL_ClientConnect( connprotocol_t proto, const char *c, netadr_t from )
+ 	}
+ 
+ 	CL_Reconnect( true );
+-	UI_SetActiveMenu( cl.background );
++	// H9: the join screen keeps the menu up from the server's answer to the game (cl_h9join.c);
++	// without this it was taken down the moment the server accepted, long before the player saw it
++	if( !CL_H9Join_Up( ))
++		UI_SetActiveMenu( cl.background );
+ }
+ 
+ static void CL_Print( const char *c, const char *args, netadr_t from, sizebuf_t *msg )
 @@ -2896,6 +2913,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  	if( !CL_IsFromConnectingServer( from ))
  		return;
@@ -797,6 +809,35 @@ index 7b963c4..d8073c8 100644
  
  	Cvar_RegisterVariable( &cl_trace_consistency );
  	Cvar_RegisterVariable( &cl_trace_stufftext );
+diff --git a/engine/client/cl_scrn.c b/engine/client/cl_scrn.c
+--- a/engine/client/cl_scrn.c
++++ b/engine/client/cl_scrn.c
+@@ -496,7 +496,8 @@ void SCR_BeginLoadingPlaque( qboolean is_background )
+ 	S_StopAllSounds( true );
+ 	cl.audio_prepped = false;			// don't play ambients
+ 
+-	if( cls.key_dest == key_menu && !cls.changedemo && !is_background )
++	// H9: the join screen is the menu, and it stays up through the load (cl_h9join.c)
++	if( cls.key_dest == key_menu && !cls.changedemo && !is_background && !CL_H9Join_Up( ))
+ 	{
+ 		UI_SetActiveMenu( false );
+ 		if( cls.state == ca_disconnected && !(GameState->curstate == STATE_RUNFRAME && GameState->nextstate != STATE_RUNFRAME) )
+diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
+--- a/engine/client/cl_view.c
++++ b/engine/client/cl_view.c
+@@ -344,7 +344,11 @@ qboolean V_PreRender( void )
+ 			Con_Reportf( "%s: loading plaque timed out\n", __func__ );
+ 			cls.disable_screen = 0.0f;
+ 		}
+-		return false;
++		// H9: the join screen draws the load itself, where the plaque leaves the last frame standing
++		// (cl_h9join.c). This game's own server sets the plaque in Host_NewGame, before the client's
++		// join begins, so without this the screen comes up over a picture nothing ever redraws
++		if( !CL_H9Join_Up( ))
++			return false;
+ 	}
+ 
+ 	V_CheckGamma();
 diff --git a/engine/client/client.h b/engine/client/client.h
 index 9db8a0b..c4fc70b 100644
 --- a/engine/client/client.h

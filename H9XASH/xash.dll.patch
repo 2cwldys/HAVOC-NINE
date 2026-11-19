@@ -32,6 +32,7 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer paints 0.2 s ahead and skips the time a long frame already played instead of painting into it; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever _snd_mixahead says; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), engine-h9-webmenu.patch (the browser build only: the main menu's background video decoded by the page and drawn by the engine, and quit and minimize handed to the page; this Windows build compiles as before), engine-h9-phsbudget.patch (no PHS for a world whose PHS would take more than 192 MB, so a map of tens of thousands of leaves loads on a multiplayer server, its sounds reaching every player; below that the PHS is allocated once instead of once per row), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+engine-h9-png.patch
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -4590,6 +4591,237 @@ Lines of the previous diff that this build replaced, kept here:
 +		CL_H9PacketUserinfo( cl_h9_packetinfo, sizeof( cl_h9_packetinfo ));
 Diff sha256 86fd80d2ff5bbe14a30467c918bff5e80967c8dd45a95a0c525eaf934ac4dc1b, the diff below.
 
+Generated Wed 11/18/2026 22:07:42.82, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
+Diff sha256 eb908dbf0d815e9a1c8c64c05822502cb37d41b270f131fee2a85cb8ff871440, the diff below.
+
+Generated Wed 11/18/2026 22:23:15.57, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++the alive counts. The large image is the map's snapshot, named after the map in the
++application's art assets. The two buttons link to the Discord invite and the site. The party
++	char		e_details[192], e_state[320], e_map[160], e_title[320], party[64];
++	H9P_Escape( e_map, sizeof( e_map ), h9p.map );
++		e_details, e_state, h9p.start, party, e_map, e_title, H9P_SMALL_KEY,
+Diff sha256 eef2a3ac279cfb631dad47b5cb8b8895f4d9e626f7f2a18e32472d2cfc0f594d, the diff below.
+
+Generated Thu 11/19/2026  2:06:17.75, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 fafb59b8526a5b48bf7b09adef8721881a8e9c49b55adb5304d9e4c57355993a, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -6121,10 +6353,10 @@ index 00000000..0b1c1435
 +}
 diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
-index 00000000..a4a6f0dd
+index 00000000..4fc5d0de
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,588 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -6144,7 +6376,8 @@ index 00000000..a4a6f0dd
 +hooks (menu_int.h's UI_EXTENDED_FUNCTIONS: H9's mainui, menus/ConnectionProgress.cpp as
 +mainui-h9-joinscreen.patch makes it), the menu stays up from the moment a join starts (connect, retry,
 +the local server's own client) and at each map change (svc_changing, reconnect) until the player is in
-+the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
++the game (ca_active): its background, or its video, full screen, and a panel with the map it loads (both
++maps, while a map change is on), the mode that map plays and the server under them, the stage, an overall
 +bar (scr_loading) and, while a file downloads, its name, n of N and its own bar with KB of KB, over H9's
 +HTTP fast download or the netchan, and the downloads together (the bytes done and to go, the time that takes)
 +under the bar. ESC on it cancels the join. A join or a game the server or the engine
@@ -6156,6 +6389,12 @@ index 00000000..a4a6f0dd
 +  _h9join_stage     what happens: Connecting, Server info, Downloading, Loading the map, Precaching
 +                    resources, Spawning, Changing level
 +  _h9join_server    the server it joins (its address; the local server says so)
++  _h9join_map       the map it loads, or the one left behind while a map change is on; empty while the
++                    address is all that is known
++  _h9join_mapnext   the map a map change brings, from the moment that map's server info says so; empty
++                    without one
++  _h9join_mode      the mode that map and the server's own word name (CL_H9_ModeName); empty when neither
++                    names one
 +  _h9join_file      the file downloading, "<name>   n of N   a of b KB"; empty without a download
 +  _h9join_fileprog  that file's bar, 0 to 100
 +  _h9join_total     the downloads together: "<done> of <all>   <left> to go   about <time> left" ("<done> so far"
@@ -6185,6 +6424,9 @@ index 00000000..a4a6f0dd
 +static CVAR_DEFINE( h9join_up, "_h9join", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: 1 while the join screen is up (set by the engine)" );
 +static CVAR_DEFINE( h9join_stage, "_h9join_stage", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the join screen's stage (set by the engine)" );
 +static CVAR_DEFINE( h9join_server, "_h9join_server", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the server the join screen joins (set by the engine)" );
++static CVAR_DEFINE( h9join_map, "_h9join_map", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the map the join screen loads (set by the engine)" );
++static CVAR_DEFINE( h9join_mapnext, "_h9join_mapnext", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the map a map change brings, for the join screen (set by the engine)" );
++static CVAR_DEFINE( h9join_mode, "_h9join_mode", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the mode that map plays, for the join screen (set by the engine)" );
 +static CVAR_DEFINE( h9join_file, "_h9join_file", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the file the join screen downloads (set by the engine)" );
 +static CVAR_DEFINE( h9join_fileprog, "_h9join_fileprog", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: that file's progress, 0 to 100 (set by the engine)" );
 +static CVAR_DEFINE( h9join_total, "_h9join_total", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the downloads together, for the join screen (set by the engine)" );
@@ -6193,6 +6435,8 @@ index 00000000..a4a6f0dd
 +static struct
 +{
 +	qboolean up;          // the screen is up, for a join or a map change this file began
++	char     map[64];     // the map joined, or the one left behind while a map change is on, "" while not known
++	char     mapnext[64]; // the map that change brings, "" without one
 +	int      files;       // the downloads this join counted when they began (n of N), 0 before
 +	int      dl_done;     // the bytes of the files this join's downloads have finished
 +	int      dl_got;      // the bytes of the file coming now, so far
@@ -6212,6 +6456,30 @@ index 00000000..a4a6f0dd
 +{
 +	if( Q_strcmp( cv->string, value ))
 +		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// the mode the map being loaded plays, from its name and the server's own word for it
++static void H9J_Mode( void )
++{
++	// Info_ValueForKey hands back one of the buffers it reuses, so each value is copied out at once
++	char		key[32], siege[16];
++	const char	*map = h9j.mapnext[0] ? h9j.mapnext : h9j.map;
++	const char	*mode;
++
++	Q_strncpy( key, Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" ), sizeof( key ));
++	Q_strncpy( siege, Info_ValueForKey( cl.serverinfo, "tsm_pres_siege" ), sizeof( siege ));
++	mode = CL_H9_ModeName( map, key, siege );
++	H9J_Set( &h9join_mode, mode ? mode : "" );
++}
++
++// the map the screen names, and with it the mode: "" for a map that is not known yet
++static void H9J_Map( const char *map, const char *next )
++{
++	Q_strncpy( h9j.map, map, sizeof( h9j.map ));
++	Q_strncpy( h9j.mapnext, next, sizeof( h9j.mapnext ));
++	H9J_Set( &h9join_map, h9j.map );
++	H9J_Set( &h9join_mapnext, h9j.mapnext );
++	H9J_Mode();
 +}
 +
 +// no download is coming: the file, its bar and the totals go, and the next ones are counted from nothing
@@ -6271,6 +6539,7 @@ index 00000000..a4a6f0dd
 +	h9j.reason[0] = '\0';
 +	H9J_Set( &h9_drop, "" );
 +	H9J_Set( &h9join_server, server );
++	H9J_Map( "", "" );
 +	H9J_NoDownload();
 +	Cvar_SetValue( "scr_loading", 0.0f );
 +	H9J_Stage( stage, loading );
@@ -6288,6 +6557,7 @@ index 00000000..a4a6f0dd
 +	h9j.up = false;
 +	H9J_Set( &h9join_up, "0" );
 +	H9J_Set( &h9join_stage, "" );
++	H9J_Map( "", "" );
 +	H9J_NoDownload();
 +}
 +
@@ -6340,6 +6610,8 @@ index 00000000..a4a6f0dd
 +	if( !H9J_Usable( ) || h9j.up || cls.state == ca_disconnected || cl.background || ( SV_Active( ) && sv_background.value ))
 +		return;
 +	H9J_Raise( cls.servername, "Changing level", 5.0f );
++	// the map being left: the next one's name comes with its server info, and the two show together
++	H9J_Map( clgame.mapname, "" );
 +	gameui.dllFuncs2.pfnConnectionProgress_ChangeLevel( );
 +}
 +
@@ -6353,6 +6625,8 @@ index 00000000..a4a6f0dd
 +*/
 +qboolean CL_H9Join_ServerInfo( void )
 +{
++	char	from[sizeof( h9j.map )];
++
 +	if( !h9j.up )
 +		return false;
 +	if( cl.background || cls.demoplayback )
@@ -6360,6 +6634,11 @@ index 00000000..a4a6f0dd
 +		H9J_Lower();
 +		return false;
 +	}
++	// the map is known from here on; a map change keeps the one it leaves beside the one it brings
++	Q_strncpy( from, h9j.map, sizeof( from ));
++	if( from[0] && Q_strcmp( from, clgame.mapname ))
++		H9J_Map( from, clgame.mapname );
++	else H9J_Map( clgame.mapname, "" );
 +	H9J_Stage( "Server info", 15.0f );
 +	return true;
 +}
@@ -6516,6 +6795,9 @@ index 00000000..a4a6f0dd
 +	if( !h9j.up )
 +		return;
 +
++	// the server's own word for its mode comes in its serverinfo, after the map's name
++	H9J_Mode();
++
 +	remaining = host.downloadcount;
 +	if( remaining <= 0 && ( scr_download.value < 0.0f ))
 +	{
@@ -6654,6 +6936,9 @@ index 00000000..a4a6f0dd
 +	Cvar_RegisterVariable( &h9join_up );
 +	Cvar_RegisterVariable( &h9join_stage );
 +	Cvar_RegisterVariable( &h9join_server );
++	Cvar_RegisterVariable( &h9join_map );
++	Cvar_RegisterVariable( &h9join_mapnext );
++	Cvar_RegisterVariable( &h9join_mode );
 +	Cvar_RegisterVariable( &h9join_file );
 +	Cvar_RegisterVariable( &h9join_fileprog );
 +	Cvar_RegisterVariable( &h9join_total );
@@ -9332,7 +9617,7 @@ index 00000000..d88a23a2
 +#endif // XASH_EMSCRIPTEN
 +#endif // H9_IDPROOF_SELFTEST
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..adc559e4 100644
+index 39e4f9c2..9aff4c8b 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -16,6 +16,7 @@ GNU General Public License for more details.
@@ -9925,7 +10210,19 @@ index 39e4f9c2..adc559e4 100644
  
  	// write host last so we can try to cut off too long hostnames
  	// TODO: value size limit for infostrings
-@@ -2745,6 +3045,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2666,7 +2966,10 @@ static void CL_ClientConnect( connprotocol_t proto, const char *c, netadr_t from
+ 	}
+ 
+ 	CL_Reconnect( true );
+-	UI_SetActiveMenu( cl.background );
++	// H9: the join screen keeps the menu up from the server's answer to the game (cl_h9join.c);
++	// without this it was taken down the moment the server accepted, long before the player saw it
++	if( !CL_H9Join_Up( ))
++		UI_SetActiveMenu( cl.background );
+ }
+ 
+ static void CL_Print( const char *c, const char *args, netadr_t from, sizebuf_t *msg )
+@@ -2745,6 +3048,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  	if( !CL_IsFromConnectingServer( from ))
  		return;
  
@@ -9933,7 +10230,7 @@ index 39e4f9c2..adc559e4 100644
  	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
  	{
  		const char *s = MSG_ReadString( msg );
-@@ -2762,8 +3063,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2762,8 +3066,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
  	}
  
@@ -9952,7 +10249,7 @@ index 39e4f9c2..adc559e4 100644
  		Msg( "%s\n", formatted_msg );
  
  	// don't disconnect, errormsg is a FWGS extension and
-@@ -3142,6 +3452,7 @@ static void CL_ReadPackets( void )
+@@ -3142,6 +3455,7 @@ static void CL_ReadPackets( void )
  		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
  		{
  			Con_Printf( "\nServer connection timed out.\n" );
@@ -9960,7 +10257,7 @@ index 39e4f9c2..adc559e4 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -3221,6 +3532,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3221,6 +3535,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  	else if( !successfully_received )
  	{
  		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
@@ -9968,7 +10265,7 @@ index 39e4f9c2..adc559e4 100644
  	}
  
  	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
-@@ -3298,7 +3610,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3298,7 +3613,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  
  			MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
  
@@ -9977,7 +10274,7 @@ index 39e4f9c2..adc559e4 100644
  				CL_RegisterResources( &msg, cls.net_protocol );
  
  			if( MSG_GetNumBytesWritten( &msg ) > 0 )
-@@ -3456,6 +3768,8 @@ qboolean CL_PrecacheResources( void )
+@@ -3456,6 +3771,8 @@ qboolean CL_PrecacheResources( void )
  {
  	resource_t	*pRes;
  
@@ -9986,7 +10283,7 @@ index 39e4f9c2..adc559e4 100644
  	// if we downloaded new WAD files or any other archives they must be added to searchpath
  	if( CL_ShouldRescanFilesystem( ))
  		FS_Rescan_f();
-@@ -3469,6 +3783,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3469,6 +3786,7 @@ qboolean CL_PrecacheResources( void )
  		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
  			continue;
  
@@ -9994,7 +10291,7 @@ index 39e4f9c2..adc559e4 100644
  		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
  		SetBits( pRes->ucFlags, RES_PRECACHED );
  		cl.nummodels = 1;
-@@ -3493,6 +3808,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3493,6 +3811,7 @@ qboolean CL_PrecacheResources( void )
  
  				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  				{
@@ -10002,7 +10299,7 @@ index 39e4f9c2..adc559e4 100644
  					CL_Disconnect_f();
  					return false;
  				}
-@@ -3509,6 +3825,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3509,6 +3828,7 @@ qboolean CL_PrecacheResources( void )
  		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
  			continue;
  
@@ -10010,7 +10307,7 @@ index 39e4f9c2..adc559e4 100644
  		switch( pRes->type )
  		{
  		case t_sound:
-@@ -3529,6 +3846,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3529,6 +3849,7 @@ qboolean CL_PrecacheResources( void )
  					{
  						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  						{
@@ -10018,7 +10315,7 @@ index 39e4f9c2..adc559e4 100644
  							S_EndRegistration();
  							CL_Disconnect_f();
  							return false;
-@@ -3558,6 +3876,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3558,6 +3879,7 @@ qboolean CL_PrecacheResources( void )
  						{
  							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  							{
@@ -10026,7 +10323,7 @@ index 39e4f9c2..adc559e4 100644
  								S_EndRegistration();
  								CL_Disconnect_f();
  								return false;
-@@ -3675,9 +3994,11 @@ static void CL_InitLocal( void )
+@@ -3675,9 +3997,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -10038,7 +10335,7 @@ index 39e4f9c2..adc559e4 100644
  
  	Cvar_RegisterVariable( &showpause );
  	Cvar_RegisterVariable( &mp_decals );
-@@ -3688,9 +4009,11 @@ static void CL_InitLocal( void )
+@@ -3688,9 +4012,11 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_download_ingame );
  	Cvar_RegisterVariable( &cl_logofile );
  	Cvar_RegisterVariable( &cl_logocolor );
@@ -10050,7 +10347,7 @@ index 39e4f9c2..adc559e4 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -3708,6 +4031,7 @@ static void CL_InitLocal( void )
+@@ -3708,6 +4034,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &hud_utf8 );
  
  	Cvar_RegisterVariable( &rcon_address );
@@ -10058,7 +10355,7 @@ index 39e4f9c2..adc559e4 100644
  
  	Cvar_RegisterVariable( &cl_trace_consistency );
  	Cvar_RegisterVariable( &cl_trace_stufftext );
-@@ -3746,6 +4070,7 @@ static void CL_InitLocal( void )
+@@ -3746,6 +4073,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_bmodelinterp );
  	Cvar_RegisterVariable( &cl_clockreset );
  	Cvar_RegisterVariable( &cl_fixtimerate );
@@ -10066,7 +10363,7 @@ index 39e4f9c2..adc559e4 100644
  	Cvar_RegisterVariable( &hud_fontscale );
  	Cvar_RegisterVariable( &hud_fontrender );
  	Cvar_RegisterVariable( &hud_scale );
-@@ -3825,6 +4150,7 @@ static void CL_InitLocal( void )
+@@ -3825,6 +4153,7 @@ static void CL_InitLocal( void )
  	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
  
  	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
@@ -10074,7 +10371,7 @@ index 39e4f9c2..adc559e4 100644
  }
  
  //============================================================================
-@@ -3941,6 +4267,9 @@ void Host_ClientFrame( void )
+@@ -3941,6 +4270,9 @@ void Host_ClientFrame( void )
  	// handle spectator movement
  	CL_MoveSpectatorCamera();
  
@@ -10084,7 +10381,7 @@ index 39e4f9c2..adc559e4 100644
  	// catch changes video settings
  	VID_CheckChanges();
  
-@@ -3974,6 +4303,7 @@ void CL_Init( void )
+@@ -3974,6 +4306,7 @@ void CL_Init( void )
  	CL_InitLocal();
  
  	VID_Init();	// init video
@@ -10092,7 +10389,7 @@ index 39e4f9c2..adc559e4 100644
  
  	// unreliable buffer. unsed for unreliable commands and voice stream
  	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
-@@ -3981,20 +4311,24 @@ void CL_Init( void )
+@@ -3981,20 +4314,24 @@ void CL_Init( void )
  	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
  
  	S_Init();	// init sound
@@ -10117,7 +10414,7 @@ index 39e4f9c2..adc559e4 100644
  }
  
  /*
-@@ -4005,6 +4339,7 @@ CL_Shutdown
+@@ -4005,6 +4342,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -10125,7 +10422,7 @@ index 39e4f9c2..adc559e4 100644
  	Con_Printf( "%s()\n", __func__ );
  
  	if( host.status != HOST_CRASHED && cls.initialized )
-@@ -4014,6 +4349,7 @@ void CL_Shutdown( void )
+@@ -4014,6 +4352,7 @@ void CL_Shutdown( void )
  		Touch_WriteConfig();
  	}
  
@@ -12123,10 +12420,10 @@ index 00000000..c019dcaa
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..e470537e
+index 00000000..afc81c4f
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,733 @@
+@@ -0,0 +1,761 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
@@ -12531,12 +12828,40 @@ index 00000000..e470537e
 +all), each side's captures in Capture the Flag (tsm_pres_prog "1/2/3": side 1's, side 2's, the
 +captures that win), the wave in Wave Survival. State is the players alive on each side out
 +of the total, the bots, and the map, or the totals alone from a plugin that does not publish
-+the alive counts. The large image is the map's snapshot, named after the map in the
-+application's art assets. The two buttons link to the Discord invite and the site. The party
++the alive counts. The large image is the place's snapshot, named after the base map in the
++application's art assets (H9P_ImageKey). The two buttons link to the Discord invite and the site. The party
 +is the people on the server out of its slots, bots left out ("3 of 64" beside the state), from
 +the server's own status reply.
 +=================
 +*/
++
++/*
++=================
++H9P_ImageKey
++
++The art asset the card's large image names. The application holds one picture per PLACE, not one
++per mode: h9_<mode>_<base> is cut down to <base>, so a single "wasteland" asset serves the six
++wasteland maps and a single "drainage" the five of drainage. A name of any other shape, a stock
++ts_ map among them, is used whole. The map's own name still goes in the card's title and state;
++this is the asset key alone.
++=================
++*/
++static const char *H9P_ImageKey( const char *map )
++{
++	const char	*p;
++
++	if( !map || !map[0] || Q_strnicmp( map, "h9_", 3 ))
++		return map;
++
++	// the mode is the run from h9_ to the next underscore; the base map is what follows it
++	for( p = map + 3; *p; p++ )
++	{
++		if( *p == '_' )
++			return p[1] ? p + 1 : map;
++	}
++	return map;
++}
++
 +static void H9P_Activity( char *out, size_t size )
 +{
 +	// each value copied out at once: Info_ValueForKey hands back one of four buffers it reuses,
@@ -12555,7 +12880,7 @@ index 00000000..e470537e
 +
 +	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
 +	const char	*mode = H9P_Mode( h9p.map, key, siege );
-+	char		e_details[192], e_state[320], e_map[160], e_title[320], party[64];
++	char		e_details[192], e_state[320], e_img[160], e_title[320], party[64];
 +
 +	if( siege[0] && atk[0] )
 +	{
@@ -12606,7 +12931,7 @@ index 00000000..e470537e
 +
 +	H9P_Escape( e_details, sizeof( e_details ), details );
 +	H9P_Escape( e_state, sizeof( e_state ), state );
-+	H9P_Escape( e_map, sizeof( e_map ), h9p.map );
++	H9P_Escape( e_img, sizeof( e_img ), H9P_ImageKey( h9p.map ));
 +	H9P_Escape( e_title, sizeof( e_title ), title );
 +
 +	// the people out of the slots: the game itself is one of them, so never fewer than 1
@@ -12620,7 +12945,7 @@ index 00000000..e470537e
 +		"\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\","
 +		"\"small_image\":\"%s\",\"small_text\":\"HAVOC 9\"},"
 +		"\"buttons\":[{\"label\":\"%s\",\"url\":\"%s\"},{\"label\":\"%s\",\"url\":\"%s\"}]}",
-+		e_details, e_state, h9p.start, party, e_map, e_title, H9P_SMALL_KEY,
++		e_details, e_state, h9p.start, party, e_img, e_title, H9P_SMALL_KEY,
 +		H9P_BUTTON1_LABEL, H9P_BUTTON1_URL, H9P_BUTTON2_LABEL, H9P_BUTTON2_URL );
 +}
 +
@@ -12860,8 +13185,22 @@ index 00000000..e470537e
 +	H9P_Close();
 +#endif
 +}
+diff --git a/engine/client/cl_scrn.c b/engine/client/cl_scrn.c
+index 602ee24c..01cda559 100644
+--- a/engine/client/cl_scrn.c
++++ b/engine/client/cl_scrn.c
+@@ -496,7 +496,8 @@ void SCR_BeginLoadingPlaque( qboolean is_background )
+ 	S_StopAllSounds( true );
+ 	cl.audio_prepped = false;			// don't play ambients
+ 
+-	if( cls.key_dest == key_menu && !cls.changedemo && !is_background )
++	// H9: the join screen is the menu, and it stays up through the load (cl_h9join.c)
++	if( cls.key_dest == key_menu && !cls.changedemo && !is_background && !CL_H9Join_Up( ))
+ 	{
+ 		UI_SetActiveMenu( false );
+ 		if( cls.state == ca_disconnected && !(GameState->curstate == STATE_RUNFRAME && GameState->nextstate != STATE_RUNFRAME) )
 diff --git a/engine/client/cl_sprite.c b/engine/client/cl_sprite.c
-index 29185659..b6dc33da 100644
+index 29185659..0ff1d53d 100644
 --- a/engine/client/cl_sprite.c
 +++ b/engine/client/cl_sprite.c
 @@ -40,6 +40,12 @@ mspriteframe_t *R_GetSpriteFrame( const model_t *pModel, int frame, float yaw )
@@ -12889,6 +13228,28 @@ index 29185659..b6dc33da 100644
  	if( frameWidth )
  		*frameWidth = pFrame->width;
  	if( frameHeight )
+@@ -139,6 +150,21 @@ static qboolean Mod_SpriteSearchForTextureReplacement( char *out, size_t size, c
+ 		return false;
+ 	}
+ 
++	// H9: prefer a PNG replacement over the TGA of the same name. Mod_MaterialExists in
++	// mod_bmodel.c carries the reasoning. The path is rewritten in place, so the report below
++	// and the load that follows both name the file that was really found.
++	{
++		char *dot = Q_strrchr( out, '.' );
++
++		if( dot != NULL && (size_t)( dot - out ) + 5 <= size )
++		{
++			memcpy( dot, ".png", 5 );
++			if( FS_FileExists( out, false ))
++				return true;
++			memcpy( dot, ".tga", 5 );
++		}
++	}
++
+ 	if( FS_FileExists( out, false ))
+ 		return true;
+ 
 diff --git a/engine/client/cl_steam.c b/engine/client/cl_steam.c
 index 51b5def6..36e67822 100644
 --- a/engine/client/cl_steam.c
@@ -12905,6 +13266,29 @@ index 51b5def6..36e67822 100644
  	if( FBitSet( cl_steam_broker_addr.flags | cl_ticket_generator.flags, FCVAR_CHANGED ))
  	{
  		ClearBits( cl_ticket_generator.flags, FCVAR_CHANGED );
+diff --git a/engine/client/cl_tent.c b/engine/client/cl_tent.c
+index 95c85f7c..2a3feba4 100644
+--- a/engine/client/cl_tent.c
++++ b/engine/client/cl_tent.c
+@@ -2982,6 +2982,18 @@ int GAME_EXPORT CL_DecalIndex( int id )
+ 
+ 			if( Q_snprintf( decalname, sizeof( decalname ), "materials/decals/%s.tga", host.draw_decals[id] ) > 0 )
+ 			{
++				// H9: prefer a PNG replacement over the TGA of the same name, as the world and
++				// sprite lookups do. Mod_MaterialExists in mod_bmodel.c carries the reasoning.
++				// The name is rewritten in place so the load and the report below follow it.
++				char *h9dot = Q_strrchr( decalname, '.' );
++
++				if( h9dot != NULL && !g_fsapi.FileExists( decalname, false ))
++				{
++					memcpy( h9dot, ".png", 5 );
++					if( !g_fsapi.FileExists( decalname, false ))
++						memcpy( h9dot, ".tga", 5 );
++				}
++
+ 				if( g_fsapi.FileExists( decalname, false ))
+ 				{
+ 					gl_texturenum = ref.dllFuncs.GL_LoadTexture( decalname, NULL, 0, TF_DECAL );
 diff --git a/engine/client/cl_travel.c b/engine/client/cl_travel.c
 new file mode 100644
 index 00000000..804f78e5
@@ -13544,7 +13928,7 @@ index d5c8fd2b..f65317f5 100644
  	cin_texture = ref.dllFuncs.GL_CreateTexture( "*cintexture", 64, 64, NULL, TF_NOMIPMAP|TF_CLAMP );
  }
 diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
-index c1b3ef13..600317c0 100644
+index c1b3ef13..6b4416d9 100644
 --- a/engine/client/cl_view.c
 +++ b/engine/client/cl_view.c
 @@ -21,6 +21,7 @@ GNU General Public License for more details.
@@ -13555,7 +13939,20 @@ index c1b3ef13..600317c0 100644
  
  /*
  ===============
-@@ -380,6 +381,39 @@ static void V_ApplyRefUnderwater( ref_viewpass_t *rvp )
+@@ -343,7 +344,11 @@ qboolean V_PreRender( void )
+ 			Con_Reportf( "%s: loading plaque timed out\n", __func__ );
+ 			cls.disable_screen = 0.0f;
+ 		}
+-		return false;
++		// H9: the join screen draws the load itself, where the plaque leaves the last frame standing
++		// (cl_h9join.c). This game's own server sets the plaque in Host_NewGame, before the client's
++		// join begins, so without this the screen comes up over a picture nothing ever redraws
++		if( !CL_H9Join_Up( ))
++			return false;
+ 	}
+ 
+ 	V_CheckGamma();
+@@ -380,6 +385,39 @@ static void V_ApplyRefUnderwater( ref_viewpass_t *rvp )
  
  }
  
@@ -13595,7 +13992,7 @@ index c1b3ef13..600317c0 100644
  /*
  ==================
  V_RenderView
-@@ -407,6 +441,7 @@ void V_RenderView( void )
+@@ -407,6 +445,7 @@ void V_RenderView( void )
  	do
  	{
  		clgame.dllFuncs.pfnCalcRefdef( &rp );
@@ -13603,7 +14000,7 @@ index c1b3ef13..600317c0 100644
  
  		// client dll may replace viewmodel in pfnCalcRefdef, so set animtime again
  		// V_SetupViewModel did it only for the model known before this call
-@@ -542,6 +577,7 @@ void V_PostRender( void )
+@@ -542,6 +581,7 @@ void V_PostRender( void )
  		SCR_TileClear();
  		CL_DrawHUD( CL_ACTIVE );
  		VGui_Paint();
@@ -15524,10 +15921,51 @@ index 7b8c44c6..1fe140d2 100644
  		// no more room in buffer to add key/value
  		if( Info_IsKeyImportant( key ))
 diff --git a/engine/common/mod_bmodel.c b/engine/common/mod_bmodel.c
-index d1fe48e2..ad03eb3f 100644
+index d1fe48e2..466533af 100644
 --- a/engine/common/mod_bmodel.c
 +++ b/engine/common/mod_bmodel.c
-@@ -3701,6 +3701,63 @@ static void Mod_CalcPHS( model_t *mod )
+@@ -2640,6 +2640,31 @@ static void Mod_TextureReplacementReport( const char *modelname, const char *tex
+ 		Con_Printf( "Looking for %s:%s%s tex replacement..." S_RED "FAIL (%s)\n", modelname, texname, type, foundpath );
+ }
+ 
++// H9: a replacement may be a PNG as well as a TGA, and a PNG wins when both are present.
++//
++// The imagelib has loaded PNG all along -- it is in the loader table in img_utils.c beside TGA,
++// BMP and DDS. Only these lookups were fixed to one extension. H9's upscaled pack ships PNG
++// because it is the same pixels in 41 percent of the bytes, which halves both the download and
++// what sits on a player's disk. TGA is still tried, so a pack built before this, or a file put
++// there by hand, is found exactly as it was.
++//
++// The path is rewritten in place, so whatever the caller loads or reports afterwards names the
++// file that was really found.
++static qboolean Mod_MaterialExists( char *path, size_t size )
++{
++	char *dot = Q_strrchr( path, '.' );
++
++	if( dot != NULL && (size_t)( dot - path ) + 5 <= size )
++	{
++		memcpy( dot, ".png", 5 );
++		if( g_fsapi.FileExists( path, false ))
++			return true;
++		memcpy( dot, ".tga", 5 );
++	}
++
++	return g_fsapi.FileExists( path, false );
++}
++
+ static qboolean Mod_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *texname, const char *type )
+ {
+ 	const char *subdirs[] = { modelname, "common" };
+@@ -2649,7 +2674,7 @@ static qboolean Mod_SearchForTextureReplacement( char *out, size_t size, const c
+ 		if( Q_snprintf( out, size, "materials/%s/%s%s.tga", subdirs[i], texname, type ) < 0 )
+ 			continue; // truncated name
+ 
+-		if( g_fsapi.FileExists( out, false ))
++		if( Mod_MaterialExists( out, size ))
+ 			return true; // found, load it
+ 	}
+ 
+@@ -3701,6 +3726,63 @@ static void Mod_CalcPHS( model_t *mod )
  	if( !mod->visdata )
  		return;
  
@@ -15591,7 +16029,7 @@ index d1fe48e2..ad03eb3f 100644
  #if defined( HAVE_OPENMP )
  	Con_Reportf( "Building PHS in %d threads...\n", omp_get_max_threads( ));
  #else
-@@ -3769,6 +3826,18 @@ static void Mod_CalcPHS( model_t *mod )
+@@ -3769,6 +3851,18 @@ static void Mod_CalcPHS( model_t *mod )
  
  	// since I can't predict at which spot compressed array
  	// should be put, this loop is single threaded
@@ -15610,7 +16048,7 @@ index d1fe48e2..ad03eb3f 100644
  	for( i = 0; i < count; i++ )
  	{
  		const byte *src = &uncompressed_phs[rowbytes * i];
-@@ -3776,7 +3845,6 @@ static void Mod_CalcPHS( model_t *mod )
+@@ -3776,7 +3870,6 @@ static void Mod_CalcPHS( model_t *mod )
  
  		size_t compressed_size = Mod_CompressPVS( temp_compressed_row, src, rowbytes );
  

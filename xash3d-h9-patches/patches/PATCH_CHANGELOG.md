@@ -106,7 +106,6 @@ about the first kind:
 | 58 | `engine-h9-chatraise.patch` (now folded into `engine-h9-chatinput.patch`, file in `retired/`) | `client/console.c` (`Con_ChatInputPosition`, cvar `h9_chatraise`) | the say: line is raised `h9_chatraise` pixels (16; 0 = where the chat lines end), clear of the team box and the health box of TS's HUD in the lower left |
 | 59 | `engine-h9-userinfo-client.patch` | `client/cl_main.c` (`CL_H9PacketUserinfo`, `CL_H9SendLateUserinfo`, the two connect packets, `CL_SendCommand`), `client/client.h` (`cls.userinfo`), `common/common.h` (`H9_MAX_USERINFO`), `client/cl_presence.c`, `client/cl_travel.c`, `common/cvar.c`, `client/dll_int/cl_gameui.c` (`UI_UpdateUserinfo`), `common/infostring.c` (`Info_SetValueForStarKey`: `>=`) | the client keeps `H9_MAX_USERINFO` (512) of its own userinfo, where the 255 of before refused keys one by one (h9_clientid, even `_h9rel`); a connect packet gets the keys a server needs first and what else fits in 255, the rest goes with `setinfo` once connected |
 | 59a | `engine-h9-menubgvideo.patch` | `client/avi/avi_ffmpeg.c/.h`, `client/client.h`, `client/dll_int/cl_gameui.c`, `common/common.h`, `menu_int.h` | the native (non-browser) FFmpeg menu background video: `CIN_MENUBG`, the extended menu API v2 and its four `ui_extendedfuncs_t` pointers, the `menubg_*` gameui fields, the forced AVI demuxer and the `AVI_REWIND` loop-by-reopen that works around an FFmpeg `avio_seek` crash on long menu sessions, and the `UI_*MenuBgVideo` wiring. **Applies last** -- it edits lines #59 adds, so it is generated from the fully patched tree. Its mainui half is #49a |
-| 60 | `engine-h9-png.patch` | `client/cl_sprite.c`, `client/cl_tent.c`, `common/mod_bmodel.c`, `ref/gl/gl_image.c` | a materials replacement may be a `.png` as well as a `.tga`, and a `.png` is preferred when both are there: the same pixels in about 41 percent of the bytes. Applied at `xash.bat` line 176, inside the `:ffmpeg_ready` block |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -2004,22 +2003,37 @@ This is the same resolution the site already uses for its own map pictures (h9we
 
 The patch reverse-checks "in place" and the sections it does not own were compared byte for byte against the copy taken before the edit. Needs the next engine build (`xash.dll`); no menu or game-DLL change, and the browser build takes it at the next `webclient-sync`.
 
-### 2026-11-18 -- engine-h9-userinfo-client.patch: its number moved, its content did not
+### 2026-11-19 -- engine-h9-joinscreen.patch: three places took the screen back down
 
-No change to this patch. `chain lint` reports it as changed since the baseline
-(`f6d594056d08 -> d5abe2599143`) because the entry below inserts `engine-h9-png.patch` at
-#63, which moves this one from #63 to #64: the baseline's hash for one number is now the
-hash of the next. Its own sha256 is `d5abe2599143`, the value the baseline recorded for the
-number it used to hold, and `chain show 64` reads `dev in_place`. The entry exists so the
-lint has the dated heading it asks for, and so the next reader is not sent looking for a
-change that never happened.
+The join screen was complete on both sides and never appeared. The engine raised it, the menu
+drew it, and three lines of stock FWGS took it away again before a player could see anything, so
+what a join showed was exactly what upstream shows without the patch: the menu standing still,
+then the console, then the game.
 
-### 2026-11-18 -- engine-h9-png.patch recorded: a materials replacement may be a .png
+Three hunks, all guarded on CL_H9Join_Up(), two of them in files this patch did not own before:
 
-The patch itself is not new -- it is applied in the tree and `xash.bat` has wired it at line 176, inside the `:ffmpeg_ready` block, for some time -- but it had no row in the table above and no entry here, so `chain lint` reported it twice: `LINT_PATCH_UNLOGGED` for #63 and `LINT_CHANGELOG_TABLE_MISSING`. Both are closed by this entry and the new row 60.
+- engine/client/cl_main.c, CL_ClientConnect: UI_SetActiveMenu( cl.background ) ran the moment a
+  server answered the connect packet, which is about as long as a join to a server on the same
+  LAN lasts. The menu went down, and the screen with it, roughly one frame after it came up. This
+  is the remote-join case, and the one the owner could not see at all.
+- engine/client/cl_scrn.c, SCR_BeginLoadingPlaque: the same call, under
+  cls.key_dest == key_menu, which is the key destination the screen itself sets. This is the map
+  change and this game own server case.
+- engine/client/cl_view.c, V_PreRender: it returns false for as long as cls.disable_screen is
+  set, so the whole frame is skipped and the window keeps the last picture it had. Host_NewGame
+  sets the plaque before CL_CheckForResend begins the local client join, so the guard in
+  SCR_BeginLoadingPlaque cannot help there: the screen comes up over a frame nothing redraws.
+  Without this, H9J_Pump SCR_UpdateScreen calls during the precache drew nothing either. The
+  plaque timeout is left exactly as it was.
 
-What it does: a materials replacement under `ts\materials\` may be a `.png` as well as a `.tga`, and where both exist the `.png` is preferred, which is the same pixels in about 41 percent of the bytes. It touches `engine/client/cl_sprite.c`, `engine/client/cl_tent.c`, `engine/common/mod_bmodel.c` and `ref/gl/gl_image.c`. The HD pack ships as TGA, so nothing in the shipped content depends on it; it is support in the engine for a format the pack may use later, and it is kept deliberately.
+cls.disable_screen is still set as before, and nothing else reads it differently; only V_PreRender
+stops honouring it while the screen is up. cl_qparse.c has the same UI_SetActiveMenu call and is
+deliberately left alone: it parses Quake demos, and the join screen never runs for a demo.
 
-The lint's second line, `#64 engine-h9-userinfo-client.patch changed since the baseline (f6d594056d08 -> d5abe2599143)`, is the same event seen from one step along: inserting the PNG patch at #63 moved `engine-h9-userinfo-client.patch` from #63 to #64, so the baseline's hash for one number is now the hash of the next. That patch's own content did not change -- its sha256 is the one the baseline recorded for the number it used to hold.
+cl_scrn.c is otherwise untouched by the whole chain, so its hunk numbering is the pristine
+numbering. cl_view.c is touched by engine-h9-cloak.patch and engine-h9-motd.patch, neither near
+V_PreRender return false, and both are applied earlier in the chain.
 
-Still open after this entry, and not touched here: the table's order diverges from `xash.bat` from row 16 (`LINT_CHANGELOG_TABLE_ORDER`), #16 `mainui-h9-sprayui.patch` still carries the line `chain.rules.txt` marks temporary, and `chain doctor` exits 12 (RESIDUAL) with about twenty links reporting stale anchors or hunk offsets. The chain applies in place on every link, so the tree and the builds from it are correct; what has rotted is the patches' own bookkeeping, and it wants its own pass before a release leans on it.
+The patch reverse-checks "in place" against the dev clone. Needs the next engine build
+(xash.dll); no menu, game-DLL or cvar change, and the browser build takes it at the next
+webclient-sync.
