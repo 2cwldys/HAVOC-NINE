@@ -40,7 +40,8 @@ extern cvar_t h9_customweapons;
 bool H9_CustomWeaponsOn(); // game.cpp: h9_customweapons is not 0 (the weapons H9 adds to TS are in play)
 extern cvar_t h9_mechrocket_damage, h9_mechrocket_radius, h9_mechrocket_speed, h9_mechrocket_rate, h9_mechrocket_clip,
 	h9_mechrocket_salvo, h9_mechrocket_stagger, h9_mechrocket_spread, h9_mechrocket_reload,
-	h9_mechrocket_nodrop, h9_mechrocket_selfdamage, h9_mechrocket_push, h9_mechrocket_lift; // the Mech rocket launcher (ts_mechrocket.cpp)
+	h9_mechrocket_nodrop, h9_mechrocket_selfdamage, h9_mechrocket_push, h9_mechrocket_lift,
+	h9_mechrocket_side; // the Mech rocket launcher (ts_mechrocket.cpp)
 extern cvar_t teamoverride;
 extern cvar_t defaultteam;
 extern cvar_t allowmonsters;

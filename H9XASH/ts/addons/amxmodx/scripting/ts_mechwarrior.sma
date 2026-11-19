@@ -22,10 +22,25 @@
  *
  * THE MODE API. Everything comes through include\tsm_api.inc. With ts_matchmode missing, or
  * too old to take class rules, the native filter lets this plugin load, and it does nothing.
+ *
+ * THE MECH'S EFFECTS. A Mech stunting gets a thruster at its back and a thrust sound, and a Mech
+ * landing from a fall gets a cloud of dust under it, so that a jump reads as a jump. The stunt is
+ * the mod's own state, pev_iuser4 & 0x10c10 -- the mask reTS itself tests to take a stunting
+ * player's damage down and to score a STUNT kill -- so nothing has to be told when a stunt starts
+ * or ends. Only players on the Mech class are touched, by tsm_class_of, and only on this mode's
+ * own maps: the sprites and the sound are precached on an h9_mw_ map and nowhere else.
+ *
+ * The mod already shakes the screen when a super-jump lands (reTS dlls/player.cpp, the
+ * TSSTUNT_WHEEL_DONE block) and already plays the fall sound, and it draws no particles of its
+ * own for either, so none of this doubles what the game does. tsm_mw_thruster and
+ * tsm_mw_landdust turn the two halves off; tsm_mw_thruster_max caps how many thrusters are drawn
+ * in one pass, because every bot plays a Mech and a round of them all stunting at once would
+ * otherwise be a temp entity each.
  */
 
 #include <amxmodx>
 #include <amxmisc>
+#include <fakemeta>
 #include <tsm_api>
 
 #define PLUGIN  "TS Mech Warrior"
@@ -35,10 +50,42 @@
 #define MW_BUILD "1.0-modes2"
 
 #define MW_TASK_CLAIM  71301
+#define MW_TASK_FX     71302
 #define MW_PREFIX      "h9_mw_"
+#define MAXPL          (MAX_PLAYERS + 1)
+
+// The mod's own "is stunting" mask: reTS tests pev->iuser4 & 0x10c10 in dlls/player.cpp (incoming
+// damage x0.7 while stunting) and in dlls/multiplay_gamerules.cpp (a STUNT kill). Reading the same
+// bits means the effects start and stop exactly when the game says a stunt does.
+#define MW_STUNT_MASK  0x10c10
+// How often the Mechs are looked at. A stunt lasts about a second, so a tenth of a second catches
+// its start, its end and a landing without a per-frame forward.
+#define MW_FX_TICK     0.1
+// How fast a Mech has to be coming down for the landing to raise dust, in units a second. A step
+// off a kerb is nowhere near it; a super-jump (velocity.z 400 up) comes down well past it.
+#define MW_LAND_Z      -300.0
+// The fall speed the biggest cloud is drawn at: between the two the cloud grows with the drop.
+#define MW_LAND_Z_FULL -900.0
+// The thrust: the rocket launch sample, played low, which is a thruster rather than a shot. A
+// single shot of 0.43 s, not a loop, so it cannot outlive the stunt that started it -- a loop
+// would have to be stopped on death, on a disconnect and at the round's end to be safe.
+#define MW_SND_THRUST  "weapons/rocketfire1.wav"
+#define MW_SND_FILE    "sound/weapons/rocketfire1.wav"
 
 new g_cv_mode, g_cv_desc, g_cv_officers, g_cv_officer_lives, g_cv_mechs, g_cv_mech_lives;
 new g_cv_engineer;
+new g_cv_thruster, g_cv_landdust, g_cv_thruster_max;
+
+// The sprites, 0 when the file is not installed: an effect whose sprite is missing is skipped
+// rather than precached blind, which would take the server down on a map change.
+new g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust, g_spr_billow;
+new bool:g_snd_thrust = false;
+
+new bool:g_was_stunt[MAXPL];   // was this player stunting last pass, for the two edges
+new bool:g_was_air[MAXPL];     // was it off the ground last pass, for the landing edge
+new bool:g_stunt_air[MAXPL];   // a stunt carried it off the ground, so its touchdown is a stunt landing
+new Float:g_fall_z[MAXPL];     // the speed it was last coming down at, kept while it is airborne
+new bool:g_thrust_flip[MAXPL]; // every other pass draws the thruster, so one sprite per 0.2 s
 
 new bool:g_have_core = true;   // cleared by the native filter when ts_matchmode is not loaded
 new bool:g_active = false;     // this map is claimed for Mech Warrior
@@ -69,6 +116,54 @@ public native_filter(const name[], index, trap)
 	return PLUGIN_CONTINUE;
 }
 
+/*
+ * The Mech's sprites and sound, on this mode's maps only: a map that is not h9_mw_ never plays a
+ * Mech, so it does not carry the files either. Each one is checked on disk first and left at 0
+ * when it is absent, because precaching a model that is not there ends the map.
+ */
+public plugin_precache()
+{
+	new mapname[32];
+	get_mapname(mapname, charsmax(mapname));
+	if (!equali(mapname, MW_PREFIX, strlen(MW_PREFIX)))
+	{
+		return;
+	}
+	// afire is an eight-frame flame, 128x256, and a temp-entity sprite plays a sprite through, so
+	// it burns rather than sits. h9_rocket_flash is a radial starburst: it reads as a shot going
+	// off, not as a jet running, which is why the thruster does not use it.
+	if (file_exists("sprites/afire.spr", true))
+	{
+		g_spr_flash = precache_model("sprites/afire.spr");
+	}
+	else if (file_exists("sprites/h9_rocket_flash.spr", true))
+	{
+		g_spr_flash = precache_model("sprites/h9_rocket_flash.spr");
+	}
+	if (file_exists("sprites/h9_rocket_smoke.spr", true))
+	{
+		g_spr_smoke = precache_model("sprites/h9_rocket_smoke.spr");
+	}
+	if (file_exists("sprites/dust.spr", true))
+	{
+		g_spr_dust = precache_model("sprites/dust.spr");
+	}
+	if (file_exists("sprites/taxi_dust.spr", true))
+	{
+		g_spr_bigdust = precache_model("sprites/taxi_dust.spr");
+	}
+	// seven frames, and additive despite the name, so it rolls and it is bright enough to see
+	if (file_exists("sprites/black_smoke1.spr", true))
+	{
+		g_spr_billow = precache_model("sprites/black_smoke1.spr");
+	}
+	if (file_exists(MW_SND_FILE, true))
+	{
+		precache_sound(MW_SND_THRUST);
+		g_snd_thrust = true;
+	}
+}
+
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
@@ -80,6 +175,13 @@ public plugin_init()
 	g_cv_mechs         = register_cvar("tsm_mw_mechs",             "0");
 	g_cv_mech_lives    = register_cvar("tsm_mw_mech_lives",        "3");
 	g_cv_engineer      = register_cvar("tsm_mw_engineer",          "1");
+
+	// The Mech's effects. Both on: they are this mode's own and no other mode or class sees them.
+	g_cv_thruster      = register_cvar("tsm_mw_thruster",          "1");
+	g_cv_landdust      = register_cvar("tsm_mw_landdust",          "1");
+	// 0 is no cap. Every bot plays a Mech, so a round of them stunting together is this many
+	// sprites a pass and no more.
+	g_cv_thruster_max  = register_cvar("tsm_mw_thruster_max",      "6");
 
 	register_concmd("amx_tsm_mw", "cmd_mw_dump", ADMIN_CFG, " - the Mech Warrior mode's whole state");
 }
@@ -143,6 +245,11 @@ public task_claim()
 
 	g_active = true;
 	apply_rules();
+	// The Mechs' effects run only while the mode holds the map.
+	if (!task_exists(MW_TASK_FX))
+	{
+		set_task(MW_FX_TICK, "task_fx", MW_TASK_FX, "", 0, "b");
+	}
 	log_amx("[MECHWARRIOR] %s is a Mech Warrior map: class %d is the Officer, class %d the Mech.",
 		g_mapname, g_officer, g_mech);
 }
@@ -250,6 +357,227 @@ public tsm_round_start(round)
 	}
 }
 
+/* ---- the Mech's effects ----------------------------------------------------------------- */
+
+/*
+ * Every tenth of a second, each living Mech: the thruster while it is stunting, and a cloud of
+ * dust the moment it touches down from a fall. The stunt is the mod's own pev_iuser4 bits, so
+ * there is nothing to keep in step; the landing is the ground flag's edge, with the speed the
+ * player was last falling at, which is why the fall speed is kept each pass while it is airborne.
+ *
+ * A player who is not alive, or not on the Mech class, has its state cleared, so a Mech that dies
+ * mid-stunt or changes class leaves nothing half-finished behind.
+ */
+public task_fx()
+{
+	if (!g_active || !g_have_core)
+	{
+		return;
+	}
+	new bool:thrust_on = get_pcvar_num(g_cv_thruster) != 0;
+	new bool:dust_on = get_pcvar_num(g_cv_landdust) != 0;
+	new cap = get_pcvar_num(g_cv_thruster_max);
+	if (cap < 0)
+	{
+		cap = 0;
+	}
+	new drawn = 0;
+	new maxpl = get_maxplayers();
+	if (maxpl > MAX_PLAYERS)
+	{
+		maxpl = MAX_PLAYERS;
+	}
+	for (new id = 1; id <= maxpl; id++)
+	{
+		if (!is_user_alive(id) || tsm_class_of(id) != g_mech)
+		{
+			g_was_stunt[id] = false;
+			g_was_air[id] = false;
+			g_stunt_air[id] = false;
+			g_thrust_flip[id] = false;
+			g_fall_z[id] = 0.0;
+			continue;
+		}
+
+		new Float:origin[3], Float:vel[3];
+		pev(id, pev_origin, origin);
+		pev(id, pev_velocity, vel);
+		new bool:onground = (pev(id, pev_flags) & FL_ONGROUND) != 0;
+		new bool:stunting = (pev(id, pev_iuser4) & MW_STUNT_MASK) != 0;
+
+		if (thrust_on && stunting)
+		{
+			// the sound once, as the stunt starts, not every pass
+			if (!g_was_stunt[id] && g_snd_thrust)
+			{
+				emit_sound(id, CHAN_STATIC, MW_SND_THRUST, 0.7, ATTN_NORM, 0, 70);
+				mw_puff(origin);
+			}
+			if (!g_thrust_flip[id] && (!cap || drawn < cap))
+			{
+				mw_thruster(id, origin);
+				drawn++;
+			}
+			g_thrust_flip[id] = !g_thrust_flip[id];
+		}
+		else
+		{
+			g_thrust_flip[id] = false;
+		}
+		g_was_stunt[id] = stunting;
+
+		// The landing. A stunt that took the Mech off the ground always raises dust when it comes
+		// back down, whatever it was doing on the way: that is the effect's whole job, and gating
+		// it on a fall speed meant a stunt that did not fall far enough raised nothing. A plain
+		// fall still raises it once it is coming down hard enough that a step off a kerb does not
+		// count. Either way the cloud's size follows the speed it landed at.
+		if (dust_on && onground && g_was_air[id] && (g_stunt_air[id] || g_fall_z[id] <= MW_LAND_Z))
+		{
+			mw_landdust(origin, g_fall_z[id]);
+		}
+		if (!onground)
+		{
+			g_fall_z[id] = vel[2];
+			if (stunting)
+			{
+				g_stunt_air[id] = true;
+			}
+		}
+		else
+		{
+			g_stunt_air[id] = false;
+		}
+		g_was_air[id] = !onground;
+	}
+}
+
+/// The thruster flame, behind the player and a little above its middle: the yaw alone, so a Mech
+/// looking up or down still wears it on its back.
+mw_thruster(id, Float:origin[3])
+{
+	if (!g_spr_flash)
+	{
+		return;
+	}
+	new Float:ang[3];
+	pev(id, pev_angles, ang);
+	// Two plumes, one off each shoulder, rather than one in the middle of its back: a single sprite
+	// behind a Mech reads as the Mech being on fire, two set apart read as thrusters. They sit low,
+	// because the flame is drawn upright and growing UP out of the exhaust is what makes it look
+	// like the jet is pushing the Mech rather than burning on it.
+	new Float:back = 16.0, Float:apart = 13.0;
+	new Float:fx = floatcos(ang[1], degrees), Float:fy = floatsin(ang[1], degrees);
+	for (new s = -1; s <= 1; s += 2)
+	{
+		new Float:pos[3];
+		pos[0] = origin[0] - fx * back - fy * apart * float(s);
+		pos[1] = origin[1] - fy * back + fx * apart * float(s);
+		pos[2] = origin[2] - 10.0;
+		mw_sprite(pos, g_spr_flash, 4, 210);
+	}
+}
+
+/// One plume where the stunt began, so the thruster reads as having lit rather than appeared.
+mw_puff(Float:origin[3])
+{
+	if (!g_spr_smoke)
+	{
+		return;
+	}
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, origin);
+	write_byte(TE_SPRITE);
+	write_coord(floatround(origin[0]));
+	write_coord(floatround(origin[1]));
+	write_coord(floatround(origin[2]));
+	write_short(g_spr_smoke);
+	write_byte(5);
+	write_byte(120);
+	message_end();
+}
+
+/// One sprite, at a place, at a size in tenths of its own pixels.
+mw_sprite(Float:p[3], sprite, scale, bright)
+{
+	if (!sprite)
+	{
+		return;
+	}
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, p);
+	write_byte(TE_SPRITE);
+	write_coord(floatround(p[0]));
+	write_coord(floatround(p[1]));
+	write_coord(floatround(p[2]));
+	write_short(sprite);
+	write_byte(scale);
+	write_byte(bright);
+	message_end();
+}
+
+/*
+ * The landing cloud: something the weight of a Mech coming down.
+ *
+ * A single sprite on top of the feet reads as a puff, whatever its size, because the thing a heavy
+ * landing actually does is push the dust OUT. So this is a column at the feet and a RING of clouds
+ * thrown out around them, wider and taller the harder the Mech came down, with an animated billow
+ * on every other point of the ring -- a temp-entity sprite plays the whole sprite through, so a
+ * seven-frame smoke rolls rather than sits.
+ *
+ * Only additive sprites are used. debris_concrete3 is indexalpha and a temp-entity sprite is drawn
+ * additively, so its chunks would glow instead of fall, and dust.spr measures 7 percent visible,
+ * which adds almost nothing to the scene; taxi_dust (45 percent) and black_smoke1 (56 percent) are
+ * what carry this.
+ *
+ * One landing is about sixteen messages, sent MSG_PVS so only players who can see it get them.
+ * Landings are an event, not a per-frame thing, but a round of bot Mechs coming down together is
+ * worth watching with h9_msgstats.
+ */
+mw_landdust(Float:origin[3], Float:fall)
+{
+	new Float:pos[3];
+	pos[0] = origin[0];
+	pos[1] = origin[1];
+	pos[2] = origin[2] - 30.0;
+
+	// 0.0 at the speed the dust starts, 1.0 at the speed it is fullest
+	new Float:hard = (fall - MW_LAND_Z) / (MW_LAND_Z_FULL - MW_LAND_Z);
+	if (hard < 0.0)
+	{
+		hard = 0.0;
+	}
+	if (hard > 1.0)
+	{
+		hard = 1.0;
+	}
+
+	// the column where it struck
+	mw_sprite(pos, g_spr_bigdust, 14 + floatround(hard * 12.0), 175);
+	if (g_spr_billow)
+	{
+		new Float:up[3];
+		up[0] = pos[0];
+		up[1] = pos[1];
+		up[2] = pos[2] + 18.0;
+		mw_sprite(up, g_spr_billow, 10 + floatround(hard * 8.0), 150);
+	}
+
+	// the skirt thrown out around the feet
+	new ring = 6 + floatround(hard * 4.0);
+	new Float:radius = 42.0 + hard * 54.0;
+	for (new k = 0; k < ring; k++)
+	{
+		new Float:a = 360.0 * float(k) / float(ring) + float(random_num(-14, 14));
+		new Float:p[3];
+		p[0] = pos[0] + floatcos(a, degrees) * radius;
+		p[1] = pos[1] + floatsin(a, degrees) * radius;
+		p[2] = pos[2] + float(random_num(0, 14));
+		mw_sprite(p, g_spr_bigdust, 9 + random_num(0, 5), 155);
+		if ((k % 2) == 0)
+		{
+			mw_sprite(p, g_spr_billow, 7 + random_num(0, 4), 135);
+		}
+	}
+}
+
 /* ---- the admin's view ------------------------------------------------------------------- */
 
 public cmd_mw_dump(id, level, cid)
@@ -266,5 +594,8 @@ public cmd_mw_dump(id, level, cid)
 		g_engineer, (g_engineer && get_pcvar_num(g_cv_engineer)) ? "played" : "not played", g_engineer ? engineer_limit() : 0);
 	console_print(id, "[MECHWARRIOR] Every class but those is not played, and every bot plays the Mech.  Side 1 in the round %d, side 2 %d.",
 		tsm_side_alive(1), tsm_side_alive(2));
+	console_print(id, "[MECHWARRIOR] Effects: thruster %d (max %d a pass), landing dust %d.  Sprites flash=%d smoke=%d dust=%d bigdust=%d billow=%d, thrust sound %d.",
+		get_pcvar_num(g_cv_thruster), get_pcvar_num(g_cv_thruster_max), get_pcvar_num(g_cv_landdust),
+		g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust, g_spr_billow, g_snd_thrust ? 1 : 0);
 	return PLUGIN_HANDLED;
 }

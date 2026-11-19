@@ -258,6 +258,15 @@ native tsm_set_class(id, cls);
 native tsm_class_hp(id);
 
 /**
+ * A player's class (1 and up, in tsm_classN order), the one tsm_set_class would have set and
+ * the one his health, armour, model and perk come from; 0 when there are no classes or the id
+ * is not a player slot. A class a player picked but has not respawned into is not it yet: this
+ * is the class he is playing. With tsm_class_of_perk it tells a mode plugin which of its own
+ * classes a player is, which the setter alone could not.
+ */
+native tsm_class_of(id);
+
+/**
  * The mode's progress for the Discord card and the bots, published as tsm_pres_prog beside
  * tsm_pres_mode: "1/2/3/1" for the uplink (side 1's zones / side 2's / all / the carrier's
  * side), "12" for a survival wave. The core empties both whenever no mode runs.

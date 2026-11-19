@@ -456,8 +456,15 @@ void TSMechRocketLaunch(CBasePlayer *pPlayer, const Vector &vecSrc, const Vector
 	// the first rocket of a pull goes along the aim, the others stray from it
 	const Vector vecDir = bFollow ? MechRocketScatter(vecAim) : Vector(vecAim);
 
+	// The launcher is on the Mech's LEFT arm, but the gun position handed in is the player's eye,
+	// dead centre (CBasePlayer::GetGunPosition is origin + view_ofs and nothing else), so a rocket
+	// left from the middle of its chest. h9_mechrocket_side moves the start sideways: negative is
+	// the Mech's left, where the arm is. The trace below still starts at the eye, so a rocket fired
+	// with the arm inside a wall is still stopped at the wall rather than being put through it.
+	const Vector vecMuzzle = vecSrc + gpGlobals->v_right * h9_mechrocket_side.value;
+
 	// the rocket starts 24 units out along its way, or at the wall that is nearer
-	Vector vecStart = vecSrc + vecDir * 24.0f;
+	Vector vecStart = vecMuzzle + vecDir * 24.0f;
 	TraceResult tr;
 	UTIL_TraceLine(vecSrc, vecStart, dont_ignore_monsters, ENT(pPlayer->pev), &tr);
 	if (tr.flFraction < 1.0f)

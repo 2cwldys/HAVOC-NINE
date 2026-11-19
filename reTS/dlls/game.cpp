@@ -75,6 +75,10 @@ cvar_t h9_mechrocket_nodrop = {"h9_mechrocket_nodrop", "1", FCVAR_SERVER};
 cvar_t h9_mechrocket_selfdamage = {"h9_mechrocket_selfdamage", "0", FCVAR_SERVER};
 cvar_t h9_mechrocket_push = {"h9_mechrocket_push", "400", FCVAR_SERVER};
 cvar_t h9_mechrocket_lift = {"h9_mechrocket_lift", "250", FCVAR_SERVER};
+// Where a rocket leaves the Mech, sideways from the middle of it: the launcher is on its LEFT arm,
+// and the player's gun position is the eye, dead centre, so without this a rocket comes out of the
+// middle of its chest. Negative is the Mech's left, positive its right, 0 the centre as before.
+cvar_t h9_mechrocket_side = {"h9_mechrocket_side", "-12", FCVAR_SERVER};
 bool H9_CustomWeaponsOn()
 {
 	return h9_customweapons.value != 0.0f;
@@ -306,6 +310,7 @@ void GameDLLInit()
 	CVAR_REGISTER(&h9_mechrocket_selfdamage);
 	CVAR_REGISTER(&h9_mechrocket_push);
 	CVAR_REGISTER(&h9_mechrocket_lift);
+	CVAR_REGISTER(&h9_mechrocket_side);
 	CVAR_REGISTER(&teamoverride);
 	CVAR_REGISTER(&defaultteam);
 	CVAR_REGISTER(&allowmonsters);

@@ -78,11 +78,12 @@ new g_cv_thruster, g_cv_landdust, g_cv_thruster_max;
 
 // The sprites, 0 when the file is not installed: an effect whose sprite is missing is skipped
 // rather than precached blind, which would take the server down on a map change.
-new g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust;
+new g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust, g_spr_billow;
 new bool:g_snd_thrust = false;
 
 new bool:g_was_stunt[MAXPL];   // was this player stunting last pass, for the two edges
 new bool:g_was_air[MAXPL];     // was it off the ground last pass, for the landing edge
+new bool:g_stunt_air[MAXPL];   // a stunt carried it off the ground, so its touchdown is a stunt landing
 new Float:g_fall_z[MAXPL];     // the speed it was last coming down at, kept while it is airborne
 new bool:g_thrust_flip[MAXPL]; // every other pass draws the thruster, so one sprite per 0.2 s
 
@@ -128,7 +129,14 @@ public plugin_precache()
 	{
 		return;
 	}
-	if (file_exists("sprites/h9_rocket_flash.spr", true))
+	// afire is an eight-frame flame, 128x256, and a temp-entity sprite plays a sprite through, so
+	// it burns rather than sits. h9_rocket_flash is a radial starburst: it reads as a shot going
+	// off, not as a jet running, which is why the thruster does not use it.
+	if (file_exists("sprites/afire.spr", true))
+	{
+		g_spr_flash = precache_model("sprites/afire.spr");
+	}
+	else if (file_exists("sprites/h9_rocket_flash.spr", true))
 	{
 		g_spr_flash = precache_model("sprites/h9_rocket_flash.spr");
 	}
@@ -143,6 +151,11 @@ public plugin_precache()
 	if (file_exists("sprites/taxi_dust.spr", true))
 	{
 		g_spr_bigdust = precache_model("sprites/taxi_dust.spr");
+	}
+	// seven frames, and additive despite the name, so it rolls and it is bright enough to see
+	if (file_exists("sprites/black_smoke1.spr", true))
+	{
+		g_spr_billow = precache_model("sprites/black_smoke1.spr");
 	}
 	if (file_exists(MW_SND_FILE, true))
 	{
@@ -380,6 +393,7 @@ public task_fx()
 		{
 			g_was_stunt[id] = false;
 			g_was_air[id] = false;
+			g_stunt_air[id] = false;
 			g_thrust_flip[id] = false;
 			g_fall_z[id] = 0.0;
 			continue;
@@ -412,14 +426,26 @@ public task_fx()
 		}
 		g_was_stunt[id] = stunting;
 
-		// the landing: it was off the ground and coming down hard, and now it is down
-		if (dust_on && onground && g_was_air[id] && g_fall_z[id] <= MW_LAND_Z)
+		// The landing. A stunt that took the Mech off the ground always raises dust when it comes
+		// back down, whatever it was doing on the way: that is the effect's whole job, and gating
+		// it on a fall speed meant a stunt that did not fall far enough raised nothing. A plain
+		// fall still raises it once it is coming down hard enough that a step off a kerb does not
+		// count. Either way the cloud's size follows the speed it landed at.
+		if (dust_on && onground && g_was_air[id] && (g_stunt_air[id] || g_fall_z[id] <= MW_LAND_Z))
 		{
 			mw_landdust(origin, g_fall_z[id]);
 		}
 		if (!onground)
 		{
 			g_fall_z[id] = vel[2];
+			if (stunting)
+			{
+				g_stunt_air[id] = true;
+			}
+		}
+		else
+		{
+			g_stunt_air[id] = false;
 		}
 		g_was_air[id] = !onground;
 	}
@@ -435,20 +461,20 @@ mw_thruster(id, Float:origin[3])
 	}
 	new Float:ang[3];
 	pev(id, pev_angles, ang);
-	new Float:pos[3];
-	pos[0] = origin[0] - floatcos(ang[1], degrees) * 18.0;
-	pos[1] = origin[1] - floatsin(ang[1], degrees) * 18.0;
-	pos[2] = origin[2] + 6.0;
-
-	message_begin_f(MSG_PVS, SVC_TEMPENTITY, pos);
-	write_byte(TE_SPRITE);
-	write_coord(floatround(pos[0]));
-	write_coord(floatround(pos[1]));
-	write_coord(floatround(pos[2]));
-	write_short(g_spr_flash);
-	write_byte(6);   // scale, in tenths
-	write_byte(200); // brightness
-	message_end();
+	// Two plumes, one off each shoulder, rather than one in the middle of its back: a single sprite
+	// behind a Mech reads as the Mech being on fire, two set apart read as thrusters. They sit low,
+	// because the flame is drawn upright and growing UP out of the exhaust is what makes it look
+	// like the jet is pushing the Mech rather than burning on it.
+	new Float:back = 16.0, Float:apart = 13.0;
+	new Float:fx = floatcos(ang[1], degrees), Float:fy = floatsin(ang[1], degrees);
+	for (new s = -1; s <= 1; s += 2)
+	{
+		new Float:pos[3];
+		pos[0] = origin[0] - fx * back - fy * apart * float(s);
+		pos[1] = origin[1] - fy * back + fx * apart * float(s);
+		pos[2] = origin[2] - 10.0;
+		mw_sprite(pos, g_spr_flash, 4, 210);
+	}
 }
 
 /// One plume where the stunt began, so the thruster reads as having lit rather than appeared.
@@ -469,11 +495,41 @@ mw_puff(Float:origin[3])
 	message_end();
 }
 
+/// One sprite, at a place, at a size in tenths of its own pixels.
+mw_sprite(Float:p[3], sprite, scale, bright)
+{
+	if (!sprite)
+	{
+		return;
+	}
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, p);
+	write_byte(TE_SPRITE);
+	write_coord(floatround(p[0]));
+	write_coord(floatround(p[1]));
+	write_coord(floatround(p[2]));
+	write_short(sprite);
+	write_byte(scale);
+	write_byte(bright);
+	message_end();
+}
+
 /*
- * The landing cloud, at the feet rather than the middle. One wide puff for the weight of it and a
- * few smaller ones around it so that it is not a single flat disc, both grown by how hard the Mech
- * came down. Only the additive dust sprites are used: debris_concrete3 is an indexalpha sprite and
- * a temp-entity sprite is drawn additively, which would make chunks glow instead of fall.
+ * The landing cloud: something the weight of a Mech coming down.
+ *
+ * A single sprite on top of the feet reads as a puff, whatever its size, because the thing a heavy
+ * landing actually does is push the dust OUT. So this is a column at the feet and a RING of clouds
+ * thrown out around them, wider and taller the harder the Mech came down, with an animated billow
+ * on every other point of the ring -- a temp-entity sprite plays the whole sprite through, so a
+ * seven-frame smoke rolls rather than sits.
+ *
+ * Only additive sprites are used. debris_concrete3 is indexalpha and a temp-entity sprite is drawn
+ * additively, so its chunks would glow instead of fall, and dust.spr measures 7 percent visible,
+ * which adds almost nothing to the scene; taxi_dust (45 percent) and black_smoke1 (56 percent) are
+ * what carry this.
+ *
+ * One landing is about sixteen messages, sent MSG_PVS so only players who can see it get them.
+ * Landings are an event, not a per-frame thing, but a round of bot Mechs coming down together is
+ * worth watching with h9_msgstats.
  */
 mw_landdust(Float:origin[3], Float:fall)
 {
@@ -493,38 +549,32 @@ mw_landdust(Float:origin[3], Float:fall)
 		hard = 1.0;
 	}
 
-	if (g_spr_bigdust)
+	// the column where it struck
+	mw_sprite(pos, g_spr_bigdust, 14 + floatround(hard * 12.0), 175);
+	if (g_spr_billow)
 	{
-		message_begin_f(MSG_PVS, SVC_TEMPENTITY, pos);
-		write_byte(TE_SPRITE);
-		write_coord(floatround(pos[0]));
-		write_coord(floatround(pos[1]));
-		write_coord(floatround(pos[2]));
-		write_short(g_spr_bigdust);
-		write_byte(8 + floatround(hard * 10.0)); // 0.8 wide up to 1.8
-		write_byte(150);
-		message_end();
+		new Float:up[3];
+		up[0] = pos[0];
+		up[1] = pos[1];
+		up[2] = pos[2] + 18.0;
+		mw_sprite(up, g_spr_billow, 10 + floatround(hard * 8.0), 150);
 	}
-	if (!g_spr_dust)
+
+	// the skirt thrown out around the feet
+	new ring = 6 + floatround(hard * 4.0);
+	new Float:radius = 42.0 + hard * 54.0;
+	for (new k = 0; k < ring; k++)
 	{
-		return;
-	}
-	new puffs = 2 + floatround(hard * 2.0);
-	for (new k = 0; k < puffs; k++)
-	{
+		new Float:a = 360.0 * float(k) / float(ring) + float(random_num(-14, 14));
 		new Float:p[3];
-		p[0] = pos[0] + float(random_num(-22, 22));
-		p[1] = pos[1] + float(random_num(-22, 22));
-		p[2] = pos[2] + float(random_num(0, 10));
-		message_begin_f(MSG_PVS, SVC_TEMPENTITY, p);
-		write_byte(TE_SPRITE);
-		write_coord(floatround(p[0]));
-		write_coord(floatround(p[1]));
-		write_coord(floatround(p[2]));
-		write_short(g_spr_dust);
-		write_byte(5 + random_num(0, 4));
-		write_byte(130);
-		message_end();
+		p[0] = pos[0] + floatcos(a, degrees) * radius;
+		p[1] = pos[1] + floatsin(a, degrees) * radius;
+		p[2] = pos[2] + float(random_num(0, 14));
+		mw_sprite(p, g_spr_bigdust, 9 + random_num(0, 5), 155);
+		if ((k % 2) == 0)
+		{
+			mw_sprite(p, g_spr_billow, 7 + random_num(0, 4), 135);
+		}
 	}
 }
 
@@ -544,8 +594,8 @@ public cmd_mw_dump(id, level, cid)
 		g_engineer, (g_engineer && get_pcvar_num(g_cv_engineer)) ? "played" : "not played", g_engineer ? engineer_limit() : 0);
 	console_print(id, "[MECHWARRIOR] Every class but those is not played, and every bot plays the Mech.  Side 1 in the round %d, side 2 %d.",
 		tsm_side_alive(1), tsm_side_alive(2));
-	console_print(id, "[MECHWARRIOR] Effects: thruster %d (max %d a pass), landing dust %d.  Sprites flash=%d smoke=%d dust=%d bigdust=%d, thrust sound %d.",
+	console_print(id, "[MECHWARRIOR] Effects: thruster %d (max %d a pass), landing dust %d.  Sprites flash=%d smoke=%d dust=%d bigdust=%d billow=%d, thrust sound %d.",
 		get_pcvar_num(g_cv_thruster), get_pcvar_num(g_cv_thruster_max), get_pcvar_num(g_cv_landdust),
-		g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust, g_snd_thrust ? 1 : 0);
+		g_spr_flash, g_spr_smoke, g_spr_dust, g_spr_bigdust, g_spr_billow, g_snd_thrust ? 1 : 0);
 	return PLUGIN_HANDLED;
 }
