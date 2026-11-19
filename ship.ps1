@@ -172,7 +172,22 @@ function Run-Bat([string]$name, [string]$bat, [string[]]$batArgs, [bool]$useLock
     $env:VSCMD_SKIP_SENDTELEMETRY = '1'
     try {
         $cmd = '""' + $bat + '" ' + ($batArgs -join ' ') + ' < NUL > "' + $log + '" 2>&1"'
-        $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', $cmd) -NoNewWindow -PassThru -Wait
+        # NOT -Wait, deliberately. Start-Process -Wait does not return until the inherited output
+        # handles are closed as well as the process exited, and VCTIP.EXE keeps them open after the
+        # compiler itself has gone: on 2026-11-19 that held the engine step for 7 minutes with
+        # "H9XASH ready" already written in its own log, and only a hand-run Stop-Process released
+        # it. The sweep in the finally below cannot help with that -- it runs after the wait it was
+        # meant to rescue has already returned, which is why setting VSCMD_SKIP_SENDTELEMETRY above
+        # was not enough on its own (the variable is honoured by the toolchain, not by a helper an
+        # earlier build already started).
+        # So: wait on the PROCESS, never on its output, and sweep the helper while waiting. The wait
+        # then ends when the batch ends, and the helper never lives long enough to hold anything.
+        $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', $cmd) -NoNewWindow -PassThru
+        while (-not $p.HasExited) {
+            Get-Process -Name 'vctip' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+        }
+        $p.WaitForExit()
         if ($p.ExitCode -ne 0) { Fail "$name failed (exit $($p.ExitCode)); read $log, then continue with: .\ship.ps1 -From $name" }
     } finally {
         Get-Process -Name 'vctip' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
