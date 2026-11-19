@@ -190,6 +190,18 @@ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
                reserve as it uses the reserve up ("Ammo bay: +100 rounds" on its screen);
                .ammo and a resupply fill the bay once the reserve is full. 1.0 turns the bay
                off. In every mode that has a Mech, not only this one.
+  Effects      tsm_mw_thruster (1): a Mech that is stunting gets a thruster drawn at its back
+               and a thrust sound, so a jump reads as a jump. The stunt is the mod's own state,
+               the bits it reads to take a stunting player's damage down and to score a STUNT
+               kill, so the effect begins and ends exactly when the stunt does.
+               tsm_mw_landdust (1): a Mech landing from a fall raises a cloud of dust under it,
+               wider the harder it came down. The game already shakes the screen on a
+               super-jump landing and plays the fall sound, and draws no dust of its own, so
+               this adds to a landing rather than doubling it.
+               tsm_mw_thruster_max (6, 0 no cap): thrusters drawn in one pass. Every bot plays a
+               Mech, so a round of them stunting together would otherwise be a temp entity each.
+               Only the Mech class and only h9_mw_ maps: the sprites and the sound are precached
+               on this mode's maps and nowhere else.
   Laser rifle  does tsm_mech_laser_mult (1.15) times its damage to a Mech, before the Mech's
                armour takes its share: a marginal bonus, 1.0 turns it off. In every mode.
   Rocket       a Mech's second weapon (weapon 41 of the game library) has two fire modes, which

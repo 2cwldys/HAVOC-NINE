@@ -653,17 +653,20 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### ts_mechwarrior
 
-`src/ts_mechwarrior.sma`. Config: `ts_mechwarrior.cfg`. 7 cvars.
+`src/ts_mechwarrior.sma`. Config: `ts_mechwarrior.cfg`. 10 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
 | `tsm_gamedesc_mechwarrior` | `Mech Warrior` | What the server browser, the server-list bot, the adverts and the Discord card call the game while the mode runs. |
 | `tsm_mechwarrior_mode` | `1` | the mode on, on every h9_mw_ map |
 | `tsm_mw_engineer` | `1` | the Combat Engineer is played too, at his class's limit and lives; 0 not |
+| `tsm_mw_landdust` | `1` | a Mech landing from a fall raises a cloud of dust under it, bigger the harder it came down; 0 no dust |
 | `tsm_mw_mech_lives` | `3` | Mechs a side (0: no limit), and the lives each one has. |
 | `tsm_mw_mechs` | `0` | Mechs a side; 0 no limit |
 | `tsm_mw_officer_lives` | `2` | each Officer's lives |
 | `tsm_mw_officers` | `1` | Officers a side; 0 no Officer |
+| `tsm_mw_thruster` | `1` | a stunting Mech gets a thruster drawn at its back and a thrust sound; 0 not |
+| `tsm_mw_thruster_max` | `6` | how many thrusters are drawn in one pass, so a round of bot Mechs cannot flood it; 0 no cap |
 
 #### ts_rtv
 

@@ -4131,6 +4131,12 @@
  tsm_mw_mech_lives         3          each Mech's lives
  tsm_mw_engineer           1          the Combat Engineer is played too, at his
                                       class's limit and lives; 0 not
+ tsm_mw_thruster           1          a stunting Mech gets a thruster at its
+                                      back and a thrust sound; 0 not
+ tsm_mw_landdust           1          a Mech landing from a fall raises dust
+                                      under it; 0 not
+ tsm_mw_thruster_max       6          thrusters drawn in one pass, so a round
+                                      of bot Mechs cannot flood it; 0 no cap
 
  ASSAULT  (ts_assault.amxx, configs\ts_assault.cfg)
 
