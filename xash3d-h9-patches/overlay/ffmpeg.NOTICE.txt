@@ -1,0 +1,78 @@
+FFmpeg -- notice
+================
+
+H9XASH ships five FFmpeg shared libraries. The engine loads them by name at runtime, with
+LoadLibrary, and uses them to decode AVI video: the intro, the main-menu background and the
+logo banner.
+
+    avutil-61.dll      libavutil 61
+    avformat-63.dll    libavformat 63
+    avcodec-63.dll     libavcodec 63
+    swresample-7.dll   libswresample 7
+    swscale-10.dll     libswscale 10
+
+They sit in the root of H9XASH, beside the game, with a copy of this notice and of the licence
+text as ffmpeg.NOTICE.txt and ffmpeg.LGPL-2.1-LICENSE.txt.
+
+
+THE LICENCE
+-----------
+FFmpeg 9.0.2, under the GNU Lesser General Public License, version 2.1 or later. The full
+text is THIRD_PARTY_LICENSES/FFmpeg-LGPL-2.1.txt in the repository, and
+ffmpeg.LGPL-2.1-LICENSE.txt beside the libraries themselves.
+
+FFmpeg can also be built under the GPL, and parts of it are GPL-only. This build is not one
+of those. It was configured without --enable-gpl, without --enable-nonfree and without
+--enable-version3, so it carries no GPL-only and no version-3 component, and the LGPL 2.1
+applies to the whole of it.
+
+
+NOT MODIFIED
+------------
+FFmpeg's own source was not changed. Every H9 change to the AVI path is in the engine that
+CALLS FFmpeg -- xash3d-fwgs/engine/client/avi/avi_ffmpeg.c and the patches under
+xash3d-h9-patches/patches -- and none of it is inside these libraries.
+
+
+THE SOURCE, AND REPLACING THEM
+------------------------------
+FFmpeg 9.0.2's source is published by the FFmpeg project at https://ffmpeg.org/download.html
+and in its own repository, https://git.ffmpeg.org/ffmpeg.git, at tag n9.0.2. These libraries
+were built from that release, unchanged, with the i686 MinGW-w64 cross-toolchain under MSYS2
+and this configure line:
+
+    --target-os=mingw32 --arch=x86 --cross-prefix=i686-w64-mingw32-
+    --ar=ar --nm=nm --ranlib=ranlib --strip=strip --windres=windres
+    --extra-cflags=-mstackrealign
+    --enable-shared --disable-static
+    --disable-programs --disable-doc --disable-debug --disable-avdevice
+
+docs/FFMPEG_ADDITIONS.txt records why each of those is there; --extra-cflags=-mstackrealign
+in particular is not optional, and a build without it crashes the first time the MSVC-built
+engine calls into it.
+
+Anyone may rebuild these five libraries from that source and that line and drop the result in
+beside the game. The engine loads them by name at runtime and links to none of them at build
+time, so a replacement needs nothing of H9XASH rebuilt and no part of H9XASH relinked. That
+is the freedom the LGPL asks for, and this build keeps it.
+
+
+SIX LIBRARIES BESIDE THEM, WHICH ARE NOT FFmpeg
+-----------------------------------------------
+FFmpeg's own import tables name six more, so they ship too, and without them LoadLibrary on
+avutil-61.dll fails and the whole AVI path goes dark with no error. They are not part of
+FFmpeg and are not covered by the licence above; each keeps its own, from the project that
+wrote it:
+
+    libgcc_s_dw2-1.dll    GCC's runtime library, under the GPLv3 WITH the GCC Runtime
+                          Library Exception, which is what allows it to be shipped here
+    libwinpthread-1.dll   the mingw-w64 project's threads runtime, under its own
+                          MIT-style permission notice
+    libbz2-1.dll          bzip2, under the bzip2 licence (BSD-style)
+    libiconv-2.dll        GNU libiconv, under the GNU LGPL version 2.1 or later -- the same
+                          text as the one beside this file
+    liblzma-5.dll         liblzma from XZ Utils, under the 0BSD licence
+    zlib1.dll             zlib, under the zlib licence
+
+Their full texts are published by each project, and MSYS2 carries them under
+mingw32/share/licenses/<package>/ in the toolchain these were taken from.

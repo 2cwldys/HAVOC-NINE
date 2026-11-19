@@ -1,0 +1,121 @@
+diff --git a/engine/client/cl_sprite.c b/engine/client/cl_sprite.c
+index 29185659..5974272a 100644
+--- a/engine/client/cl_sprite.c
++++ b/engine/client/cl_sprite.c
+@@ -139,6 +139,21 @@ static qboolean Mod_SpriteSearchForTextureReplacement( char *out, size_t size, c
+ 		return false;
+ 	}
+ 
++	// H9: prefer a PNG replacement over the TGA of the same name. Mod_MaterialExists in
++	// mod_bmodel.c carries the reasoning. The path is rewritten in place, so the report below
++	// and the load that follows both name the file that was really found.
++	{
++		char *dot = Q_strrchr( out, '.' );
++
++		if( dot != NULL && (size_t)( dot - out ) + 5 <= size )
++		{
++			memcpy( dot, ".png", 5 );
++			if( FS_FileExists( out, false ))
++				return true;
++			memcpy( dot, ".tga", 5 );
++		}
++	}
++
+ 	if( FS_FileExists( out, false ))
+ 		return true;
+ 
+diff --git a/engine/client/cl_tent.c b/engine/client/cl_tent.c
+index 95c85f7c..2a3feba4 100644
+--- a/engine/client/cl_tent.c
++++ b/engine/client/cl_tent.c
+@@ -2982,6 +2982,18 @@ int GAME_EXPORT CL_DecalIndex( int id )
+ 
+ 			if( Q_snprintf( decalname, sizeof( decalname ), "materials/decals/%s.tga", host.draw_decals[id] ) > 0 )
+ 			{
++				// H9: prefer a PNG replacement over the TGA of the same name, as the world and
++				// sprite lookups do. Mod_MaterialExists in mod_bmodel.c carries the reasoning.
++				// The name is rewritten in place so the load and the report below follow it.
++				char *h9dot = Q_strrchr( decalname, '.' );
++
++				if( h9dot != NULL && !g_fsapi.FileExists( decalname, false ))
++				{
++					memcpy( h9dot, ".png", 5 );
++					if( !g_fsapi.FileExists( decalname, false ))
++						memcpy( h9dot, ".tga", 5 );
++				}
++
+ 				if( g_fsapi.FileExists( decalname, false ))
+ 				{
+ 					gl_texturenum = ref.dllFuncs.GL_LoadTexture( decalname, NULL, 0, TF_DECAL );
+diff --git a/engine/common/mod_bmodel.c b/engine/common/mod_bmodel.c
+index d1fe48e2..252d3105 100644
+--- a/engine/common/mod_bmodel.c
++++ b/engine/common/mod_bmodel.c
+@@ -2640,6 +2640,31 @@ static void Mod_TextureReplacementReport( const char *modelname, const char *tex
+ 		Con_Printf( "Looking for %s:%s%s tex replacement..." S_RED "FAIL (%s)\n", modelname, texname, type, foundpath );
+ }
+ 
++// H9: a replacement may be a PNG as well as a TGA, and a PNG wins when both are present.
++//
++// The imagelib has loaded PNG all along -- it is in the loader table in img_utils.c beside TGA,
++// BMP and DDS. Only these lookups were fixed to one extension. H9's upscaled pack ships PNG
++// because it is the same pixels in 41 percent of the bytes, which halves both the download and
++// what sits on a player's disk. TGA is still tried, so a pack built before this, or a file put
++// there by hand, is found exactly as it was.
++//
++// The path is rewritten in place, so whatever the caller loads or reports afterwards names the
++// file that was really found.
++static qboolean Mod_MaterialExists( char *path, size_t size )
++{
++	char *dot = Q_strrchr( path, '.' );
++
++	if( dot != NULL && (size_t)( dot - path ) + 5 <= size )
++	{
++		memcpy( dot, ".png", 5 );
++		if( g_fsapi.FileExists( path, false ))
++			return true;
++		memcpy( dot, ".tga", 5 );
++	}
++
++	return g_fsapi.FileExists( path, false );
++}
++
+ static qboolean Mod_SearchForTextureReplacement( char *out, size_t size, const char *modelname, const char *texname, const char *type )
+ {
+ 	const char *subdirs[] = { modelname, "common" };
+@@ -2649,7 +2674,7 @@ static qboolean Mod_SearchForTextureReplacement( char *out, size_t size, const c
+ 		if( Q_snprintf( out, size, "materials/%s/%s%s.tga", subdirs[i], texname, type ) < 0 )
+ 			continue; // truncated name
+ 
+-		if( g_fsapi.FileExists( out, false ))
++		if( Mod_MaterialExists( out, size ))
+ 			return true; // found, load it
+ 	}
+ 
+diff --git a/ref/gl/gl_image.c b/ref/gl/gl_image.c
+index fb0af14f..9b7b2530 100644
+--- a/ref/gl/gl_image.c
++++ b/ref/gl/gl_image.c
+@@ -2125,6 +2125,22 @@ qboolean R_SearchForTextureReplacement( char *out, size_t size, const char *mode
+ 		return false;
+ 	}
+ 
++	// H9: prefer a PNG replacement over the TGA of the same name. Mod_MaterialExists in
++	// engine/common/mod_bmodel.c carries the reasoning; this is the renderer's half of it, for
++	// studio model skins. The path is rewritten in place so the report and the load that follows
++	// both name the file that was really found.
++	{
++		char *dot = Q_strrchr( out, '.' );
++
++		if( dot != NULL && (size_t)( dot - out ) + 5 <= size )
++		{
++			memcpy( dot, ".png", 5 );
++			if( gEngfuncs.fsapi->FileExists( out, false ))
++				return true;
++			memcpy( dot, ".tga", 5 );
++		}
++	}
++
+ 	if( gEngfuncs.fsapi->FileExists( out, false ))
+ 		return true;
+ 
