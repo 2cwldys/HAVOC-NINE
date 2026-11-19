@@ -84,8 +84,16 @@ NEVER_EXT = (".key", ".env", ".pem")
 
 # Under ts\ and valve\: folders that are the server's, a player's own (saves, the engine's font
 # cache of the PC's Windows fonts), or replaced by the browser build.
+# "materials" is the HD texture pack, 19.7 GB of it. It is an OPTIONAL download that the updater
+# fetches with --hd and that no client package holds -- stage-h9xash.ps1 leaves it out of every ZIP
+# by the same reasoning. It was never left out here, so the browser stage came to 21.1 GB of which
+# 19.7 GB was textures no browser build serves. The cost was not disk alone: the delta then found
+# about 10.9 GB of stage the host had never seen and uploaded it, three times over the night of
+# 2026-11-19, which is precisely the bandwidth the delta exists to avoid. It also filled the host's
+# 100 GB disk twice and took sshd down with it. Without it the stage is about 1.4 GB.
 TS_SKIP_DIRS = {"addons", "dlls", "cl_dlls", "mapconfigs", "logs", "save", "screenshots",
-                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads", "h9tts"}
+                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads", "h9tts",
+                "materials"}
 SKIP_NAMES = {"config.cfg", "video.cfg", "opengl.cfg", "vfs.cfg", "server.cfg", "listenserver.cfg",
               "game.cfg", "liblist.gam", "gameinfo.txt", "console_history.txt", "custom.hpk",
               "voice_ban.dt", "tsstats.dat", "vault.ini", "xashcomm.lst", "mapcycle.txt", "motd.txt",
@@ -515,6 +523,34 @@ def main():
             else:
                 kept.append((at, src))
         files = kept
+
+    # A guard on the size of what is about to be laid out, because the cost of getting this wrong is
+    # not paid here. The stage becomes a delta recipe, and every file in it that the host has not
+    # seen is uploaded: on 2026-11-19 the HD texture pack was in the stage, so the stage was 21.1 GB,
+    # the delta uploaded about 10.9 GB of it three times in one night, and the host's 100 GB disk
+    # filled twice, taking sshd down with it. The browser build is the game's content, which is about
+    # 1.4 GB; anything of this order means a folder that belongs to an optional download has been
+    # swept in again. Stop here rather than hand a recipe to the delta.
+    STAGE_MAX_GB = 6.0
+    total = sum(os.path.getsize(src) for _, src in files)
+    if total > STAGE_MAX_GB * (1 << 30):
+        big = {}
+        for at, src in files:
+            parts = at.split("/")
+            key = "/".join(parts[1:3]) if len(parts) > 2 else at
+            big[key] = big.get(key, 0) + os.path.getsize(src)
+        worst = sorted(big.items(), key=lambda kv: -kv[1])[:6]
+        sys.stderr.write(
+            "\n[STOP] the browser stage would be %.2f GB, over the %.1f GB this build should ever be.\n"
+            "  The browser build is the game's content, about 1.4 GB. A number like this means a folder\n"
+            "  that belongs to an optional download has been swept in. The biggest are:\n" % (total / (1 << 30), STAGE_MAX_GB))
+        for k, v in worst:
+            sys.stderr.write("    %8.2f GB  %s\n" % (v / (1 << 30), k))
+        sys.stderr.write(
+            "  Add the folder to TS_SKIP_DIRS at the top of this script, as ts/materials (the HD\n"
+            "  textures, 19.7 GB) already is. Nothing has been written.\n"
+            "  Raise STAGE_MAX_GB only if the browser build is genuinely meant to carry this.\n\n")
+        return 1
 
     # The main menu's videos: the page shows Motion-JPEG AVIs; another codec is re-encoded for the package.
     video_notes = []
