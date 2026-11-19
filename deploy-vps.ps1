@@ -69,7 +69,14 @@ if (-not $Scratch) { $Scratch = Join-Path $Dist '.deploy' }
 if (-not (Test-Path -LiteralPath $Scratch)) { New-Item -ItemType Directory -Force -Path $Scratch | Out-Null }
 $sshHost = [string]$cfg['deploy.host']
 if ($sshHost -notmatch '^[A-Za-z0-9._@-]+$') { Fail "[deploy] host in packaging.ini must be an SSH shortcut such as havoc9-vps" }
-$ssh = @('-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=20')
+# ServerAliveCountMax defaults to 3, so thirty-second keepalives give up after ninety seconds of
+# silence. The host goes quiet for longer than that under ordinary load: -Hashes enumerates a store
+# of some twelve gigabytes, and delta.py ingests for minutes at a time. On 2026-11-19 that dropped
+# the connection mid-query with "client_loop: send disconnect: Connection reset" and failed a deploy
+# that had sent nothing and had nothing wrong with it. Twenty keepalives is ten minutes of patience,
+# which is longer than any single step the host runs, while a host that is genuinely gone is still
+# noticed rather than waited on forever.
+$ssh = @('-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=20', '-o', 'ConnectTimeout=20')
 
 # 1. build
 if (-not $NoBuild) {
