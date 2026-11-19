@@ -230,11 +230,33 @@ if (Want 'plugins') {
     if ($mode.plugins -eq '0') { Write-Host '  [ship] plugins = 0'; Record plugins 'skipped' }
     else {
         $bump = ($bumpMode -eq 'always') -or ($bumpMode -eq 'engine' -and ($engineBuilt -or $mode.engine -eq '1'))
-        $nodeArgs = @('tools\release-prepare.mjs', $(if ($bump) { '--bump' } else { '--auto' }), '--state', $stateFile, '--repo', $Here)
+        # bump = never still has to BUILD and EXPORT the changed plugins; it just must not raise the
+        # number. That is release-prepare --release, whose target build is the one already out
+        # (release-prepare.mjs:190, "to = syncRelease ? before : nextBuild(before)"). --auto will not
+        # do: its whole trigger IS a changed plugin hash, so it would raise the build and move the
+        # join gate, which is the opposite of delivering in place.
+        $inPlace = ($bumpMode -eq 'never')
+        $nodeArgs = @('tools\release-prepare.mjs', $(if ($bump) { '--bump' } elseif ($inPlace) { '--release' } else { '--auto' }), '--state', $stateFile, '--repo', $Here)
         if ($DryRun) { $nodeArgs += '--dry' }
         Run-Node 'plugins' $nodeArgs $tsm
+        # --release does not write the state file (only --record does, release-prepare.mjs:144-152),
+        # and the stage runs a release-prepare --auto of its own (stage-h9xash.ps1:672) that
+        # deploy-vps.ps1 has no way to skip. With the pre-patch hashes still recorded, THAT run sees a
+        # changed plugin at the same build and raises it after all -- the bump comes back by the side
+        # door. Recording the rebuilt plugins against the build they shipped under settles both ends:
+        # the stage reports "kept", and a later ordinary release does not bump for work already out.
+        if ($inPlace -and -not $DryRun) {
+            Write-Host '  node tools\release-prepare.mjs --record   (so the stage does not raise the build after all)'
+            Push-Location $tsm
+            try {
+                $rec = @(& node 'tools\release-prepare.mjs' '--record' '--state' $stateFile 2>&1)
+                $rc = $LASTEXITCODE
+                $rec | Select-Object -Last 3 | ForEach-Object { Write-Host "    $_" }
+                if ($rc -ne 0) { Fail "the in-place build was not recorded (exit $rc), and the stage would raise the build number. Run it by hand in $tsm : node tools\release-prepare.mjs --record --state `"$stateFile`"" }
+            } finally { Pop-Location }
+        }
         if (-not $DryRun) { $pluginsBuilt = $true; $ran.plugins = $true }
-        Record plugins $(if ($DryRun) { 'dry run' } else { 'prepared (see the log: a bump builds and exports)' })
+        Record plugins $(if ($DryRun) { 'dry run' } elseif ($inPlace) { 'rebuilt and exported at the same build, in place, and recorded' } else { 'prepared (see the log: a bump builds and exports)' })
     }
 } else { Record plugins 'not in this run' }
 
@@ -271,8 +293,12 @@ if (Want 'deploy') {
     elseif ($DryRun) { Write-Host '  WHATIF: .\deploy-vps.ps1 (stage, package, upload, install, verify-release.ps1)'; Record deploy 'would run' }
     else {
         $log = Join-Path $LogDir 'deploy.log'
-        Write-Host "  .\deploy-vps.ps1   (log $log)"
-        & (Join-Path $Here 'deploy-vps.ps1') *> $log
+        Write-Host "  .\deploy-vps.ps1 -Ini $Ini   (log $log)"
+        # -Ini, or the deploy reads packaging.ini whatever ini this run was given: every [package] and
+        # [deploy] value of a custom ini was silently discarded here, so a run meant to send one thing
+        # sent the lot (host package force-sent, 1.2 GB of stage re-hashed). The default $Ini IS
+        # packaging.ini, so an ordinary run is unchanged.
+        & (Join-Path $Here 'deploy-vps.ps1') -Ini $Ini *> $log
         $code = $LASTEXITCODE
         Get-Content -LiteralPath $log -Tail 22 | ForEach-Object { Write-Host "    $_" }
         if ($code -ne 0) { Fail "the deploy failed (exit $code); read $log, then continue with: .\ship.ps1 -From deploy" }
