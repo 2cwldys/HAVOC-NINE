@@ -49,6 +49,10 @@ $Files = Join-Path $Site 'files'
 # The prune in step 6 lists $Files without -Recurse, so nothing there ever reaches into this.
 $FilesHd = Join-Path $Files 'hd'
 $Inbox = 'C:\setup\incoming'
+# Remembered SHA-256s for -Hashes (see ShaCached). Deliberately NOT under $Dl: that folder is
+# served to the public and listed on the downloads page, and cache files have no business there.
+# Losing this folder costs one slow deploy and nothing else.
+$HashCache = Join-Path $Root 'data\hashcache'
 $Buttons = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe')
 $Rules = @(
     @{ Re = '^H9XASH(-linux)?\.zip$'; Kind = 'button' },
@@ -105,6 +109,47 @@ function Sha([string]$Path) {
     }
 }
 
+# -Hashes exists to tell the sender what this host already has, and the answer includes the
+# SHA-256 of every download the site serves: on this box about 4 GB of ZIPs. Re-reading all of it
+# on every deploy cost around 200 s and bought nothing, because those files change only when a
+# delivery replaces them. Worse than the cost, it was the window things went wrong in: on
+# 2026-11-19 two deploys sat inside this step for 33 and 48 minutes with the remote PowerShell
+# using 44 s of CPU, which is a process waiting, not working, and the deploy had no way to notice.
+#
+# So each hash is remembered with the length and UTC write time it was computed from, and is
+# recomputed only when either of those has moved. A replaced file therefore re-hashes by itself,
+# and a corrupted or missing cache entry only costs the old slow path once.
+#
+# This is deliberately NOT used when a delivery is checked further down. There the whole point is
+# to verify bytes that have just arrived over the network, and a remembered answer defeats it.
+function ShaCached([string]$Path) {
+    $fi = Get-Item -LiteralPath $Path
+    $stamp = '{0}:{1}' -f $fi.Length, $fi.LastWriteTimeUtc.ToString('o')
+    $side = Join-Path $HashCache ((Split-Path -Leaf $Path) + '.sha256')
+
+    try {
+        if (Test-Path -LiteralPath $side -PathType Leaf) {
+            $lines = @(Get-Content -LiteralPath $side -TotalCount 2)
+            if ($lines.Count -ge 2 -and $lines[1] -eq $stamp -and $lines[0] -match '^[0-9a-f]{64}$') {
+                return $lines[0]
+            }
+        }
+    }
+    catch { }           # an unreadable or malformed entry just means hashing it again
+
+    $hash = Sha $Path
+
+    try {
+        if (-not (Test-Path -LiteralPath $HashCache)) {
+            New-Item -ItemType Directory -Force -Path $HashCache | Out-Null
+        }
+        Set-Content -LiteralPath $side -Value @($hash, $stamp) -Encoding ascii
+    }
+    catch { }           # the cache is an optimisation: failing to write it must never fail a deploy
+
+    return $hash
+}
+
 # A child PowerShell script (setup.ps1, start-all.ps1 ...): its output shown, its exit code in $script:childExit. Under
 # $ErrorActionPreference 'Stop' a line a program writes to its error stream (Caddy logs its ordinary lines there) would stop
 # this script, so the preference is 'Continue' for the call: only the child's exit code says whether it worked.
@@ -132,9 +177,12 @@ function Invoke-Delta([string[]]$DeltaArgs) {
 }
 
 if ($Hashes) {
+    # The four downloads, and the only reason this step was ever slow: about 4 GB between them.
+    # ShaCached re-reads one only when its length or write time has moved. The manifests below
+    # stay on Sha: they are small JSON and hashing them is already instant.
     foreach ($n in $Buttons + @('H9XASH-linux-server.zip')) {
         $p = Join-Path $Dl $n
-        if (Test-Path -LiteralPath $p -PathType Leaf) { "file $(Sha $p) $n" }
+        if (Test-Path -LiteralPath $p -PathType Leaf) { "file $(ShaCached $p) $n" }
     }
     if (Test-Path -LiteralPath $Files) {
         Get-ChildItem -LiteralPath $Files -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' } | ForEach-Object { "blob $($_.Name)" }
