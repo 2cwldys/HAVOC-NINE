@@ -148,7 +148,11 @@ foreach ($l in $answer) {
 # receive-deploy.ps1 now refuses under 20 GB, but refusing there is still forty minutes of upload
 # spent first. Refusing here costs one ssh call. The number is deliberately the host's threshold plus
 # a margin, because the host needs room to take the delivery IN as well as to hold it.
-$needGB = 30
+# A floor only. The real check is further down, once the size of THIS delivery is known: a flat
+# figure here either refuses a 200 MB delivery for no reason or waves through a 10 GB one. This
+# just refuses to begin against a host that is already at death's door, where even building the
+# delta would fail and sshd itself starts dropping logins.
+$needGB = 6
 $freeOut = & ssh @ssh $sshHost 'powershell -NoProfile -Command "[math]::Round((Get-PSDrive C).Free/1GB,1)"'
 $freeGB = 0.0
 foreach ($l in $freeOut) { if ("$l".Trim() -match '^[0-9]+(\.[0-9]+)?$') { $freeGB = [double]("$l".Trim()); break } }
@@ -342,6 +346,25 @@ if (-not $send.Count) {
     exit $LASTEXITCODE
 }
 foreach ($s in $send) { $lines.Add("$($s.Sha)  $($s.Name)") }
+$sendGB = (($send | Measure-Object Size -Sum).Sum) / 1GB
+# The real check, now that the size of this delivery is known rather than guessed. The early check
+# above is only a floor against a host already at death's door; refusing a 200 MB delivery because
+# the host holds less than some flat figure is a false alarm that sends somebody deleting things for
+# nothing. The host needs room for the delivery to land, for the store to take it in, and for the
+# ZIPs it builds from the recipes, so ask for three times what is being sent plus a little.
+if ($freeGB -gt 0) {
+    $wantGB = [math]::Round(($sendGB * 3) + 2, 1)
+    if ($freeGB -lt $wantGB) {
+        Write-Host ("[FAIL] this delivery is {0:N1} GB and {1} has {2} GB free; it wants about {3} GB." -f $sendGB, $sshHost, $freeGB, $wantGB) -ForegroundColor Red
+        Write-Host '  Nothing has been sent. The host needs room for the delivery, for its store to take it in, and for the ZIPs it builds.'
+        Write-Host '  On the host, in order of what gives most back:'
+        Write-Host '    dism /online /cleanup-image /startcomponentcleanup /resetbase'
+        Write-Host '    net stop wuauserv & rmdir /s /q C:\Windows\SoftwareDistribution\Download & net start wuauserv'
+        Write-Host '    rmdir /s /q C:\setup\incoming\<an old delivery>'
+        Write-Host '  C:\havoc9\store is NOT scratch: deleting it makes the next delta send everything again.'
+        exit 1
+    }
+}
 Say ('sending {0} file(s), {1:N0} MB' -f $send.Count, (($send | Measure-Object Size -Sum).Sum / 1MB))
 $send | ForEach-Object { Write-Host ('  {0,-48} {1,10:N1} MB' -f $_.Name, ($_.Size / 1MB)) }
 if ($DryRun) { exit 0 }
