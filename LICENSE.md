@@ -11,7 +11,7 @@ folders it covers, and the license texts of other people's work are gathered in 
 
 | Part | License | Where the license text is |
 |---|---|---|
-| **The gamemode plugin code** (the game modes and everything H9 wrote around them) | **GPLv3** | `LICENSE-GPLV3.txt` in the plugin folders: `src/`, `AMXMODX/plugins/`, `H9XASH/ts/addons/amxmodx/scripting/`; and in the folders of the code that serves the plugins: `h9web/`, `p2p/`, `serverlist-bot/`, `tools/` |
+| **The gamemode plugin code** (the game modes and everything H9 wrote around them) | **GPLv3** | `LICENSE-GPLV3.txt` in the plugin folders: `src/`, `AMXMODX/plugins/`, `H9XASH/ts/addons/amxmodx/scripting/`; and in the folders of the code that serves the plugins: `h9web/`, `p2p/`, `serverlist-bot/`, `tools/`, `agents/` |
 | **The mod code** (the game and client libraries of the mod) | **Half-Life SDK license**: free of charge only, and the license text goes with every distribution. **Not GPLv3.** | [reTS/LICENSE](reTS/LICENSE), and a copy beside the built libraries in `H9XASH/ts/dlls/` and `H9XASH/ts/cl_dlls/` |
 | **MIT and Apache-2.0 components** (permissive licenses) | **MIT** or **Apache License 2.0**, each as its author gave it. Both may be included in a GPLv3 project (Apache 2.0 is compatible with the GPLv3, not with the GPLv2), so they sit beside the GPLv3 code without a conflict | beside each component, listed below |
 | **Other people's work** | each keeps its own license | beside it, and gathered in [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/) (the list is below) |
@@ -66,7 +66,6 @@ component keeps its own license text beside it, and is not relicensed.
 | MIT | **SMAK**, the map kit (git submodule of [deoroot/SMAK](https://github.com/deoroot/SMAK)) | `SMAK/` |
 | MIT | **emsdk**, the Emscripten SDK scripts that install the web client's toolchain (Emscripten authors) | `emsdk/LICENSE` |
 | MIT | **compts**, the Elo plugin backend (Xjiro) | `compts/LICENSE.MD` |
-| MIT | **bat2exe** (dehoisted) | `bat2exe/LICENSE.md` |
 | MIT | **AMD FidelityFX Super Resolution 1** (the scene upscaler in the engine patch) | `H9XASH/ref_gl.FSR1-LICENSE.txt` |
 | MIT | **ONNX Runtime** (Microsoft; runs the speech model) | `H9XASH/ts/h9tts/bin/LICENSE-onnxruntime-mit.txt` |
 | Apache 2.0 | **Kokoro** speech model and voices (hexgrad) | `h9tts/LICENSE-kokoro-apache-2.0.txt`, `H9XASH/ts/h9tts/` |
@@ -101,7 +100,7 @@ their own permissive licenses, which ship in the Emscripten release that `build-
 | `SMAK-MIT.txt` | SMAK, the map kit (git submodule of deoroot/SMAK) | MIT |
 | `ES-MIT.txt` | ES, the command line for Everything (git submodule of voidtools/ES) | MIT |
 | `compts-MIT.md` | compts, the Elo plugin backend (compts/) | MIT |
-| `bat2exe-MIT.md` | bat2exe (bat2exe/) | MIT |
+| `b2executable-GPLv3.txt` | b2executable, the batch-to-exe converter (git submodule of julianollivieira/b2executable, at `bat2exe/`) | GPLv3 |
 | `AMD-FSR1-MIT.txt` | AMD FidelityFX Super Resolution 1 (the scene upscaler) | MIT |
 | `ONNX-Runtime-MIT.txt` | ONNX Runtime (speech) | MIT |
 | `ONNX-Runtime-ThirdPartyNotices.txt` | ONNX Runtime (speech) | notices of ONNX Runtime's own third-party code |
@@ -115,17 +114,29 @@ their own permissive licenses, which ship in the Emscripten release that `build-
 | `AMBuild-LICENSE.txt` | AMBuild (the Linux build) | AMBuild's license |
 | `Emscripten-LICENSE.txt` | Emscripten, the web client's compiler and runtime (`webclient-bin/`) | MIT and University of Illinois/NCSA |
 | `Emscripten-emsdk-MIT.txt` | emsdk, the Emscripten SDK scripts (`emsdk/`) | MIT |
+| `lmstudio-mcp-NOTICE.txt` | the local agent scripts (`agents/lmstudio-mcp/`): the npm packages their installer fetches, and LM Studio itself, which that installer offers to download from [lmstudio.ai](https://lmstudio.ai/) under its own [app terms](https://lmstudio.ai/app-terms) | MIT and Apache License 2.0 for the packages; LM Studio is not part of this repository and keeps its own terms |
 | `OFL-Orbitron.txt`, `OFL-Rajdhani.txt`, `OFL-ShareTechMono.txt` | the website's three typefaces (`havoc9.org/assets/fonts/`), served from the site | SIL Open Font License 1.1 |
 | `Asset-PPSh-41-ATTRIBUTION.txt` | PPSh-41 weapon models (zillious) | Creative Commons, attribution |
 | `Asset-LaserRifle-ATTRIBUTION.txt` | laser rifle weapon models (Jett Spaulding) | Creative Commons, attribution |
 
 ## Everything else
 
+- **LM Studio** is not in this repository and is not distributed with it. The local agent scripts in `agents/lmstudio-mcp/`
+  are H9's own, under the GPLv3 like the rest of the tooling, and they talk to LM Studio over a local HTTP port. Their
+  installer OFFERS to download LM Studio from [lmstudio.ai](https://lmstudio.ai/); if you accept, you are using LM Studio
+  under its own [application terms of service](https://lmstudio.ai/app-terms), which are between you and its makers and
+  are not altered or restated by anything here. The same goes for any model you download inside it: each model carries its
+  own license, and some are not free for commercial use. Nothing in `agents/` is needed to build, run or play HAVOC 9 --
+  say no to the download and the rest of the project is unaffected. The npm packages the installer fetches are MIT and
+  Apache-2.0 and are listed in `THIRD_PARTY_LICENSES/lmstudio-mcp-NOTICE.txt`.
 - **The website's fonts** (Orbitron, Rajdhani and Share Tech Mono, `havoc9.org/assets/fonts/`) are under the SIL Open Font License 1.1. It lets
   them be bundled and redistributed with software as separate files, and that is how they are used: data served beside the site, not part of
   its GPLv3 code, and not relicensed. Their license texts sit in that folder and in THIRD_PARTY_LICENSES/.
-- **Xash3D FWGS** (the engine) is a separate, nested project: see [H9XASH/UNLICENSED.MD](H9XASH/UNLICENSED.MD). The
-  patches in `xash3d-h9-patches/` are patches to it.
+- **Xash3D FWGS** (the engine) is a separate, nested project: see
+  [H9XASH/ENGINE_UNLICENSED.md](H9XASH/ENGINE_UNLICENSED.md). The patches in `xash3d-h9-patches/` are patches to it.
+- **The Half-Life 1 SDK** is what the game libraries (`ts/dlls/mp.dll`, `ts/cl_dlls/client.dll`, built from `reTS/`) come
+  from. Its licence requires that "any distribution of this SDK must include this LICENSE file", so it ships with the game
+  as [H9XASH/HalfLife1SDK-LICENSE.txt](H9XASH/HalfLife1SDK-LICENSE.txt) as well as sitting at `reTS/LICENSE`.
 - **AMX Mod X** (`AMXMODX/`) is GPLv3 with its module exception (its license information is in the folder); **Metamod-R**
   (`metamod-r/`) is under the GPLv3 text in its `LICENSE`; **RCBot** and `rcbot-patch/` follow RCBot's own license;
   **AmxxEasyHttp** (the `easy_http` module) and **AMBuild** carry their license beside them (`easy_http_LICENSE.txt`,

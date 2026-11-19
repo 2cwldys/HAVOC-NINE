@@ -323,6 +323,33 @@ It fetches Emscripten 6.0.12 (with its own Python, Node and Ninja) and CMake 4.3
 pinned SHA-256. It then builds the engine and the reTS client for WebAssembly and lays out the game files in `webclient-build\`.
 The first run takes about 10 minutes. Versions, checksums and steps: [docs/BUILDING.txt](docs/BUILDING.txt), section 9.
 
+## Local AI tooling for contributors (optional)
+
+`agents/` holds an optional local-AI setup for people working on this codebase. It is not part of the game, is not
+needed to build, host or play it, and nothing else in the repository depends on it. What it gives you is your own
+model running on your own machine, privately, beside whatever assistant you already use -- and, more usefully, a set
+of tools that answer from this repository's own files instead of guessing:
+
+```
+h9_rules  xash3d-fwgs/engine/client/cl_main.c    the rules for the file you are about to edit
+h9_doc    release                                 finds and reads the right one of 67 docs
+h9_find   cvar h9_customweapons                   where a cvar, plugin, patch or map actually is
+```
+
+`.claude/settings.json` registers two MCP servers so they appear with no configuration: the local-model bridge, and
+SMAK's own server for models, maps, wads and sprites (started `--no-run`, so it only reads, describes and draws).
+
+**Setup:** `agents/lmstudio-mcp/install.cmd` on Windows, `install.sh` on Linux and macOS. Read
+[agents/README.md](agents/README.md) first -- the installer runs `npm install` and then **offers** to download
+**LM Studio** from [lmstudio.ai](https://lmstudio.ai/). LM Studio is third-party software, is not distributed with
+HAVOC 9, and if you accept you are using it under its own
+[application terms of service](https://lmstudio.ai/app-terms). Models you download inside it carry their own
+licences, and several are not free for commercial use. Decline any of it and the rest of the project is unaffected.
+
+Be realistic about what a small local model is worth here: it is genuinely useful on the PowerShell, Node, Python and
+prose, and unreliable on AMX Mod X Pawn and the engine patch chain -- which are the two biggest bodies of code in the
+repo. [agents/lmstudio-mcp/context/MEMORY.md](agents/lmstudio-mcp/context/MEMORY.md) says why, in detail.
+
 ## Running a server in Docker
 
 The native Linux dedicated server runs in a container built from this clone. Full notes, including the
@@ -372,7 +399,9 @@ hostname, map, slots, bots, round time, the H9 weapon set, the release gate, lat
 
 - This project inherits a lot of nested GPLv2, GPLv3 and MIT licensed tools and projects.
 - **Xash3D-FWGS** is a nested repository and is considered unlicensed for all intents and purposes (see
-  [H9XASH/UNLICENSED.MD](H9XASH/UNLICENSED.MD)).
+  [H9XASH/ENGINE_UNLICENSED.md](H9XASH/ENGINE_UNLICENSED.md)).
+- **The Half-Life 1 SDK** licence ships with the game as `H9XASH/HalfLife1SDK-LICENSE.txt`: it requires that any
+  distribution of the SDK include it, and `mp.dll` and `client.dll` are built from it.
 - Using the Steam broker software, you agree to the Steam Web API Terms of Use, the Steamworks SDK Access Agreement and the
   Steam Subscriber Agreement.
 - This is a fan-based passion project, made with the assistance of Claude.ai and community contributors.
