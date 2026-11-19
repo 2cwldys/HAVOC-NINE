@@ -227,6 +227,15 @@ $SkipDirNames += @('drive_c', 'dosdevices')
 # installed files, its log, and the previous files it keeps for a rollback.
 $SkipDirNames += @('.h9xash-updater')
 $SkipNames += @('.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp')
+# H9XASH-Updater.exe sits in the game folder so a player who has the game has the updater, but it is
+# kept OUT of the stage on purpose: the stage is what publish_files.py turns into manifest.json, and
+# a manifest-managed updater would be told to overwrite itself while running, which Windows refuses.
+# The ZIP adds it back explicitly at pack time, so the download carries it and the manifest does not.
+$SkipNames += @('h9xash-updater.exe')
+# updater.ini holds a player's own answers to the updater's questions ("do not offer the HD
+# textures again"). It is theirs: it never ships and an update never replaces it, the way
+# config.cfg does not. updater.ini.example ships instead, so a new install has something to read.
+$SkipNames += @('updater.ini')
 
 # Files a new player gets from a stock source instead. Relative to H9XASH, then the candidates
 # relative to the folder H9XASH sits in.

@@ -144,6 +144,18 @@ COPY --from=binaries /bin-overlay/ /srv/h9xash/
 # not in H9XASH-linux" -- so the clone's copy is the one that should win.
 COPY linux/h9xash_server.sh /srv/h9xash/h9xash_server.sh
 
+# H9XASH-Updater, the Linux build, so an operator can bring the server up to date (and fetch the
+# HD textures with --hd) from inside the container instead of rebuilding the image. It is build
+# output like the 32-bit binaries, so the bracket makes this COPY optional the same way
+# "COPY H9XASH-linu[x]" above is: a glob that matches nothing is allowed, a literal path that does
+# not exist is not. A clone that has never run tools/updater/build-linux.sh simply gets an image
+# without it, which is why nothing below tests for it.
+#
+# It carries its own CA bundle, so it does not depend on the image's ca-certificates to reach
+# havoc9.org. Note it will refuse to run against /opt/h9xash without --force if that folder ever
+# sits inside a git checkout; in the image it does not.
+COPY dist/H9XASH-Update[r] /srv/h9xash/
+
 # A clone made without Git LFS leaves a 130-byte text pointer where every map, model and wad
 # should be. The image would build, start, and fail to load a single map. The updater guards
 # against exactly this (tools/updater/h9xash_updater.py, LFS_POINTER); so does this.

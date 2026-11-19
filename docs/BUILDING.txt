@@ -98,16 +98,18 @@
        git submodule update --init xash3d-fwgs
        git -C xash3d-fwgs submodule update --init 3rdparty/mainui 3rdparty/freevgui 3rdparty/library_suffix
    Then "xash.bat engine" applies the patches and builds (it needs the usual
-   deps below: SDL2, the FFmpeg libs and the MSVC toolchain). Check the
+   deps below: SDL2, which it fetches, and the MSVC toolchain; the FFmpeg
+   headers it compiles against are committed). Check the
    submodules out with core.autocrlf=false (LF) for the cleanest patch apply:
    the main engine forces *.c, *.h and wscript to LF through its own
    .gitattributes, but the three nested submodules carry none, so on Windows
    they check out CRLF and their LF patches take xash.bat's --3way path
    instead (which works).
      xash.bat engine          waf with Visual Studio, SDL2 2.32.10 fetched
-                              into deps\, FFmpeg from the folder xash.bat
-                              names (32-bit, built once with MSYS2), then
-                              the DLLs, ENGINE.txt and each DLL's .patch
+                              into deps\ and the FFmpeg 9.0.2 headers taken
+                              from deps\ where they are committed (the build
+                              is dlopen-only, so it needs no FFmpeg library),
+                              then the DLLs, ENGINE.txt and each DLL's .patch
                               into H9XASH\
      xash.bat assemble        a fresh H9XASH from the stock TS 3.0 base,
                               reTS, the H9TE client, the overlay and your

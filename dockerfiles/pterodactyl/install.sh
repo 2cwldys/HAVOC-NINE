@@ -85,6 +85,23 @@ find . \( -name '*.so' -o -name 'xashds' -o -name '*.patch' \
     -exec cp -a --parents {} /mnt/server/ \;
 cd /mnt/server
 
+# ---- H9XASH-Updater, so the server can be brought up to date in place --------------------------
+# Optional on purpose. The updater is a convenience for the operator -- it updates the install and
+# fetches the HD textures with --hd -- and a panel install that cannot reach the file is still a
+# working server, so a failure here is a note, never a stop. It carries its own CA bundle, so it
+# does not depend on this image's certificates.
+UPD_URL=${H9_UPDATER_URL:-https://havoc9.org/downloads/H9XASH-Updater}
+say "fetching H9XASH-Updater (optional)"
+if curl -fsSL "$UPD_URL" -o /mnt/server/H9XASH-Updater 2>/dev/null \
+   && [ -s /mnt/server/H9XASH-Updater ]; then
+    chmod +x /mnt/server/H9XASH-Updater
+    say "  H9XASH-Updater in place: ./H9XASH-Updater --check, or --hd for the HD textures"
+else
+    rm -f /mnt/server/H9XASH-Updater
+    say "  not fetched from $UPD_URL -- the server is complete without it."
+    say "  Set H9_UPDATER_URL if it is published elsewhere."
+fi
+
 # ---- make it runnable, and check it -----------------------------------------------------------------
 chmod +x ./xashds ./h9xash_server.sh 2>/dev/null || true
 find . -name '*.so' -exec chmod 0644 {} + 2>/dev/null || true

@@ -11,6 +11,7 @@
 # makes dist\H9XASH-Updater.exe from it. Python 3 standard library only.
 
 import argparse
+import configparser
 import ctypes
 import gzip
 import hashlib
@@ -255,6 +256,18 @@ def exe_dir():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def exe_name():
+    """What to call this program back to the person running it.
+
+    The Windows build is H9XASH-Updater.exe and the Linux one is ./H9XASH-Updater, so a message
+    with the name written into it is wrong on one of them. Take it from what is actually running.
+    """
+    if getattr(sys, 'frozen', False):
+        base = os.path.basename(sys.executable)
+        return base if os.name == 'nt' else './' + base
+    return 'python3 ' + os.path.basename(os.path.abspath(__file__))
 
 
 def looks_like_h9xash(path):
@@ -1286,13 +1299,21 @@ def install_dir_problem(path, cache, force):
         return 'a drive root is not a game folder; use a folder such as %s' % os.path.join(path, 'H9XASH')
     if os.path.isfile(path):
         return '%s is a file' % path
+    # A source tree is the wrong thing to point an updater at: it would overwrite work with a
+    # release. But some people keep the copy they actually PLAY inside one, and the updater
+    # refusing outright left them with no way to use it at all. --force is them saying they know
+    # which folder this is; it stays a refusal without it, because the accident it prevents is
+    # expensive and silent.
     repo = git_checkout_root(path)
-    if repo:
+    if repo and not force:
         return ('%s is inside a git checkout (%s). The updater keeps a player\'s copy up to date, not a '
-                'source tree: choose a folder outside it.' % (path, repo))
+                'source tree: choose a folder outside it, or pass --force if this really is a copy you '
+                'play rather than one you work on.' % (path, repo))
     parent = os.path.dirname(path)
-    if os.path.isdir(os.path.join(parent, 'xash3d-h9-patches')) or os.path.isfile(os.path.join(parent, 'export.bat')):
-        return '%s sits in a TS Match Mode source folder (%s): choose a folder outside it.' % (path, parent)
+    if (os.path.isdir(os.path.join(parent, 'xash3d-h9-patches')) or os.path.isfile(os.path.join(parent, 'export.bat'))) \
+            and not force:
+        return ('%s sits in a TS Match Mode source folder (%s): choose a folder outside it, or pass '
+                '--force if this really is a copy you play.' % (path, parent))
     c, p = os.path.normcase(os.path.abspath(cache)), os.path.normcase(path)
     if c == p or c.startswith(p + os.sep) or p.startswith(c + os.sep):
         return 'the install folder and the download cache (%s) must not be inside each other' % cache
@@ -1316,6 +1337,68 @@ def ask_yes(prompt, default=True):
     return default if not answer else answer.startswith('y')
 
 
+# ---- the install's own preferences (updater.ini) ------------------------------------------------
+# A player's answers that should outlive one run and are nobody else's business: whether to offer
+# the HD textures again, for one. The file sits in the H9XASH folder beside the game. It is the
+# PLAYER'S file, so it is never published and never updated: the stage leaves it out the way it
+# leaves out config.cfg, and updater.ini.example ships instead, so a fresh install has something to
+# read and nobody's answers are overwritten by an update. A missing, unreadable or malformed file
+# simply means "no preferences", never an error: this is a convenience, and it must not be able to
+# stop an update.
+PREFS_NAME = 'updater.ini'
+
+
+def prefs_path(install):
+    return os.path.join(install, PREFS_NAME)
+
+
+def prefs_get(install, section, key, default=None):
+    cp = configparser.ConfigParser()
+    try:
+        if not cp.read(prefs_path(install), encoding='utf-8'):
+            return default
+        return cp.get(section, key)
+    except (configparser.Error, OSError, UnicodeDecodeError, ValueError):
+        return default
+
+
+def prefs_set(install, section, key, value):
+    """Write one preference, keeping whatever else the file holds. Never fatal."""
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(prefs_path(install), encoding='utf-8')
+    except (configparser.Error, OSError, UnicodeDecodeError, ValueError):
+        cp = configparser.ConfigParser()   # unreadable: start it again rather than refuse
+    try:
+        if not cp.has_section(section):
+            cp.add_section(section)
+        cp.set(section, key, str(value))
+        with open(prefs_path(install), 'w', encoding='utf-8') as fh:
+            fh.write('# H9XASH-Updater preferences, written by the updater and yours to edit.\n')
+            fh.write('# It is never published and an update never replaces it.\n')
+            cp.write(fh)
+        return True
+    except (configparser.Error, OSError, UnicodeDecodeError, ValueError):
+        return False
+
+
+def prefs_off(install, section, key):
+    """True when the preference says no: 0, no, off or false."""
+    v = prefs_get(install, section, key)
+    return v is not None and str(v).strip().lower() in ('0', 'no', 'off', 'false')
+
+
+def warn_source_folder(path):
+    """Say it out loud when --force has pointed the updater at a source tree."""
+    repo = git_checkout_root(path)
+    parent = os.path.dirname(path)
+    source = os.path.isdir(os.path.join(parent, 'xash3d-h9-patches')) or os.path.isfile(os.path.join(parent, 'export.bat'))
+    if repo or source:
+        LOG.say('NOTE: %s is inside %s. --force was given, so this is treated as a copy you play. '
+                'An update writes release files over whatever is there; --rollback undoes the last one.'
+                % (path, repo or parent))
+
+
 def choose_install_dir(args, interactive):
     if args.dir:
         path = os.path.abspath(os.path.expandvars(args.dir))
@@ -1323,6 +1406,8 @@ def choose_install_dir(args, interactive):
         problem = install_dir_problem(path, cache, args.force)
         if problem:
             raise UpdaterError(problem)
+        if args.force:
+            warn_source_folder(path)
         return path, os.path.abspath(cache)
     here = exe_dir()
     default = here if looks_like_h9xash(here) else os.path.join(here, 'H9XASH')
@@ -1353,7 +1438,7 @@ def account_step(args, install, state_dir, interactive):
     asked = os.path.join(state_dir, 'link-asked')
     first_run = not os.path.exists(os.path.join(state_dir, 'installed.json')) and not os.path.exists(asked)
     if not args.link and not (first_run and interactive):
-        LOG.say('Account: %s. Run H9XASH-Updater.exe --link any time to link it.' % detail)
+        LOG.say('Account: %s. Run %s --link any time to link it.' % (detail, exe_name()))
         return
     print()
     print('Your havoc9.org account')
@@ -1482,7 +1567,7 @@ def run_update(args, install, cache, state_dir, interactive):
     LOG.say()
     LOG.say('Done: H9XASH in %s is %s.' % (install, source.describe()))
     if not fresh:
-        LOG.say('If something is wrong, H9XASH-Updater.exe --rollback puts the previous files back.')
+        LOG.say('If something is wrong, %s --rollback puts the previous files back.' % exe_name())
     LOG.say('Start the game with h9xash.bat in that folder.')
     return 0
 
@@ -1548,7 +1633,7 @@ def show_status(install, cache, state_dir):
         LOG.say('HD textures:     %d files, %s on %s'
                 % (len(hd.files), describe_info(hd.source), hd.installed))
     else:
-        LOG.say('HD textures:     not installed (H9XASH-Updater.exe --hd)')
+        LOG.say('HD textures:     not installed (%s --hd)' % exe_name())
     j = read_journal(state_dir)
     LOG.say('rollback:        %s' % ('the update of %s can be rolled back' % j[0].get('started') if j and j[2] else 'none'))
     if h9link.supported():
@@ -1579,14 +1664,18 @@ def hd_rules():
     return Rules()
 
 
-def hd_wanted(args, state_dir, interactive):
+def hd_wanted(args, install, state_dir, interactive):
     """Whether to do the HD pass at all, asking once if there is nobody to ask later."""
     if args.no_hd:
         return False
     if args.hd or hd_installed(state_dir):
         return True        # already installed means keep it up to date, like any other file
     if not interactive or args.check:
-        LOG.say('HD textures: not installed. H9XASH-Updater.exe --hd downloads them.')
+        LOG.say('HD textures: not installed. %s --hd downloads them.' % exe_name())
+        return False
+    # the player said "do not ask me again" on an earlier run: --hd still installs them
+    if prefs_off(install, 'hd', 'offer'):
+        LOG.note('HD textures: not offered (hd.offer is off in %s).' % PREFS_NAME)
         return False
     print()
     print('Optional HD textures')
@@ -1595,8 +1684,18 @@ def hd_wanted(args, state_dir, interactive):
     print('  straight back to the originals if they are removed.')
     print('  It is a large download and it needs a linked havoc9.org account.')
     print('  Saying no costs nothing: the game plays exactly as it does now, and')
-    print('  H9XASH-Updater.exe --hd adds them whenever you want.')
+    print('  %s --hd adds them whenever you want.' % exe_name())
     if not ask_yes('Download the HD textures now?', default=False):
+        # a no is for this run; offer to make it permanent rather than asking at every update
+        if not ask_yes('Offer them again next time?', default=True):
+            if prefs_set(install, 'hd', 'offer', '0'):
+                LOG.say('HD textures: skipped, and not offered again. '
+                        '%s --hd still installs them, or set hd.offer = 1 in %s.'
+                        % (exe_name(), PREFS_NAME))
+            else:
+                LOG.say('HD textures: skipped. (%s could not be written, so this will be asked '
+                        'again next time.)' % PREFS_NAME)
+            return False
         LOG.say('HD textures: skipped.')
         return False
     return True
@@ -1617,7 +1716,7 @@ def hd_account_ok(args, install, interactive):
         return True
     if not interactive:
         raise UpdaterError('the HD textures need a linked havoc9.org account: run '
-                           'H9XASH-Updater.exe --link first, then --hd')
+                           '%s --link first, then --hd' % exe_name())
     print()
     print('The HD textures are for linked accounts, and this install is %s.' % detail)
     h9link.link(install, say=LOG.say, interactive=True, site=args.link_site)
@@ -1630,7 +1729,7 @@ def hd_account_ok(args, install, interactive):
 
 def hd_step(args, install, cache, state_dir, interactive):
     """The optional HD textures, as their own delta update into the same folder."""
-    if not hd_wanted(args, state_dir, interactive):
+    if not hd_wanted(args, install, state_dir, interactive):
         return 0
     if not hd_account_ok(args, install, interactive):
         return 0

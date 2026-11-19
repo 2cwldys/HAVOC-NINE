@@ -125,6 +125,17 @@ $piArgs = @('-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--conso
     '--name', 'H9XASH-Updater', '--version-file', $verFile,
     '--distpath', $Dist, '--workpath', (Join-Path $WorkDir 'work'), '--specpath', $WorkDir,
     '--paths', $Here, '--log-level', 'WARN')
+# cacert.pem has to travel INSIDE the exe. h9tls.py builds its first TLS context from the copy
+# beside it (sys._MEIPASS once frozen) and only falls back to the machine's own root store, so
+# without this the fallback is the only thing there is -- and a PC whose root store holds an
+# expired certificate then cannot reach havoc9.org at all, with nothing in the message to say
+# that the machine is at fault rather than the site. On Windows --add-data separates with ';'.
+$Pem = Join-Path $Here 'cacert.pem'
+if (Test-Path -LiteralPath $Pem) {
+    $piArgs += @('--add-data', ($Pem + ';.'))
+} else {
+    Write-Warning "no cacert.pem beside the sources: the exe will fall back to the machine's root store"
+}
 if (Test-Path -LiteralPath $Icon) { $piArgs += @('--icon', $Icon) }
 $piArgs += $Main
 Push-Location $WorkDir

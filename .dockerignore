@@ -24,6 +24,15 @@
 # children, not a sibling whose name merely starts the same way.
 !H9XASH-linux
 
+# H9XASH-Updater, the Linux build (tools/updater/build-linux.sh writes it here). Build output like
+# the binaries above and git-ignored with the rest of dist/, so a clone has it only when somebody
+# has built it; the Dockerfile's COPY of it is written to tolerate its absence. Only this one file
+# is let through -- dist/ also holds the packages and the Windows exe, and a Linux server image has
+# no use for either.
+!dist
+dist/*
+!dist/H9XASH-Updater
+
 # ---- the HD textures ---------------------------------------------------------------------------
 # 19.7 GiB across 9,764 files (docs/HD_TEXTURES.txt). Left in, every build would spend minutes
 # sending a context the image does not want, and a server has no use for them at all.
