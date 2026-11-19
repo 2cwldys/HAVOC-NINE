@@ -141,6 +141,28 @@ foreach ($l in $answer) {
     elseif ($l -match '^hd ([0-9a-f]{64})$') { [void]$hdThere.Add($Matches[1]) }
     elseif ($l -match '^tree (\S+) ([0-9a-f]{64})$') { $remoteTree[$Matches[1]] = $Matches[2] }
 }
+# Room on the host, asked for BEFORE anything is sent. A delivery stages about 10 GB there and the
+# host keeps a failed one so it can be looked at, so two failures in a row fill the disk. On
+# 2026-11-19 they did: the box reached zero bytes free, delta.py died mid-write, and sshd could no
+# longer complete a login, so the only way in to clear it was the provider's console. The host's own
+# receive-deploy.ps1 now refuses under 20 GB, but refusing there is still forty minutes of upload
+# spent first. Refusing here costs one ssh call. The number is deliberately the host's threshold plus
+# a margin, because the host needs room to take the delivery IN as well as to hold it.
+$needGB = 30
+$freeOut = & ssh @ssh $sshHost 'powershell -NoProfile -Command "[math]::Round((Get-PSDrive C).Free/1GB,1)"'
+$freeGB = 0.0
+foreach ($l in $freeOut) { if ("$l".Trim() -match '^[0-9]+(\.[0-9]+)?$') { $freeGB = [double]("$l".Trim()); break } }
+if ($freeGB -gt 0 -and $freeGB -lt $needGB) {
+    Write-Host "[FAIL] $sshHost has $freeGB GB free and a delivery wants about $needGB GB." -ForegroundColor Red
+    Write-Host '  Nothing has been sent. Deliveries that failed are kept on the host to be looked at and are the usual cause:'
+    & ssh @ssh $sshHost 'powershell -NoProfile -Command "Get-ChildItem C:\setup\incoming -Directory | ForEach-Object { $s=(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; Write-Host (\"    \" + $_.Name + \"  \" + [math]::Round($s/1GB,2) + \" GB  \" + $_.LastWriteTime.ToString(\"yyyy-MM-dd\")) }"'
+    Write-Host '  Remove the ones you do not need:  ssh <host> "rmdir /s /q C:\setup\incoming\<name>"'
+    Write-Host '  C:\havoc9\store is the compressed copy of every file ever delivered. It is NOT scratch: deleting it'
+    Write-Host '  makes the next delta send everything again.'
+    exit 1
+}
+if ($freeGB -gt 0) { Say ("the host has {0} GB free" -f $freeGB) }
+
 function Sha([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
 function Newest([string]$pattern) { Get-ChildItem -LiteralPath $Dist -File -Filter $pattern -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1 }
 
