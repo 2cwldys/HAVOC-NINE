@@ -1,0 +1,72 @@
+lmstudio-mcp -- notice for the local agent scripts in agents/lmstudio-mcp/
+
+agents/lmstudio-mcp/ is H9's own code, under the GPLv3 like the rest of the tooling in this repository
+(agents/LICENSE-GPLV3.txt). It is a developer convenience and nothing in it is needed to build, run,
+host or play HAVOC 9. This notice covers the other people's work it depends on, none of which is
+committed here: it is fetched on the machine that runs the installer, which is the same arrangement as
+AMBuild (see AMBuild-LICENSE.txt in this folder).
+
+Two separate things are fetched, and they are not under the same terms.
+
+------------------------------------------------------------------------------------------------
+
+1. LM STUDIO ITSELF -- NOT part of this repository, NOT redistributed, its own terms
+
+agents/lmstudio-mcp/install.cmd and install.sh OFFER to download LM Studio from https://lmstudio.ai/
+and install it. LM Studio is proprietary third-party software. If you accept that download you are
+using it under its own application terms of service:
+
+    https://lmstudio.ai/app-terms
+
+Those terms are between you and the makers of LM Studio. Nothing in this repository alters, restates or
+grants anything in them, and no part of LM Studio is distributed with HAVOC 9. The scripts here only
+speak to it over a local HTTP port (http://localhost:1234/v1 by default), the way any OpenAI-compatible
+client would.
+
+Decline the download and the rest of the project is unaffected. The language models you may then
+download inside LM Studio are a third thing again: each model carries its own license, several are
+research-only or non-commercial, and this repository takes no position on any of them. The model names
+in agents/lmstudio-mcp/.env.example are suggestions, not endorsements.
+
+------------------------------------------------------------------------------------------------
+
+2. THE NPM PACKAGES -- fetched by npm install, all permissive
+
+agents/lmstudio-mcp/package.json declares five direct dependencies. They resolve to 144 packages in
+all; every one is permissive (129 MIT, 10 ISC, 2 BSD-3-Clause, 2 BSD-2-Clause, 1 Apache-2.0) and
+nothing in the tree is copyleft or incompatible with the GPLv3. The versions below are the ones this
+notice was checked against.
+
+    @modelcontextprotocol/sdk   1.29.0    MIT           Copyright (c) 2024 Anthropic, PBC
+    @inquirer/prompts            7.10.1   MIT           Copyright (c) 2025 Simon Boudrias
+    chalk                         5.6.2   MIT           Copyright (c) Sindre Sorhus
+    zod                          3.25.76  MIT           Copyright (c) 2025 Colin McDonnell
+    openai                      4.104.0   Apache-2.0    OpenAI
+
+npm keeps each package's own license text inside agents/lmstudio-mcp/node_modules/<package>/, which is
+where the copies that travel with the installed tool live. node_modules is not committed
+(agents/lmstudio-mcp/.gitignore), so nothing of these packages is redistributed by this repository
+either; a contributor fetches them with the installer.
+
+The Apache License 2.0 that covers openai is already held verbatim in this folder as
+Kokoro-Apache-2.0.txt; it is not duplicated here. The MIT permission notice that covers the other four
+follows once, as that license asks of any copy.
+
+------------------------------------------------------------------------------------------------
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

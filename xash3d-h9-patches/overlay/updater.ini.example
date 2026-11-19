@@ -1,0 +1,23 @@
+# updater.ini.example -- H9XASH-Updater's preferences.
+#
+# Copy this to updater.ini beside it, in the H9XASH folder, and change what you like. The updater
+# also writes it itself when you answer one of its questions with "do not ask again".
+#
+# updater.ini is YOURS. It never ships, an update never replaces it, and nothing in it is sent
+# anywhere. That is why this .example is what the download carries: a new install has something to
+# read, and your own answers are never overwritten. Delete updater.ini at any time and the updater
+# goes back to asking.
+#
+# Anything unreadable here is ignored rather than treated as an error: a broken line can never stop
+# an update.
+
+[hd]
+# Whether the updater offers the optional HD textures when they are not installed.
+#   1  offer them (the default when there is no updater.ini at all)
+#   0  do not offer them
+# The updater sets this to 0 for you if you answer "no" and then say not to offer them again.
+#
+# This only controls the OFFER. H9XASH-Updater.exe --hd installs them whatever this says, and
+# --hd-remove takes them off again. Once they are installed they are kept up to date like any
+# other file, and this setting is not consulted.
+offer = 1

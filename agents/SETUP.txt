@@ -1,0 +1,213 @@
+================================================================================
+  HAVOC 9 -- LOCAL AI AGENT SETUP
+================================================================================
+
+WHAT THIS DOES
+--------------
+Sets up a local AI model on your own machine that works alongside Claude Code:
+
+  Claude Code            complex reasoning, architecture, the final say
+  Your local model       fast drafts, code reviews, boilerplate, offline work
+  The H9 tools           the project's real rules and docs, read from the repo
+
+Both models can run at once. The local one needs no API key and no internet once
+it is installed, and nothing you type into it leaves your machine.
+
+This is OPTIONAL. Nothing in agents/ is needed to build, host or play HAVOC 9,
+and nothing else in the repository depends on it.
+
+
+BEFORE YOU START -- WHAT GETS DOWNLOADED
+-----------------------------------------
+The installer reaches the internet twice, and asks first both times.
+
+  1. npm install          five packages (144 with their dependencies), all MIT,
+                          ISC, BSD or Apache-2.0. Listed in
+                          THIRD_PARTY_LICENSES/lmstudio-mcp-NOTICE.txt
+  2. LM Studio            third-party software, from https://lmstudio.ai
+                          It is NOT part of HAVOC 9 and is not distributed with
+                          it. Installing it means accepting its own terms:
+                            https://lmstudio.ai/app-terms
+  3. A model, inside LM Studio -- 3 to 16 GB depending on which. Each model
+     carries its OWN licence, and several are research-only or not free for
+     commercial use.
+
+Say no to any of it and the rest still works. You can also install LM Studio
+yourself, copy .env.example to .env, and run npm install by hand.
+
+
+STEP 1 -- RUN THE INSTALLER
+----------------------------
+In the repo, go to: agents/lmstudio-mcp/
+
+  Windows:    double-click  install.cmd
+  Linux/Mac:  chmod +x install.sh && ./install.sh
+
+It will:
+  - install the Node dependencies
+  - ASK before downloading LM Studio
+  - walk you through picking a model
+  - ask whether to start the server when you log in (optional)
+  - start the server
+
+If Node.js is missing:  https://nodejs.org  ->  install  ->  run it again.
+
+
+STEP 2 -- DOWNLOAD A MODEL (in LM Studio)
+------------------------------------------
+Open LM Studio. In the search bar, type:
+
+    qwen2.5-coder-7b-instruct
+
+This is the recommended one: good at code, runs on most PCs.
+
+  Other options, by how much video memory you have:
+  - phi-4-mini-instruct          ~4 GB   runs on almost anything, CPU included
+  - qwen2.5-coder-14b-instruct  ~12 GB   better quality
+  - deepseek-coder-v2-lite       ~16 GB   strongest, wants a powerful GPU
+
+  Not sure? Task Manager -> Performance -> GPU.
+
+
+STEP 3 -- LOAD THE MODEL
+-------------------------
+In LM Studio:
+  1. "My Models" in the left sidebar
+  2. click the model you downloaded
+  3. press "Load" and wait 10 to 30 seconds
+
+
+STEP 4 -- RELOAD YOUR EDITOR
+-----------------------------
+In VS Code press Ctrl+Shift+P and run:
+
+    Developer: Reload Window
+
+Claude Code reads .claude/settings.json and connects on its own.
+
+To confirm, type /mcp in Claude Code. You should see two servers:
+
+    lmstudio      the local model and the H9 repo tools
+    smak          models, maps, wads and sprites (the SMAK submodule)
+
+If smak is missing, the submodule is empty in your clone:
+
+    git submodule update --init SMAK
+
+
+STEP 5 -- USE IT
+-----------------
+Talk to Claude normally; it will delegate to the local model for quick drafts,
+reviews and parallel work. You can also ask directly:
+
+    "use the local model to draft this PowerShell"
+    "use review_code on what I just wrote"
+
+And the tools that read the repo rather than guessing:
+
+    h9_rules  xash3d-fwgs/engine/client/cl_main.c
+    h9_doc    release
+    h9_find   cvar h9_customweapons
+
+h9_rules is the one worth remembering. Ask it BEFORE editing anything under
+H9XASH/, xash3d-fwgs/, the patches, a .sma, reTS/ or a packaging*.ini -- those
+are the places where the obvious edit is the wrong edit.
+
+
+WHAT THE LOCAL MODEL IS AND IS NOT GOOD AT HERE
+------------------------------------------------
+Worth knowing before you trust an answer. The full version is in
+agents/lmstudio-mcp/context/MEMORY.md.
+
+  Good at:   PowerShell, Node, Python, docs, cfg scaffolding, first drafts,
+             explaining code you show it, repetitive edits
+  Bad at:    AMX Mod X Pawn (src/*.sma) -- there is almost no Pawn in any
+             model's training data, so it invents natives that do not exist and
+             gets argument orders wrong, fluently
+  Bad at:    the engine -- a change here is a .patch in a verified chain plus a
+             changelog entry, not an edit to a .c file
+  Never:     anything that decides what ships (ship.ps1, deploy-vps.ps1,
+             build.bat, export.bat, the packaging*.ini switches)
+
+Those first two are the biggest bodies of code in the repo, so the honest
+summary is: good for the machinery around the game, poor at the game itself.
+
+
+EVERY TIME AFTER FIRST SETUP
+-----------------------------
+If you took the auto-startup option: nothing to do.
+
+Otherwise, before opening the project:
+
+  Windows:    agents/lmstudio-mcp/start-server.cmd
+  Linux/Mac:  agents/lmstudio-mcp/start-server.sh
+
+Or just:  lms server start   in any terminal.
+
+To remove the startup task later:  remove-startup.cmd  /  remove-startup.sh
+
+
+THE CONTEXT SYSTEM
+-------------------
+Read before every local query, so you never have to re-explain the project:
+
+  CONTEXT.md and CLAUDE.md   the repo's OWN files, read from the root. Not
+  (repo root)                copied here on purpose: a copy would drift and then
+                             teach the model things that stopped being true.
+
+  context/PROJECT.md         what those two assume you know: the languages, the
+                             two trees, the rules an answer must already obey.
+                             Committed, shared.
+
+  context/MEMORY.md          where the local model is unreliable here, with the
+                             reasons. Committed, shared.
+
+  context/SOLUTIONS.md       real fixes and "ah-ha" moments. Committed, shared.
+                             Claude appends with log_solution -- especially after
+                             a long session where something finally clicked. The
+                             harder the session, the more worth logging.
+
+  context/CURRENT.md         what YOU are working on right now. Written by
+                             update_working_context. Gitignored, yours alone.
+                             Clear it with  clear-context.cmd  /  .sh
+
+You do not have to manage these. PROJECT.md, MEMORY.md and SOLUTIONS.md are
+plain Markdown and worth correcting by hand when they go stale.
+
+
+VERIFY EVERYTHING IS WORKING
+-----------------------------
+In agents/lmstudio-mcp/, run:
+
+  npm run check
+
+Every part of the chain gets a pass or fail and a plain fix.
+
+
+TROUBLESHOOTING
+---------------
+Problem                             Fix
+----------------------------------  -----------------------------------------------
+"LM Studio not reachable"           start-server.cmd, or  lms server start
+Model gives odd answers             check MODEL_NAME in .env matches what is
+                                    loaded in LM Studio
+"lmstudio" not in /mcp              run npm install in agents/lmstudio-mcp, then
+                                    reload the editor window
+"smak" not in /mcp                  git submodule update --init SMAK
+h9_* says "not inside the repo"     the folder was moved; it expects to be at
+                                    <repo>/agents/lmstudio-mcp/
+Node.js not found                   https://nodejs.org
+Port 1234 already in use            change it in LM Studio, then LM_STUDIO_URL
+                                    in .env
+
+
+SWITCHING MODELS
+----------------
+Run  npm run setup  in agents/lmstudio-mcp, or edit MODEL_NAME in .env.
+
+
+NEED HELP?
+----------
+Run  npm run check  -- it says what is broken and how to fix it.
+
+================================================================================

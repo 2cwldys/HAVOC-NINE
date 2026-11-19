@@ -1,0 +1,40 @@
+/* playh9.rc -- the launcher's icon and the properties Windows shows for it.
+ *
+ * The icon is the H9 helm. game.ico in the repository root is NOT used: it decodes to a 32x32
+ * image with no visible pixels at all, so anything built with it looks blank in Explorer.
+ * h9helmet.ico beside this file carries 16, 24, 32, 48, 64, 128 and 256, which is what Explorer,
+ * the taskbar and Alt-Tab each want a different one of.
+ */
+
+#include <windows.h>
+
+1 ICON "h9helmet.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "HAVOC 9"
+            VALUE "FileDescription",  "Play HAVOC 9"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "playh9"
+            VALUE "OriginalFilename", "Play HAVOC 9.exe"
+            VALUE "ProductName",      "HAVOC 9"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "LegalCopyright",   "HAVOC 9. The Specialists is Valve's; see the licences beside the game."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

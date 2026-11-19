@@ -269,3 +269,26 @@ core.[0-9]*
 # installed packages, and a build artefact like the model beside it.
 /tools/upscaler_gui/.venv/
 /tools/upscaler_gui/dist/
+
+# H9XASH-Updater's per-install preferences: the player's own answers, never shipped.
+# updater.ini.example ships instead.
+H9XASH/updater.ini
+
+# H9XASH-Updater's generated state, neither committed nor shipped:
+#   <folder>-updater-cache   the download staging area; gigabytes, pure scratch
+#   H9XASH/.h9xash-updater   installed.json, the journal, the lock and the HD state
+# The state folder is the record of what THIS install is at, which is exactly why it must not
+# travel: a copy of it would tell the next person's updater that files are already in place when
+# they are not. What a release IS comes from manifest.json and ts/h9_release.txt, not from here.
+# stage-h9xash.ps1 already leaves .h9xash-updater out of the package.
+/H9XASH-updater-cache/
+H9XASH/.h9xash-updater/
+*-updater-cache/
+# agents/ -- the local agent scripts (agents/README.md). Their own node_modules, .env and models
+# folder are ignored by agents/lmstudio-mcp/.gitignore, which travels with the folder; these two
+# are the per-machine leftovers that sit outside it:
+#   agents/.smak-work          the SMAK MCP server's work folder: everything it makes, pure scratch
+#   agents/**/context/CURRENT.md  what one person is working on right now, injected into their own
+#                              queries only. PROJECT.md, MEMORY.md and SOLUTIONS.md ARE shared.
+agents/.smak-work/
+agents/**/context/CURRENT.md

@@ -1,0 +1,23 @@
+{
+  "name": "lmstudio-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that bridges Claude Code to a local LM Studio model",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start":  "node index.js",
+    "setup":  "node setup.js",
+    "check":  "node check.js",
+    "chat":   "node chat.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@inquirer/prompts": "^7.0.0",
+    "chalk": "^5.4.0",
+    "openai": "^4.77.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
