@@ -1239,6 +1239,40 @@ describe("presence: map pictures and mode names", () => {
     }
   });
 
+  test("a mode variant falls back to the base map's picture", async () => {
+    const pics = fs.mkdtempSync(path.join(os.tmpdir(), "h9web-maps-"));
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    fs.writeFileSync(path.join(pics, "wasteland.png"), png); // the place
+    fs.writeFileSync(path.join(pics, "h9_te_wasteland.png"), png); // one mode's own
+    const t = await presenceApp({ settings: { mapPicturesDir: pics } });
+    try {
+      await signup(t.base, "Ghost");
+      // no h9_up_wasteland.png of its own, so the base map's picture stands in
+      await ok(t, { players: [as(t, "Ghost", A)], map: "h9_up_wasteland" });
+      let card = await get(t, "/api/presence/account/Ghost");
+      assert.equal(card.json.playing.map, "h9_up_wasteland");
+      assert.equal(card.json.playing.mapPicture, "/assets/maps/wasteland.png");
+      // the mode that does have its own picture keeps it
+      t.advance(1);
+      await ok(t, { players: [as(t, "Ghost", A)], map: "h9_te_wasteland" });
+      card = await get(t, "/api/presence/account/Ghost");
+      assert.equal(card.json.playing.mapPicture, "/assets/maps/h9_te_wasteland.png");
+      // neither the map nor the place it names has one
+      t.advance(1);
+      await ok(t, { players: [as(t, "Ghost", A)], map: "h9_up_bullet" });
+      card = await get(t, "/api/presence/account/Ghost");
+      assert.equal(card.json.playing.mapPicture, null);
+      // only h9_<mode>_<base> splits: any other name is looked up whole
+      t.advance(1);
+      await ok(t, { players: [as(t, "Ghost", A)], map: "ts_wasteland", mode: "Deathmatch" });
+      card = await get(t, "/api/presence/account/Ghost");
+      assert.equal(card.json.playing.mapPicture, null, "ts_wasteland must not pick up wasteland.png");
+    } finally {
+      await t.close();
+      fs.rmSync(pics, { recursive: true, force: true });
+    }
+  });
+
   test("settings are checked", () => {
     assert.throws(() => presenceSettings({ maxCreditSeconds: 200, sessionTimeoutSeconds: 180 }), /maxCreditSeconds/);
     assert.throws(() => presenceSettings({ privacy: { game: "yes" } }), /privacy\.game/);

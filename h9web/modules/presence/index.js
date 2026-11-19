@@ -114,8 +114,9 @@ export const DEFAULTS = Object.freeze({
   batchMax: 50,
   // public reads: kept this long in memory, and sent with Cache-Control max-age
   cacheSeconds: 15,
-  // the site's map pictures on disk (the web root's assets/maps), and their URL; a map with no
-  // <map>.png there is shown as text
+  // the site's map pictures on disk (the web root's assets/maps), and their URL; a map named
+  // h9_<mode>_<base> with no <map>.png falls back to <base>.png, and a map with neither is shown
+  // as text
   mapPicturesDir: null,
   mapPicturesUrl: "/assets/maps/",
   // the scoreboard's picture for a proven account with none of its own: the site's default picture
@@ -424,19 +425,36 @@ export function createPresence(deps) {
   }
 
   const pictures = new Map(); // map -> { url, at }
+  // The map's own picture, and failing that the base map's: a mode variant named h9_<mode>_<base>
+  // falls back to <base>.png. The mode variants of one map are one place, so the picture of the
+  // place covers a mode that was never given art of its own: the six wasteland variants share a
+  // map, as do the five of drainage and of lift and the four of neuropolis. An exact <map>.png
+  // still wins, so a mode that does have its own picture keeps it.
+  // cleanMap again here because this is the code that builds a filesystem path out of a name a
+  // game server reported; it bars a slash and "..".
   function pictureFor(map) {
     if (!map || !s.mapPicturesDir) return null;
+    const name = cleanMap(map);
+    if (!name) return null;
     const t = nowMs();
-    const hit = pictures.get(map);
+    const hit = pictures.get(name);
     if (hit && t - hit.at < 300000) return hit.url;
+    const tries = [name];
+    const base = /^h9_[a-z0-9]+_(.+)$/.exec(name);
+    if (base) tries.push(base[1]);
     let url = null;
-    try {
-      if (fs.statSync(path.join(s.mapPicturesDir, map + ".png")).isFile()) url = s.mapPicturesUrl + map + ".png";
-    } catch (e) {
-      url = null;
+    for (const candidate of tries) {
+      try {
+        if (fs.statSync(path.join(s.mapPicturesDir, candidate + ".png")).isFile()) {
+          url = s.mapPicturesUrl + candidate + ".png";
+          break;
+        }
+      } catch (e) {
+        url = null;
+      }
     }
     if (pictures.size > 500) pictures.clear();
-    pictures.set(map, { url, at: t });
+    pictures.set(name, { url, at: t });
     return url;
   }
 
