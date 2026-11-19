@@ -9,8 +9,10 @@
   The build is VERSION in ts_matchmode.sma. The places:
     1  the updater's manifest (https://havoc9.org/files/manifest.json) says the build
     2  the downloads' build file on the host (site\downloads\.build) says the build
-    3  the server list bot's About Me names it ("About Me now names H9XASH <build>" in its log, which follows the build file by itself;
-       given up to 2 minutes)
+    3  the server list bot's About Me names it ("About Me now names H9XASH <build>" in its own log,
+       C:\havoc9\data\serverlist\serverlist.log, which follows the build file by itself; given up to 2 minutes).
+       The bot writes that line only when the build changes, so on a delivery that keeps the version the
+       last line is older than this delivery and still correct.
     4  the versioned downloads exist (H9XASH-<build>.zip, -linux, -linux-server, the updater)
     5  the join gate: h9_release.txt in the package is the build (docs\H9_RELEASE.txt)
     6  the game server folder on the host (C:\havoc9\H9XASH), when there is one: its h9_release.txt is the build (WARN: update-game.ps1 -Apply, server stopped)
@@ -59,18 +61,22 @@ if ($mb -eq $build) { Result PASS 'updater manifest' "build $mb" } else { Result
 $bf = (OnHost 'type C:\havoc9\site\downloads\.build').Trim()
 if ($bf -eq $build) { Result PASS 'downloads build file' $bf } else { Result FAIL 'downloads build file' "says '$bf', the build is $build (the bot's About Me and the file index follow it)" }
 
-# 3. the bot's About Me
+# 3. the bot's About Me. The bot writes this line only when the build it names CHANGES, so a
+# delivery that does not bump the version writes no new line and the last one can be days old.
+# Read the bot's own log, which keeps the whole history in one file: the service's out logs under
+# C:\havoc9\logs rotate daily, and the bot writes a line every poll, so the last About Me line
+# left that window within hours and this check warned on every delivery that kept the version.
 $bio = ''
 $deadline = (Get-Date).AddSeconds($BioSeconds)
 do {
-    $log = OnHost 'powershell -NoProfile -Command "$f = Get-ChildItem C:\havoc9\logs\havoc9-serverlist_*.out.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1; if ($f) { Get-Content $f.FullName -Tail 600 | Select-String ''About Me now names'' | Select-Object -Last 1 | ForEach-Object { $_.Line } }"'
+    $log = OnHost 'powershell -NoProfile -Command "$p = ''C:\havoc9\data\serverlist\serverlist.log''; if (Test-Path $p) { (Select-String -Path $p -Pattern ''About Me now names'' | Select-Object -Last 1).Line }"'
     if ($log -match 'About Me now names H9XASH (\S+)') { $bio = $Matches[1] }
     if ($bio -eq $build) { break }
     Start-Sleep -Seconds 10
 } while ((Get-Date) -lt $deadline)
 if ($bio -eq $build) { Result PASS 'server list bot About Me' "H9XASH $bio" }
 elseif ($bio) { Result FAIL 'server list bot About Me' "names H9XASH $bio after $BioSeconds s; the build is $build (is havoc9-serverlist running? start-all.ps1 on the host)" }
-else { Result WARN 'server list bot About Me' "no 'About Me now names' line in its log yet (is Discord configured on the host? serverlist.ini build_file)" }
+else { Result WARN 'server list bot About Me' "no 'About Me now names' line in C:\havoc9\data\serverlist\serverlist.log (is the bot running, and is discord_token in serverlist.cfg?)" }
 
 # 4. the versioned downloads
 $files = OnHost 'dir /b C:\havoc9\site\downloads\files'
