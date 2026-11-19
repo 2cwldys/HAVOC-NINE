@@ -169,6 +169,53 @@ function Fail([string]$Text) { Write-Host "[FAIL] $Text" -ForegroundColor Red; S
 $script:t0 = Get-Date
 function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-Date) - $script:t0).TotalSeconds) }
 
+# 0. room to work. A delivery is kept at the end of this script only when it FAILED (the last line
+# removes it on success), which is right for looking at afterwards and wrong for ever: each one is
+# about 10 GB. On 2026-11-19 three failed deliveries of the same build left 25 GB in C:\setup\incoming,
+# filled a 100 GB disk, and delta.py then died mid-write with "OSError: [Errno 28] No space left on
+# device". Worse, with the disk at zero, sshd could no longer complete a login -- so the one way in to
+# clear it was gone, and the host had to be reached through the provider's console.
+#
+# So: a delivery older than $KeepDays is swept before this one starts, and the free space is checked
+# BEFORE anything is written rather than discovered partway through a 10 GB ingest. The current
+# delivery and the self folder are never touched, and neither is a recent failure -- there is still a
+# day to look at one.
+$KeepDays = 2
+$NeedGB = 20
+$swept = 0
+$freed = 0L
+foreach ($d in Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue) {
+    if ($d.FullName -eq $in) { continue }
+    if ($d.Name -eq 'self') { continue }
+    if ($d.LastWriteTime -gt (Get-Date).AddDays(-$KeepDays)) { continue }
+    $size = (Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
+             Measure-Object -Property Length -Sum).Sum
+    try {
+        Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop
+        $swept++; $freed += [long]$size
+        Write-Host ("  swept {0} ({1:N1} GB), last written {2:yyyy-MM-dd}" -f $d.Name, ($size / 1GB), $d.LastWriteTime)
+    }
+    catch { Write-Host "  could not sweep $($d.Name): $($_.Exception.Message)" }
+}
+if ($swept) { Say ("swept {0} delivery(ies) older than {1} day(s), {2:N1} GB" -f $swept, $KeepDays, ($freed / 1GB)) }
+
+$freeGB = [math]::Round((Get-PSDrive ($in.Substring(0, 1))).Free / 1GB, 1)
+if ($freeGB -lt $NeedGB) {
+    $keep = Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $in -and $_.Name -ne 'self' } |
+            ForEach-Object { "    $($_.Name)  (last written $($_.LastWriteTime.ToString('yyyy-MM-dd')))" }
+    Write-Host "[FAIL] $freeGB GB free, and a delivery needs about $NeedGB GB to take in." -ForegroundColor Red
+    Write-Host "  Nothing has been written, so the delivery is intact and can simply be run again."
+    if ($keep) {
+        Write-Host "  These deliveries are still here and are the usual thing to remove:"
+        $keep | ForEach-Object { Write-Host $_ }
+        Write-Host "  rmdir /s /q $Inbox\<name>"
+    }
+    Write-Host "  C:\havoc9\store is the compressed copy of everything ever delivered; it is NOT scratch."
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
 # 1. the manifest, and nothing in the delivery but what it names
 $manifest = Join-Path $in 'deploy-manifest.txt'
 if (-not (Test-Path -LiteralPath $manifest)) { Fail 'no deploy-manifest.txt in the delivery' }
