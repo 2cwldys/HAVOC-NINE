@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   One command for a release: builds what packaging.ini says, then delivers it to havoc9.org's host over SSH.
 
@@ -6,13 +6,18 @@
   Run it in PowerShell 7 from this folder, after a version bump or any change to the client, the site, h9web or the list:
     .\deploy-vps.ps1                 build and deliver everything packaging.ini switches on
     .\deploy-vps.ps1 -NoBuild        deliver what dist\ holds already
+    .\deploy-vps.ps1 -Ini <file>     read another ini instead of packaging.ini
+    .\deploy-vps.ps1 -SiteOnly       read packaging.site-only.ini instead: the host package alone (the site, h9web and
+                                     the list), nothing of the client built or sent. Not together with -Ini.
     .\deploy-vps.ps1 -WhatIf         say what would be built and sent, change nothing
 
   1. Builds: stage-h9xash.ps1 (the client ZIPs and the updater's files), make-vps-package.ps1 -Target windows (the host package, which
      the host installs and nobody downloads, and the web client's package).
   2. Asks the host what it has (receive-deploy.ps1 -Hashes): each download's SHA-256 and the updater files' names. Only
      what differs is sent: a client ZIP is about 930 MB, so an unchanged one is never sent again, and of the updater's
-     files only the new ones go, in one archive.
+     files only the new ones go, in archives of at most 400 MB. The question costs the host minutes, so it is asked only
+     when the ini switches on something that is compared with the answer. The host package always goes whole, so a
+     delivery of the host package alone, such as -SiteOnly, does not ask.
   3. Writes deploy-manifest.txt (each file's SHA-256), sends the files into a new folder under C:\setup\incoming with
      scp, and runs C:\havoc9\receive-deploy.ps1 there. That script is the host's own (administrators only): it takes
      only the names it knows, checks every SHA-256 before it installs anything, installs the host package with its
@@ -26,7 +31,8 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$Ini = (Join-Path $PSScriptRoot 'packaging.ini'),
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [switch]$SiteOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +44,15 @@ $DryRun = [bool]$WhatIfPreference
 $script:deployStart = Get-Date
 function Say([string]$t) { Write-Host ("== {0}   [{1:N0} s]" -f $t, ((Get-Date) - $script:deployStart).TotalSeconds) }
 function Fail([string]$t) { Write-Host "[FAIL] $t" -ForegroundColor Red; exit 1 }
+
+# -SiteOnly reads packaging.site-only.ini beside this script, and that file is the whole definition of
+# a site-only delivery. -Ini names the file to read as well, so the two together are refused rather
+# than one of them quietly winning.
+if ($SiteOnly) {
+    if ($PSBoundParameters.ContainsKey('Ini')) { Fail '-SiteOnly reads packaging.site-only.ini and -Ini names another ini: use one or the other' }
+    $Ini = Join-Path $Here 'packaging.site-only.ini'
+    Write-Host "-SiteOnly: $Ini" -ForegroundColor Cyan
+}
 
 # packaging.ini: [section] key = value, ; comments
 $cfg = @{}
@@ -160,13 +175,31 @@ if (-not $DryRun) {
 }
 
 # 2. what the host has
-Say "asking $sshHost what it has"
 $remote = @{}
 $remoteTree = @{}
 $blobsThere = New-Object System.Collections.Generic.HashSet[string]
 $hdThere = New-Object System.Collections.Generic.HashSet[string]
-$answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
-if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
+# This answer exists to spare the big things: a client ZIP the host already has is not sent again,
+# and of the updater's files only the new ones go. Getting it means hashing the downloads and
+# walking the delivery store, which is minutes of the host's time, so the host is asked only when
+# a [deploy] switch that reads the answer is on. Each of these reads it, whole ZIPs or delta alike:
+#   client, linux_server  Add-If against $remote, or the delta's have list ($blobsThere) and tree check ($remoteTree)
+#   webclient             the web client's manifest against $remote, or the delta as above
+#   updater               Add-If against $remote
+#   updater_files         $blobsThere, and the files' manifest in $remote
+#   hd                    $hdThere, and the HD manifest in $remote
+#   preset                the plugin list's entry in $remoteTree
+# site is not among them: the host package goes through Add-If with $always set, which never looks
+# at the answer. Left empty, every check below reads "the host does not have it" and sends the file.
+$readers = @(@('deploy.client', 'deploy.linux_server', 'deploy.webclient', 'deploy.updater',
+        'deploy.updater_files', 'deploy.hd', 'deploy.preset') | Where-Object { On $_ })
+$answer = @()
+if ($readers.Count) {
+    Say "asking $sshHost what it has"
+    $answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
+    if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
+}
+else { Say "not asking $sshHost what it has: nothing $(Split-Path -Leaf $Ini) switches on is compared with it" }
 foreach ($l in $answer) {
     if ($l -match '^file ([0-9a-f]{64}) (\S+)$') { $remote[$Matches[2]] = $Matches[1] }
     elseif ($l -match '^(blob|have) ([0-9a-f]{64})$') { [void]$blobsThere.Add($Matches[2]) }

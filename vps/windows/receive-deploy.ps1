@@ -162,6 +162,17 @@ function Invoke-Child([string[]]$ChildArgs) {
     finally { $ErrorActionPreference = $was }
 }
 
+# Whether the script at $Path declares the parameter $Name, so a switch that only newer copies of setup.ps1 and
+# start-all.ps1 have is passed only to a copy that has it: powershell.exe -File refuses a parameter the script does not
+# declare and runs none of it. The copy that runs can be older than this script: setup.ps1 runs from $pkgDir, which is
+# the newest package folder under C:\setup when the delivery brings no host package, and every full setup.ps1 run puts
+# its own package's start-all.ps1 into $Root. Get-Command reads the parameter block without running the script; one
+# that is missing or cannot be read answers $false, and the switch is left out.
+function Test-ScriptParam([string]$Path, [string]$Name) {
+    try { return (Get-Command -Name $Path -CommandType ExternalScript -ErrorAction Stop).Parameters.ContainsKey($Name) }
+    catch { return $false }
+}
+
 # delta.py (the host's Python): its output shown, its exit code in $script:deltaExit; see Invoke-Child for the preference
 $script:deltaExit = 0
 function Invoke-Delta([string[]]$DeltaArgs) {
@@ -438,7 +449,12 @@ function Install-HostPackage {
     if (Test-Path -LiteralPath $script:pkgDir) { Remove-Item -LiteralPath $script:pkgDir -Recurse -Force }
     Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
     if (-not (Test-Path -LiteralPath (Join-Path $script:pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $script:pkgDir" }
-    Invoke-Child @('-File', (Join-Path $script:pkgDir 'setup.ps1'), '-Root', $Root, '-NoFingerprint')
+    # -NoFileIndex leaves the downloads' file index to step 7 (setup.ps1 -FileIndex), which makes it once the downloads
+    # are in place: made in this run as well, it would hash every download a second time for an index step 7 replaces
+    $setup = Join-Path $script:pkgDir 'setup.ps1'
+    $setupArgs = @('-File', $setup, '-Root', $Root, '-NoFingerprint')
+    if (Test-ScriptParam $setup 'NoFileIndex') { $setupArgs += '-NoFileIndex' }
+    Invoke-Child $setupArgs
     if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
 }
 # the standard-library parts of Python that a delta uses; a Python without one of them cannot take a delta
@@ -525,7 +541,11 @@ if ($wcZip -or $wcRecipe) {
     if ($wcZip) { Expand-Archive -LiteralPath (Join-Path $in $wcZip) -DestinationPath $wcDir }
     $stage = Get-ChildItem -LiteralPath $wcDir -Recurse -Directory -Filter 'stage' | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') } | Select-Object -First 1
     if (-not $stage) { Fail "the web client has no stage folder with a manifest.json" }
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-WebClientStage', $stage.FullName, '-NoFingerprint')
+    # a full setup.ps1 run like Install-HostPackage's, so the file index is left to step 7 the same way
+    $setup = Join-Path $pkgDir 'setup.ps1'
+    $setupArgs = @('-File', $setup, '-Root', $Root, '-WebClientStage', $stage.FullName, '-NoFingerprint')
+    if (Test-ScriptParam $setup 'NoFileIndex') { $setupArgs += '-NoFileIndex' }
+    Invoke-Child $setupArgs
     if ($script:childExit -ne 0) { Fail 'setup.ps1 -WebClientStage failed (above)' }
 }
 
@@ -612,12 +632,21 @@ if ($pkgDir) {
     Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex', '-NoFingerprint')
 }
 $cc = Join-Path $Root 'code-check.ps1'
+$fingerprinted = $false
 if (Test-Path -LiteralPath $cc) {
     Say 'the fingerprint of all code'
     Invoke-Child @('-File', $cc, '-Root', $Root, '-Write')
+    $fingerprinted = ($script:childExit -eq 0)
 }
 Say 'checks'
-Invoke-Child @('-File', (Join-Path $Root 'start-all.ps1'), '-Root', $Root)
+# -SkipCodeCheck: the -Write pass above has fingerprinted these same files and nothing touches them in between, so
+# start-all.ps1's code check could only answer "unchanged", after reading every one of them (several GB) again. It is
+# passed only when that pass worked, because a failed -Write is what the check would report, and only to a
+# start-all.ps1 that declares it (Test-ScriptParam).
+$startAll = Join-Path $Root 'start-all.ps1'
+$startArgs = @('-File', $startAll, '-Root', $Root)
+if ($fingerprinted -and (Test-ScriptParam $startAll 'SkipCodeCheck')) { $startArgs += '-SkipCodeCheck' }
+Invoke-Child $startArgs
 $ok = ($script:childExit -eq 0) -and -not $presetFailed
 if ($ok -and $newTrees.Count) {
     $tr = @{}
