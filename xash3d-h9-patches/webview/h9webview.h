@@ -12,7 +12,7 @@ status callback.
 #ifndef H9WEBVIEW_H
 #define H9WEBVIEW_H
 
-#define H9WV_API_VERSION 3
+#define H9WV_API_VERSION 4
 
 // what the view tells the engine; detail is ASCII
 enum
@@ -75,6 +75,12 @@ H9WV_EXPORT int H9WV_Snapshot( void *view, h9wv_snap_fn done, void *user );
 
 // A script run in the page, its result not wanted. The engine builds these from numbers only.
 H9WV_EXPORT void H9WV_Script( void *view, const char *script );
+
+// A click at x, y in the page's own pixels (the snapshot's). The element under the point, or the link
+// or button it sits in, is clicked as the page would click it; a new window the click asks for (a link
+// aimed at a new window, or window.open) is not opened but reported, H9WV_NEWWINDOW or H9WV_BLOCKED, as
+// a click in the page's own window would report it.
+H9WV_EXPORT void H9WV_Click( void *view, int x, int y );
 
 #ifdef __cplusplus
 }

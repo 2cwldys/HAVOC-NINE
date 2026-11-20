@@ -2169,3 +2169,19 @@ The page drawn in the panel showed in gray. H9M_SnapDone built its rgbdata_t wit
 renderer reads a missing IMAGE_HAS_COLOR as an image without colour and stores it as a luminance
 texture (ref/gl/gl_image.c). The snapshot is now flagged IMAGE_HAS_COLOR; it carries no alpha flag,
 the page being opaque. Regenerated as before; in place in the scratch tree and in TSM\xash3d-fwgs.
+
+### 2026-11-20 -- engine-h9-motd.patch and h9webview.dll: new windows from the drawn page reach the confirm box (API 4)
+
+A click on the drawn page reached it as a script's click(), which carries no user gesture, so
+Chromium's popup blocker stopped every link with target="_blank" (all of the landing page's buttons)
+and NewWindowRequested never came; only a click that happened to land on the page's own window got
+through. h9webview.dll has H9WV_Click. It clicks the element under the point as before, and while it
+does, a new window is caught in the page: a link aimed at a new window (_blank, the page's base
+target, or a name no frame in the page has) has its default action cancelled once the page's own
+handlers have run, unless they cancelled it, and window.open records its address and returns null,
+as a blocked one does. The address comes back from the script and the DLL reports H9WV_NEWWINDOW
+(H9WV_BLOCKED when it is not an https host name), the report NewWindowRequested makes, so the
+engine's confirm box opens. A page's own click handlers still run, and a link aimed at a named frame
+still loads there. The engine calls H9WV_Click in place of the script it built.
+engine-h9-motd.patch regenerated as before; reverse-checks in place in the scratch tree and in
+TSM\xash3d-fwgs.

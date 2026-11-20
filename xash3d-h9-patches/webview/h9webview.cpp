@@ -1362,6 +1362,116 @@ extern "C" H9WV_EXPORT void H9WV_Script( void *handle, const char *script )
 	v->webview->ExecuteScript( w.c_str(), nullptr );
 }
 
+// A JSON string, as ExecuteScript hands back a script's string result, unquoted; empty when the result is
+// anything else
+static std::wstring JsonString( const wchar_t *s )
+{
+	std::wstring out;
+	size_t n = s ? wcslen( s ) : 0;
+
+	if( n < 2 || s[0] != L'"' || s[n - 1] != L'"' )
+		return std::wstring();
+
+	for( size_t i = 1; i < n - 1; i++ )
+	{
+		if( s[i] != L'\\' )
+		{
+			out.push_back( s[i] );
+			continue;
+		}
+
+		if( ++i >= n - 1 )
+			return std::wstring();
+
+		if( s[i] == L'"' || s[i] == L'\\' || s[i] == L'/' )
+		{
+			out.push_back( s[i] );
+			continue;
+		}
+
+		// an address has no control characters, so \b \f \n \r \t end it here
+		if( s[i] != L'u' || i + 4 >= n - 1 )
+			return std::wstring();
+
+		unsigned v = 0;
+
+		for( int k = 1; k <= 4; k++ )
+		{
+			wchar_t c = s[i + k];
+			v <<= 4;
+
+			if( c >= L'0' && c <= L'9' )
+				v |= c - L'0';
+			else if( c >= L'a' && c <= L'f' )
+				v |= c - L'a' + 10;
+			else if( c >= L'A' && c <= L'F' )
+				v |= c - L'A' + 10;
+			else
+				return std::wstring();
+		}
+
+		out.push_back(( wchar_t )v );
+		i += 4;
+	}
+
+	return out;
+}
+
+// A click at x, y in the page's own pixels, passed in while the engine draws the page itself. A script's
+// click() carries no user gesture, so Chromium's popup blocker stops any new window it asks for and
+// NewWindowRequested never comes. So while the element is clicked, a new window is caught in the page
+// instead: a link aimed at a new window (_blank, the page's base target, or a name no frame in the page
+// has) has its default action cancelled once the page's own handlers have run, unless they cancelled it
+// themselves, and window.open records its address and returns null, as a blocked one does. The address
+// comes back and is reported the way NewWindowRequested reports one.
+extern "C" H9WV_EXPORT void H9WV_Click( void *handle, int x, int y )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd || !hd->view )
+		return;
+
+	std::shared_ptr<View> v = hd->view;
+
+	if( v->closed || v->failed || !v->ready || !v->webview )
+		return;
+
+	wchar_t js[1536];
+	if( swprintf( js, sizeof( js ) / sizeof( js[0] ),
+		L"(function(){var d=window.devicePixelRatio||1,e=document.elementFromPoint(%d/d,%d/d);if(!e)return '';"
+		L"var u='',a=e.closest('a[href]'),o=window.open,h=null;"
+		L"if(a instanceof HTMLAnchorElement){var b=document.querySelector('base[target]'),t=a.target||(b?b.target:'');"
+		L"if(t&&!/^_(self|top|parent)$/i.test(t)&&(/^_blank$/i.test(t)||![].some.call("
+		L"document.querySelectorAll('iframe[name],frame[name]'),function(f){return f.name===t;}))){"
+		L"h=function(v){if(!v.defaultPrevented){v.preventDefault();if(!u)u=a.href;}};window.addEventListener('click',h);}}"
+		L"window.open=function(w){if(!u&&w){try{u=new URL(w,document.baseURI).href;}catch(x){}}return null;};"
+		L"try{(e.closest('a,button,input,select,label,[onclick],[role=button]')||e).click();}"
+		L"finally{window.open=o;if(h)window.removeEventListener('click',h);}return u;})();", x, y ) < 0 )
+		return;
+
+	std::weak_ptr<View> weak = v;
+	v->webview->ExecuteScript( js, Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+		[weak]( HRESULT hr, LPCWSTR result ) -> HRESULT
+		{
+			std::shared_ptr<View> view = weak.lock();
+
+			if( !view || view->closed || FAILED( hr ))
+				return S_OK;
+
+			std::wstring uri = JsonString( result );
+
+			if( uri.empty())
+				return S_OK;
+
+			if( Allowed( uri.c_str()))
+				view->Report( H9WV_NEWWINDOW, Narrow( uri.c_str()));
+			else
+				view->Report( H9WV_BLOCKED, Narrow( uri.c_str()));
+
+			return S_OK;
+		} ).Get());
+}
+
 extern "C" H9WV_EXPORT void H9WV_Close( void *handle )
 {
 	Handle *hd = ( Handle * )handle;

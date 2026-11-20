@@ -528,10 +528,10 @@ new file mode 100644
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
-index 00000000..e0fb613b
+index 00000000..cdcfbf89
 --- /dev/null
 +++ b/engine/client/cl_motd.c
-@@ -0,0 +1,2212 @@
+@@ -0,0 +1,2213 @@
 +/*
 +cl_motd.c - H9: the splash MOTD, a server's picture or web page shown at join
 +
@@ -793,7 +793,7 @@ index 00000000..e0fb613b
 +#if XASH_WIN32
 +// h9webview.dll's interface, as xash3d-h9-patches\webview\h9webview.h has it: the same numbers,
 +// and H9WV_API_VERSION raised there and here with any change
-+#define H9WV_API_VERSION 3
++#define H9WV_API_VERSION 4
 +#define H9WV_READY       1
 +#define H9WV_FAILED      2
 +#define H9WV_ESCAPE      3
@@ -813,6 +813,7 @@ index 00000000..e0fb613b
 +typedef void ( *h9wv_snap_fn )( const void *rgba, int width, int height, void *user );
 +typedef int ( *h9wv_snapshot_fn )( void *view, h9wv_snap_fn done, void *user );
 +typedef void ( *h9wv_script_fn )( void *view, const char *script );
++typedef void ( *h9wv_click_fn )( void *view, int x, int y );
 +
 +static struct
 +{
@@ -826,6 +827,7 @@ index 00000000..e0fb613b
 +	h9wv_close_fn Close;
 +	h9wv_snapshot_fn Snapshot;
 +	h9wv_script_fn   Script;
++	h9wv_click_fn    Click;
 +} h9wv;
 +
 +static CVAR_DEFINE_AUTO( cl_h9_motd_wine, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: under Wine or Proton, show a server's web page inside the game with Edge WebView2, without Chromium's sandbox: 0 = no, its picture or text and OPEN PAGE; 1 = yes; 2 = yes, with the GPU off" );
@@ -1311,11 +1313,11 @@ index 00000000..e0fb613b
 +		H9M_Debug( "snapshot %d: %d x %d, texture %d", count, width, height, h9m_snap );
 +}
 +
-+// a click on the panel, passed to the page when it lands on it: the element under the point, or the
-+// link or button it sits in, is clicked as the page would click it
++// a click on the panel, passed to the page when it lands on it: h9webview.dll clicks the element under
++// the point, or the link or button it sits in, as the page would, and a new window the click asks for
++// comes back as H9WV_NEWWINDOW for the confirm box
 +static qboolean H9M_PageClick( int mx, int my )
 +{
-+	char js[320];
 +	int x, y;
 +
 +	if( !motd.view || !h9m_snap || !h9m_popup || motd.view_w <= 0 || motd.view_h <= 0 )
@@ -1327,9 +1329,7 @@ index 00000000..e0fb613b
 +	// the panel's pixels to the page's: the popup is exactly the page's size
 +	x = ( mx - motd.view_x ) * h9m_popup_at[2] / motd.view_w;
 +	y = ( my - motd.view_y ) * h9m_popup_at[3] / motd.view_h;
-+	Q_snprintf( js, sizeof( js ), "(function(){var d=window.devicePixelRatio||1,e=document.elementFromPoint(%d/d,%d/d);"
-+		"if(e){(e.closest('a,button,input,select,label,[onclick],[role=button]')||e).click();}})();", x, y );
-+	h9wv.Script( motd.view, js );
++	h9wv.Click( motd.view, x, y );
 +	return true;
 +}
 +#endif // XASH_WIN32
@@ -1408,8 +1408,9 @@ index 00000000..e0fb613b
 +	h9wv.Close = (h9wv_close_fn)GetProcAddress( dll, "H9WV_Close" );
 +	h9wv.Snapshot = (h9wv_snapshot_fn)GetProcAddress( dll, "H9WV_Snapshot" );
 +	h9wv.Script = (h9wv_script_fn)GetProcAddress( dll, "H9WV_Script" );
++	h9wv.Click = (h9wv_click_fn)GetProcAddress( dll, "H9WV_Click" );
 +
-+	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || !h9wv.Snapshot || !h9wv.Script || api() != H9WV_API_VERSION )
++	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || !h9wv.Snapshot || !h9wv.Script || !h9wv.Click || api() != H9WV_API_VERSION )
 +	{
 +		Q_strncpy( h9wv.why, "h9webview.dll is not the one this engine needs", sizeof( h9wv.why ));
 +		FreeLibrary( dll );
