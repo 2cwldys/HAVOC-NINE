@@ -12,7 +12,7 @@ status callback.
 #ifndef H9WEBVIEW_H
 #define H9WEBVIEW_H
 
-#define H9WV_API_VERSION 1
+#define H9WV_API_VERSION 4
 
 // what the view tells the engine; detail is ASCII
 enum
@@ -32,6 +32,9 @@ enum
                           // to win8 when it is not set (DirectComposition fails at 8.1 and up)
 
 typedef void ( *h9wv_status_fn )( int status, const char *detail, void *user );
+
+// the page as 32-bit RGBA rows, top to bottom, handed to done() on this thread (NULL: none could be made)
+typedef void ( *h9wv_snap_fn )( const void *rgba, int width, int height, void *user );
 
 // the DLL exports these; anyone else only declares them
 #ifdef H9WV_BUILD
@@ -65,6 +68,19 @@ H9WV_EXPORT void H9WV_Place( void *view, int x, int y, int w, int h, int render_
 // Takes the view down. No status call follows. The game's window gets the keyboard back when
 // the page had it.
 H9WV_EXPORT void H9WV_Close( void *view );
+
+// A snapshot of what the page shows now, for a game that draws the page in its own frame;
+// 1 when one was asked for, and done() then comes once
+H9WV_EXPORT int H9WV_Snapshot( void *view, h9wv_snap_fn done, void *user );
+
+// A script run in the page, its result not wanted. The engine builds these from numbers only.
+H9WV_EXPORT void H9WV_Script( void *view, const char *script );
+
+// A click at x, y in the page's own pixels (the snapshot's). The element under the point, or the link
+// or button it sits in, is clicked as the page would click it; a new window the click asks for (a link
+// aimed at a new window, or window.open) is not opened but reported, H9WV_NEWWINDOW or H9WV_BLOCKED, as
+// a click in the page's own window would report it.
+H9WV_EXPORT void H9WV_Click( void *view, int x, int y );
 
 #ifdef __cplusplus
 }

@@ -22,6 +22,7 @@
  */
 
 #include <amxmodx>
+#include <h9_clientid>
 #include <nvault>
 
 #define PLUGIN  "H9 Link"
@@ -158,12 +159,8 @@ public task_hint(taskid)
 
 	new key[40];
 	get_user_info(id, "h9_clientid", key, charsmax(key));
-	new bool:hex = (strlen(key) == 32);
-	for (new i = 0; hex && key[i]; i++)
-	{
-		hex = ('0' <= key[i] <= '9') || ('a' <= key[i] <= 'f');
-	}
-	if (!hex)
+	// either shape: 32 hex, or the 7 base36 a newer engine sends (h9_clientid.inc)
+	if (!h9_cid_ok(key))
 	{
 		return;
 	}

@@ -528,10 +528,10 @@ new file mode 100644
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
-index 00000000..70c6a06b
+index 00000000..cdcfbf89
 --- /dev/null
 +++ b/engine/client/cl_motd.c
-@@ -0,0 +1,1896 @@
+@@ -0,0 +1,2213 @@
 +/*
 +cl_motd.c - H9: the splash MOTD, a server's picture or web page shown at join
 +
@@ -793,7 +793,7 @@ index 00000000..70c6a06b
 +#if XASH_WIN32
 +// h9webview.dll's interface, as xash3d-h9-patches\webview\h9webview.h has it: the same numbers,
 +// and H9WV_API_VERSION raised there and here with any change
-+#define H9WV_API_VERSION 1
++#define H9WV_API_VERSION 4
 +#define H9WV_READY       1
 +#define H9WV_FAILED      2
 +#define H9WV_ESCAPE      3
@@ -810,6 +810,10 @@ index 00000000..70c6a06b
 +typedef void *( *h9wv_open_fn )( void *parent, const char *url, int flags, h9wv_status_fn status, void *user, char *why, int whysize );
 +typedef void ( *h9wv_place_fn )( void *view, int x, int y, int w, int h, int render_w, int render_h, int visible );
 +typedef void ( *h9wv_close_fn )( void *view );
++typedef void ( *h9wv_snap_fn )( const void *rgba, int width, int height, void *user );
++typedef int ( *h9wv_snapshot_fn )( void *view, h9wv_snap_fn done, void *user );
++typedef void ( *h9wv_script_fn )( void *view, const char *script );
++typedef void ( *h9wv_click_fn )( void *view, int x, int y );
 +
 +static struct
 +{
@@ -821,9 +825,36 @@ index 00000000..70c6a06b
 +	h9wv_open_fn  Open;
 +	h9wv_place_fn Place;
 +	h9wv_close_fn Close;
++	h9wv_snapshot_fn Snapshot;
++	h9wv_script_fn   Script;
++	h9wv_click_fn    Click;
 +} h9wv;
 +
 +static CVAR_DEFINE_AUTO( cl_h9_motd_wine, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: under Wine or Proton, show a server's web page inside the game with Edge WebView2, without Chromium's sandbox: 0 = no, its picture or text and OPEN PAGE; 1 = yes; 2 = yes, with the GPU off" );
++static CVAR_DEFINE_AUTO( cl_h9_motd_debug, "0", 0, "H9: 1 writes what the splash MOTD's web page does, with the time, to h9_motd_debug.log in the game folder" );
++
++// one line in h9_motd_debug.log while cl_h9_motd_debug is 1
++static void H9M_Debug( const char *fmt, ... )
++{
++	char buf[512];
++	va_list args;
++	file_t *f;
++
++	if( !cl_h9_motd_debug.value )
++		return;
++
++	va_start( args, fmt );
++	Q_vsnprintf( buf, sizeof( buf ), fmt, args );
++	va_end( args );
++
++	f = FS_Open( "h9_motd_debug.log", "a", true );
++
++	if( !f )
++		return;
++
++	FS_Printf( f, "%10.3f %s\n", host.realtime, buf );
++	FS_Close( f );
++}
 +#endif
 +
 +/*
@@ -1117,6 +1148,192 @@ index 00000000..70c6a06b
 +==============================================================================
 +*/
 +
++// The page as the game draws it. In full screen nothing outside the game's own frame is drawn while
++// the game has the screen, so the page's window is never seen there: the panel draws snapshots of the
++// page instead (H9M_SnapDone), a few a second, and passes clicks and the wheel on to the page.
++static int      h9m_snap;      // the last snapshot's texture, or 0
++static qboolean h9m_snap_busy; // one is on its way
++static double   h9m_snap_time; // when the last one was asked for
++
++// The page's own window, over the panel. The game draws its whole window every frame, and in full
++// screen that drawing covers a child window, so the page is hosted in a borderless popup the game
++// window owns instead: an owned window always sits above its owner, and Windows composites it on its
++// own. WS_EX_NOACTIVATE keeps the game the active window, so its keys (ESC) still reach it. When the
++// popup cannot be made, the page goes in the game window as a child, as before.
++#if XASH_WIN32
++static HWND h9m_popup;
++static int  h9m_popup_at[4]; // x, y, w, h it was last put at, so an unchanged frame moves nothing
++static qboolean h9m_layered; // the game window was made layered for the page (H9M_PopupPlace)
++
++// The game window back to an ordinary one, and redrawn, once the page is gone or hidden
++static void H9M_GameUnlayer( void )
++{
++	HWND game = (HWND)motd.view_window;
++
++	if( !h9m_layered )
++		return;
++
++	h9m_layered = false;
++
++	if( game && IsWindow( game ))
++	{
++		SetWindowLongPtr( game, GWL_EXSTYLE, GetWindowLongPtr( game, GWL_EXSTYLE ) & ~WS_EX_LAYERED );
++		RedrawWindow( game, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN );
++	}
++}
++
++static HWND H9M_PopupMake( HWND owner )
++{
++	static ATOM cls;
++	HINSTANCE inst = GetModuleHandleA( NULL );
++
++	if( !cls )
++	{
++		WNDCLASSEXA wc;
++
++		memset( &wc, 0, sizeof( wc ));
++		wc.cbSize = sizeof( wc );
++		wc.lpfnWndProc = DefWindowProcA;
++		wc.hInstance = inst;
++		wc.lpszClassName = "H9MotdPage";
++		cls = RegisterClassExA( &wc );
++
++		if( !cls )
++			return NULL;
++	}
++
++	memset( h9m_popup_at, 0, sizeof( h9m_popup_at ));
++	return CreateWindowExA( WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, "H9MotdPage", "", WS_POPUP | WS_CLIPCHILDREN,
++		0, 0, 1, 1, owner, NULL, inst, NULL );
++}
++
++static void H9M_PopupDrop( void )
++{
++	H9M_GameUnlayer( );
++
++	if( h9m_popup )
++		DestroyWindow( h9m_popup );
++
++	h9m_popup = NULL;
++}
++
++// the panel's body: render coordinates to the game window's client pixels, then to the screen
++static void H9M_PopupPlace( qboolean show )
++{
++	HWND game = (HWND)motd.view_window;
++	RECT client;
++	POINT pt;
++	int cw, ch, w, h;
++
++	if( !show || !game || !GetClientRect( game, &client ) || refState.width <= 0 || refState.height <= 0 )
++	{
++		if( IsWindowVisible( h9m_popup ))
++			ShowWindow( h9m_popup, SW_HIDE );
++
++		H9M_GameUnlayer( );
++		h9wv.Place( motd.view, 0, 0, 1, 1, 1, 1, false );
++		return;
++	}
++
++	// A window that covers its monitor can be taken out of Windows' composition by the graphics
++	// driver, and then nothing else is drawn over it while it has focus: the page stayed blank until
++	// the player alt-tabbed out. A layered window is always composited, so the game window is made
++	// layered (fully opaque, so it looks the same) while the page shows, and ordinary again after.
++	if( !h9m_layered )
++	{
++		LONG_PTR ex = GetWindowLongPtr( game, GWL_EXSTYLE );
++
++		if( !( ex & WS_EX_LAYERED ))
++		{
++			SetWindowLongPtr( game, GWL_EXSTYLE, ex | WS_EX_LAYERED );
++			SetLayeredWindowAttributes( game, 0, 255, LWA_ALPHA );
++			h9m_layered = true;
++		}
++	}
++
++	cw = client.right - client.left;
++	ch = client.bottom - client.top;
++	w = motd.view_w * cw / refState.width;
++	h = motd.view_h * ch / refState.height;
++	pt.x = motd.view_x * cw / refState.width;
++	pt.y = motd.view_y * ch / refState.height;
++	ClientToScreen( game, &pt );
++
++	if( pt.x != h9m_popup_at[0] || pt.y != h9m_popup_at[1] || w != h9m_popup_at[2] || h != h9m_popup_at[3] || !IsWindowVisible( h9m_popup ))
++	{
++		h9m_popup_at[0] = pt.x;
++		h9m_popup_at[1] = pt.y;
++		h9m_popup_at[2] = w;
++		h9m_popup_at[3] = h;
++		SetWindowPos( h9m_popup, NULL, pt.x, pt.y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
++	}
++
++	// the popup is exactly the page: its whole client area, one render pixel to one window pixel
++	h9wv.Place( motd.view, 0, 0, w, h, w, h, true );
++}
++
++// a snapshot arrived, as RGBA pixels: it becomes the texture the panel draws, if it is for the view
++// still open
++static void H9M_SnapDone( const void *rgba, int width, int height, void *user )
++{
++	static int n, count;
++	rgbdata_t pic;
++	char name[32];
++
++	if( (int)(intptr_t)user != motd.viewgen )
++		return;
++
++	h9m_snap_busy = false;
++	count++;
++
++	if( !rgba || width <= 0 || height <= 0 || width > 8192 || height > 8192 || !ref.initialized )
++	{
++		if( count <= 5 || count % 100 == 0 )
++			H9M_Debug( "snapshot %d: none came back", count );
++		return;
++	}
++
++	memset( &pic, 0, sizeof( pic ));
++	pic.width = width;
++	pic.height = height;
++	pic.depth = 1;
++	pic.type = PF_RGBA_32;
++	pic.flags = IMAGE_HAS_COLOR; // without it the renderer stores the page as a gray (luminance) texture
++	pic.numMips = 1;
++	pic.buffer = (byte *)rgba;
++	pic.size = (size_t)width * height * 4;
++
++	if( h9m_snap )
++		ref.dllFuncs.GL_FreeTexture( h9m_snap );
++
++	Q_snprintf( name, sizeof( name ), "#h9motdpage%d", n++ );
++	h9m_snap = ref.dllFuncs.GL_LoadTextureFromBuffer( name, &pic, TF_IMAGE, false );
++
++	if( count <= 5 || count % 100 == 0 )
++		H9M_Debug( "snapshot %d: %d x %d, texture %d", count, width, height, h9m_snap );
++}
++
++// a click on the panel, passed to the page when it lands on it: h9webview.dll clicks the element under
++// the point, or the link or button it sits in, as the page would, and a new window the click asks for
++// comes back as H9WV_NEWWINDOW for the confirm box
++static qboolean H9M_PageClick( int mx, int my )
++{
++	int x, y;
++
++	if( !motd.view || !h9m_snap || !h9m_popup || motd.view_w <= 0 || motd.view_h <= 0 )
++		return false;
++
++	if( mx < motd.view_x || my < motd.view_y || mx >= motd.view_x + motd.view_w || my >= motd.view_y + motd.view_h )
++		return false;
++
++	// the panel's pixels to the page's: the popup is exactly the page's size
++	x = ( mx - motd.view_x ) * h9m_popup_at[2] / motd.view_w;
++	y = ( my - motd.view_y ) * h9m_popup_at[3] / motd.view_h;
++	h9wv.Click( motd.view, x, y );
++	return true;
++}
++#endif // XASH_WIN32
++
 +// the view goes; a report still on its way from it is for nobody
 +static void H9M_ViewClose( void )
 +{
@@ -1126,8 +1343,17 @@ index 00000000..70c6a06b
 +		motd.viewgen++;
 +		h9wv.Close( motd.view );
 +	}
++
++	H9M_PopupDrop( );
 +#endif
 +	motd.view = NULL;
++
++	if( h9m_snap && ref.initialized )
++		ref.dllFuncs.GL_FreeTexture( h9m_snap );
++
++	h9m_snap = 0;
++	h9m_snap_busy = false;
++	h9m_snap_time = 0.0;
 +	motd.view_window = NULL;
 +	motd.view_placed = false;
 +}
@@ -1180,8 +1406,11 @@ index 00000000..70c6a06b
 +	h9wv.Open = (h9wv_open_fn)GetProcAddress( dll, "H9WV_Open" );
 +	h9wv.Place = (h9wv_place_fn)GetProcAddress( dll, "H9WV_Place" );
 +	h9wv.Close = (h9wv_close_fn)GetProcAddress( dll, "H9WV_Close" );
++	h9wv.Snapshot = (h9wv_snapshot_fn)GetProcAddress( dll, "H9WV_Snapshot" );
++	h9wv.Script = (h9wv_script_fn)GetProcAddress( dll, "H9WV_Script" );
++	h9wv.Click = (h9wv_click_fn)GetProcAddress( dll, "H9WV_Click" );
 +
-+	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || api() != H9WV_API_VERSION )
++	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || !h9wv.Snapshot || !h9wv.Script || !h9wv.Click || api() != H9WV_API_VERSION )
 +	{
 +		Q_strncpy( h9wv.why, "h9webview.dll is not the one this engine needs", sizeof( h9wv.why ));
 +		FreeLibrary( dll );
@@ -1211,6 +1440,8 @@ index 00000000..70c6a06b
 +static void H9M_ViewStatus( int status, const char *detail, void *user )
 +{
 +	char host[H9M_MAX_HOST];
++
++	H9M_Debug( "report %d (%s)%s", status, detail ? detail : "", (int)(intptr_t)user != motd.viewgen ? ", for a view already closed" : "" );
 +
 +	// a view already closed has a new number; a report may also come before H9WV_Open returns
 +	if( (int)(intptr_t)user != motd.viewgen )
@@ -1304,17 +1535,35 @@ index 00000000..70c6a06b
 +			return;
 +		}
 +
++		// The page is a child window of the game's, and the game draws its whole window every frame:
++		// without these two styles that drawing covers the page, which then shows only once the game
++		// stops drawing (alt-tab). An OpenGL window should carry both; with them Windows keeps a
++		// child out of its parent's drawing.
++		{
++			HWND hw = (HWND)window;
++			LONG_PTR style = GetWindowLongPtr( hw, GWL_STYLE );
++
++			if(( style & ( WS_CLIPCHILDREN | WS_CLIPSIBLINGS )) != ( WS_CLIPCHILDREN | WS_CLIPSIBLINGS ))
++			{
++				SetWindowLongPtr( hw, GWL_STYLE, style | WS_CLIPCHILDREN | WS_CLIPSIBLINGS );
++				SetWindowPos( hw, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED );
++			}
++		}
++
 +		motd.viewgen++;
 +		motd.view_window = window;
-+		motd.view = h9wv.Open( window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
++		h9m_popup = H9M_PopupMake( (HWND)window );
++		motd.view = h9wv.Open( h9m_popup ? (void *)h9m_popup : window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
 +
 +		if( !motd.view )
 +		{
++			H9M_PopupDrop( );
 +			H9M_ViewFail( why );
 +			return;
 +		}
 +
 +		Con_Reportf( "H9 MOTD: loading %s with WebView2 %s\n", motd.page_host, version );
++		H9M_Debug( "opened %s in %s, WebView2 %s", motd.page, h9m_popup ? "its own window" : "the game window", version );
 +	}
 +#else
 +	H9M_ViewFail( "this build has no web view" );
@@ -1332,7 +1581,60 @@ index 00000000..70c6a06b
 +		return;
 +
 +	show = motd.state == H9M_OPEN && motd.view_ready && motd.view_placed && !motd.confirm && H9M_Up( ) && !H9UI_PanelUp( );
-+	h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
++
++	// every change in what decides it, while cl_h9_motd_debug is 1
++	{
++		static int last = -1;
++		int now = ( motd.state == H9M_OPEN ) | ( motd.view_ready << 1 ) | ( motd.view_placed << 2 ) | ( motd.confirm << 3 )
++			| (( cls.state == ca_active ) << 4 ) | (( cls.key_dest == key_game ) << 5 ) | ( H9UI_PanelUp( ) << 6 ) | ( host.status << 8 );
++
++		if( now != last )
++		{
++			last = now;
++			H9M_Debug( "show %d: open %d, loaded %d, placed %d, confirm %d, in game %d, keys to game %d (key_dest %d), another panel %d, host.status %d",
++				show, motd.state == H9M_OPEN, motd.view_ready, motd.view_placed, motd.confirm, cls.state == ca_active,
++				cls.key_dest == key_game, cls.key_dest, H9UI_PanelUp( ), host.status );
++		}
++	}
++	if( h9m_popup )
++	{
++		H9M_PopupPlace( show );
++
++		// a few snapshots a second while it shows; one at a time, and one that never comes back is
++		// given up on after three seconds
++		if( show && host.realtime - h9m_snap_time > 0.2 && ( !h9m_snap_busy || host.realtime - h9m_snap_time > 3.0 ))
++		{
++			h9m_snap_time = host.realtime;
++			h9m_snap_busy = h9wv.Snapshot( motd.view, H9M_SnapDone, (void *)(intptr_t)motd.viewgen ) != 0;
++
++			if( !h9m_snap_busy )
++			{
++				static int refused;
++
++				if( ++refused <= 3 )
++					H9M_Debug( "snapshot not taken: the view said no (%d)", refused );
++			}
++		}
++	}
++	else h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
++#endif
++}
++
++// the wheel and the arrow keys scroll the page while the panel draws it
++static qboolean H9M_PageScroll( int dir )
++{
++#if XASH_WIN32
++	char js[64];
++
++	if( !motd.view || !h9m_snap )
++		return false;
++
++	Q_snprintf( js, sizeof( js ), "window.scrollBy(0,%d);", dir * 120 );
++	h9wv.Script( motd.view, js );
++	return true;
++#else
++	(void)dir;
++	return false;
 +#endif
 +}
 +
@@ -2192,8 +2494,14 @@ index 00000000..70c6a06b
 +
 +	if( page_up )
 +	{
-+		// the page's own window covers this; until it shows, the panel's colour
-+		H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
++		// the page as the game draws it (H9M_SnapDone); until the first snapshot, the panel's colour
++		if( h9m_snap )
++		{
++			ref.dllFuncs.GL_SetRenderMode( kRenderTransTexture );
++			ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
++			ref.dllFuncs.R_DrawStretchPic( px + pad, py + head, bodyw, bodyh, 0, 0, 1, 1, h9m_snap );
++		}
++		else H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
 +		motd.view_x = px + pad;
 +		motd.view_y = py + head;
 +		motd.view_w = bodyw;
@@ -2243,7 +2551,7 @@ index 00000000..70c6a06b
 +		H9M_DrawConfirm( font, W, H, pad, bh, mx, my );
 +
 +	// the pointer, where the game has it; over the page the system's own shows instead
-+	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
++	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !h9m_snap && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
 +		&& my >= motd.view_y && my < motd.view_y + motd.view_h ))
 +		H9UI_Cursor( mx, my, Q_max( 1, H / 540 ));
 +
@@ -2310,11 +2618,13 @@ index 00000000..70c6a06b
 +		break;
 +	case K_UPARROW:
 +	case K_MWHEELUP:
-+		H9M_Scroll( -1 );
++		if( !H9M_PageScroll( -1 ))
++			H9M_Scroll( -1 );
 +		break;
 +	case K_DOWNARROW:
 +	case K_MWHEELDOWN:
-+		H9M_Scroll( 1 );
++		if( !H9M_PageScroll( 1 ))
++			H9M_Scroll( 1 );
 +		break;
 +	case K_PGUP:
 +		H9M_Scroll( -Q_max( 1, motd.visible - 1 ));
@@ -2386,6 +2696,12 @@ index 00000000..70c6a06b
 +		}
 +		else if( H9M_Hit( H9M_BTN_CLOSE, mx, my ))
 +			H9M_Stop();
++#if XASH_WIN32
++		else if( H9M_PageClick( mx, my ))
++		{
++			// passed to the page
++		}
++#endif
 +		else if( motd.page[0] && !motd.view && H9M_Hit( H9M_BTN_OPEN, mx, my ))
 +			H9M_Confirm( motd.page, motd.page_host );
 +	}
@@ -2423,6 +2739,7 @@ index 00000000..70c6a06b
 +	Cvar_RegisterVariable( &cl_h9_motd );
 +#if XASH_WIN32
 +	Cvar_RegisterVariable( &cl_h9_motd_wine );
++	Cvar_RegisterVariable( &cl_h9_motd_debug );
 +#endif
 +#if XASH_EMSCRIPTEN
 +	Cmd_AddRestrictedCommand( "h9_motd_result", H9M_Result_f, "H9: the web client's answer to a splash MOTD (1 shown, 0 not shown)" );

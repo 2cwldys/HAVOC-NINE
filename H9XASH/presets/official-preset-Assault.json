@@ -131,19 +131,19 @@
     {
       "kind": "amxx",
       "file": "h9_community.amxx",
-      "sha256": "13ed789f2a58e225156d0d503acfd2b7e1635e3732ed85a35e5f31af9e71bd79",
+      "sha256": "fcf63d2121be1527e455177d356b675d607f4eb4e76864bccdcf4ee2cd92821e",
       "note": "build 1.68"
     },
     {
       "kind": "amxx",
       "file": "h9_compete.amxx",
-      "sha256": "8e40e63234ca5840a39fd810b83490017c93552e303bca937ff0b0dc87a9efc9",
+      "sha256": "ebd40cc045f5167fb10e97a5b7eb384fe9be77cb803f63a0b8cb71917269dda6",
       "note": "build 1.68"
     },
     {
       "kind": "amxx",
       "file": "h9_link.amxx",
-      "sha256": "31e5486925370fc2a9b752524c3c7e0ad9063e3c9cd875ae9131ceb270c91776",
+      "sha256": "1c3948493bf85e45b2ffb5cc49b35fec62419cb0b5d4a1dbc1f6f1c3180e6ff3",
       "note": "build 1.68"
     },
     {
@@ -161,7 +161,7 @@
     {
       "kind": "amxx",
       "file": "h9_rank.amxx",
-      "sha256": "d573560babdc1b62d26190ca4661c6b3230a02ce6c1802bca75095b78fe767c4",
+      "sha256": "b75f5f948b70e1147f3877288331cd4a405a433336934e8dca7734f9bf0f2593",
       "note": "build 1.68"
     },
     {
@@ -263,19 +263,19 @@
     {
       "kind": "amxx",
       "file": "ts_floatchat.amxx",
-      "sha256": "8ad9962b90119b8a9b508e01c57534d5baf5af46714e1e6e97a705df2faa3d4c",
+      "sha256": "dda71f15ca5b5bb30bf1d0dd982c9bb3d3090d41e37673468cb645cad900606d",
       "note": "build 1.68"
     },
     {
       "kind": "amxx",
       "file": "ts_matchmode.amxx",
-      "sha256": "948202832a044147e108cea6c689ad812e769129680ef50d9c3b0dd1e1669231",
+      "sha256": "a10604b61bf59571d2e305681f7fbfb2ba01dcc91420def96f083391214ff033",
       "note": "build 1.68"
     },
     {
       "kind": "amxx",
       "file": "ts_mechwarrior.amxx",
-      "sha256": "bc13b7ac29d13e8b4fe7e7f95c1a5c42de84b679f03379fec5eeeb974a06e05d",
+      "sha256": "cb595a07ce616a65d58a8f8e2fb751d3f12aff0aa0369076a7f841201fcf08b0",
       "note": "build 1.68"
     },
     {

@@ -1,0 +1,190 @@
+INTERNET RADIO ON THE MUSIC CHANNEL
+===================================
+
+h9_radio plays internet radio in game, and owns the ambient music rotation while it does.
+A player types /radio on to tune in and /radio off to go back to the server's music.
+
+STATE: both halves are in the build. The plugin is h9_radio.amxx; the engine half is
+xash3d-h9-patches\patches\engine-h9-radio.patch, the last patch in the chain. The radio is
+off on a server until h9_radio is 1.
+
+
+1. WHY ONE PLUGIN OWNS BOTH THE RADIO AND THE AMBIENCE
+------------------------------------------------------
+There is exactly one background music channel in the engine, and S_StartBackgroundTrack()
+(engine\client\sound\s_stream.c:96) calls S_StopBackgroundTrack() as its first line. Whoever
+starts a track silently stops whatever was playing.
+
+That is worth stating plainly, because it is the whole feature: the radio interrupting the
+ambience is not something h9_radio implements. It is what the engine already does. Both
+sources go through the same client command:
+
+    mp3 play sound/music/rachels_song.mp3      the ambient rotation
+    mp3 play https://host:8061/listen.mp3      a station
+    mp3 stop                                   silence
+
+The consequence is that two plugins must never both drive that channel. ts_matchmode.sma has
+carried the ambient rotation (g_music_mp3 / g_music_len / task_music_queue, around lines 868
+and 29699-30026). If a radio plugin drove the channel as well, the rotation's timer would
+fire part way through a song and cut the radio off. So h9_radio is the single owner, and each
+player has one music source:
+
+    SRC_OFF      nothing
+    SRC_AMBIENT  the local rotation, the same sixteen tracks
+    SRC_RADIO    an mp3 stream
+
+The ambient scheduler skips anyone on SRC_RADIO. /radio off puts them back on the ambient
+track rather than into silence.
+
+While h9_radio_ambient is 1, ts_matchmode must not drive the channel. One guard at the top of
+its task_music_queue:
+
+    // H9: h9_radio owns the music channel when it is running the rotation
+    if (get_cvar_num("h9_radio") && get_cvar_num("h9_radio_ambient"))
+        return;
+
+Set h9_radio_ambient 0 to hand the rotation back to ts_matchmode and keep only the radio.
+
+
+2. CHAT COMMANDS
+----------------
+    /radio              what is playing, and the commands
+    /radio on           start the tuned station, or the first one
+    /radio off          stop, and go back to the server's ambient music
+    /radio list         the stations
+    /radio <name>       tune by name
+    /radio 3            tune by number
+    /radio ambient      back to the ambient rotation
+    /radio url <url>    play any mp3 stream, for yourself only
+
+A station affects only the player who asked for it. It is client-side audio.
+
+    h9_radio_reload     reload the station list without a map change (ADMIN_CFG)
+
+
+3. CVARS
+--------
+    h9_radio            0 by default. 0 is stock: the plugin registers its commands, says
+                        the feature is off, and touches nothing.
+    h9_radio_ambient    1 = this plugin drives the ambient rotation
+    h9_radio_default    a station tuned for a joining player; empty for none
+    h9_radio_volume     0.0 to 1.0, applied client side as MP3Volume
+
+Two more are registered by the engine half, on the client:
+
+    h9_radio_buffer     seconds of audio buffered, 2 to 15, default 4
+    h9_radio_debug      log the connection steps
+
+
+4. STATIONS
+-----------
+addons\amxmodx\configs\h9_radio_stations.ini, one per line:
+
+    name|url
+
+The name is what players type and what the list shows, so keep it one word. The URL must be
+http:// or https://; nothing else reaches the engine's stream opener. The stream must be MP3,
+because the decoder behind this is mpg123 -- the same one that plays sound\music\*.mp3. Ogg
+and AAC stations are refused with a message rather than played as noise.
+
+
+5. HOW THE ENGINE HALF WORKS
+----------------------------
+A background track is a stream_t carrying its own vtable, and FS_ReadStream() /
+FS_FreeStream() (engine\client\soundlib\snd_main.c:221, :269) do nothing but call through
+stream->format->readfunc and ->freefunc. So a network radio is simply another stream format.
+The dispatch is four lines at the top of FS_OpenStream(), because a URL has no extension to
+probe and must not be given the media\ fallback.
+
+Everything it needs already exists in the tree:
+
+    mpg123 feed mode        snd_mp3.c:287 already uses mpg123_open_feed for in-memory decoding
+    HTTPS                   engine\common\http\net_http_tls.c, an H9 addition wrapping mbedTLS
+    sockets                 the same BSD calls net_http_xash.c uses
+
+The one rule that matters: Stream_ReadHTTP must NOT return 0 on a buffer underrun.
+s_stream.c:276-301 treats a short read as the end of the track and tears the stream down, so a
+station that stalls for 200 ms would silently die. It always reports a full buffer instead --
+silence while buffering, silence on an underrun, silence while reconnecting -- and returns 0
+only when the station is given up on for good.
+
+Reconnection is free. "mp3 play <name>" sets the loop name to the same string
+(cl_cmds.c:96), so when a dead stream finally returns 0, s_stream.c re-opens the URL through
+the same hooked FS_OpenStream. No new code.
+
+xash3d-h9-patches\patches\engine-h9-radio.patch holds the exact edits.
+
+
+6. HTTPS AND CERTIFICATE CHAINS
+-------------------------------
+A station can serve a perfectly good certificate and still fail to play here, if its server
+does not send the intermediate CA that links that certificate to a root. This is common and
+it is worth understanding, because the station will work everywhere else you try it.
+
+Radio Free Zion is this case, and its direct URL is genuinely correct:
+
+    https://stream.radiofreezion.net:8061/listen.mp3
+
+Asked what it sends, that server returns exactly ONE certificate:
+
+    openssl s_client -connect stream.radiofreezion.net:8061 -showcerts
+      0 s:CN = stream.radiofreezion.net
+        i:C = GB, O = Sectigo Limited, CN = Sectigo Public Server Authentication CA DV R36
+
+The leaf, and nothing else. The Sectigo intermediate that issued it is not sent. Browsers and
+most Windows media players hide this: when an issuer is missing they fetch it themselves from
+the URL inside the certificate (AIA chasing), and Windows Schannel does the same. So the page
+plays, VLC plays, and the address looks fine -- which it is. curl does not chase AIA, and
+neither does mbedTLS, which is what this engine uses. Both stop with
+
+    unable to get local issuer certificate       (curl exit code 60)
+
+Port 8061 is TLS-only, so there is no http:// address to fall back to; a plain connection to
+it is simply dropped.
+
+THE FIX. The engine verifies against valve\cacert.pem, named by the http_tls_cafile cvar and
+built on every launch by h9_cacerts.ps1 from Mozilla's list plus every root this PC trusts. The
+Sectigo ROOT is in there. The INTERMEDIATE is not, because h9_cacerts.ps1 copies Windows' trusted
+ROOT stores and an intermediate lives in "Intermediate Certification Authorities" instead.
+
+So valve\cacert-extra.pem carries "Sectigo Public Server Authentication CA DV R36", and
+h9_cacerts.ps1 adds every certificate in that file to both of the game's lists on every launch.
+The station then verifies normally, with nothing switched off and no loss of security for any
+other site: it is a public intermediate, signed by a root the bundle already holds. Checked
+against the live station with the shipped bundle:
+
+    openssl s_client -connect stream.radiofreezion.net:8061 -CAfile valve\cacert.pem
+      Verify return code: 0 (ok)
+
+Any other station with the same fault gets the same treatment: its missing intermediate goes in
+cacert-extra.pem, with a comment naming it, its SHA-256 and where it came from.
+
+What NOT to do: http_tls_insecure 1 turns certificate checking off for EVERY https request
+the client makes -- the server browser's green or red verdict, the link, the pictures -- not
+just that one station. It is a debug switch, not a trade worth making for music.
+
+The best outcome is still to tell the station. A missing intermediate is a one-line server
+config change, and it is broken right now for every non-browser client they have.
+
+7. KNOWN GAPS
+-------------
+  * The sixteen track names and lengths are duplicated between h9_radio.sma and
+    ts_matchmode.sma. Two copies of the same list will drift; one should include the other.
+  * /radio off restarts the ambient track from the beginning rather than resuming it where it
+    was. "mp3 play" has no position argument. The "music" command does, but it looks in
+    media\ rather than sound\music\.
+  * Not tested against a live station, for the reason in section 6.
+
+
+8. BUILDING THE PLUGIN
+----------------------
+Use the H9 compiler, not the one in compts: that one is AMX Mod X 1.8.1 with MAX_PLAYERS 32
+and it is misleading in both directions. It rejects a players[] buffer sized for this server,
+and it recommends client_disconnect, which 1.10 marks deprecated.
+
+    cd H9XASH\ts\addons\amxmodx\scripting
+    amxxpc.exe ..\..\..\..\..\src\h9_radio.sma -oh9_radio.amxx
+
+AMX Mod X 1.10 with MAX_PLAYERS 128 is the one to build against, and h9_radio follows
+ts_matchmode's convention: per-player tables are MAXPL long and "is this a player" is tested
+against g_maxplayers, never MAXPL.

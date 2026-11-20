@@ -60,6 +60,7 @@
  */
 
 #include <amxmodx>
+#include <h9_clientid>
 #include <amxmisc>
 #include <fakemeta>
 #include <easy_http>
@@ -2041,22 +2042,11 @@ bool:cid_shared(id, const cid[])
 	return false;
 }
 
-/** An h9_clientid: 32 hex characters (A to F lowercased in place). */
+/** An h9_clientid: 32 hex, or the 7 base36 a newer engine sends. h9_clientid.inc holds the
+ * one definition of the shape, so the plugins, h9web and EntMod cannot drift apart on it. */
 bool:cid_ok(s[])
 {
-	new i;
-	for (i = 0; s[i]; i++)
-	{
-		if (s[i] >= 'A' && s[i] <= 'F')
-		{
-			s[i] += 32;
-		}
-		if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f')))
-		{
-			return false;
-		}
-	}
-	return i == 32;
+	return h9_cid_ok(s);
 }
 
 /** A data key: 1 to 32 of a-z 0-9 _ . - */

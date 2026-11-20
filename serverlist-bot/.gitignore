@@ -7,4 +7,6 @@ blacklisted.ini
 blacklisted.ini.*
 !blacklisted.ini.example
 serverlist.log
+announced_build
+announced_build.tmp
 __pycache__/

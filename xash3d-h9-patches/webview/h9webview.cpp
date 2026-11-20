@@ -46,6 +46,7 @@ WebView2Loader linked in statically: the DLL needs nothing but Windows and the W
 #include <objbase.h>
 #include <urlmon.h>
 #include <wrl.h>
+#include <wincodec.h>
 
 #include <atomic>
 #include <cstdio>
@@ -56,6 +57,7 @@ WebView2Loader linked in statically: the DLL needs nothing but Windows and the W
 #include <new>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "WebView2.h"
 #include "WebView2EnvironmentOptions.h"
@@ -1171,6 +1173,11 @@ extern "C" H9WV_EXPORT void *H9WV_Open( void *parent, const char *url, int flags
 	std::wstring args = L"--proxy-server=http://127.0.0.1:" + std::to_wstring( g_port )
 		+ L" --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
 
+	// Chromium stops painting a window it decides is hidden, and with the game full screen on the same
+	// monitor it decides exactly that: the page stayed blank, the panel's colour showing through, until
+	// the player alt-tabbed out. These two keep it painting while the game has the screen.
+	args += L" --disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows";
+
 	if( flags & H9WV_NOSANDBOX )
 		args += L" --no-sandbox";
 
@@ -1256,6 +1263,213 @@ extern "C" H9WV_EXPORT void H9WV_Place( void *handle, int x, int y, int w, int h
 	v->rh = render_h;
 	v->visible = visible != 0;
 	v->Apply();
+}
+
+// The snapshot's PNG, decoded by Windows (WIC) into 32-bit RGBA rows, top to bottom. Decoded here,
+// not by the engine, so the engine only ever receives plain pixels.
+static bool DecodePng( IStream *stream, std::vector<BYTE> &out, UINT &w, UINT &h )
+{
+	static ComPtr<IWICImagingFactory> factory;
+	LARGE_INTEGER zero = {};
+
+	if( !factory && FAILED( CoCreateInstance( CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS( &factory ))))
+		return false;
+
+	if( FAILED( stream->Seek( zero, STREAM_SEEK_SET, nullptr )))
+		return false;
+
+	ComPtr<IWICBitmapDecoder> decoder;
+	ComPtr<IWICBitmapFrameDecode> frame;
+	ComPtr<IWICBitmapSource> rgba;
+
+	if( FAILED( factory->CreateDecoderFromStream( stream, nullptr, WICDecodeMetadataCacheOnDemand, &decoder ))
+		|| FAILED( decoder->GetFrame( 0, &frame ))
+		|| FAILED( WICConvertBitmapSource( GUID_WICPixelFormat32bppRGBA, frame.Get(), &rgba ))
+		|| FAILED( rgba->GetSize( &w, &h )) || !w || !h || w > 8192 || h > 8192 )
+		return false;
+
+	out.resize(( size_t )w * h * 4 );
+	return SUCCEEDED( rgba->CopyPixels( nullptr, w * 4, ( UINT )out.size(), out.data()));
+}
+
+// What the page shows now, made by WebView2 (CapturePreview) and handed to done() on this thread as
+// RGBA pixels when it is ready; NULL when it could not be made. In full screen nothing outside the
+// game's own frame is drawn while the game has the screen, so the page's window is never seen there:
+// the engine draws these snapshots in the panel instead. Returns 0 when none was asked for.
+extern "C" H9WV_EXPORT int H9WV_Snapshot( void *handle, h9wv_snap_fn done, void *user )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd || !hd->view || !done )
+		return 0;
+
+	std::shared_ptr<View> v = hd->view;
+
+	if( v->closed || v->failed || !v->ready || !v->webview )
+		return 0;
+
+	ComPtr<IStream> stream;
+
+	if( FAILED( CreateStreamOnHGlobal( nullptr, TRUE, &stream )) || !stream )
+		return 0;
+
+	std::weak_ptr<View> weak = v;
+	HRESULT hr = v->webview->CapturePreview( COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.Get(),
+		Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+			[weak, stream, done, user]( HRESULT result ) -> HRESULT
+			{
+				std::shared_ptr<View> view = weak.lock();
+
+				// closed meanwhile: the engine is no longer waiting for this one
+				if( !view || view->closed )
+					return S_OK;
+
+				std::vector<BYTE> rgba;
+				UINT w = 0, h = 0;
+
+				if( FAILED( result ) || !DecodePng( stream.Get(), rgba, w, h ))
+				{
+					done( nullptr, 0, 0, user );
+					return S_OK;
+				}
+
+				done( rgba.data(), ( int )w, ( int )h, user );
+				return S_OK;
+			} ).Get());
+
+	return SUCCEEDED( hr ) ? 1 : 0;
+}
+
+// A script run in the page, its result not wanted. The engine passes clicks and the wheel this way
+// while it draws the page itself, and only ever builds these from numbers.
+extern "C" H9WV_EXPORT void H9WV_Script( void *handle, const char *script )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd || !hd->view || !script )
+		return;
+
+	std::shared_ptr<View> v = hd->view;
+
+	if( v->closed || v->failed || !v->ready || !v->webview )
+		return;
+
+	std::wstring w;
+
+	for( const char *s = script; *s; s++ )
+		w.push_back(( wchar_t )( unsigned char )*s );
+
+	v->webview->ExecuteScript( w.c_str(), nullptr );
+}
+
+// A JSON string, as ExecuteScript hands back a script's string result, unquoted; empty when the result is
+// anything else
+static std::wstring JsonString( const wchar_t *s )
+{
+	std::wstring out;
+	size_t n = s ? wcslen( s ) : 0;
+
+	if( n < 2 || s[0] != L'"' || s[n - 1] != L'"' )
+		return std::wstring();
+
+	for( size_t i = 1; i < n - 1; i++ )
+	{
+		if( s[i] != L'\\' )
+		{
+			out.push_back( s[i] );
+			continue;
+		}
+
+		if( ++i >= n - 1 )
+			return std::wstring();
+
+		if( s[i] == L'"' || s[i] == L'\\' || s[i] == L'/' )
+		{
+			out.push_back( s[i] );
+			continue;
+		}
+
+		// an address has no control characters, so \b \f \n \r \t end it here
+		if( s[i] != L'u' || i + 4 >= n - 1 )
+			return std::wstring();
+
+		unsigned v = 0;
+
+		for( int k = 1; k <= 4; k++ )
+		{
+			wchar_t c = s[i + k];
+			v <<= 4;
+
+			if( c >= L'0' && c <= L'9' )
+				v |= c - L'0';
+			else if( c >= L'a' && c <= L'f' )
+				v |= c - L'a' + 10;
+			else if( c >= L'A' && c <= L'F' )
+				v |= c - L'A' + 10;
+			else
+				return std::wstring();
+		}
+
+		out.push_back(( wchar_t )v );
+		i += 4;
+	}
+
+	return out;
+}
+
+// A click at x, y in the page's own pixels, passed in while the engine draws the page itself. A script's
+// click() carries no user gesture, so Chromium's popup blocker stops any new window it asks for and
+// NewWindowRequested never comes. So while the element is clicked, a new window is caught in the page
+// instead: a link aimed at a new window (_blank, the page's base target, or a name no frame in the page
+// has) has its default action cancelled once the page's own handlers have run, unless they cancelled it
+// themselves, and window.open records its address and returns null, as a blocked one does. The address
+// comes back and is reported the way NewWindowRequested reports one.
+extern "C" H9WV_EXPORT void H9WV_Click( void *handle, int x, int y )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd || !hd->view )
+		return;
+
+	std::shared_ptr<View> v = hd->view;
+
+	if( v->closed || v->failed || !v->ready || !v->webview )
+		return;
+
+	wchar_t js[1536];
+	if( swprintf( js, sizeof( js ) / sizeof( js[0] ),
+		L"(function(){var d=window.devicePixelRatio||1,e=document.elementFromPoint(%d/d,%d/d);if(!e)return '';"
+		L"var u='',a=e.closest('a[href]'),o=window.open,h=null;"
+		L"if(a instanceof HTMLAnchorElement){var b=document.querySelector('base[target]'),t=a.target||(b?b.target:'');"
+		L"if(t&&!/^_(self|top|parent)$/i.test(t)&&(/^_blank$/i.test(t)||![].some.call("
+		L"document.querySelectorAll('iframe[name],frame[name]'),function(f){return f.name===t;}))){"
+		L"h=function(v){if(!v.defaultPrevented){v.preventDefault();if(!u)u=a.href;}};window.addEventListener('click',h);}}"
+		L"window.open=function(w){if(!u&&w){try{u=new URL(w,document.baseURI).href;}catch(x){}}return null;};"
+		L"try{(e.closest('a,button,input,select,label,[onclick],[role=button]')||e).click();}"
+		L"finally{window.open=o;if(h)window.removeEventListener('click',h);}return u;})();", x, y ) < 0 )
+		return;
+
+	std::weak_ptr<View> weak = v;
+	v->webview->ExecuteScript( js, Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+		[weak]( HRESULT hr, LPCWSTR result ) -> HRESULT
+		{
+			std::shared_ptr<View> view = weak.lock();
+
+			if( !view || view->closed || FAILED( hr ))
+				return S_OK;
+
+			std::wstring uri = JsonString( result );
+
+			if( uri.empty())
+				return S_OK;
+
+			if( Allowed( uri.c_str()))
+				view->Report( H9WV_NEWWINDOW, Narrow( uri.c_str()));
+			else
+				view->Report( H9WV_BLOCKED, Narrow( uri.c_str()));
+
+			return S_OK;
+		} ).Get());
 }
 
 extern "C" H9WV_EXPORT void H9WV_Close( void *handle )

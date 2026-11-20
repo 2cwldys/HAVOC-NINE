@@ -44,6 +44,7 @@ import re
 import socket
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -65,6 +66,11 @@ SECRETS = DATA_DIR / "serverlist.cfg"
 SEEDS = DATA_DIR / "servers.txt"
 LOG = DATA_DIR / "serverlist.log"
 BLACKLIST = DATA_DIR / "blacklisted.ini"
+# The build the release announcement last named. On disk, not in memory, because the bot's own
+# bio_build starts empty on every restart: About Me can be rewritten with the same text as often
+# as you like, but an announcement cannot, and a service restart must not post the same release
+# to the channel again.
+ANNOUNCED = DATA_DIR / "announced_build"
 
 DEFAULT_PORT = 27015                                        # the engine's default for a bare host
 GAMEDIR_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
@@ -72,6 +78,10 @@ HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 MAX_LISTED = 15                                             # /servers stays under Discord's message size
 STATUS_SECONDS = 15                                         # how often the bot's Discord status is looked at
+# HAVOC 9. A Discord embed carries exactly one colour, so orange is the stripe: the same rule the
+# rest of the theme follows, where orange is the thing that moved. Purple has nowhere else to go
+# inside an embed, so it arrives as an image when release_image names one.
+H9_ORANGE = 0xFF7A18
 LIST_CHECK_SECONDS = 60                                     # how often public_url is fetched
 LIST_CHECK_TIMEOUT = 10                                     # how long that fetch may take, in seconds
 HEARTBEAT_FAILS = 10                                        # wrong keys one address may send in HEARTBEAT_WINDOW
@@ -246,6 +256,9 @@ class Settings:
         self.guild_id = ini.get("discord", "guild_id", fallback="").strip()
         self.role_id = ini.get("discord", "role_id", fallback="").strip()
         self.build_file = ini.get("discord", "build_file", fallback="").strip()
+        self.release_channel = ini.get("discord", "release_channel", fallback="").strip()
+        self.release_image = ini.get("discord", "release_image", fallback="").strip()
+        self.release_role = ini.get("discord", "release_role", fallback="").strip()
         self.heartbeat_key = secrets.get("secrets", "heartbeat_key", fallback="").strip()
         self.discord_token = (secret_from_service("H9_DISCORD_TOKEN", "discord_token")
                               or secrets.get("secrets", "discord_token", fallback="").strip())
@@ -858,6 +871,37 @@ def make_bot(state, settings):
         sys.exit(f"discord_token is set, but discord.py is not installed: {exc}\n"
                  f"  pip install -r requirements.txt")
 
+    def release_embed(build):
+        """
+        The release announcement. In here rather than at module level because discord.py is
+        imported in this function on purpose: without a token the list runs on its own and the
+        library need not be installed at all, so nothing outside this scope may name discord.
+        """
+        # The title carries the link, so the body says the one thing a reader needs and stops.
+        embed = discord.Embed(
+            title=f"HAVOC 9  {build}",
+            description="A new version is available.",
+            colour=H9_ORANGE,
+            url="https://havoc9.org/downloads/",
+        )
+
+        try:
+            _served, answering, _silent = state.standing(settings.gamedir)
+            if answering:
+                embed.add_field(name="Servers live", value=str(answering), inline=True)
+        except Exception:                                   # noqa: BLE001
+            pass                                            # the count is a nicety, never a reason to fail
+
+        if settings.release_image:
+            # Missing or unreachable: Discord drops the image and the embed still reads
+            # correctly, so this is safe to set before the artwork exists.
+            embed.set_image(url=settings.release_image)
+
+        # No footer text: the site name added nothing the linked title does not already say.
+        # The timestamp stands on its own, where Discord shows it in each reader's own clock.
+        embed.timestamp = datetime.now(timezone.utc)
+        return embed
+
     class ListBot(discord.Client):
         def __init__(self):
             # no message of the bot pings anyone
@@ -867,6 +911,7 @@ def make_bot(state, settings):
             self.list_ok = True                             # the last public_url check; true when there is none
             self.status_task = None
             self.bio_build = None                           # the build the bot's About Me names now
+            self.announced = read_announced()               # the build the last announcement named, or None
             register_commands(self.tree, state, settings)
 
         async def setup_hook(self):
@@ -908,6 +953,8 @@ def make_bot(state, settings):
                     build = served_build(settings)
                     if build and build != self.bio_build:
                         await self.set_bio(build)                   # About Me only: the status line stays as it was
+                    if build:
+                        await self.note_build(build)                # and once, in the channel, when it changes
                     if wanted != self.shown:
                         await self.change_presence(status=discord.Status(wanted[0]),
                                                    activity=discord.CustomActivity(name=wanted[1]))
@@ -928,6 +975,56 @@ def make_bot(state, settings):
             except Exception as exc:                        # noqa: BLE001
                 log(f"Discord: About Me not changed: {exc}")
 
+        async def note_build(self, build):
+            """
+            One embed in release_channel the first time a new build is seen being served.
+
+            It follows the same file the bio does, which is the point: that file is written when
+            the site is actually handing the build out, so the announcement cannot run ahead of
+            the release. On 2026-11-19 the 1.68 package built, uploaded every file and was then
+            refused by the host, and nothing anywhere said so -- the bio simply stayed on 1.66.
+            An announcement driven from the sending end would have claimed 1.68 was out.
+            """
+            if self.announced is None:
+                # First run on this host. Learn what is being served now and say nothing: the
+                # alternative is announcing a release that happened before any of this existed.
+                self.announced = build
+                write_announced(build)
+                log(f"Discord: release announcements start from H9XASH {build}")
+                return
+
+            if build == self.announced:
+                return
+
+            if not settings.release_channel:
+                self.announced = build                      # no channel set: follow the build quietly
+                write_announced(build)
+                return
+
+            try:
+                channel = self.get_channel(int(settings.release_channel))
+                if channel is None:                         # not in the cache (uncommon): ask for it
+                    channel = await self.fetch_channel(int(settings.release_channel))
+                # The role ping, if one is configured. The client is built with
+                # AllowedMentions.none() so that nothing the bot repeats can ping anybody; this
+                # one message carries its own permission, naming only that role.
+                content = None
+                mentions = discord.AllowedMentions.none()
+                if settings.release_role.isdigit():
+                    content = "<@&" + settings.release_role + ">"
+                    mentions = discord.AllowedMentions(
+                        everyone=False, users=False, roles=[discord.Object(id=int(settings.release_role))]
+                    )
+                await channel.send(content=content, embed=release_embed(build), allowed_mentions=mentions)
+                # Recorded only after the send worked, so a Discord outage retries next tick
+                # instead of losing the announcement.
+                self.announced = build
+                write_announced(build)
+                log(f"Discord: announced H9XASH {build} in {settings.release_channel}"
+                    + (f", pinging role {settings.release_role}" if settings.release_role.isdigit() else ""))
+            except Exception as exc:                        # noqa: BLE001
+                log(f"Discord: release not announced: {exc}")
+
     return ListBot()
 
 
@@ -944,6 +1041,27 @@ def served_build(settings):
     except OSError:
         return None
     return text if re.fullmatch(r"[0-9][A-Za-z0-9._-]{0,31}", text) else None
+
+
+def read_announced():
+    """The build the last release announcement named, or None when there has never been one."""
+    try:
+        return ANNOUNCED.read_text(encoding="ascii", errors="replace").strip() or None
+    except OSError:
+        return None
+
+
+def write_announced(build):
+    """Record it, atomically. A failure here is logged and otherwise ignored: the worst it can
+    do is let one release be announced twice, which is better than the list going down over it."""
+    try:
+        tmp = ANNOUNCED.with_suffix(".tmp")
+        tmp.write_text(build + "\n", encoding="ascii")
+        tmp.replace(ANNOUNCED)
+    except OSError as exc:
+        log(f"Discord: {ANNOUNCED.name} not written ({exc}); this release may be announced again")
+
+
 
 
 async def poll_forever(state):

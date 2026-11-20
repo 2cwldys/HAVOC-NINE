@@ -29741,7 +29741,22 @@ public cmd_deathsounds(id, level, cid)
 /// The ambient queue plays where the match mode does, and on a roleplay map while tsm_music_rp is on.
 bool:music_wanted()
 {
-	return get_pcvar_num(g_cv_enabled) != 0 || (g_map_rp && get_pcvar_num(g_cv_music_rp) != 0);
+	// h9_radio owns the music channel while it runs the ambient rotation itself. The radio and the
+	// rotation share the one channel, so a second rotation here would cut a station off at its next
+	// track. Without that plugin both cvars are missing and read as 0.
+	if (get_cvar_num("h9_radio") && get_cvar_num("h9_radio_ambient"))
+	{
+		return false;
+	}
+	return music_wanted_here() != 0;
+}
+
+// Whether this map wants ambient music at all: the match mode on, or a roleplay map with
+// tsm_music_rp. h9_radio asks this (callfunc) before it plays its own rotation, so the same rule
+// holds whichever plugin plays the music.
+public music_wanted_here()
+{
+	return (get_pcvar_num(g_cv_enabled) != 0 || (g_map_rp && get_pcvar_num(g_cv_music_rp) != 0)) ? 1 : 0;
 }
 
 // A track for every player who wants it, then the next one armed for when it ends.
