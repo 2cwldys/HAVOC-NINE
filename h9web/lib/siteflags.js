@@ -10,7 +10,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { HttpError } from "./http.js";
 
-export const SITE_PARTS = ["downloads", "webclient"];
+// "site" is the whole thing: maintenance mode. Closed, a visitor gets maintenance.html however
+// they arrive, and the only things still answered are what it takes to sign in and prove you are
+// an admin -- otherwise closing the site would lock out the only people who can reopen it.
+// app.js holds that gate, because it has to run before any route or any file is served.
+export const SITE_PARTS = ["downloads", "webclient", "site"];
 const NOTE_MAX = 200;
 
 export function createSiteFlags({ config, log }) {
@@ -75,17 +79,35 @@ export function createSiteFlags({ config, log }) {
   return { snapshot, isOpen, set, file };
 }
 
-export function registerSiteRoutes(router, { flags, auth, audit }) {
+export function registerSiteRoutes(router, { flags, auth, audit, mayUseClosedSite }) {
   // what the pages read to grey a part out
   router.get("/api/site", async (req, res, rc) => {
     rc.json(200, flags.snapshot(), { "Cache-Control": "public, max-age=10" });
   });
 
-  // what nginx asks (auth_request) before it serves a request to a gated part: 204 open, 403 closed (auth_request denies on 401 and 403 only); never cached
+  // what the web server asks (Caddy's forward_auth, nginx's auth_request) before it serves a
+  // request to a gated part: 204 open, 403 closed (both deny on 401 and 403 only); never cached.
+  //
+  // "site" is maintenance mode and has one extra rule: an admin, or an account with the forum's
+  // DEVELOPER flag, is let through anyway (mayUseClosedSite, built in app.js). Caddy decides what
+  // to serve from this answer alone, so without it the admin who closed the site would be handed
+  // the maintenance page too and could never reach the panel to reopen it. forward_auth passes
+  // the cookies along, so the session is readable here.
   router.get("/api/site/gate/:part", async (req, res, rc) => {
     const part = rc.params.part;
     if (!SITE_PARTS.includes(part)) throw new HttpError(404, "not_found", "No such part.");
-    const open = flags.isOpen(part);
+    let open = flags.isOpen(part);
+    if (!open && part === "site" && auth) {
+      try {
+        const s = auth.sessionFromRequest(req);
+        const allow = mayUseClosedSite
+          ? mayUseClosedSite(s && s.account, s && s.banned)
+          : !!(s && s.account && !s.banned && auth.roleAtLeast(s.account, "admin"));
+        if (allow) open = true;
+      } catch (e) {
+        // no session, or an unreadable cookie: an ordinary visitor
+      }
+    }
     rc.send(open ? 204 : 403, "", "text/plain; charset=utf-8", { "Cache-Control": "no-store" });
   });
 

@@ -318,12 +318,21 @@
  and a closed part answers 503 with havoc9.org/closed.html. The web client's relay is closed with the web client, so a page a visitor
  already holds cannot play either. The updater's /files/ and the game servers' list are not affected.
 
-   config.json   "site": { "downloads": true, "webclient": true }   the starting state; false starts a part closed
+   config.json   "site": { "downloads": true, "webclient": true, "site": true }   the starting state; false starts a part closed
    admin panel   SITE tab (admins)       CLOSE IT / OPEN IT for each part, with a note visitors see while it is closed (200 characters)
    API           GET /api/site (anyone) the state; POST /api/admin/site { "part": "downloads", "enabled": false, "note": "..." } (admin)
 
+ The third part, "site", is MAINTENANCE MODE: it closes the whole site rather than one area. A visitor gets havoc9.org/maintenance.html
+ wherever they go (503, the H9 helmet and "This website is currently under maintenance"), with the admin's note under it when there is
+ one, and the header leads nowhere. Caddy serves it from the same gate the other parts use (vps\windows\Caddyfile.template,
+ gate_maintenance), and h9web holds non-page requests itself (lib/app.js).
+ Signing in keeps working while it is closed -- /api/login, /api/me, /api/site and the sign-in page stay answerable, because nobody can
+ be known to be an admin before they have signed in -- and an ADMIN browses normally: /api/site/gate/site answers 204 for them even
+ while the part is closed. Without that the admin who closed the site would be handed the maintenance page too, and could never reach
+ the panel to open it again. Test: h9web/test/maintenance.test.js.
+
  What an admin sets is kept in <dataDir>/site-flags.json and wins over config.json until it is set again; it takes hold at once, with no
- restart, and every change is in the audit log (site.downloads, site.webclient). While h9web itself is down the gate answers 500, so
+ restart, and every change is in the audit log (site.downloads, site.webclient, site.site). While h9web itself is down the gate answers 500, so
  the gated parts answer 500 too. Test: h9web/test/site-flags.test.js.
 
 

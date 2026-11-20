@@ -5,6 +5,7 @@
 // server.js runs it; the tests make their own on a free port.
 
 import http from "node:http";
+import fs from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { createLogger } from "./log.js";
@@ -62,7 +63,35 @@ export async function createApp(config, { logSink, logLevel } = {}) {
   registerRenameRoutes(router, { auth, renames, limits, config, log: log.child("account") });
   const adminRoutes = registerAdminRoutes(router, { db, auth, accounts, renames, audit, limits, config, log: log.child("admin") });
   const siteFlags = createSiteFlags({ config, log: log.child("site") });
-  registerSiteRoutes(router, { flags: siteFlags, auth, audit });
+  // Who may use the site while maintenance mode is on: an admin, or an account carrying the
+  // forum's DEVELOPER flag (modules/forum, table forum_developers -- admins give and take it).
+  //
+  // The table is read directly rather than through the module, because this has to answer before
+  // any module route runs, and it is guarded: a service configured without the forum module has
+  // no such table, and then nobody is a developer and admins still pass.
+  // Prepared on first use, not here: the forum module creates forum_developers when it loads,
+  // which happens further down, so preparing now would always throw and quietly leave every
+  // developer locked out.
+  let developerRow;
+  function mayUseClosedSite(account, banned) {
+    if (!account || banned) return false;
+    if (auth.roleAtLeast(account, "admin")) return true;
+    if (developerRow === undefined) {
+      try {
+        developerRow = db.prepare("SELECT 1 AS yes FROM forum_developers WHERE account_id = ?");
+      } catch (e) {
+        developerRow = null;   // no forum module: nobody is a developer, admins still pass
+      }
+    }
+    if (!developerRow) return false;
+    try {
+      return !!developerRow.get(account.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  registerSiteRoutes(router, { flags: siteFlags, auth, audit, mayUseClosedSite });
   const links = createLinks({ db, accounts, audit, config, events, clientIds, log: log.child("link") });
   registerLinkRoutes(router, { auth, links, limits, accounts, confirmAdmin: adminRoutes.confirmAdmin });
   const relay = createRelay({ config, auth, servers, events, log: log.child("relay") });
@@ -71,8 +100,86 @@ export async function createApp(config, { logSink, logLevel } = {}) {
     servers, status, clientIds, confirmAdmin: adminRoutes.confirmAdmin, dataKey,
   });
 
+  // ---- maintenance mode ----------------------------------------------------------------
+  //
+  // With the "site" part closed (admin panel -> SITE, or POST /api/admin/site), a visitor gets
+  // maintenance.html wherever they go and the header links lead nowhere. An admin browses
+  // normally.
+  //
+  // The allow list is the point of this function. Closing the site must not lock out the people
+  // who can reopen it, so signing in has to keep working for everyone -- you cannot know someone
+  // is an admin until they have signed in. What stays open is the sign-in exchange and the files
+  // a page needs to render; everything else is the maintenance page.
+  //
+  // Static files are allowed by extension rather than by path because the maintenance page and
+  // the sign-in page both need CSS, fonts, the helmet and their scripts, and listing every one
+  // would rot. They are inert: a visitor who fetches styles.css learns nothing.
+  const MAINT_API = new Set(["/api/login", "/api/logout", "/api/me", "/api/site"]);
+  const MAINT_STATIC = /\.(css|js|mjs|png|gif|jpg|jpeg|webp|svg|ico|woff2?|ttf|map)$/i;
+
+  // config.devStatic is a map of url prefix -> mount ({ dir, listing }), not a folder, so the
+  // page has to be looked up through the mount for "/". In production Caddy serves the site and
+  // this returns null: there the pretty page comes from the Caddyfile's gate_maintenance, and
+  // what h9web answers is only ever an API request or a direct hit, where one line is enough.
+  function maintPagePath() {
+    const mounts = config.devStatic;
+    if (!mounts || typeof mounts !== "object") return null;
+    const root = mounts["/"];
+    const dir = typeof root === "string" ? root : root?.dir;
+    return typeof dir === "string" && dir ? path.join(dir, "maintenance.html") : null;
+  }
+
+  function maintenanceHeld(req, res) {
+    if (siteFlags.isOpen("site")) return false;
+
+    const url = String(req.url || "/");
+    const pathname = url.split("?")[0];
+
+    if (MAINT_API.has(pathname)) return false;
+    // /api/site/gate/<part> is what the web server asks before serving anything, maintenance
+    // included. Holding it here would answer Caddy's forward_auth with 503 instead of 204 or
+    // 403, breaking the gate it is asking about: the site would fail rather than close.
+    if (pathname.startsWith("/api/site/")) return false;
+    if (MAINT_STATIC.test(pathname)) return false;
+    // the sign-in page itself, so an admin can reach the form
+    if (/^\/account\/login\/?(index\.html)?$/.test(pathname)) return false;
+    if (pathname === "/maintenance.html") return false;
+
+    // an admin passes straight through. A broken or absent session is simply not an admin:
+    // this must never throw, or closing the site would take the whole service down with it.
+    try {
+      const s = auth.sessionFromRequest(req);
+      if (s && mayUseClosedSite(s.account, s.banned)) return false;
+    } catch (e) {
+      // not signed in, or an unreadable cookie: treated as a visitor
+    }
+
+    let body = "";
+    try {
+      const p = maintPagePath();
+      body = p ? fs.readFileSync(p, "utf8") : "";
+      if (!body) throw new Error("no maintenance.html to serve from here");
+    } catch (e) {
+      // maintenance.html missing: say the same thing in one line rather than serve a 404,
+      // which would look like the site is broken instead of closed on purpose
+      body = "<!DOCTYPE html><meta charset=\"utf-8\"><title>Under maintenance</title>"
+        + "<body style=\"background:#0b0b0f;color:#e8e6f0;font-family:system-ui,sans-serif;text-align:center;padding:18vh 20px\">"
+        + "<h1>UNDER MAINTENANCE</h1><p>This website is currently under maintenance. "
+        + "Thank you for your patience and understanding.</p>";
+    }
+    res.writeHead(503, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "3600",
+      "Content-Length": Buffer.byteLength(body),
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
+    return true;
+  }
+
   const server = http.createServer({ maxHeaderSize: 16384 }, async (req, res) => {
     try {
+      if (maintenanceHeld(req, res)) return;
       if (await router.handle(req, res)) return;
       if (serveStatic(req, res, config.devStatic)) return;
       sendError(res, new HttpError(404, "not_found", "Nothing here."));

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UNDER MAINTENANCE -- HAVOC9</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/gif" href="/h9helmet_glitch.gif">
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* Served by h9web's maintenance gate (lib/app.js) while the SITE part is closed in the admin
+       panel. It uses the site's own styles.css and tokens so it reads as HAVOC9 rather than as a
+       server error page, and carries no navigation at all: there is nowhere a visitor may go. */
+    .maint {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 26px;
+      padding: 8vh 20px;
+      text-align: center;
+    }
+    .maint-helmet {
+      width: 148px;
+      max-width: 42vw;
+      height: auto;
+      filter: drop-shadow(0 0 22px var(--orange-glow));
+      animation: maint-pulse 4s ease-in-out infinite;
+    }
+    @keyframes maint-pulse {
+      0%, 100% { opacity: .92; filter: drop-shadow(0 0 18px var(--orange-glow)); }
+      50%      { opacity: 1;   filter: drop-shadow(0 0 30px var(--orange-glow)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .maint-helmet { animation: none; }
+    }
+    .maint h1 {
+      font-family: var(--font-display);
+      color: var(--orange);
+      letter-spacing: .14em;
+      font-size: clamp(22px, 5.2vw, 34px);
+      margin: 0;
+      text-wrap: balance;
+    }
+    .maint p {
+      font-family: var(--font-body);
+      color: var(--text);
+      font-size: clamp(15px, 2.4vw, 18px);
+      line-height: 1.6;
+      margin: 0;
+      max-width: 46ch;
+    }
+    .maint .maint-note {
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+      font-size: 13px;
+      letter-spacing: .04em;
+      max-width: 52ch;
+    }
+    .maint-rule {
+      width: min(320px, 60vw);
+      height: 1px;
+      border: 0;
+      margin: 0;
+      background: linear-gradient(90deg, transparent, var(--orange-dim), transparent);
+    }
+  </style>
+</head>
+<body>
+  <main class="maint">
+    <img class="maint-helmet" src="/h9helmet.png" alt="HAVOC 9" width="148" height="148">
+    <h1>UNDER MAINTENANCE</h1>
+    <hr class="maint-rule">
+    <p>This website is currently under maintenance. Thank you for your patience and understanding.</p>
+    <p class="maint-note" id="maintNote" hidden></p>
+  </main>
+
+  <script>
+    // The note an admin typed beside the toggle, if there is one. /api/site stays answerable while
+    // the site is closed precisely so this line can be shown; anything else is the maintenance
+    // page, so there is nothing here that could leak past the gate.
+    (function () {
+      try {
+        fetch("/api/site", { credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var note = d && d.site && typeof d.site.note === "string" ? d.site.note.trim() : "";
+            if (!note) return;
+            var el = document.getElementById("maintNote");
+            el.textContent = note;
+            el.hidden = false;
+          })
+          .catch(function () { /* the note is a nicety, never a reason to show an error */ });
+      } catch (e) { /* no fetch: the page still says everything that matters */ }
+    })();
+  </script>
+</body>
+</html>

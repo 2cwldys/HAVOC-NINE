@@ -895,6 +895,9 @@
   const SITE_PARTS = [
     ["downloads", "THE DOWNLOAD AREA", "Closed, the pages grey it out and the server refuses its files."],
     ["webclient", "THE WEB CLIENT", "Closed, its page and its relay of the game's traffic are refused."],
+    // Last on purpose: this one closes everything, so it should not sit under the cursor on the
+    // way to the other two.
+    ["site", "THE WHOLE SITE (MAINTENANCE)", "Closed, every visitor gets the maintenance page and the header leads nowhere. Signing in keeps working and an admin still browses normally, or there would be no way back in."],
   ];
 
   async function showSite(section) {
