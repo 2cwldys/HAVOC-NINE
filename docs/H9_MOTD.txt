@@ -8,8 +8,11 @@
 
  The short version
    * TS shows a text MOTD (motd.txt) to every player who joins. A host can
-     show a picture or a web page instead, the way Source servers do. It is
-     OFF by default: h9_motd "text" leaves TS's text MOTD alone.
+     show a picture or a web page instead, the way Source servers do.
+   * The plugin's own default is off (h9_motd "text" leaves TS's text MOTD
+     alone), but the SHIPPED h9_motd.cfg turns it on: "page", pointed at
+     https://havoc9.org/landing/, the welcome splash. A host who wants the
+     plain text MOTD sets h9_motd "text" back, in that cfg or in amxx.cfg.
    * Hosts: h9_motd image or page, and h9_motd_url "https://...", in
      addons\amxmodx\configs\h9_motd.cfg, or for one map in that map's
      mapconfigs\<map>.cfg. Once a connection or at every map: h9_motd_show.
@@ -63,7 +66,9 @@
  ----------------
    The plugin is h9_motd.amxx (source h9_motd.sma). build.bat builds and
    registers it; the H9XASH presets list it after h9_presence.amxx. With its
-   defaults it does nothing.
+   own defaults it does nothing -- but the h9_motd.cfg that ships with the
+   package sets "page" and the landing URL, so an unmodified install shows the
+   welcome splash rather than the text MOTD.
 
      cvar           default    what it does
      h9_motd        "text"     text: TS's own text MOTD (the splash is off)
