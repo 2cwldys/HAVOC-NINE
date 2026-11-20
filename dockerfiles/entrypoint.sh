@@ -88,5 +88,31 @@ say "running as    : uid $(id -u), gid $(id -g)"
 say "arguments     : ${shown[*]:-(none: h9xash_server.sh defaults)}"
 say "note          : the game is UDP. A published port without /udp reaches nothing."
 
+
+# ---- is this image behind? ----------------------------------------------------------------------
+# $H9_BUILD is baked in at build time; havoc9.org/downloads/.build is what the site serves now.
+# This only reports. It never updates anything by itself: a boot script that rewrites a running
+# server's files without being asked is how a working server stops working.
+#   H9_VERSION_CHECK=0   skip it entirely (no network call at boot)
+#   H9_BUILD_URL=...     ask somewhere else
+if [ "${H9_VERSION_CHECK:-1}" != "0" ] && [ -n "${H9_BUILD:-}" ] && [ "${H9_BUILD}" != "dev" ]; then
+    build_url=${H9_BUILD_URL:-https://havoc9.org/downloads/.build}
+    # -m 4: a slow or unreachable site must never hold up the server starting
+    published=$(curl -fsSL -m 4 "$build_url" 2>/dev/null | head -n 1 | tr -d '\r\n' || true)
+    if [ -z "$published" ]; then
+        say "build         : $H9_BUILD (could not reach $build_url to compare)"
+    elif [ "$published" = "$H9_BUILD" ]; then
+        say "build         : $H9_BUILD (up to date)"
+    else
+        say "build         : $H9_BUILD -- havoc9.org now serves $published"
+        if [ -x ./H9XASH-Updater ]; then
+            say "                to update this install in place:  ./H9XASH-Updater"
+        else
+            say "                pull a newer image, or run H9XASH-Updater from havoc9.org/downloads/"
+        fi
+        say "                a server refuses a client of another release, so being behind matters"
+    fi
+fi
+
 # exec, so the engine is the process Docker signals and `docker stop` ends it properly.
 exec ./h9xash_server.sh "${args[@]}" "$@"

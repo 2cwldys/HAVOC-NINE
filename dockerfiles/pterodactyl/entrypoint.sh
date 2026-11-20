@@ -36,6 +36,32 @@ while [[ $STARTUP_EXPANDED =~ \{\{([A-Za-z_][A-Za-z0-9_]*)\}\} ]]; do
     STARTUP_EXPANDED=${STARTUP_EXPANDED//\{\{$name\}\}/${!name}}
 done
 
+
+# ---- is this image behind? ----------------------------------------------------------------------
+# $H9_BUILD is baked in at build time; havoc9.org/downloads/.build is what the site serves now.
+# This only reports. It never updates anything by itself: a boot script that rewrites a running
+# server's files without being asked is how a working server stops working.
+#   H9_VERSION_CHECK=0   skip it entirely (no network call at boot)
+#   H9_BUILD_URL=...     ask somewhere else
+if [ "${H9_VERSION_CHECK:-1}" != "0" ] && [ -n "${H9_BUILD:-}" ] && [ "${H9_BUILD}" != "dev" ]; then
+    build_url=${H9_BUILD_URL:-https://havoc9.org/downloads/.build}
+    # -m 4: a slow or unreachable site must never hold up the server starting
+    published=$(curl -fsSL -m 4 "$build_url" 2>/dev/null | head -n 1 | tr -d '\r\n' || true)
+    if [ -z "$published" ]; then
+        printf '[h9] %s\n' "build         : $H9_BUILD (could not reach $build_url to compare)"
+    elif [ "$published" = "$H9_BUILD" ]; then
+        printf '[h9] %s\n' "build         : $H9_BUILD (up to date)"
+    else
+        printf '[h9] %s\n' "build         : $H9_BUILD -- havoc9.org now serves $published"
+        if [ -x ./H9XASH-Updater ]; then
+            printf '[h9] %s\n' "                to update this install in place:  ./H9XASH-Updater"
+        else
+            printf '[h9] %s\n' "                pull a newer image, or run H9XASH-Updater from havoc9.org/downloads/"
+        fi
+        printf '[h9] %s\n' "                a server refuses a client of another release, so being behind matters"
+    fi
+fi
+
 printf '\033[1m\033[33mcontainer@h9xash~ \033[0m%s\n' "$STARTUP_EXPANDED"
 
 # shellcheck disable=SC2086
