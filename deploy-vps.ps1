@@ -111,16 +111,41 @@ if (-not $NoBuild) {
 if (-not $DryRun) {
     # lockwatch.cmd travels with them: it is the thing to run when a received file stays unreadable
     # for longer than the receiver's Sha() waits, and it is no use sitting in the repo instead.
-    $selfFiles = @('receive-deploy.ps1', 'delta.py', 'lockwatch.cmd')
+    # Every script the host RUNS, not just the ones that answer a delivery: a stale script on the
+    # box is invisible until it misbehaves.
+    #
+    # setup.ps1 and setup.cmd are deliberately absent: they live in the package under C:\setup,
+    # never in C:\havoc9, and are covered by the package check below instead.
+    $selfFiles = @(
+        'receive-deploy.ps1', 'delta.py', 'lockwatch.cmd', 'code-check.ps1',
+        'start-all.ps1', 'stop-all.ps1', 'update-game.ps1', 'restore-backup.ps1'
+    )
     $selfStale = New-Object System.Collections.Generic.List[string]
+
+    $want = @{}
     foreach ($n in $selfFiles) {
         $local = Join-Path $Here ('vps\windows\' + $n)
         if (-not (Test-Path -LiteralPath $local)) { Fail "no $local" }
-        $want = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()
-        $out = & ssh @ssh $sshHost "certutil -hashfile C:\havoc9\$n SHA256" 2>$null
-        $have = ''
-        if ($LASTEXITCODE -eq 0) { foreach ($l in $out) { $c = ([string]$l).Replace(' ', '').Trim().ToLowerInvariant(); if ($c -match '^[0-9a-f]{64}$') { $have = $c; break } } }
-        if ($have -ne $want) { $selfStale.Add($n) }
+        $want[$n] = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+
+    # One round trip for all of them, not one each: eight small files hashed on the host costs
+    # nothing, and this is now cheaper than the three separate certutil calls it replaces.
+    # -EncodedCommand so none of this has to survive two layers of quoting.
+    $list = ($selfFiles | ForEach-Object { "'" + $_ + "'" }) -join ','
+    $probe = "foreach (`$n in $list) { `$p = 'C:\havoc9\' + `$n; if (Test-Path -LiteralPath `$p) { `$n + ' ' + (Get-FileHash -LiteralPath `$p -Algorithm SHA256).Hash.ToLowerInvariant() } else { `$n + ' missing' } }"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+    $out = & ssh @ssh $sshHost "powershell -NoProfile -EncodedCommand $enc" 2>$null
+
+    $have = @{}
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($l in $out) {
+            $parts = ([string]$l).Trim() -split '\s+'
+            if ($parts.Count -eq 2 -and $want.ContainsKey($parts[0])) { $have[$parts[0]] = $parts[1].ToLowerInvariant() }
+        }
+    }
+    foreach ($n in $selfFiles) {
+        if (-not $have.ContainsKey($n) -or $have[$n] -ne $want[$n]) { $selfStale.Add($n) }
     }
     if ($selfStale.Count) {
         Say "the host's own scripts differ from this release's: $($selfStale -join ', ')"
@@ -190,7 +215,48 @@ if ((On 'deploy.client') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH.zip
 if (On 'deploy.updater') { Add-If (Join-Path $Dist 'H9XASH-Updater.exe') 'H9XASH-Updater.exe' $false }
 if ((On 'deploy.linux_server') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH-linux-server.zip') 'H9XASH-linux-server.zip' $false }
 # the host package: installed by the host from C:\setup, never put in the public downloads' file index
-if (On 'deploy.site') { $z = Newest 'havoc9-vps-windows-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' } }
+if (On 'deploy.site') {
+    $z = Newest 'havoc9-vps-windows-*.zip'
+    if ($z) {
+        # The package carries its OWN copy of every host script and installs them over whatever is
+        # on the box, so a package built before a script changed puts the old one back and the next
+        # delivery meets it again. Reading those entries out of the zip is local and costs nothing,
+        # so it happens before anything is sent rather than after a long upload.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $stalePkg = New-Object System.Collections.Generic.List[string]
+        try {
+            $zip = [IO.Compression.ZipFile]::OpenRead($z.FullName)
+            try {
+                foreach ($e in $zip.Entries) {
+                    if ($e.Name -notmatch '\.(ps1|py|cmd)$') { continue }
+                    $local = Join-Path $Here ('vps\windows\' + $e.Name)
+                    if (-not (Test-Path -LiteralPath $local)) { continue }
+                    $s = $e.Open()
+                    try {
+                        $ms = New-Object IO.MemoryStream
+                        $s.CopyTo($ms)
+                        $inZip = [BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($ms.ToArray())).Replace('-', '').ToLowerInvariant()
+                    }
+                    finally { $s.Dispose() }
+                    if ($inZip -ne (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()) { $stalePkg.Add($e.Name) }
+                }
+            }
+            finally { $zip.Dispose() }
+        }
+        catch { Write-Host "  [warn] could not read $($z.Name) to check its scripts: $($_.Exception.Message)" }
+
+        if ($stalePkg.Count) {
+            Write-Host "[FAIL] $($z.Name) was built before these scripts changed, and installing it would put the old ones back:" -ForegroundColor Red
+            foreach ($n in $stalePkg) { Write-Host "    $n" }
+            Write-Host '  Re-stage the host package so it carries the current scripts, then deploy again:'
+            Write-Host '    .\make-vps-package.ps1 -Target windows'
+            Write-Host '  Nothing has been sent.'
+            exit 1
+        }
+        Add-If $z.FullName $z.Name $true
+    }
+    else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' }
+}
 if ((On 'deploy.webclient') -and -not $delta) {
     $z = Newest 'havoc9-vps-webclient-*.zip'
     $m = Join-Path $Here 'webclient-build\stage\manifest.json'

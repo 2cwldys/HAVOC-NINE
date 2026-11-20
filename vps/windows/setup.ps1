@@ -62,6 +62,12 @@ param(
     [ValidateRange(1, 65535)][int]$P2PPort = 27248,
     [ValidateSet('', 'cloudflare', 'any')][string]$WebFrom = '',
     [switch]$NoFirewall,
+    # Skip step 11. receive-deploy.ps1 passes this because it writes the fingerprint itself, once
+    # everything else is in place. Writing it here as well hashed the whole tree TWICE per
+    # delivery -- about an hour of a deploy on this host -- and this earlier pass was stale the
+    # moment receive-deploy carried on working after setup returned. A standalone setup.ps1 still
+    # writes it, which is the case the step exists for.
+    [switch]$NoFingerprint,
     [switch]$Check,
     [switch]$FileIndex
 )
@@ -268,8 +274,12 @@ if ($FileIndex)
     Say "the downloads' file index ($Site\downloads\files)"
     if (-not (Test-Path -LiteralPath (Join-Path $Site 'downloads'))) { Fail "no $Site\downloads yet: run .\setup.ps1 first" }
     Sync-Downloads
+    # -NoFingerprint: the delivery writes it once at the end. This is a SECOND place the
+    # fingerprint was written from, besides step 11, so a delivery that called setup.ps1 three
+    # times (full, -WebClientStage, -FileIndex) and then wrote it itself hashed the whole tree
+    # four times over.
     $cc = Join-Path $Root 'code-check.ps1'
-    if (Test-Path -LiteralPath $cc) { & $cc -Root $Root -Write }
+    if (-not $NoFingerprint -and (Test-Path -LiteralPath $cc)) { & $cc -Root $Root -Write }
     foreach ($w in $Warnings) { Write-Host "  [WARN] $w" -ForegroundColor Yellow }
     exit 0
 }
@@ -371,6 +381,26 @@ if ((Test-Path -LiteralPath (Join-Path $H9Data 'h9web.db')) -and (Test-Path -Lit
     }
 }
 Step 'stop the services for the update' { foreach ($n in $ServiceNames) { if (Get-Service $n -ErrorAction SilentlyContinue) { Stop-Service $n -Force } } }
+# robocopy /MIR removes what the source no longer has one file at a time, stat-ing and logging
+# each, which is slow for a large tree that has gone away entirely. So any DIRECTORY the source
+# does not have is removed wholesale first, top down, and the mirror is left with only the files
+# that actually changed.
+function Remove-Gone([string]$From, [string]$To, [int]$Depth = 3)
+{
+    if (-not (Test-Path -LiteralPath $To) -or -not (Test-Path -LiteralPath $From)) { return }
+    foreach ($d in @(Get-ChildItem -LiteralPath $To -Directory -Force -ErrorAction SilentlyContinue)) {
+        $peer = Join-Path $From $d.Name
+        if (-not (Test-Path -LiteralPath $peer)) {
+            $n = @(Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Force -ErrorAction SilentlyContinue).Count
+            Note ("dropping {0} ({1:N0} files): the source no longer carries it" -f $d.FullName, $n)
+            Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        elseif ($Depth -gt 1) {
+            Remove-Gone $peer $d.FullName ($Depth - 1)
+        }
+    }
+}
+
 function Copy-Mirror([string]$From, [string]$To, [string[]]$ExcludeDirs, [string[]]$ExcludeFiles)
 {
     $a = @($From, $To, '/MIR', '/NJH', '/NJS', '/NDL', '/NFL', '/NP')
@@ -459,6 +489,8 @@ Sync-Downloads
 if ($WebClientStage) {
     foreach ($f in @('manifest.json', 'preload.json', 'engine\xash.js', 'engine\xash.wasm')) { if (-not (Test-Path -LiteralPath (Join-Path $WebClientStage $f))) { Fail "-WebClientStage: no $f in $WebClientStage" } }
     Step "the web client from $WebClientStage" {
+        # whole trees the stage no longer carries go in one go, not file by file
+        Remove-Gone (Join-Path $WebClientStage 'game') $Game
         Copy-Mirror (Join-Path $WebClientStage 'game') $Game @() @()
         Copy-Mirror (Join-Path $WebClientStage 'engine') (Join-Path $Site 'webclient\engine') @() @()
         foreach ($f in @('manifest.json', 'preload.json')) { Copy-Item -LiteralPath (Join-Path $WebClientStage $f) -Destination (Join-Path $Site 'webclient') -Force }
@@ -665,7 +697,10 @@ if (-not $NoFirewall) {
     Note 'h9web and the list listen on 127.0.0.1 only: no rule needed for them'
 }
 
-if (-not $DryRun -and (Test-Path -LiteralPath (Join-Path $Root 'code-check.ps1'))) {
+if ($NoFingerprint) {
+    Say '11. the fingerprint of all code: left to the delivery, which writes it once at the end'
+}
+elseif (-not $DryRun -and (Test-Path -LiteralPath (Join-Path $Root 'code-check.ps1'))) {
     Say '11. the fingerprint of all code (code-check.ps1)'
     try { if (-not [Diagnostics.EventLog]::SourceExists('havoc9')) { New-EventLog -LogName Application -Source 'havoc9' } } catch { }
     & (Join-Path $Root 'code-check.ps1') -Root $Root -Write

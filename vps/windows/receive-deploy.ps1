@@ -109,19 +109,14 @@ function Sha([string]$Path) {
     }
 }
 
-# -Hashes exists to tell the sender what this host already has, and the answer includes the
-# SHA-256 of every download the site serves: on this box about 4 GB of ZIPs. Re-reading all of it
-# on every deploy cost around 200 s and bought nothing, because those files change only when a
-# delivery replaces them. Worse than the cost, it was the window things went wrong in: on
-# 2026-11-19 two deploys sat inside this step for 33 and 48 minutes with the remote PowerShell
-# using 44 s of CPU, which is a process waiting, not working, and the deploy had no way to notice.
+# -Hashes tells the sender what this host already has, which includes the SHA-256 of every
+# download the site serves -- several GB of ZIPs. Those change only when a delivery replaces
+# them, so each hash is remembered with the length and UTC write time it was computed from, and
+# recomputed only when either has moved. A replaced file re-hashes by itself, and a missing or
+# corrupt entry costs one slow read.
 #
-# So each hash is remembered with the length and UTC write time it was computed from, and is
-# recomputed only when either of those has moved. A replaced file therefore re-hashes by itself,
-# and a corrupted or missing cache entry only costs the old slow path once.
-#
-# This is deliberately NOT used when a delivery is checked further down. There the whole point is
-# to verify bytes that have just arrived over the network, and a remembered answer defeats it.
+# Deliberately NOT used when a delivery is checked further down: there the point is to verify
+# bytes that have just arrived over the network, and a remembered answer defeats it.
 function ShaCached([string]$Path) {
     $fi = Get-Item -LiteralPath $Path
     $stamp = '{0}:{1}' -f $fi.Length, $fi.LastWriteTimeUtc.ToString('o')
@@ -177,9 +172,8 @@ function Invoke-Delta([string[]]$DeltaArgs) {
 }
 
 if ($Hashes) {
-    # The four downloads, and the only reason this step was ever slow: about 4 GB between them.
-    # ShaCached re-reads one only when its length or write time has moved. The manifests below
-    # stay on Sha: they are small JSON and hashing them is already instant.
+    # The four downloads, several GB between them. ShaCached re-reads one only when its length
+    # or write time has moved. The manifests below stay on Sha: they are small JSON.
     foreach ($n in $Buttons + @('H9XASH-linux-server.zip')) {
         $p = Join-Path $Dl $n
         if (Test-Path -LiteralPath $p -PathType Leaf) { "file $(ShaCached $p) $n" }
@@ -213,7 +207,60 @@ if (-not $Incoming -or -not $in.StartsWith($Inbox + '\', [StringComparison]::Ord
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = Join-Path $Root "logs\deploy-$stamp.log"
 Start-Transcript -LiteralPath $log -Append | Out-Null
-function Fail([string]$Text) { Write-Host "[FAIL] $Text" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
+
+# Which services are up before anything is touched, so a failure can put back exactly what it
+# found. setup.ps1 stops them to replace their binaries (its "stop the services for the update"
+# step) and starts them again only at its very end, so anything that fails in between would
+# otherwise leave havoc9.org, the server list and the Discord bot down until someone noticed.
+#
+# Only services that were running are restarted. havoc9-p2p in particular can be installed and
+# deliberately not started while its relay settings are unfinished, and starting it here would
+# override that decision.
+$script:servicesWereUp = @(
+    Get-Service -Name 'havoc9-*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Status -eq 'Running' } |
+        ForEach-Object { $_.Name }
+)
+if ($script:servicesWereUp.Count) {
+    Write-Host ("services running before this delivery: " + ($script:servicesWereUp -join ', '))
+}
+
+function Restore-Services {
+    if (-not $script:servicesWereUp -or -not $script:servicesWereUp.Count) { return }
+    $back = @()
+    $stuck = @()
+    foreach ($n in $script:servicesWereUp) {
+        $svc = Get-Service -Name $n -ErrorAction SilentlyContinue
+        if (-not $svc -or $svc.Status -eq 'Running') { continue }
+        try { Start-Service -Name $n -ErrorAction Stop; $back += $n }
+        catch { $stuck += ("{0} ({1})" -f $n, $_.Exception.Message) }
+    }
+    if ($back.Count) { Write-Host ("  the site is back up: " + ($back -join ', ')) -ForegroundColor Green }
+    if ($stuck.Count) {
+        Write-Host "  COULD NOT START, the site is still down: " -ForegroundColor Red -NoNewline
+        Write-Host ($stuck -join '; ') -ForegroundColor Red
+        Write-Host "  start them by hand:  Start-Service havoc9-caddy, havoc9-h9web, havoc9-serverlist"
+    }
+}
+
+function Fail([string]$Text) {
+    Write-Host "[FAIL] $Text" -ForegroundColor Red
+    Restore-Services
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
+# Not every way this script can stop goes through Fail(). $ErrorActionPreference is 'Stop', so an
+# unforeseen error anywhere terminates the script where it stands, and before this trap existed
+# that left the services down just as surely as a handled failure did.
+trap {
+    Write-Host "[FAIL] unexpected: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ("  at {0}:{1}" -f $_.InvocationInfo.ScriptName, $_.InvocationInfo.ScriptLineNumber)
+    Restore-Services
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
 $script:t0 = Get-Date
 function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-Date) - $script:t0).TotalSeconds) }
 
@@ -230,17 +277,20 @@ function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-
 # day to look at one.
 $KeepDays = 2
 
-# How much room THIS delivery wants, measured, not assumed. The ingest unpacks the package and
-# writes its blobs into the store, so the figure is a multiple of the delivery itself plus a
-# working margin. It is deliberately not a flat number: on 2026-11-19 a flat 20 GB refused a
-# 0.25 GB delta on a box with 8.9 GB free, AFTER the upload had already finished -- so it cost
-# a full send, forty minutes, and a release that silently never landed. A delta exists so that
-# a small change is a small delivery; a fixed threshold throws that away and makes every
-# delivery as expensive as the largest one. The guard is right and stays. Its size was wrong.
-$deliveryBytes = (Get-ChildItem -LiteralPath $in -Recurse -File -Force -ErrorAction SilentlyContinue |
-                  Measure-Object -Property Length -Sum).Sum
+# How much room THIS delivery wants, measured rather than assumed.
+$deliveryFiles = @(Get-ChildItem -LiteralPath $in -Recurse -File -Force -ErrorAction SilentlyContinue)
+$deliveryBytes = ($deliveryFiles | Measure-Object -Property Length -Sum).Sum
+$largestBytes = ($deliveryFiles | Measure-Object -Property Length -Maximum).Maximum
 $deliveryGB = [math]::Round(([double]$deliveryBytes) / 1GB, 2)
-$NeedGB = [math]::Max(2.0, [math]::Round(($deliveryGB * 3) + 2, 1))
+$largestGB = [math]::Round(([double]$largestBytes) / 1GB, 2)
+
+# The requirement is the LARGEST SINGLE FILE plus working room, not the delivery's total and
+# not a multiple of it. The ingest puts files in one at a time and almost every one replaces
+# something of its own size in site\downloads, so the peak extra space is one file existing
+# twice while it is copied over its predecessor. A flat figure, or a multiple of the whole
+# delivery, refuses work this host can do: a failed run leaves its assembled ZIPs inside the
+# delivery folder, which makes the total a poor proxy for what the ingest needs.
+$NeedGB = [math]::Max(2.0, [math]::Round($largestGB + 2, 1))
 $swept = 0
 $freed = 0L
 foreach ($d in Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue) {
@@ -263,7 +313,7 @@ if ($freeGB -lt $NeedGB) {
     $keep = Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -ne $in -and $_.Name -ne 'self' } |
             ForEach-Object { "    $($_.Name)  (last written $($_.LastWriteTime.ToString('yyyy-MM-dd')))" }
-    Write-Host "[FAIL] $freeGB GB free; this delivery is $deliveryGB GB and wants about $NeedGB GB to take in." -ForegroundColor Red
+    Write-Host "[FAIL] $freeGB GB free; this delivery is $deliveryGB GB, its largest file $largestGB GB, so it wants about $NeedGB GB." -ForegroundColor Red
     Write-Host "  Nothing has been written, so the delivery is intact and can simply be run again."
     if ($keep) {
         Write-Host "  These deliveries are still here and are the usual thing to remove:"
@@ -271,6 +321,7 @@ if ($freeGB -lt $NeedGB) {
         Write-Host "  rmdir /s /q $Inbox\<name>"
     }
     Write-Host "  C:\havoc9\store is the compressed copy of everything ever delivered; it is NOT scratch."
+    Restore-Services
     Stop-Transcript | Out-Null
     exit 1
 }
@@ -387,7 +438,7 @@ function Install-HostPackage {
     if (Test-Path -LiteralPath $script:pkgDir) { Remove-Item -LiteralPath $script:pkgDir -Recurse -Force }
     Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
     if (-not (Test-Path -LiteralPath (Join-Path $script:pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $script:pkgDir" }
-    Invoke-Child @('-File', (Join-Path $script:pkgDir 'setup.ps1'), '-Root', $Root)
+    Invoke-Child @('-File', (Join-Path $script:pkgDir 'setup.ps1'), '-Root', $Root, '-NoFingerprint')
     if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
 }
 # the standard-library parts of Python that a delta uses; a Python without one of them cannot take a delta
@@ -474,7 +525,7 @@ if ($wcZip -or $wcRecipe) {
     if ($wcZip) { Expand-Archive -LiteralPath (Join-Path $in $wcZip) -DestinationPath $wcDir }
     $stage = Get-ChildItem -LiteralPath $wcDir -Recurse -Directory -Filter 'stage' | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') } | Select-Object -First 1
     if (-not $stage) { Fail "the web client has no stage folder with a manifest.json" }
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-WebClientStage', $stage.FullName)
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-WebClientStage', $stage.FullName, '-NoFingerprint')
     if ($script:childExit -ne 0) { Fail 'setup.ps1 -WebClientStage failed (above)' }
 }
 
@@ -558,7 +609,7 @@ if ($hdTars.Count) {
 if ($build) { [IO.File]::WriteAllText((Join-Path $Dl '.build'), "$build`n") }
 if ($pkgDir) {
     Say "the downloads' file index"
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex')
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex', '-NoFingerprint')
 }
 $cc = Join-Path $Root 'code-check.ps1'
 if (Test-Path -LiteralPath $cc) {
