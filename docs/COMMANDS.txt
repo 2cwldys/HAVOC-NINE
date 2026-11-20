@@ -676,7 +676,9 @@
      so a value set in server.cfg or on the launch line stays: remove the // in
      ts_matchmode.cfg to force one on every map load. The server's name
      (hostname) is no longer set by server.cfg: +hostname on the launch line
-     stays, and a server with no name is called HAVOC 9 TEAM ELIMINATION.
+     stays, and a server with no name is called Havoc 9 Server. A name left
+     blank in Create Game counts as no name: the engine turns a blank
+     hostname into the word "empty", and that is treated the same.
 
  tsm_fogtest
      Toggles the sudden-death fog on or off, for looking at it without
