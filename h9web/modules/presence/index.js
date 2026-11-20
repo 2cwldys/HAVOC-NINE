@@ -250,7 +250,10 @@ export function loadNetKey(dir, log) {
 // The privacy switches: [name in the API, column in presence_settings].
 const PRIVACY = [["game", "show_game"], ["where", "show_where"], ["web", "show_web"], ["site", "show_site"],
   ["playtime", "show_playtime"], ["lastSeen", "show_last_seen"]];
-const CLIENT_ID = /^[0-9a-f]{32}$/;
+// Either form: the 32 hex an engine sends today, or the seven base36 it sends once
+// engine-h9-clientid7 is built. lib/clientids.js indexes both, so a client on either
+// engine is recognised and the two halves need not ship together.
+const CLIENT_ID = /^(?:[0-9a-f]{32}|[0-9a-z]{7})$/;
 const HEX32 = /^[0-9a-f]{32}$/;
 const SIGNATURE = /^[0-9a-f]{64}$/;
 const NET = /^[0-9a-f.:]{1,45}$/;

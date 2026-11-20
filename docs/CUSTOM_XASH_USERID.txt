@@ -245,7 +245,11 @@
      new clientid[33];
      if (get_user_info(id, "h9_clientid", clientid, charsmax(clientid)) && clientid[0])
      {
-         // clientid is 32 lowercase hex chars: MD5(this player's id + this server's address)
+         // clientid as the engine sends it today: 32 lowercase hex, MD5(this player's id + this
+         // server's address). Readers should accept SEVEN lowercase base36 characters as well --
+         // havoc9.org and the H9 plugins already do (include/h9_clientid.inc, h9_cid_ok) -- because
+         // the shorter form spends less of the 256-byte userinfo string on one key, and the engine
+         // change for it is written but not yet in the patch chain.
      }
 
  Safe to call as soon as a player is in the server (client_putinserver or

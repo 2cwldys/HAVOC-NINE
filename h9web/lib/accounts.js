@@ -22,7 +22,7 @@
 import crypto from "node:crypto";
 import { checkUsername, usernameKey, skeleton } from "./usernames.js";
 import { passwordProblem, BusyError } from "./passwords.js";
-import { newUid, derivePlayerId, serverClientId } from "./playerid.js";
+import { newUid, derivePlayerId, serverClientId, serverClientId7 } from "./playerid.js";
 import { HttpError } from "./http.js";
 
 export const ROLES = ["user", "moderator", "admin"];
@@ -196,9 +196,21 @@ export function createAccounts({ db, hasher, secrets, config, events }) {
   }
 
   // What each server on the list sees as this account's h9_clientid.
+  //
+  // Both shapes are returned: the 32 hex every engine sends today, and the 7 base36 it sends
+  // once engine-h9-clientid7 is built. Showing the short one BEFORE that engine ships is the
+  // point -- an EntMod admin is identified by this value in DF_admins.txt, and EntMod matches
+  // field 1 by string compare, so a line holding the old id silently stops matching the day the
+  // engine changes. With both on the account page the admin adds the second line in advance and
+  // crosses over with no gap, instead of losing admin and then having to discover why.
   function serverIds(account, servers) {
     const pid = playerId(account);
-    return servers.map((s) => ({ name: s.name || s.address.key, address: s.address.key, clientId: serverClientId(pid, s.address.bytes) }));
+    return servers.map((s) => ({
+      name: s.name || s.address.key,
+      address: s.address.key,
+      clientId: serverClientId(pid, s.address.bytes),
+      clientId7: serverClientId7(pid, s.address.bytes),
+    }));
   }
 
   // The answer a game client gave to h9_presence's challenge (docs/H9_PRESENCE.txt, "The id

@@ -89,7 +89,10 @@ import path from "node:path";
 import { cleanMap, cleanText, roleplayMap } from "./modes.js";
 import { backupDatabase } from "../../lib/db.js";
 
-const CLIENT_ID = /^[0-9a-f]{32}$/;
+// Either form: the 32 hex an engine sends today, or the seven base36 it sends once
+// engine-h9-clientid7 is built. lib/clientids.js indexes both, so a client on either
+// engine is recognised and the two halves need not ship together.
+const CLIENT_ID = /^(?:[0-9a-f]{32}|[0-9a-z]{7})$/;
 const LADDERS = ["match", "dm"];
 const HOWS = ["finished", "forfeit", "cancelled"];
 const iso = (t) => (t ? new Date(t * 1000).toISOString().replace(/\.\d+Z$/, "Z") : null);
