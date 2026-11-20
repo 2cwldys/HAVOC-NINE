@@ -1,0 +1,92 @@
+THE PATCH NOTES ON THE DOWNLOADS PAGE
+=====================================
+
+havoc9.org/downloads/ carries the patch notes: one entry a release, newest at the top, the first
+one open and the rest folded away. They are kept in the database and edited on the site, not in a
+file in this repository, so a correction needs no release. tools/release-notes.mjs writes the whole
+page out of the commits, so nobody has to remember what went into a build.
+
+
+1. WHERE THEY LIVE
+------------------
+
+  the page        havoc9.org/downloads/, under INSTALLATION
+  the editor      the admin panel's PATCH NOTES tab, or EDIT NOTES on the page itself
+  who edits       admins, and whom "patchNotesEditors" names: moderators and developers
+                  (docs\H9WEB_ADMIN.txt, section 12)
+  the store       one row in forum_patchnotes (forum migration 12), the page as JSON
+  the API         GET  /api/forum/patchnotes           anyone
+                  PUT  /api/forum/patchnotes           its editors, the whole page
+                  POST /api/forum/patchnotes/preview   its editors, rendered, nothing stored
+
+An entry is a version (starts with a digit: 1.68, 1.68.1, 1.69-rc1), a date (YYYY-MM-DD, or
+empty), a kind (release, hotfix or preview), an optional headline and the body. The intro and the
+bodies take the forum's own formatting, pictures included, with the same rules a post has.
+
+Limits: 100 entries, 20000 characters a body, 400000 characters the whole page. The page is one row
+and one request, which is what the last of those is for.
+
+
+2. WRITING THEM OUT OF THE COMMITS
+----------------------------------
+
+    node tools/release-notes.mjs                   every release, newest first
+    node tools/release-notes.mjs --version 1.68    one release
+    node tools/release-notes.mjs --since 1.66      everything after 1.66
+    node tools/release-notes.mjs --unreleased      what has landed since the last bump
+    node tools/release-notes.mjs --json            the body PUT /api/forum/patchnotes takes
+    node tools/release-notes.mjs --markdown        for a post somewhere else
+    node tools/release-notes.mjs --max-notes 40    at most this many lines a release (60)
+    node tools/release-notes.mjs --verbose         say which commits were left out, and why
+
+What a release IS, to this tool: src/include/h9_release.inc holds the build number and
+release-prepare bumps it, so every commit that changes that number ENDS a release and the commits
+between one bump and the next are what went into it. Nothing has to be tagged or remembered.
+
+What a commit contributes is its subject line, under the area its paths belong to: the game, the
+client and the engine, maps, models and sounds, the website, servers and hosting, build and tools,
+documentation. A commit that spreads over several areas goes under the first it matches, so it is
+never counted twice. Merges are left out.
+
+The bump commit usually names the release in its own subject ("Build 1.68: the join screen, the
+Apollo RP vformat fix, and the Mech Warrior effects"). That becomes the entry's headline rather
+than a line among the notes saying the same thing again.
+
+Two trailers, neither required:
+
+    Release-Note: a line written for players
+        Use that line instead of the subject. As many as you like; each is its own line.
+    Release-Note: skip
+        Leave the commit out.
+
+Without any trailer the subjects are the notes, which is the reason to write them in plain English
+in the first place.
+
+A release with more changes than --max-notes keeps the newest and ends with "and N more changes not
+listed here", so a trimmed release never reads as a complete one.
+
+
+3. PUTTING THEM ON THE SITE
+---------------------------
+
+--json prints exactly what the PATCH NOTES tab saves. Read it, fix what reads badly -- a generated
+note is a draft, not a release announcement -- and paste it into the editor, or send it:
+
+    node tools/release-notes.mjs --json > notes.json
+    curl -X PUT https://havoc9.org/api/forum/patchnotes ^
+         -H "Content-Type: application/json" ^
+         -b "h9=<your session cookie>" ^
+         --data-binary @notes.json
+
+Nothing does this by itself. The notes are what players read about a build, and a list of commit
+subjects is raw material for that, not the thing itself.
+
+
+4. WHAT IT DOES NOT DO
+----------------------
+
+  * It does not read the .patch notes beside the binaries. Those say what a binary was built from,
+    for anyone checking it against its source; docs\PATCH_NOTES_CHECK.txt covers them. They are a
+    different thing with a confusingly similar name.
+  * It does not know about work that never reached a commit.
+  * It does not write the site. See section 3.
