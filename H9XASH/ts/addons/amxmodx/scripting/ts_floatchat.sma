@@ -44,6 +44,7 @@
  * ---------------------------------------------------------------------------------------
  */
 #include <amxmodx>
+#include <h9_clientid>
 #include <fakemeta>
 #include <tsm_api>
 
@@ -424,13 +425,9 @@ player_left(id)
 bool:player_key(id, key[], len)
 {
 	get_user_info(id, "h9_clientid", key, len);
-	// the id is 32 lowercase hex characters or nothing: a client chooses the text, and it goes into a data file
-	new bool:hex = (strlen(key) == 32);
-	for (new i = 0; hex && key[i]; i++)
-	{
-		hex = ('0' <= key[i] <= '9') || ('a' <= key[i] <= 'f');
-	}
-	if (hex)
+	// 32 hex, or the 7 base36 a newer engine sends (h9_clientid.inc). A client chooses the text
+	// and it lands in a data file, so the shape is checked rather than trusted.
+	if (h9_cid_ok(key))
 	{
 		return true;
 	}

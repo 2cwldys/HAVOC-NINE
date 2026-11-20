@@ -133,6 +133,17 @@ public plugin_init()
 
 public plugin_cfg()
 {
+	// AMXX only runs amxx.cfg by itself: this plugin runs its own cfg, before the switches below
+	// are read, so what h9_radio.cfg sets is what the map starts with
+	new cfgdir[64], cfgfile[160];
+	get_configsdir( cfgdir, charsmax( cfgdir ));
+	formatex( cfgfile, charsmax( cfgfile ), "%s/h9_radio.cfg", cfgdir );
+	if( file_exists( cfgfile ))
+	{
+		server_cmd( "exec %s", cfgfile );
+		server_exec();
+	}
+
 	if( !get_pcvar_num( cvar_enabled ))
 		return;
 
@@ -524,10 +535,27 @@ bool:music_is_wav( idx )
 
 /// Pick the next track from the bag, play it to everyone on ambient, and schedule the one
 /// after it. Players on the radio are skipped: their channel is theirs.
+/// ts_matchmode's answer to "does this map want ambient music". Without ts_matchmode there is no
+/// rule to follow, and the rotation plays whenever this plugin is on.
+tsm_music_wanted()
+{
+	if( callfunc_begin( "music_wanted_here", "ts_matchmode.amxx" ) != 1 )
+		return 1;
+	return callfunc_end();
+}
+
 public task_ambient()
 {
 	if( !get_pcvar_num( cvar_enabled ) || !get_pcvar_num( cvar_ambient ))
 		return;
+
+	// The map's own rule for ambient music, from ts_matchmode: the match mode on, or a roleplay
+	// map with tsm_music_rp. Asked again every 10 seconds, so the music starts once it is wanted.
+	if( !tsm_music_wanted())
+	{
+		set_task( 10.0, "task_ambient", TASK_AMBIENT );
+		return;
+	}
 
 	new idx = pick_track();
 

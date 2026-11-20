@@ -101,6 +101,7 @@ copy /y "%~dp0h9_msgstats.sma"  "%EX%\src\"                 >nul && echo   src\h
 copy /y "%~dp0h9_staticprops.sma" "%EX%\src\"               >nul && echo   src\h9_staticprops.sma
 copy /y "%~dp0h9_p2p.sma"         "%EX%\src\"                 >nul && echo   src\h9_p2p.sma
 copy /y "%~dp0h9_tts.sma"        "%EX%\src\"                 >nul && echo   src\h9_tts.sma
+copy /y "%~dp0h9_radio.sma"      "%EX%\src\"                 >nul && echo   src\h9_radio.sma
 copy /y "%~dp0ts_floatchat.sma"  "%EX%\src\"                 >nul && echo   src\ts_floatchat.sma
 if not exist "%EX%\src\include" mkdir "%EX%\src\include" >nul 2>&1
 copy /y "%~dp0include\tsm_api.inc" "%EX%\src\include\"       >nul && echo   src\include\tsm_api.inc
@@ -257,6 +258,7 @@ copy /y "%~dp0h9_presence.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_community.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_community.cfg
 copy /y "%~dp0h9_community.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_motd.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_motd.cfg
+copy /y "%~dp0h9_radio.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_radio.cfg
 copy /y "%~dp0h9_motd.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0tsrp_roambots.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\tsrp_roambots.cfg
 copy /y "%~dp0tsrp_roambots.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
@@ -272,6 +274,7 @@ copy /y "%~dp0h9_staticprops.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 REM h9_p2p.cfg is a host's own settings, so only its template travels (build.bat makes the live copy once).
 copy /y "%~dp0h9_p2p.cfg.example" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_p2p.cfg.example
 copy /y "%~dp0h9_p2p.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+copy /y "%~dp0h9_radio_stations.ini" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_radio_stations.ini
 for %%m in (ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf) do (
     copy /y "%~dp0%%m.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\%%m.cfg
     copy /y "%~dp0%%m.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
@@ -924,9 +927,12 @@ if exist "%~dp0webassembly-patch" (
 
 REM ---- SMAK ---------------------------------------------------------------- smak-block
 REM The map kit, smak\ beside this file, is SMAK by Deoroot, as it came. The map scripts read it
-REM from there, and the repo carries it too. /MIR, because export\ is generated, so what is
-REM gone from smak\ goes from here too.
-if exist "%~dp0smak\package.json" (
+REM from there. In the repository SMAK\ is a git submodule of github.com/deoroot/SMAK (since
+REM 2026-11-14): when the export folder's SMAK\ has a .git it is that checkout and is left alone.
+REM Otherwise /MIR, because export\ is generated, so what is gone from smak\ goes from here too.
+if exist "%EX%\SMAK\.git" (
+    echo   SMAK\ is a git submodule here: not mirrored
+) else if exist "%~dp0smak\package.json" (
     robocopy "%~dp0smak" "%EX%\SMAK" /MIR /NJH /NJS /NDL /NFL /NP /XF *.bak_* >nul
     if errorlevel 8 (echo   [WARN] the SMAK copy reported errors) else (echo   SMAK\ ^(map kit^))
 )

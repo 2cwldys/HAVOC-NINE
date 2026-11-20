@@ -49,7 +49,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts h9_p2p h9_shovemod"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts h9_radio h9_p2p h9_shovemod"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -92,6 +92,14 @@ if exist "%SRC%include\h9_community.inc" (
     copy /y "%SRC%include\h9_community.inc" "%SCRIPTING%\include\h9_community.inc" >nul
     if errorlevel 1 (echo [FAIL] could not sync include\h9_community.inc) else (echo   synced include\h9_community.inc)
     if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_community.inc" "%SRC%AMXMODX\plugins\include\h9_community.inc" >nul
+)
+REM The client id checks (include\h9_clientid.inc): h9_cid_ok(), which takes h9_clientid in either
+REM form, 32 hex digits or 7 base36. h9_community, h9_compete, h9_rank, h9_link and ts_floatchat
+REM compile against it. Refreshed on every build like tsm_api.inc.
+if exist "%SRC%include\h9_clientid.inc" (
+    copy /y "%SRC%include\h9_clientid.inc" "%SCRIPTING%\include\h9_clientid.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\h9_clientid.inc) else (echo   synced include\h9_clientid.inc)
+    if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_clientid.inc" "%SRC%AMXMODX\plugins\include\h9_clientid.inc" >nul
 )
 REM The account natives (include\h9_presence.inc, h9_presence 1.9): any plugin that gives a
 REM player rights by their havoc9.org account compiles against it. Refreshed on every build like
@@ -174,6 +182,12 @@ REM host token is in p2p.ini beside h9xash.bat. The plugin runs it at every map 
 if exist "%SRC%h9_p2p.cfg.example" if not exist "%CONFIGS%\h9_p2p.cfg" (
     copy /y "%SRC%h9_p2p.cfg.example" "%CONFIGS%\h9_p2p.cfg" >nul
     echo   created h9_p2p.cfg  ^(optional: the P2P join path, off until h9_p2p is 1^)
+)
+REM h9_radio reads its station list from configs\h9_radio_stations.ini. The loop above takes only .cfg files, so this .ini
+REM has a line of its own, and is synced like them: the copy here replaces the game's.
+if exist "%SRC%h9_radio_stations.ini" (
+    copy /y "%SRC%h9_radio_stations.ini" "%CONFIGS%\h9_radio_stations.ini" >nul
+    if errorlevel 1 (echo [FAIL] could not sync h9_radio_stations.ini) else (echo   synced h9_radio_stations.ini)
 )
 
 REM ---- sounds into the live mod folder ---------------------------------------
@@ -441,6 +455,10 @@ REM One more trap: the append below lands on the file's last line, and if that
 REM line has no newline after it the two names fuse into one nonexistent file --
 REM which silently kills BOTH plugins, the listed one and the new one. So a bare
 REM newline goes in first; the blank line it can leave behind is harmless.
+REM
+REM A new plugin lands below the ARP block, and on a roleplay map ARP_TalkArea ends the say chain for every line, so a
+REM plugin that listens for chat (h9_rank, ts_ctf, h9_tts, h9_radio) sees nothing from there. Move its line above
+REM ARP_Core.amxx by hand once; the check below finds it there and leaves it.
 for %%n in (!TARGETS!) do (
     if exist "%PLUGINS%\%%n.amxx" (
         findstr /i /c:"%%n.amxx" "%CONFIGS%\plugins.ini" >nul 2>&1
