@@ -295,3 +295,4 @@ agents/**/context/CURRENT.md
 # The game's MOTD browser (h9webview.dll, Edge WebView2) keeps its cache here when it shows a
 # server's web page. Written by the game as it runs; never committed.
 H9XASH/webview2/
+tools/du.exe.stackdump
