@@ -118,10 +118,12 @@
 
   // ---- tabs --------------------------------------------------------------------------------------
 
-  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, needs: showNeeds, renames: showRenames, presence: showPresence, levels: showLevels, site: showSite, audit: showAudit };
+  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, needs: showNeeds, patchnotes: showPatchNotes, renames: showRenames, presence: showPresence, levels: showLevels, site: showSite, audit: showAudit };
+  // the tabs the forum module serves: without it they are neither shown nor opened
+  const FORUM_TABS = ["reports", "forum", "needs", "patchnotes"];
 
   function open(tab) {
-    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "levels" || tab === "audit" || tab === "site")) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) tab = forumOn ? "reports" : "accounts";
+    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "levels" || tab === "audit" || tab === "site")) || (!forumOn && FORUM_TABS.includes(tab))) tab = forumOn ? "reports" : "accounts";
     for (const b of $("panelTabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false");
     for (const name of Object.keys(TABS)) $("tab-" + name).hidden = name !== tab;
     TABS[tab]($("tab-" + tab));
@@ -890,6 +892,25 @@
     window.H9ForumRender.needsEditor(editor, d, call);
   }
 
+  // ---- the downloads page's patch notes (downloads/; the forum module's patchnotes.js) ----------
+
+  // The same editor as the "What we need" page's (assets/forum-render.js patchNotesEditor), over a
+  // list of releases instead: a version, a date, a kind and what changed, with a live preview and
+  // SAVE. Admins edit it, and whom the forum's patchNotesEditors names.
+  async function showPatchNotes(section) {
+    const res = await call("GET", "forum/patchnotes");
+    section.textContent = "";
+    if (res.status !== 200) return section.append(el("p", { class: "forum-error", text: problem(res) }));
+    const d = res.data;
+    const link = el("a", { href: new URL("downloads/", root).href, text: "the downloads page" });
+    if (!d.canEdit) {
+      return section.append(box("PATCH NOTES", el("p", { class: "forum-row-meta" }, "You do not edit the notes on ", link, " (the forum's patchNotesEditors).")));
+    }
+    const editor = el("div");
+    section.append(box("PATCH NOTES", el("p", { class: "forum-row-meta" }, "What changed in each release, on ", link, "."), editor));
+    window.H9ForumRender.patchNotesEditor(editor, d, call);
+  }
+
   // ---- site: which parts of the site are open (h9web's lib/siteflags.js) ----
 
   const SITE_PARTS = [
@@ -1114,7 +1135,7 @@
     tabs.hidden = false;
     for (const b of tabs.querySelectorAll("button")) {
       const tab = b.getAttribute("data-tab");
-      if ((b.hasAttribute("data-admin") && !me.admin) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) b.hidden = true;
+      if ((b.hasAttribute("data-admin") && !me.admin) || (!forumOn && FORUM_TABS.includes(tab))) b.hidden = true;
       else b.hidden = false;
       b.addEventListener("click", () => open(tab));
     }

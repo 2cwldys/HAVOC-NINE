@@ -765,11 +765,12 @@ describe("forum: posting limits", () => {
 });
 
 describe("forum: migrations", () => {
-  test("v1 to v11 make the tables and the categories once; deleting an account keeps its posts", async () => {
+  test("v1 to v12 make the tables and the categories once; deleting an account keeps its posts", async () => {
     const t = await forumApp();
     try {
       const v = t.app.db.prepare("SELECT version FROM schema_migrations WHERE module = 'forum'").all();
-      assert.deepEqual(v.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      assert.deepEqual(v.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_patchnotes").get().n, 0, "v12: the patch notes");
       assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_wall_comments").get().n, 0, "v11: profile walls");
       assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_walls").get().n, 0, "v11: a wall's switch");
       assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_media_posts").get().n, 0, "v10: the MEDIA page");

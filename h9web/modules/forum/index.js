@@ -24,6 +24,8 @@
 //   GET, PUT /api/forum/signature, POST /api/forum/signature/preview   your signature (signatures.js)
 //   GET    /api/forum/needs; PUT and POST /api/forum/needs/preview for its editors
 //                                               the "What we need" page (needs.js)
+//   GET    /api/forum/patchnotes; PUT and POST /api/forum/patchnotes/preview for its editors
+//                                               the downloads page's patch notes (patchnotes.js)
 //   GET    /api/forum/avatar                                 your picture, and what a picture may be
 //   PUT    /api/forum/avatar                    the picture's own bytes, sent as image/png,
 //                                               image/jpeg, image/webp or image/gif
@@ -56,6 +58,7 @@ import { MIGRATIONS } from "./migrations.js";
 import { createStore } from "./store.js";
 import { createSignatures } from "./signatures.js";
 import { createNeeds } from "./needs.js";
+import { createPatchNotes } from "./patchnotes.js";
 import { createMedia } from "./media.js";
 import { createWall } from "./wall.js";
 import { parse, cleanText, cleanLine, imageCount, imageSource, withoutImage, MAX_IMAGES, IMAGE_HOSTS } from "./markup.js";
@@ -81,6 +84,8 @@ export const DEFAULTS = Object.freeze({
   // who edits the "What we need" page (needs.js) besides admins: "moderator" (moderators),
   // "developer" (accounts with the DEVELOPER flag), both, or neither
   needsEditors: Object.freeze(["moderator", "developer"]),
+  // the same, for the downloads page's patch notes (patchnotes.js)
+  patchNotesEditors: Object.freeze(["moderator", "developer"]),
   // the MEDIA page (media.js): its front page shows the pinned posts and this many others; older
   // ones are in the archive, by month
   mediaFrontCount: 30,
@@ -108,6 +113,8 @@ export const DEFAULTS = Object.freeze({
     signaturePreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
     needs: { max: 30, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 },
     needsPreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
+    patchNotes: { max: 30, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    patchNotesPreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
     // comments on one member's wall, from everyone together (wall.js): a flood stops here, on
     // top of the post limits each writer has
     wallFlood: { max: 30, windowSeconds: 600, blockSeconds: 300, maxBlockSeconds: 1800 },
@@ -131,6 +138,9 @@ export function forumSettings(raw = {}) {
   if (typeof s.guestRead !== "boolean") throw new Error("forum: moduleSettings.forum.guestRead must be true or false");
   if (!Array.isArray(s.needsEditors) || s.needsEditors.some((x) => x !== "moderator" && x !== "developer")) {
     throw new Error("forum: moduleSettings.forum.needsEditors must be a list of \"moderator\" and \"developer\" (admins always edit)");
+  }
+  if (!Array.isArray(s.patchNotesEditors) || s.patchNotesEditors.some((x) => x !== "moderator" && x !== "developer")) {
+    throw new Error("forum: moduleSettings.forum.patchNotesEditors must be a list of \"moderator\" and \"developer\" (admins always edit)");
   }
   for (const [k, [lo, hi]] of Object.entries(WHOLE)) {
     if (!Number.isInteger(s[k]) || s[k] < lo || s[k] > hi) throw new Error("forum: moduleSettings.forum." + k + " must be a whole number from " + lo + " to " + hi);
@@ -434,6 +444,7 @@ export default {
       ctx, s, now, iso, isMod, isNew, outranks, requirePosting, take, audit, optionalText, cleanLine, member, moderator,
     });
     createNeeds({ ctx, s, now, iso, take, audit, isMod, isDeveloper: (a) => !!a && store.isDeveloper(a.id) });
+    createPatchNotes({ ctx, s, now, iso, take, audit, isMod, isDeveloper: (a) => !!a && store.isDeveloper(a.id) });
     createMedia({
       ctx, s, store, now, iso, isMod, postingBlock, requirePosting, take, ipKey, idOf, audit, limitThread, limitPost, reader, member,
     });

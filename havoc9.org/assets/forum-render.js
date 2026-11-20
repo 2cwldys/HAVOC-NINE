@@ -17,6 +17,12 @@
 //                                                DOWN, REMOVE), a live preview, SAVE. call(method,
 //                                                path, body) answers { status, data } for a path
 //                                                under /api/; onSaved(view) after a save
+//   window.H9ForumRender.patchNotes(view, parent) the downloads page's patch notes from GET
+//                                                /api/forum/patchnotes (or its preview): the intro,
+//                                                then each release in the order it is kept, the
+//                                                first one open and the rest folded away
+//   window.H9ForumRender.patchNotesEditor(box, view, call, onSaved)
+//                                                its editor, the same shape as needsEditor's
 (() => {
   "use strict";
 
@@ -263,5 +269,156 @@
     needs(view, preview);
   }
 
-  window.H9ForumRender = { blocks, needs, needsEditor };
+  // ---- the patch notes -------------------------------------------------------------------------
+
+  function noteHead(view, x) {
+    const head = el("div", "pn-head");
+    head.append(el("span", "pn-version", x.version));
+    head.append(el("span", "pn-tag is-" + x.kind, ((view.kinds && view.kinds[x.kind]) || x.kind).toUpperCase()));
+    if (x.title) head.append(el("span", "pn-headline", x.title));
+    if (x.date) {
+      const d = new Date(x.date + "T00:00:00Z");
+      const when = el("time", "pn-date", isFinite(d)
+        ? d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+        : x.date);
+      when.setAttribute("datetime", x.date);
+      head.append(when);
+    }
+    return head;
+  }
+
+  function patchNotes(view, parent) {
+    parent.textContent = "";
+    if (!view || !view.page) return;
+    const page = view.page;
+    const intro = el("div", "pn-intro forum-body");
+    blocks(view.content && view.content.intro, intro);
+    if (intro.childNodes.length) parent.append(intro);
+    const entries = Array.isArray(page.entries) ? page.entries : [];
+    const trees = (view.content && view.content.entries) || [];
+    if (!entries.length) {
+      parent.append(el("p", "pn-empty", "No patch notes yet."));
+      return;
+    }
+    const list = el("div", "pn-list");
+    entries.forEach((x, i) => {
+      const body = el("div", "pn-body forum-body");
+      blocks(trees[i], body);
+      // the newest release is open; the ones behind it fold away, so the page stays short
+      let card;
+      if (i === 0) {
+        card = el("article", "pn-entry is-latest");
+        card.append(noteHead(view, x), body);
+      } else {
+        card = el("details", "pn-entry");
+        const sum = el("summary", "pn-summary");
+        sum.append(noteHead(view, x));
+        card.append(sum, body);
+      }
+      list.append(card);
+    });
+    parent.append(list);
+    if (view.updated) {
+      const d = new Date(view.updated);
+      parent.append(el("p", "pn-updated", "Updated " + (isFinite(d) ? d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "") + "."));
+    }
+  }
+
+  function patchNotesEditor(box, view, call, onSaved) {
+    box.textContent = "";
+    const msg = el("p", "forum-row-meta");
+    msg.setAttribute("role", "status");
+    const title = control("input", "forum-input", { type: "text", maxlength: "120", "aria-label": "Page title" });
+    title.value = view.page.title || "";
+    const intro = control("textarea", "forum-textarea", { rows: "3", maxlength: "4000", "aria-label": "Intro" });
+    intro.value = view.page.intro || "";
+    const list = el("div", "needs-edit-list");
+    const preview = el("div", "pn-page");
+    const rows = [];
+    let timer = null;
+    let seq = 0;
+    const gather = () => ({
+      title: title.value, intro: intro.value,
+      entries: rows.map((r) => ({ version: r.v.value, date: r.d.value, kind: r.k.value, title: r.t.value, body: r.body.value })),
+    });
+    function later() {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const mine = ++seq;
+        const r = await call("POST", "forum/patchnotes/preview", gather());
+        if (mine !== seq) return;
+        const error = r.status !== 200 ? (r.data && r.data.message) || "The preview could not be made (" + r.status + ")." : r.data.error;
+        msg.className = error ? "forum-error" : "forum-row-meta";
+        msg.textContent = error || "";
+        if (!error) patchNotes(r.data, preview);
+      }, 600);
+    }
+    function redraw(quiet) {
+      list.textContent = "";
+      for (const r of rows) list.append(r.node);
+      if (!rows.length) list.append(el("p", "forum-empty", "No releases yet: ADD RELEASE."));
+      if (!quiet) later();
+    }
+    function addRow(x, top) {
+      const r = {
+        k: choices(view.kinds, x.kind),
+        v: control("input", "forum-input pn-edit-version", { type: "text", maxlength: "32", placeholder: "1.68", "aria-label": "Version" }),
+        d: control("input", "forum-input pn-edit-date", { type: "date", "aria-label": "Date" }),
+        t: control("input", "forum-input", { type: "text", maxlength: "120", placeholder: "Headline, if it wants one", "aria-label": "Headline" }),
+        body: control("textarea", "forum-textarea", { rows: "4", maxlength: "8000", "aria-label": "What changed" }),
+      };
+      r.k.setAttribute("aria-label", "Kind");
+      r.v.value = x.version || "";
+      r.d.value = x.date || "";
+      r.t.value = x.title || "";
+      r.body.value = x.body || "";
+      const move = (by) => {
+        const i = rows.indexOf(r);
+        const j = i + by;
+        if (j < 0 || j >= rows.length) return;
+        rows.splice(i, 1);
+        rows.splice(j, 0, r);
+        redraw();
+      };
+      const line = el("div", "panel-actions");
+      line.append(r.v, r.d, r.k, r.t, act("UP", () => move(-1)), act("DOWN", () => move(1)),
+        act("REMOVE", () => {
+          rows.splice(rows.indexOf(r), 1);
+          redraw();
+        }, "danger"));
+      r.node = el("div", "panel-item");
+      r.node.append(line, r.body);
+      for (const f of [r.v, r.d, r.t, r.body]) f.addEventListener("input", later);
+      for (const f of [r.k, r.d]) f.addEventListener("change", later);
+      if (top) rows.unshift(r);
+      else rows.push(r);
+    }
+    for (const x of view.page.entries || []) addRow(x);
+    title.addEventListener("input", later);
+    intro.addEventListener("input", later);
+    const buttons = el("div", "panel-actions");
+    buttons.append(
+      // a new release goes on top: the list reads newest first, and that is the one being written
+      act("ADD RELEASE", () => {
+        addRow({ kind: "release", version: "", date: "", title: "", body: "" }, true);
+        redraw();
+      }),
+      act("SAVE", async () => {
+        const r = await call("PUT", "forum/patchnotes", gather());
+        const ok = r.status === 200;
+        msg.className = ok ? "forum-done" : "forum-error";
+        msg.textContent = ok ? "Saved: the downloads page shows it now." : (r.data && r.data.message) || "Not saved (" + r.status + ").";
+        if (ok) {
+          patchNotes(r.data, preview);
+          if (onSaved) onSaved(r.data);
+        }
+      }, "primary"));
+    const help = el("p", "forum-row-meta", "One entry a release, newest at the top. A version starts with a digit (1.68) and the date is the day it went out. The intro and the bodies take the forum's formatting: bold, italic, lists, links, and pictures linked from the forum's picture hosts. SAVE stores the whole page and goes into the audit log.");
+    box.append(help, labelled("TITLE", title), labelled("INTRO", intro), el("h3", "forum-section", "RELEASES"), list, buttons, msg,
+      el("h3", "forum-section", "PREVIEW"), preview);
+    redraw(true);
+    patchNotes(view, preview);
+  }
+
+  window.H9ForumRender = { blocks, needs, needsEditor, patchNotes, patchNotesEditor };
 })();

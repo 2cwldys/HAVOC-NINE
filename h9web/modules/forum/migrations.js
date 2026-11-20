@@ -37,6 +37,8 @@
 //                     owner, its author, pinned_at (the owner's pin) and removed_* (a moderator's
 //                     removal, with its note); forum_walls: a wall its owner turned off (open 0).
 //                     Both go with the account: deleting it deletes its comments and its wall
+//   v12: forum_patchnotes: the patch notes on the downloads page (patchnotes.js), one row holding
+//                     them as JSON, with who saved them last and when
 // What moderators do goes into h9web's audit log (lib/audit.js), not into a table of the forum's.
 // Every other reference to an account is ON DELETE SET NULL: deleting an account keeps its
 // posts, shown as from a deleted account, and deletes its picture, the votes it cast, and (v11)
@@ -298,6 +300,20 @@ export const MIGRATIONS = [
         );
         CREATE INDEX forum_wall_order ON forum_wall_comments(wall_id, pinned_at, id);
         CREATE INDEX forum_wall_by ON forum_wall_comments(account_id);
+      `);
+    },
+  },
+  {
+    version: 12,
+    description: "the patch notes on the downloads page",
+    up(db) {
+      db.exec(`
+        CREATE TABLE forum_patchnotes (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          doc TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          updated_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL
+        );
       `);
     },
   },

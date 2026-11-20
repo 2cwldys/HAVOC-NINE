@@ -611,6 +611,21 @@
                   the page itself has EDIT THIS PAGE for them. Who besides admins:
                   "moduleSettings": { "forum": { "needsEditors": ["moderator", "developer"] } }
                   ([] leaves it to admins)
+     PATCH NOTES  the patch notes on the downloads page (havoc9.org/downloads/):
+                  its title, intro and one entry a release (version, date, kind --
+                  Release, Hotfix or Preview -- an optional headline, and what
+                  changed; the same formatting as a post), ADD RELEASE, UP, DOWN,
+                  REMOVE, a live preview, SAVE (into the audit log as
+                  forum.patchnotes.edit). Newest at the top: the downloads page
+                  shows the first one open and folds the rest away, and ADD RELEASE
+                  puts a new one on top. Admins, moderators and developers by
+                  default; the page itself has EDIT NOTES for them. Who besides
+                  admins:
+                  "moduleSettings": { "forum": { "patchNotesEditors": ["moderator", "developer"] } }
+                  ([] leaves it to admins)
+                  Limits: 100 entries, 20000 characters an entry, 400000 the page.
+                  tools\release-notes.mjs writes the whole page out of the commits
+                  (docs\RELEASE_NOTES.txt): --json gives exactly what SAVE stores.
      AUDIT LOG    every moderator and admin action, the latest first, all or by a
                   name; kept 90 days (config admin.auditRetentionDays)
 
