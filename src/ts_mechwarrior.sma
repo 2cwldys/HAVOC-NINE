@@ -27,8 +27,9 @@
  * landing from a fall gets a cloud of dust under it, so that a jump reads as a jump. The stunt is
  * the mod's own state, pev_iuser4 & 0x10c10 -- the mask reTS itself tests to take a stunting
  * player's damage down and to score a STUNT kill -- so nothing has to be told when a stunt starts
- * or ends. Only players on the Mech class are touched, by tsm_class_of, and only on this mode's
- * own maps: the sprites and the sound are precached on an h9_mw_ map and nowhere else.
+ * or ends. Only players on the Mech class are touched, by tsm_class_of, in every mode that plays
+ * the Mech and not this one alone: the sprites and the sound are precached on every map, and the
+ * effects are drawn wherever the match mode is on.
  *
  * The mod already shakes the screen when a super-jump lands (reTS dlls/player.cpp, the
  * TSSTUNT_WHEEL_DONE block) and already plays the fall sound, and it draws no particles of its
@@ -117,18 +118,13 @@ public native_filter(const name[], index, trap)
 }
 
 /*
- * The Mech's sprites and sound, on this mode's maps only: a map that is not h9_mw_ never plays a
- * Mech, so it does not carry the files either. Each one is checked on disk first and left at 0
- * when it is absent, because precaching a model that is not there ends the map.
+ * The Mech's sprites and sound, on every map: the Mech is a class of the match mode, played in every
+ * mode that has it, as ts_matchmode precaches the Mech's gun effects on every map. Each one is
+ * checked on disk first and left at 0 when it is absent, because precaching a model that is not
+ * there ends the map.
  */
 public plugin_precache()
 {
-	new mapname[32];
-	get_mapname(mapname, charsmax(mapname));
-	if (!equali(mapname, MW_PREFIX, strlen(MW_PREFIX)))
-	{
-		return;
-	}
 	// afire is an eight-frame flame, 128x256, and a temp-entity sprite plays a sprite through, so
 	// it burns rather than sits. h9_rocket_flash is a radial starburst: it reads as a shot going
 	// off, not as a jet running, which is why the thruster does not use it.
@@ -207,6 +203,17 @@ public plugin_cfg()
 
 public task_claim()
 {
+	// The Mech's effects, in whatever mode plays the Mech: its class, found by its perk, and the pass
+	// that draws them, which runs on every map and draws only while the match mode is on (task_fx).
+	if (g_have_core && !g_mech)
+	{
+		g_mech = tsm_class_of_perk(TSM_PERK_MECH);
+	}
+	if (g_have_core && g_mech && !task_exists(MW_TASK_FX))
+	{
+		set_task(MW_FX_TICK, "task_fx", MW_TASK_FX, "", 0, "b");
+	}
+
 	// tsm_enabled 0: the map plays as the game ships (ts_matchmode's per-map rule, or the map's mapconfig).
 	if (!g_have_core || !get_pcvar_num(g_cv_mode) || !equali(g_mapname, MW_PREFIX, strlen(MW_PREFIX)) || !get_cvar_num("tsm_enabled"))
 	{
@@ -245,11 +252,6 @@ public task_claim()
 
 	g_active = true;
 	apply_rules();
-	// The Mechs' effects run only while the mode holds the map.
-	if (!task_exists(MW_TASK_FX))
-	{
-		set_task(MW_FX_TICK, "task_fx", MW_TASK_FX, "", 0, "b");
-	}
 	log_amx("[MECHWARRIOR] %s is a Mech Warrior map: class %d is the Officer, class %d the Mech.",
 		g_mapname, g_officer, g_mech);
 }
@@ -370,7 +372,8 @@ public tsm_round_start(round)
  */
 public task_fx()
 {
-	if (!g_active || !g_have_core)
+	// tsm_enabled 0: the map plays as the game ships, with no classes and so no Mech
+	if (!g_have_core || !g_mech || !get_cvar_num("tsm_enabled"))
 	{
 		return;
 	}
