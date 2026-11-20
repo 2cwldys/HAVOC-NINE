@@ -33,6 +33,8 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer paints 0.2 s ahead and skips the time a long frame already played instead of painting into it; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever _snd_mixahead says; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), engine-h9-webmenu.patch (the browser build only: the main menu's background video decoded by the page and drawn by the engine, and quit and minimize handed to the page; this Windows build compiles as before), engine-h9-phsbudget.patch (no PHS for a world whose PHS would take more than 192 MB, so a map of tens of thousands of leaves loads on a multiplayer server, its sounds reaching every player; below that the PHS is allocated once instead of once per row), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 engine-h9-png.patch
+engine-h9-png.patch, engine-h9-radio.patch
+engine-h9-png.patch, engine-h9-radio.patch, engine-h9-motdclip.patch
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -4821,6 +4823,661 @@ Commits on h9 since upstream that touch these paths, oldest first:
 In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 fafb59b8526a5b48bf7b09adef8721881a8e9c49b55adb5304d9e4c57355993a, the diff below.
+
+Generated Thu 11/19/2026 23:14:57.84, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 03f25c9c13940fc21a5496366a9521c3d4774acb9de24a5ad465073c8c2e84c4, the diff below.
+
+Generated Thu 11/19/2026 23:23:15.19, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 5f85b18aac67092f8f5602b022ef05a6b3e5785a82231939bf12696eae6f0360, the diff below.
+
+Generated Thu 11/19/2026 23:52:06.14, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++		motd.view = h9wv.Open( window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
++	h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
+Diff sha256 0cf5fdc2c2af0440a464832496aa8e32096b548da3cc3a5ed5a5b10cb769ccfd, the diff below.
+
+Generated Fri 11/20/2026  0:11:31.24, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 b2a0f8c84b696a7dcbbe3da0e2d9e8740f76066be128839ea9b8ea6b8e03c110, the diff below.
+
+Generated Fri 11/20/2026  0:19:03.77, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++#define H9WV_API_VERSION 1
++	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || api() != H9WV_API_VERSION )
++		// the page's own window covers this; until it shows, the panel's colour
++		H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
++	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
++		H9M_Scroll( -1 );
++		H9M_Scroll( 1 );
+Diff sha256 fb75d366b6bfaa1b677809a38ea51aa264301c701fb06ef265aad9a7ef25c7e8, the diff below.
+
+Generated Fri 11/20/2026  8:47:55.16, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 05dcc9f2f064f08f6230be6f673176f3a34678bb313da667e736793f09e62a25, the diff below.
+
+Generated Fri 11/20/2026  8:52:44.03, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++#define H9WV_API_VERSION 2
++typedef void ( *h9wv_snap_fn )( const void *png, int size, void *user );
++// a snapshot arrived: it becomes the texture the panel draws, if it is for the view still open
++static void H9M_SnapDone( const void *png, int size, void *user )
++	static int n;
++		static int count;
++		if( ++count <= 5 || count % 100 == 0 )
++			H9M_Debug( "snapshot %d arrived: %d bytes", count, size );
++	if( !png || size <= 0 || !ref.initialized )
++	pic = FS_LoadImage( "#h9motdpage.png", (const byte *)png, size );
++	h9m_snap = ref.dllFuncs.GL_LoadTextureFromBuffer( name, pic, TF_IMAGE, false );
+Diff sha256 fe8db083ff0aa6f5eef1374b09234cbfe8cdc05804ae298187dd0aea8cbb420d, the diff below.
+
+Generated Fri 11/20/2026  9:08:30.25, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 7de6df255ffa4cf56d759def2316138164c7624326d9e3ceff933e91847dd999, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -10432,10 +11089,10 @@ index 39e4f9c2..9aff4c8b 100644
  	IN_Shutdown ();
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
-index 00000000..70c6a06b
+index 00000000..e0fb613b
 --- /dev/null
 +++ b/engine/client/cl_motd.c
-@@ -0,0 +1,1896 @@
+@@ -0,0 +1,2212 @@
 +/*
 +cl_motd.c - H9: the splash MOTD, a server's picture or web page shown at join
 +
@@ -10697,7 +11354,7 @@ index 00000000..70c6a06b
 +#if XASH_WIN32
 +// h9webview.dll's interface, as xash3d-h9-patches\webview\h9webview.h has it: the same numbers,
 +// and H9WV_API_VERSION raised there and here with any change
-+#define H9WV_API_VERSION 1
++#define H9WV_API_VERSION 3
 +#define H9WV_READY       1
 +#define H9WV_FAILED      2
 +#define H9WV_ESCAPE      3
@@ -10714,6 +11371,9 @@ index 00000000..70c6a06b
 +typedef void *( *h9wv_open_fn )( void *parent, const char *url, int flags, h9wv_status_fn status, void *user, char *why, int whysize );
 +typedef void ( *h9wv_place_fn )( void *view, int x, int y, int w, int h, int render_w, int render_h, int visible );
 +typedef void ( *h9wv_close_fn )( void *view );
++typedef void ( *h9wv_snap_fn )( const void *rgba, int width, int height, void *user );
++typedef int ( *h9wv_snapshot_fn )( void *view, h9wv_snap_fn done, void *user );
++typedef void ( *h9wv_script_fn )( void *view, const char *script );
 +
 +static struct
 +{
@@ -10725,9 +11385,35 @@ index 00000000..70c6a06b
 +	h9wv_open_fn  Open;
 +	h9wv_place_fn Place;
 +	h9wv_close_fn Close;
++	h9wv_snapshot_fn Snapshot;
++	h9wv_script_fn   Script;
 +} h9wv;
 +
 +static CVAR_DEFINE_AUTO( cl_h9_motd_wine, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: under Wine or Proton, show a server's web page inside the game with Edge WebView2, without Chromium's sandbox: 0 = no, its picture or text and OPEN PAGE; 1 = yes; 2 = yes, with the GPU off" );
++static CVAR_DEFINE_AUTO( cl_h9_motd_debug, "0", 0, "H9: 1 writes what the splash MOTD's web page does, with the time, to h9_motd_debug.log in the game folder" );
++
++// one line in h9_motd_debug.log while cl_h9_motd_debug is 1
++static void H9M_Debug( const char *fmt, ... )
++{
++	char buf[512];
++	va_list args;
++	file_t *f;
++
++	if( !cl_h9_motd_debug.value )
++		return;
++
++	va_start( args, fmt );
++	Q_vsnprintf( buf, sizeof( buf ), fmt, args );
++	va_end( args );
++
++	f = FS_Open( "h9_motd_debug.log", "a", true );
++
++	if( !f )
++		return;
++
++	FS_Printf( f, "%10.3f %s\n", host.realtime, buf );
++	FS_Close( f );
++}
 +#endif
 +
 +/*
@@ -11021,6 +11707,194 @@ index 00000000..70c6a06b
 +==============================================================================
 +*/
 +
++// The page as the game draws it. In full screen nothing outside the game's own frame is drawn while
++// the game has the screen, so the page's window is never seen there: the panel draws snapshots of the
++// page instead (H9M_SnapDone), a few a second, and passes clicks and the wheel on to the page.
++static int      h9m_snap;      // the last snapshot's texture, or 0
++static qboolean h9m_snap_busy; // one is on its way
++static double   h9m_snap_time; // when the last one was asked for
++
++// The page's own window, over the panel. The game draws its whole window every frame, and in full
++// screen that drawing covers a child window, so the page is hosted in a borderless popup the game
++// window owns instead: an owned window always sits above its owner, and Windows composites it on its
++// own. WS_EX_NOACTIVATE keeps the game the active window, so its keys (ESC) still reach it. When the
++// popup cannot be made, the page goes in the game window as a child, as before.
++#if XASH_WIN32
++static HWND h9m_popup;
++static int  h9m_popup_at[4]; // x, y, w, h it was last put at, so an unchanged frame moves nothing
++static qboolean h9m_layered; // the game window was made layered for the page (H9M_PopupPlace)
++
++// The game window back to an ordinary one, and redrawn, once the page is gone or hidden
++static void H9M_GameUnlayer( void )
++{
++	HWND game = (HWND)motd.view_window;
++
++	if( !h9m_layered )
++		return;
++
++	h9m_layered = false;
++
++	if( game && IsWindow( game ))
++	{
++		SetWindowLongPtr( game, GWL_EXSTYLE, GetWindowLongPtr( game, GWL_EXSTYLE ) & ~WS_EX_LAYERED );
++		RedrawWindow( game, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN );
++	}
++}
++
++static HWND H9M_PopupMake( HWND owner )
++{
++	static ATOM cls;
++	HINSTANCE inst = GetModuleHandleA( NULL );
++
++	if( !cls )
++	{
++		WNDCLASSEXA wc;
++
++		memset( &wc, 0, sizeof( wc ));
++		wc.cbSize = sizeof( wc );
++		wc.lpfnWndProc = DefWindowProcA;
++		wc.hInstance = inst;
++		wc.lpszClassName = "H9MotdPage";
++		cls = RegisterClassExA( &wc );
++
++		if( !cls )
++			return NULL;
++	}
++
++	memset( h9m_popup_at, 0, sizeof( h9m_popup_at ));
++	return CreateWindowExA( WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, "H9MotdPage", "", WS_POPUP | WS_CLIPCHILDREN,
++		0, 0, 1, 1, owner, NULL, inst, NULL );
++}
++
++static void H9M_PopupDrop( void )
++{
++	H9M_GameUnlayer( );
++
++	if( h9m_popup )
++		DestroyWindow( h9m_popup );
++
++	h9m_popup = NULL;
++}
++
++// the panel's body: render coordinates to the game window's client pixels, then to the screen
++static void H9M_PopupPlace( qboolean show )
++{
++	HWND game = (HWND)motd.view_window;
++	RECT client;
++	POINT pt;
++	int cw, ch, w, h;
++
++	if( !show || !game || !GetClientRect( game, &client ) || refState.width <= 0 || refState.height <= 0 )
++	{
++		if( IsWindowVisible( h9m_popup ))
++			ShowWindow( h9m_popup, SW_HIDE );
++
++		H9M_GameUnlayer( );
++		h9wv.Place( motd.view, 0, 0, 1, 1, 1, 1, false );
++		return;
++	}
++
++	// A window that covers its monitor can be taken out of Windows' composition by the graphics
++	// driver, and then nothing else is drawn over it while it has focus: the page stayed blank until
++	// the player alt-tabbed out. A layered window is always composited, so the game window is made
++	// layered (fully opaque, so it looks the same) while the page shows, and ordinary again after.
++	if( !h9m_layered )
++	{
++		LONG_PTR ex = GetWindowLongPtr( game, GWL_EXSTYLE );
++
++		if( !( ex & WS_EX_LAYERED ))
++		{
++			SetWindowLongPtr( game, GWL_EXSTYLE, ex | WS_EX_LAYERED );
++			SetLayeredWindowAttributes( game, 0, 255, LWA_ALPHA );
++			h9m_layered = true;
++		}
++	}
++
++	cw = client.right - client.left;
++	ch = client.bottom - client.top;
++	w = motd.view_w * cw / refState.width;
++	h = motd.view_h * ch / refState.height;
++	pt.x = motd.view_x * cw / refState.width;
++	pt.y = motd.view_y * ch / refState.height;
++	ClientToScreen( game, &pt );
++
++	if( pt.x != h9m_popup_at[0] || pt.y != h9m_popup_at[1] || w != h9m_popup_at[2] || h != h9m_popup_at[3] || !IsWindowVisible( h9m_popup ))
++	{
++		h9m_popup_at[0] = pt.x;
++		h9m_popup_at[1] = pt.y;
++		h9m_popup_at[2] = w;
++		h9m_popup_at[3] = h;
++		SetWindowPos( h9m_popup, NULL, pt.x, pt.y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
++	}
++
++	// the popup is exactly the page: its whole client area, one render pixel to one window pixel
++	h9wv.Place( motd.view, 0, 0, w, h, w, h, true );
++}
++
++// a snapshot arrived, as RGBA pixels: it becomes the texture the panel draws, if it is for the view
++// still open
++static void H9M_SnapDone( const void *rgba, int width, int height, void *user )
++{
++	static int n, count;
++	rgbdata_t pic;
++	char name[32];
++
++	if( (int)(intptr_t)user != motd.viewgen )
++		return;
++
++	h9m_snap_busy = false;
++	count++;
++
++	if( !rgba || width <= 0 || height <= 0 || width > 8192 || height > 8192 || !ref.initialized )
++	{
++		if( count <= 5 || count % 100 == 0 )
++			H9M_Debug( "snapshot %d: none came back", count );
++		return;
++	}
++
++	memset( &pic, 0, sizeof( pic ));
++	pic.width = width;
++	pic.height = height;
++	pic.depth = 1;
++	pic.type = PF_RGBA_32;
++	pic.flags = IMAGE_HAS_COLOR; // without it the renderer stores the page as a gray (luminance) texture
++	pic.numMips = 1;
++	pic.buffer = (byte *)rgba;
++	pic.size = (size_t)width * height * 4;
++
++	if( h9m_snap )
++		ref.dllFuncs.GL_FreeTexture( h9m_snap );
++
++	Q_snprintf( name, sizeof( name ), "#h9motdpage%d", n++ );
++	h9m_snap = ref.dllFuncs.GL_LoadTextureFromBuffer( name, &pic, TF_IMAGE, false );
++
++	if( count <= 5 || count % 100 == 0 )
++		H9M_Debug( "snapshot %d: %d x %d, texture %d", count, width, height, h9m_snap );
++}
++
++// a click on the panel, passed to the page when it lands on it: the element under the point, or the
++// link or button it sits in, is clicked as the page would click it
++static qboolean H9M_PageClick( int mx, int my )
++{
++	char js[320];
++	int x, y;
++
++	if( !motd.view || !h9m_snap || !h9m_popup || motd.view_w <= 0 || motd.view_h <= 0 )
++		return false;
++
++	if( mx < motd.view_x || my < motd.view_y || mx >= motd.view_x + motd.view_w || my >= motd.view_y + motd.view_h )
++		return false;
++
++	// the panel's pixels to the page's: the popup is exactly the page's size
++	x = ( mx - motd.view_x ) * h9m_popup_at[2] / motd.view_w;
++	y = ( my - motd.view_y ) * h9m_popup_at[3] / motd.view_h;
++	Q_snprintf( js, sizeof( js ), "(function(){var d=window.devicePixelRatio||1,e=document.elementFromPoint(%d/d,%d/d);"
++		"if(e){(e.closest('a,button,input,select,label,[onclick],[role=button]')||e).click();}})();", x, y );
++	h9wv.Script( motd.view, js );
++	return true;
++}
++#endif // XASH_WIN32
++
 +// the view goes; a report still on its way from it is for nobody
 +static void H9M_ViewClose( void )
 +{
@@ -11030,8 +11904,17 @@ index 00000000..70c6a06b
 +		motd.viewgen++;
 +		h9wv.Close( motd.view );
 +	}
++
++	H9M_PopupDrop( );
 +#endif
 +	motd.view = NULL;
++
++	if( h9m_snap && ref.initialized )
++		ref.dllFuncs.GL_FreeTexture( h9m_snap );
++
++	h9m_snap = 0;
++	h9m_snap_busy = false;
++	h9m_snap_time = 0.0;
 +	motd.view_window = NULL;
 +	motd.view_placed = false;
 +}
@@ -11084,8 +11967,10 @@ index 00000000..70c6a06b
 +	h9wv.Open = (h9wv_open_fn)GetProcAddress( dll, "H9WV_Open" );
 +	h9wv.Place = (h9wv_place_fn)GetProcAddress( dll, "H9WV_Place" );
 +	h9wv.Close = (h9wv_close_fn)GetProcAddress( dll, "H9WV_Close" );
++	h9wv.Snapshot = (h9wv_snapshot_fn)GetProcAddress( dll, "H9WV_Snapshot" );
++	h9wv.Script = (h9wv_script_fn)GetProcAddress( dll, "H9WV_Script" );
 +
-+	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || api() != H9WV_API_VERSION )
++	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || !h9wv.Snapshot || !h9wv.Script || api() != H9WV_API_VERSION )
 +	{
 +		Q_strncpy( h9wv.why, "h9webview.dll is not the one this engine needs", sizeof( h9wv.why ));
 +		FreeLibrary( dll );
@@ -11115,6 +12000,8 @@ index 00000000..70c6a06b
 +static void H9M_ViewStatus( int status, const char *detail, void *user )
 +{
 +	char host[H9M_MAX_HOST];
++
++	H9M_Debug( "report %d (%s)%s", status, detail ? detail : "", (int)(intptr_t)user != motd.viewgen ? ", for a view already closed" : "" );
 +
 +	// a view already closed has a new number; a report may also come before H9WV_Open returns
 +	if( (int)(intptr_t)user != motd.viewgen )
@@ -11208,17 +12095,35 @@ index 00000000..70c6a06b
 +			return;
 +		}
 +
++		// The page is a child window of the game's, and the game draws its whole window every frame:
++		// without these two styles that drawing covers the page, which then shows only once the game
++		// stops drawing (alt-tab). An OpenGL window should carry both; with them Windows keeps a
++		// child out of its parent's drawing.
++		{
++			HWND hw = (HWND)window;
++			LONG_PTR style = GetWindowLongPtr( hw, GWL_STYLE );
++
++			if(( style & ( WS_CLIPCHILDREN | WS_CLIPSIBLINGS )) != ( WS_CLIPCHILDREN | WS_CLIPSIBLINGS ))
++			{
++				SetWindowLongPtr( hw, GWL_STYLE, style | WS_CLIPCHILDREN | WS_CLIPSIBLINGS );
++				SetWindowPos( hw, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED );
++			}
++		}
++
 +		motd.viewgen++;
 +		motd.view_window = window;
-+		motd.view = h9wv.Open( window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
++		h9m_popup = H9M_PopupMake( (HWND)window );
++		motd.view = h9wv.Open( h9m_popup ? (void *)h9m_popup : window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
 +
 +		if( !motd.view )
 +		{
++			H9M_PopupDrop( );
 +			H9M_ViewFail( why );
 +			return;
 +		}
 +
 +		Con_Reportf( "H9 MOTD: loading %s with WebView2 %s\n", motd.page_host, version );
++		H9M_Debug( "opened %s in %s, WebView2 %s", motd.page, h9m_popup ? "its own window" : "the game window", version );
 +	}
 +#else
 +	H9M_ViewFail( "this build has no web view" );
@@ -11236,7 +12141,60 @@ index 00000000..70c6a06b
 +		return;
 +
 +	show = motd.state == H9M_OPEN && motd.view_ready && motd.view_placed && !motd.confirm && H9M_Up( ) && !H9UI_PanelUp( );
-+	h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
++
++	// every change in what decides it, while cl_h9_motd_debug is 1
++	{
++		static int last = -1;
++		int now = ( motd.state == H9M_OPEN ) | ( motd.view_ready << 1 ) | ( motd.view_placed << 2 ) | ( motd.confirm << 3 )
++			| (( cls.state == ca_active ) << 4 ) | (( cls.key_dest == key_game ) << 5 ) | ( H9UI_PanelUp( ) << 6 ) | ( host.status << 8 );
++
++		if( now != last )
++		{
++			last = now;
++			H9M_Debug( "show %d: open %d, loaded %d, placed %d, confirm %d, in game %d, keys to game %d (key_dest %d), another panel %d, host.status %d",
++				show, motd.state == H9M_OPEN, motd.view_ready, motd.view_placed, motd.confirm, cls.state == ca_active,
++				cls.key_dest == key_game, cls.key_dest, H9UI_PanelUp( ), host.status );
++		}
++	}
++	if( h9m_popup )
++	{
++		H9M_PopupPlace( show );
++
++		// a few snapshots a second while it shows; one at a time, and one that never comes back is
++		// given up on after three seconds
++		if( show && host.realtime - h9m_snap_time > 0.2 && ( !h9m_snap_busy || host.realtime - h9m_snap_time > 3.0 ))
++		{
++			h9m_snap_time = host.realtime;
++			h9m_snap_busy = h9wv.Snapshot( motd.view, H9M_SnapDone, (void *)(intptr_t)motd.viewgen ) != 0;
++
++			if( !h9m_snap_busy )
++			{
++				static int refused;
++
++				if( ++refused <= 3 )
++					H9M_Debug( "snapshot not taken: the view said no (%d)", refused );
++			}
++		}
++	}
++	else h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
++#endif
++}
++
++// the wheel and the arrow keys scroll the page while the panel draws it
++static qboolean H9M_PageScroll( int dir )
++{
++#if XASH_WIN32
++	char js[64];
++
++	if( !motd.view || !h9m_snap )
++		return false;
++
++	Q_snprintf( js, sizeof( js ), "window.scrollBy(0,%d);", dir * 120 );
++	h9wv.Script( motd.view, js );
++	return true;
++#else
++	(void)dir;
++	return false;
 +#endif
 +}
 +
@@ -12096,8 +13054,14 @@ index 00000000..70c6a06b
 +
 +	if( page_up )
 +	{
-+		// the page's own window covers this; until it shows, the panel's colour
-+		H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
++		// the page as the game draws it (H9M_SnapDone); until the first snapshot, the panel's colour
++		if( h9m_snap )
++		{
++			ref.dllFuncs.GL_SetRenderMode( kRenderTransTexture );
++			ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
++			ref.dllFuncs.R_DrawStretchPic( px + pad, py + head, bodyw, bodyh, 0, 0, 1, 1, h9m_snap );
++		}
++		else H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
 +		motd.view_x = px + pad;
 +		motd.view_y = py + head;
 +		motd.view_w = bodyw;
@@ -12147,7 +13111,7 @@ index 00000000..70c6a06b
 +		H9M_DrawConfirm( font, W, H, pad, bh, mx, my );
 +
 +	// the pointer, where the game has it; over the page the system's own shows instead
-+	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
++	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !h9m_snap && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
 +		&& my >= motd.view_y && my < motd.view_y + motd.view_h ))
 +		H9UI_Cursor( mx, my, Q_max( 1, H / 540 ));
 +
@@ -12214,11 +13178,13 @@ index 00000000..70c6a06b
 +		break;
 +	case K_UPARROW:
 +	case K_MWHEELUP:
-+		H9M_Scroll( -1 );
++		if( !H9M_PageScroll( -1 ))
++			H9M_Scroll( -1 );
 +		break;
 +	case K_DOWNARROW:
 +	case K_MWHEELDOWN:
-+		H9M_Scroll( 1 );
++		if( !H9M_PageScroll( 1 ))
++			H9M_Scroll( 1 );
 +		break;
 +	case K_PGUP:
 +		H9M_Scroll( -Q_max( 1, motd.visible - 1 ));
@@ -12290,6 +13256,12 @@ index 00000000..70c6a06b
 +		}
 +		else if( H9M_Hit( H9M_BTN_CLOSE, mx, my ))
 +			H9M_Stop();
++#if XASH_WIN32
++		else if( H9M_PageClick( mx, my ))
++		{
++			// passed to the page
++		}
++#endif
 +		else if( motd.page[0] && !motd.view && H9M_Hit( H9M_BTN_OPEN, mx, my ))
 +			H9M_Confirm( motd.page, motd.page_host );
 +	}
@@ -12327,6 +13299,7 @@ index 00000000..70c6a06b
 +	Cvar_RegisterVariable( &cl_h9_motd );
 +#if XASH_WIN32
 +	Cvar_RegisterVariable( &cl_h9_motd_wine );
++	Cvar_RegisterVariable( &cl_h9_motd_debug );
 +#endif
 +#if XASH_EMSCRIPTEN
 +	Cmd_AddRestrictedCommand( "h9_motd_result", H9M_Result_f, "H9: the web client's answer to a splash MOTD (1 shown, 0 not shown)" );
@@ -15106,6 +16079,1301 @@ index e74a4d26..f352ff50 100644
  
  	rawchan_t *ch = S_FindRawChannel( S_RAW_SOUND_BACKGROUNDTRACK, true );
  
+diff --git a/engine/client/soundlib/snd_http.c b/engine/client/soundlib/snd_http.c
+new file mode 100644
+index 00000000..c1e125b6
+--- /dev/null
++++ b/engine/client/soundlib/snd_http.c
+@@ -0,0 +1,1272 @@
++/*
++snd_http.c - H9: internet radio, an mp3 stream over http or https on the background music channel
++
++A station is one more stream format. FS_OpenStream (snd_main.c) hands an http:// or https://
++name here before any of its file handling, and FS_ReadStream and FS_FreeStream call through
++stream->format, so the mixer plays a station the way it plays a local mp3: "mp3 play <url>"
++starts it (h9_radio.sma sends exactly that), "mp3 stop" or any other track stops it.
++
++Windows only (H9XASH). Every other build opens no station: one console line says so, and the
++music channel stays as quiet as it is for a file that cannot be opened.
++
++The rule everything here keeps: Stream_ReadHTTP hands back all it was asked for while the
++station is alive. s_stream.c ends the track when a read gives 0 bytes, so the first seconds of
++buffering, a buffer that runs dry and a reconnect are all filled with silence. A read gives 0
++only once the station is given up on and what was buffered has played: "mp3 play" then ends,
++"mp3 loop" opens the address again.
++
++Nothing blocks the game. The name is resolved on a thread of its own, the socket is
++nonblocking, and each step (connecting, TLS through net_http_tls.c with the certificate checked
++against the CA bundle when one is loaded, the request, the response, the audio) is taken from
++the read function, which the mixer calls every frame while the music channel plays.
++
++The response may be "ICY 200" or "HTTP/1.x 200"; a Content-Type, when there is one, must be
++mp3; redirects are followed up to RADIO_REDIRECT_MAX times. Icy-MetaData is not asked for, so
++the body is audio only. mpg123 decodes it in feed mode, as snd_mp3.c does for a file, into a
++ring of h9_radio_buffer seconds; it is heard once RADIO_PRIME_SECONDS are in the ring, and again
++that way after the ring runs dry. A dropped connection is made again, RADIO_RETRY_MAX times in a
++row at most; every reconnect starts from the address as given.
++
++A station whose address is loopback, private, link-local or otherwise not public is refused,
++as the splash MOTD's picture is (cl_motd.c): a server starts the radio with a console command,
++and it must not be able to make the game send requests into the player's own network.
++h9_radio_lan 1 allows those addresses, for a station on the player's LAN; a server cannot set it.
++
++Cvars: h9_radio_buffer (seconds held, 2 to 15), h9_radio_lan, h9_radio_debug.
++*/
++
++#include "soundlib.h"
++
++#if XASH_WIN32
++
++#include "net_ws_private.h"
++#include "http/net_http_tls.h"
++
++#define MPG123_PORTABLE_API 1
++#include <mpg123.h>
++
++#define RADIO_NET_CHUNK     4096           // bytes taken off the connection at a time
++#define RADIO_NET_READS     8              // reads in one frame at most
++#define RADIO_PRIME_SECONDS 2              // audio buffered before it is heard
++#define RADIO_HDR_MAX       4096           // the status line and the headers
++#define RADIO_STEP_WAIT     10.0           // seconds one step of connecting, or a silent station, may take
++#define RADIO_RETRY_WAIT    3.0            // seconds between reconnects
++#define RADIO_RETRY_MAX     5              // reconnects in a row before the station is given up on
++#define RADIO_REDIRECT_MAX  4
++#define RADIO_NOAUDIO_MAX   ( 256 * 1024 ) // body bytes without one mp3 frame: not an mp3 stream
++
++// a read or a write on the connection: bytes (0 = closed by the station), or one of these
++#define RADIO_IO_WAIT       -1             // nothing now, the next frame may have it
++#define RADIO_IO_ERROR      -2             // the connection is lost
++
++enum
++{
++	RADIO_RESOLVING = 0,
++	RADIO_CONNECTING,
++	RADIO_TLS,
++	RADIO_SENDING,
++	RADIO_HEADERS,
++	RADIO_PLAYING,
++	RADIO_RETRY,
++	RADIO_DEAD
++};
++
++// The name lookup, on a thread of its own: the stream and the thread each hold it, and whichever
++// lets go last frees it, so a stream closed during a lookup leaves the thread nothing to touch.
++typedef struct
++{
++	volatile LONG refs;
++	volatile LONG done;
++	char  host[MAX_STRING];
++	int   found;
++	struct sockaddr_storage addr;
++} radio_dns_t;
++
++typedef struct
++{
++	// the station
++	string   origin;        // the address as given; every reconnect starts here
++	string   url;           // the address now, where a redirect may have led
++	string   host;
++	string   path;          // from the first '/', the query included
++	int      port;
++	qboolean secure;
++	qboolean literal6;      // the host is an IPv6 address, bracketed in the Host header
++
++	// the connection
++	int      state;
++	int      socket;
++	tlsctx_t *tls;
++	radio_dns_t *dns;
++	struct sockaddr_storage addr;
++	double   deadline;
++	double   heard;         // when bytes last came
++	int      retries;
++	int      redirects;
++	char     request[1024];
++	int      request_len;
++	int      request_sent;
++	char     hdr[RADIO_HDR_MAX];
++	int      hdr_len;
++
++	// the decoder, fed what comes off the connection
++	mpg123_handle *mpg;
++	qboolean have_format;
++	size_t   noaudio;       // body bytes fed since the last decoded audio
++
++	// decoded 16-bit PCM in a ring of pcm_size bytes; head and tail count every byte written and read
++	byte    *pcm;
++	size_t   pcm_size;
++	size_t   pcm_head;
++	size_t   pcm_tail;
++	size_t   prime_bytes;
++	qboolean primed;
++
++	qboolean named;         // the station's name went to the console
++	byte     net[RADIO_NET_CHUNK];
++	byte     out[OUTBUF_SIZE];
++} radio_t;
++
++static CVAR_DEFINE_AUTO( h9_radio_buffer, "4", FCVAR_ARCHIVE, "H9: internet radio, the seconds of audio it holds (2 to 15)" );
++static CVAR_DEFINE_AUTO( h9_radio_lan, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: 1 lets internet radio play a station on a loopback or private address (a server cannot set it)" );
++static CVAR_DEFINE_AUTO( h9_radio_debug, "0", 0, "H9: internet radio, each step of the connection in the console" );
++
++static void Radio_Log( const char *fmt, ... ) FORMAT_CHECK( 1 );
++static void Radio_Log( const char *fmt, ... )
++{
++	char    text[1024];
++	va_list args;
++
++	if( !h9_radio_debug.value )
++		return;
++
++	va_start( args, fmt );
++	Q_vsnprintf( text, sizeof( text ), fmt, args );
++	va_end( args );
++
++	Con_Printf( "radio: %s\n", text );
++}
++
++/*
++==============================================================================
++
++	THE ADDRESS
++
++==============================================================================
++*/
++
++// "http://host[:port][/path][?query][#fragment]" or https, the host a name, an IPv4 address or a
++// bracketed IPv6 one. Nothing below space or above '~', no quotes, no user:password@.
++static qboolean Radio_ParseURL( radio_t *r, const char *url )
++{
++	const char *p, *c;
++	char  hostport[MAX_STRING];
++	char *port = NULL;
++	size_t n;
++
++	for( c = url; *c; c++ )
++	{
++		if( *c <= ' ' || *c > '~' || *c == '"' || *c == '\\' )
++			return false;
++	}
++
++	if( !Q_strnicmp( url, "https://", 8 ))
++	{
++		r->secure = true;
++		r->port = 443;
++		p = url + 8;
++	}
++	else if( !Q_strnicmp( url, "http://", 7 ))
++	{
++		r->secure = false;
++		r->port = 80;
++		p = url + 7;
++	}
++	else return false;
++
++	n = strcspn( p, "/?#" );
++
++	if( n == 0 || n >= sizeof( hostport ))
++		return false;
++
++	memcpy( hostport, p, n );
++	hostport[n] = '\0';
++
++	if( Q_strchr( hostport, '@' ))
++		return false;
++
++	r->literal6 = false;
++
++	if( hostport[0] == '[' )
++	{
++		char *close = Q_strchr( hostport, ']' );
++
++		if( !close || close == hostport + 1 )
++			return false;
++
++		*close = '\0';
++
++		if( close[1] == ':' )
++			port = close + 2;
++		else if( close[1] )
++			return false;
++
++		for( c = hostport + 1; *c; c++ )
++		{
++			if( !isxdigit( (byte)*c ) && *c != ':' && *c != '.' )
++				return false;
++		}
++
++		Q_strncpy( r->host, hostport + 1, sizeof( r->host ));
++		r->literal6 = true;
++	}
++	else
++	{
++		char *colon = Q_strchr( hostport, ':' );
++
++		if( colon )
++		{
++			*colon = '\0';
++			port = colon + 1;
++		}
++
++		if( !hostport[0] )
++			return false;
++
++		for( c = hostport; *c; c++ )
++		{
++			if( !isalnum( (byte)*c ) && *c != '-' && *c != '.' )
++				return false;
++		}
++
++		Q_strncpy( r->host, hostport, sizeof( r->host ));
++	}
++
++	if( port )
++	{
++		int value = 0;
++
++		if( !*port )
++			return false;
++
++		for( c = port; *c; c++ )
++		{
++			if( !isdigit( (byte)*c ) || ( value = value * 10 + ( *c - '0' )) > 65535 )
++				return false;
++		}
++
++		if( value < 1 )
++			return false;
++
++		r->port = value;
++	}
++
++	// the path and the query, without the fragment; a bare query gets the root path
++	p += n;
++	n = strcspn( p, "#" );
++
++	if( *p == '/' )
++	{
++		if( n >= sizeof( r->path ))
++			return false;
++
++		memcpy( r->path, p, n );
++		r->path[n] = '\0';
++	}
++	else if( *p == '?' )
++	{
++		if( n + 1 >= sizeof( r->path ))
++			return false;
++
++		r->path[0] = '/';
++		memcpy( r->path + 1, p, n );
++		r->path[n + 1] = '\0';
++	}
++	else Q_strncpy( r->path, "/", sizeof( r->path ));
++
++	return true;
++}
++
++// the same rules as the engine's HTTP client gives a request that wants public addresses only
++// (net_http_xash.c, HTTP_PublicAddress)
++static qboolean Radio_PublicIPv4( const byte *a )
++{
++	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
++		return false; // this network, private, loopback, multicast, reserved, broadcast
++	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
++		return false; // 100.64.0.0/10, carrier-grade NAT
++	if( a[0] == 169 && a[1] == 254 )
++		return false; // link-local
++	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
++		return false; // 172.16.0.0/12
++	if( a[0] == 192 && a[1] == 168 )
++		return false;
++	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
++		return false; // IETF protocol assignments, TEST-NET-1
++	if( a[0] == 192 && a[1] == 88 && a[2] == 99 )
++		return false; // the old 6to4 relay anycast
++	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
++		return false; // 198.18.0.0/15, benchmarking
++	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
++		return false; // TEST-NET-2
++	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
++		return false; // TEST-NET-3
++	return true;
++}
++
++static qboolean Radio_PublicAddress( const struct sockaddr_storage *addr )
++{
++	if( addr->ss_family == AF_INET )
++		return Radio_PublicIPv4( (const byte *)&((const struct sockaddr_in *)addr )->sin_addr );
++
++	if( addr->ss_family == AF_INET6 )
++	{
++		const byte *a = (const byte *)&((const struct sockaddr_in6 *)addr )->sin6_addr;
++		static const byte mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
++		static const byte nat64[12] = { 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 };
++
++		if( !memcmp( a, mapped, 12 ) || !memcmp( a, nat64, 12 ))
++			return Radio_PublicIPv4( a + 12 );
++		if( a[0] == 0x20 && a[1] == 0x02 )
++			return Radio_PublicIPv4( a + 2 ); // 6to4
++		if(( a[0] & 0xe0 ) != 0x20 )
++			return false; // not global unicast: loopback, ULA, link-local, multicast and the rest
++		if( a[0] == 0x20 && a[1] == 0x01 && (( a[2] == 0x0d && a[3] == 0xb8 ) || ( a[2] == 0 && a[3] == 0 ) || ( a[2] == 0 && ( a[3] & 0xf0 ) == 0x10 )))
++			return false; // documentation, Teredo, ORCHID
++		return true;
++	}
++
++	return false;
++}
++
++/*
++==============================================================================
++
++	THE CONNECTION
++
++==============================================================================
++*/
++
++static DWORD WINAPI Radio_DNSThread( LPVOID arg )
++{
++	radio_dns_t *job = arg;
++	struct addrinfo hints, *res = NULL, *ai, *pick = NULL;
++
++	memset( &hints, 0, sizeof( hints ));
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_protocol = IPPROTO_TCP;
++
++	if( !getaddrinfo( job->host, NULL, &hints, &res ))
++	{
++		// an IPv4 address when the name has one: a broken IPv6 route is the commoner failure
++		for( ai = res; ai; ai = ai->ai_next )
++		{
++			if( ai->ai_family == AF_INET && ai->ai_addrlen <= sizeof( job->addr ))
++			{
++				pick = ai;
++				break;
++			}
++
++			if( !pick && ai->ai_family == AF_INET6 && ai->ai_addrlen <= sizeof( job->addr ))
++				pick = ai;
++		}
++
++		if( pick )
++		{
++			memcpy( &job->addr, pick->ai_addr, pick->ai_addrlen );
++			job->found = true;
++		}
++
++		freeaddrinfo( res );
++	}
++
++	InterlockedExchange( &job->done, 1 );
++
++	if( !InterlockedDecrement( &job->refs ))
++		free( job );
++
++	return 0;
++}
++
++static void Radio_DropDNS( radio_t *r )
++{
++	if( r->dns && !InterlockedDecrement( &r->dns->refs ))
++		free( r->dns );
++
++	r->dns = NULL;
++}
++
++static void Radio_Close( radio_t *r )
++{
++	if( r->tls )
++	{
++		HTTP_TlsFree( r->tls );
++		r->tls = NULL;
++	}
++
++	if( NET_IsSocketValid( r->socket ))
++		closesocket( r->socket );
++
++	r->socket = (int)INVALID_SOCKET;
++	Radio_DropDNS( r );
++	r->hdr_len = 0;
++	r->request_sent = 0;
++}
++
++// the station is given up on: what is buffered plays out, then the track ends
++static void Radio_GiveUp( radio_t *r, const char *why )
++{
++	Con_Printf( S_ERROR "radio: %s: %s\n", r->origin, why );
++	Radio_Close( r );
++	r->state = RADIO_DEAD;
++}
++
++// a connection that failed or dropped is made again after a pause, a few times in a row
++static void Radio_Lost( radio_t *r, const char *why )
++{
++	Radio_Close( r );
++
++	if( ++r->retries > RADIO_RETRY_MAX )
++	{
++		Radio_GiveUp( r, why );
++		return;
++	}
++
++	Con_Printf( "radio: %s; trying again in %d seconds (%d of %d)\n", why, (int)RADIO_RETRY_WAIT, r->retries, RADIO_RETRY_MAX );
++	r->state = RADIO_RETRY;
++	r->deadline = host.realtime + RADIO_RETRY_WAIT;
++}
++
++static void Radio_Step( radio_t *r, int state )
++{
++	r->state = state;
++	r->deadline = host.realtime + RADIO_STEP_WAIT;
++}
++
++// the lookup of r->host begins (connecting from the start, or after a redirect)
++static void Radio_Resolve( radio_t *r )
++{
++	radio_dns_t *job;
++	HANDLE thread;
++
++	Radio_Close( r );
++	Radio_Step( r, RADIO_RESOLVING );
++	Radio_Log( "looking up %s", r->host );
++
++	job = calloc( 1, sizeof( *job ));
++
++	if( !job )
++	{
++		Radio_Lost( r, "out of memory" );
++		return;
++	}
++
++	Q_strncpy( job->host, r->host, sizeof( job->host ));
++	job->refs = 2;
++	r->dns = job;
++
++	thread = CreateThread( NULL, 0, Radio_DNSThread, job, 0, NULL );
++
++	if( !thread )
++	{
++		job->refs = 1;
++		Radio_Lost( r, "the name lookup could not be started" );
++		return;
++	}
++
++	CloseHandle( thread );
++}
++
++static void Radio_Begin( radio_t *r )
++{
++	r->redirects = 0;
++	Radio_ParseURL( r, r->origin );
++	Q_strncpy( r->url, r->origin, sizeof( r->url ));
++	Radio_Resolve( r );
++}
++
++static void Radio_StepResolve( radio_t *r )
++{
++	int err;
++
++	if( !r->dns )
++	{
++		Radio_Lost( r, "the name lookup was lost" );
++		return;
++	}
++
++	if( !InterlockedCompareExchange( &r->dns->done, 0, 0 ))
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station's name took too long to look up" );
++		return;
++	}
++
++	if( !r->dns->found )
++	{
++		Radio_Lost( r, va( "%s could not be found", r->host ));
++		return;
++	}
++
++	r->addr = r->dns->addr;
++	Radio_DropDNS( r );
++
++	if( r->addr.ss_family == AF_INET )
++		((struct sockaddr_in *)&r->addr )->sin_port = htons( (u_short)r->port );
++	else ((struct sockaddr_in6 *)&r->addr )->sin6_port = htons( (u_short)r->port );
++
++	if( !h9_radio_lan.value && !Radio_PublicAddress( &r->addr ))
++	{
++		Radio_GiveUp( r, va( "%s is a loopback or private address, which a station may not use (h9_radio_lan 1 allows it)", r->host ));
++		return;
++	}
++
++	r->socket = (int)socket( r->addr.ss_family, SOCK_STREAM, IPPROTO_TCP );
++
++	if( !NET_IsSocketValid( r->socket ))
++	{
++		Radio_Lost( r, va( "socket() failed: %s", NET_ErrorString( )));
++		return;
++	}
++
++	if( !NET_MakeSocketNonBlocking( r->socket ))
++	{
++		Radio_Lost( r, va( "the socket could not be made nonblocking: %s", NET_ErrorString( )));
++		return;
++	}
++
++	Radio_Log( "connecting to %s port %d%s", r->host, r->port, r->secure ? ", https" : "" );
++
++	if( NET_IsSocketError( connect( r->socket, (struct sockaddr *)&r->addr, NET_SockAddrLen( &r->addr ))))
++	{
++		err = WSAGetLastError();
++
++		if( err != WSAEWOULDBLOCK && err != WSAEINPROGRESS )
++		{
++			Radio_Lost( r, va( "the station could not be reached: %s", NET_ErrorString( )));
++			return;
++		}
++	}
++
++	Radio_Step( r, RADIO_CONNECTING );
++}
++
++static void Radio_BuildRequest( radio_t *r )
++{
++	char hosthdr[MAX_STRING + 16];
++	const qboolean default_port = r->port == ( r->secure ? 443 : 80 );
++
++	if( r->literal6 )
++		Q_snprintf( hosthdr, sizeof( hosthdr ), default_port ? "[%s]" : "[%s]:%d", r->host, r->port );
++	else Q_snprintf( hosthdr, sizeof( hosthdr ), default_port ? "%s" : "%s:%d", r->host, r->port );
++
++	// HTTP/1.0 and Connection: close, so the body is the plain stream with no chunking
++	r->request_len = Q_snprintf( r->request, sizeof( r->request ),
++		"GET %s HTTP/1.0\r\n"
++		"Host: %s\r\n"
++		"User-Agent: %s/%s\r\n"
++		"Accept: audio/mpeg, */*\r\n"
++		"Icy-MetaData: 0\r\n"
++		"Connection: close\r\n"
++		"\r\n",
++		r->path, hosthdr, XASH_ENGINE_NAME, XASH_VERSION );
++
++	if( r->request_len < 0 || r->request_len >= (int)sizeof( r->request ))
++		r->request_len = 0;
++
++	r->request_sent = 0;
++}
++
++static void Radio_StepConnect( radio_t *r )
++{
++	fd_set wr, ex;
++	struct timeval tv = { 0, 0 };
++	int err = 0;
++	socklen_t len = sizeof( err );
++
++	FD_ZERO( &wr );
++	FD_ZERO( &ex );
++	FD_SET( r->socket, &wr );
++	FD_SET( r->socket, &ex );
++
++	if( select( 0, NULL, &wr, &ex, &tv ) < 0 )
++	{
++		Radio_Lost( r, va( "select() failed: %s", NET_ErrorString( )));
++		return;
++	}
++
++	if( !FD_ISSET( r->socket, &wr ) && !FD_ISSET( r->socket, &ex ))
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station did not answer" );
++		return;
++	}
++
++	if( NET_IsSocketError( getsockopt( r->socket, SOL_SOCKET, SO_ERROR, (char *)&err, &len )) || err != 0 )
++	{
++		Radio_Lost( r, "the station refused the connection" );
++		return;
++	}
++
++	if( r->secure )
++	{
++		r->tls = HTTP_TlsNew( r->socket, r->host );
++
++		if( !r->tls )
++		{
++			Radio_GiveUp( r, "TLS could not be set up" );
++			return;
++		}
++
++		Radio_Step( r, RADIO_TLS );
++		return;
++	}
++
++	Radio_BuildRequest( r );
++	Radio_Step( r, RADIO_SENDING );
++}
++
++static void Radio_StepTLS( radio_t *r )
++{
++	int ret = HTTP_TlsHandshake( r->tls );
++
++	if( ret == HTTP_TLS_OK )
++	{
++		Radio_BuildRequest( r );
++		Radio_Step( r, RADIO_SENDING );
++	}
++	else if( ret == HTTP_TLS_ERROR )
++	{
++		// most often a station that does not send its intermediate certificate: browsers fetch
++		// the missing one themselves, mbedTLS (like curl) does not
++		Radio_GiveUp( r, "the TLS handshake failed (a station that does not send its whole certificate chain fails this way: try its http:// address)" );
++	}
++	else if( host.realtime > r->deadline )
++		Radio_Lost( r, "the TLS handshake took too long" );
++}
++
++static int Radio_Send( radio_t *r, const void *buf, int len )
++{
++	int n;
++
++	if( r->tls )
++	{
++		n = HTTP_TlsSend( r->tls, buf, len );
++
++		if( n >= 0 )
++			return n;
++
++		return n == HTTP_TLS_WANT ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++	}
++
++	n = send( r->socket, buf, len, 0 );
++
++	if( !NET_IsSocketError( n ))
++		return n;
++
++	n = WSAGetLastError();
++	return ( n == WSAEWOULDBLOCK || n == WSAENOTCONN ) ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++}
++
++static int Radio_Recv( radio_t *r, void *buf, int len )
++{
++	int n;
++
++	if( r->tls )
++	{
++		n = HTTP_TlsRecv( r->tls, buf, len );
++
++		if( n >= 0 )
++			return n;
++
++		return n == HTTP_TLS_WANT ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++	}
++
++	n = recv( r->socket, buf, len, 0 );
++
++	if( !NET_IsSocketError( n ))
++		return n;
++
++	n = WSAGetLastError();
++	return n == WSAEWOULDBLOCK ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++}
++
++static void Radio_StepSend( radio_t *r )
++{
++	int n;
++
++	if( !r->request_len )
++	{
++		Radio_GiveUp( r, "the address is too long for a request" );
++		return;
++	}
++
++	n = Radio_Send( r, r->request + r->request_sent, r->request_len - r->request_sent );
++
++	if( n > 0 )
++	{
++		r->request_sent += n;
++
++		if( r->request_sent >= r->request_len )
++		{
++			Radio_Step( r, RADIO_HEADERS );
++			r->heard = host.realtime;
++		}
++	}
++	else if( n == RADIO_IO_ERROR )
++		Radio_Lost( r, "the request could not be sent" );
++	else if( host.realtime > r->deadline )
++		Radio_Lost( r, "the request could not be sent in time" );
++}
++
++/*
++==============================================================================
++
++	THE AUDIO
++
++==============================================================================
++*/
++
++static size_t Radio_Avail( const radio_t *r )
++{
++	return r->pcm_head - r->pcm_tail;
++}
++
++// a full ring drops its oldest audio: the mixer is behind, and the station does not wait
++static void Radio_RingWrite( radio_t *r, const byte *data, size_t len )
++{
++	size_t at, first;
++
++	if( !r->pcm || !len )
++		return;
++
++	if( len > r->pcm_size )
++	{
++		data += len - r->pcm_size;
++		len = r->pcm_size;
++	}
++
++	at = r->pcm_head % r->pcm_size;
++	first = Q_min( len, r->pcm_size - at );
++	memcpy( r->pcm + at, data, first );
++	memcpy( r->pcm, data + first, len - first );
++	r->pcm_head += len;
++
++	if( Radio_Avail( r ) > r->pcm_size )
++		r->pcm_tail = r->pcm_head - r->pcm_size;
++}
++
++static size_t Radio_RingRead( radio_t *r, byte *out, size_t len )
++{
++	size_t at, first;
++
++	if( !r->pcm )
++		return 0;
++
++	len = Q_min( len, Radio_Avail( r ));
++	at = r->pcm_tail % r->pcm_size;
++	first = Q_min( len, r->pcm_size - at );
++	memcpy( out, r->pcm + at, first );
++	memcpy( out + first, r->pcm, len - first );
++	r->pcm_tail += len;
++
++	return len;
++}
++
++// the decoder found the stream's format: the ring is made for it (again, when it changed)
++static qboolean Radio_Format( stream_t *stream, radio_t *r )
++{
++	long rate;
++	int  channels, encoding;
++	size_t frame;
++
++	if( mpg123_getformat( r->mpg, &rate, &channels, &encoding ) != MPG123_OK )
++		return false;
++
++	// 16-bit output, as snd_mp3.c asks for it; the decoder reports the format again once set
++	if( encoding != MPG123_ENC_SIGNED_16 )
++	{
++		mpg123_format_none( r->mpg );
++		mpg123_format( r->mpg, rate, channels, MPG123_ENC_SIGNED_16 );
++		return true;
++	}
++
++	if( rate < 8000 || rate > 96000 || channels < 1 || channels > 2 )
++		return false;
++
++	if( !r->have_format || rate != stream->rate || channels != stream->channels )
++	{
++		frame = (size_t)channels * 2;
++
++		if( r->pcm )
++			Mem_Free( r->pcm );
++
++		r->pcm_size = (size_t)rate * frame * bound( 2, (int)h9_radio_buffer.value, 15 );
++		r->prime_bytes = (size_t)rate * frame * RADIO_PRIME_SECONDS;
++		r->pcm = Mem_Calloc( host.soundpool, r->pcm_size );
++		r->pcm_head = r->pcm_tail = 0;
++		r->primed = false;
++
++		stream->rate = rate;
++		stream->channels = channels;
++		stream->width = 2;
++
++		Radio_Log( "%d Hz, %d channel(s), %d seconds held", (int)rate, channels, (int)( r->pcm_size / ( rate * frame )));
++	}
++
++	r->have_format = true;
++	return true;
++}
++
++// raw bytes from the station into the decoder, and every bit of audio it gives back into the ring
++static void Radio_Decode( stream_t *stream, radio_t *r, const byte *data, size_t len )
++{
++	r->noaudio += len;
++
++	for( ;; )
++	{
++		size_t done = 0;
++		int ret = mpg123_decode( r->mpg, data, len, r->out, sizeof( r->out ), &done );
++
++		// the input goes in once; the loop takes out what it decodes to
++		data = NULL;
++		len = 0;
++
++		if( done > 0 && r->have_format )
++		{
++			Radio_RingWrite( r, r->out, done );
++			r->noaudio = 0;
++		}
++
++		if( ret == MPG123_NEW_FORMAT )
++		{
++			if( !Radio_Format( stream, r ))
++			{
++				Radio_GiveUp( r, "the stream's audio format cannot be played" );
++				return;
++			}
++			continue;
++		}
++
++		if( ret == MPG123_OK && done > 0 )
++			continue;
++
++		if( ret == MPG123_ERR )
++		{
++			// a decoder that lost its footing starts over on the next bytes
++			Radio_Log( "the decoder stopped (%s); it starts again", mpg123_strerror( r->mpg ));
++			mpg123_open_feed( r->mpg );
++		}
++
++		break;
++	}
++
++	if( r->noaudio > RADIO_NOAUDIO_MAX )
++	{
++		Radio_GiveUp( r, "no mp3 audio came from it: only mp3 stations can be played" );
++		return;
++	}
++
++	if( !r->primed && r->pcm && Radio_Avail( r ) >= r->prime_bytes )
++	{
++		r->primed = true;
++		r->retries = 0; // audio came: the next drop is a first one again
++		Radio_Log( "buffered, playing" );
++	}
++}
++
++// a header's value, from a block of headers ending at a blank line; empty when absent
++static void Radio_Header( const char *hdr, const char *name, char *out, size_t size )
++{
++	size_t namelen = Q_strlen( name );
++	const char *line = hdr;
++	size_t n = 0;
++
++	out[0] = '\0';
++
++	while(( line = Q_strchr( line, '\n' )) != NULL )
++	{
++		line++;
++
++		if( Q_strnicmp( line, name, namelen ) || line[namelen] != ':' )
++			continue;
++
++		line += namelen + 1;
++
++		while( *line == ' ' || *line == '\t' )
++			line++;
++
++		while( line[n] && line[n] != '\r' && line[n] != '\n' && n + 1 < size )
++		{
++			out[n] = ( line[n] < ' ' || line[n] > '~' ) ? ' ' : line[n];
++			n++;
++		}
++
++		out[n] = '\0';
++		return;
++	}
++}
++
++// the media types an mp3 stream comes as; a playlist (audio/x-mpegurl, audio/x-scpls) is not one
++static qboolean Radio_MP3Type( const char *type )
++{
++	static const char *const mp3[] =
++	{
++		"audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg", "audio/x-mp3", "audio/x-mpeg-3", "application/octet-stream"
++	};
++	size_t n = strcspn( type, "; " );
++
++	for( size_t i = 0; i < ARRAYSIZE( mp3 ); i++ )
++	{
++		if( Q_strlen( mp3[i] ) == n && !Q_strnicmp( type, mp3[i], n ))
++			return true;
++	}
++
++	return false;
++}
++
++// a redirect's Location: an absolute http(s) address, or a path on the same station
++static qboolean Radio_Redirect( radio_t *r, const char *location )
++{
++	string next;
++
++	if( location[0] == '/' && location[1] != '/' )
++	{
++		if( r->literal6 )
++			Q_snprintf( next, sizeof( next ), "%s://[%s]:%d%s", r->secure ? "https" : "http", r->host, r->port, location );
++		else Q_snprintf( next, sizeof( next ), "%s://%s:%d%s", r->secure ? "https" : "http", r->host, r->port, location );
++	}
++	else Q_strncpy( next, location, sizeof( next ));
++
++	if( !Radio_ParseURL( r, next ))
++		return false;
++
++	Q_strncpy( r->url, next, sizeof( r->url ));
++	Radio_Log( "redirected to %s", r->url );
++	Radio_Resolve( r );
++	return true;
++}
++
++// the response's headers are all here: 1 the audio follows, 0 the station is given up on or a redirect began
++static int Radio_Response( radio_t *r )
++{
++	char value[MAX_STRING];
++	const char *sp;
++	int code = 0;
++
++	if( !Q_strnicmp( r->hdr, "ICY ", 4 ))
++		code = Q_atoi( r->hdr + 4 );
++	else if( !Q_strnicmp( r->hdr, "HTTP/", 5 ) && ( sp = Q_strchr( r->hdr, ' ' )) != NULL )
++		code = Q_atoi( sp + 1 );
++
++	Radio_Log( "the station answered %d", code );
++
++	if( code == 301 || code == 302 || code == 303 || code == 307 || code == 308 )
++	{
++		Radio_Header( r->hdr, "Location", value, sizeof( value ));
++
++		if( !value[0] )
++			Radio_GiveUp( r, "a redirect with no address" );
++		else if( ++r->redirects > RADIO_REDIRECT_MAX )
++			Radio_GiveUp( r, "too many redirects" );
++		else if( !Radio_Redirect( r, value ))
++			Radio_GiveUp( r, "it redirects to an address that cannot be played" );
++
++		return 0;
++	}
++
++	if( code != 200 )
++	{
++		Radio_GiveUp( r, code ? va( "the station answered %d", code ) : "the station's answer could not be read" );
++		return 0;
++	}
++
++	Radio_Header( r->hdr, "Content-Type", value, sizeof( value ));
++
++	if( value[0] && !Radio_MP3Type( value ))
++	{
++		Radio_GiveUp( r, va( "the stream is %s, and only mp3 stations can be played", value ));
++		return 0;
++	}
++
++	if( !r->named )
++	{
++		Radio_Header( r->hdr, "icy-name", value, sizeof( value ));
++		Con_Printf( "radio: playing %s\n", value[0] ? value : r->origin );
++		r->named = true;
++	}
++
++	return 1;
++}
++
++static void Radio_StepHeaders( stream_t *stream, radio_t *r )
++{
++	char *end;
++	int n, body;
++
++	n = Radio_Recv( r, r->hdr + r->hdr_len, sizeof( r->hdr ) - 1 - r->hdr_len );
++
++	if( n == RADIO_IO_WAIT )
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station did not answer the request" );
++		return;
++	}
++
++	if( n <= 0 )
++	{
++		Radio_Lost( r, "the station closed the connection" );
++		return;
++	}
++
++	r->hdr_len += n;
++	r->hdr[r->hdr_len] = '\0';
++
++	if(( end = Q_strstr( r->hdr, "\r\n\r\n" )) != NULL )
++		body = ( end + 4 ) - r->hdr;
++	else if(( end = Q_strstr( r->hdr, "\n\n" )) != NULL )
++		body = ( end + 2 ) - r->hdr;
++	else
++	{
++		if( r->hdr_len >= (int)sizeof( r->hdr ) - 1 )
++			Radio_GiveUp( r, "the station's answer is too long" );
++		return;
++	}
++
++	// the headers alone, for Radio_Header; the audio after them is kept apart first
++	memcpy( r->net, r->hdr + body, r->hdr_len - body );
++	n = r->hdr_len - body;
++	*end = '\0';
++
++	if( !Radio_Response( r ))
++		return;
++
++	mpg123_open_feed( r->mpg ); // a new connection is a new stream for the decoder
++	r->noaudio = 0;
++	r->heard = host.realtime;
++	r->state = RADIO_PLAYING;
++
++	if( n > 0 )
++		Radio_Decode( stream, r, r->net, n );
++}
++
++static void Radio_StepPlay( stream_t *stream, radio_t *r )
++{
++	for( int i = 0; i < RADIO_NET_READS && r->state == RADIO_PLAYING; i++ )
++	{
++		int n = Radio_Recv( r, r->net, sizeof( r->net ));
++
++		if( n > 0 )
++		{
++			r->heard = host.realtime;
++			Radio_Decode( stream, r, r->net, n );
++			continue;
++		}
++
++		if( n == RADIO_IO_WAIT )
++		{
++			if( host.realtime - r->heard > RADIO_STEP_WAIT )
++				Radio_Lost( r, "the station went silent" );
++		}
++		else Radio_Lost( r, "the station dropped the stream" );
++
++		break;
++	}
++}
++
++// one step of the connection, from the read function
++static void Radio_Pump( stream_t *stream, radio_t *r )
++{
++	switch( r->state )
++	{
++	case RADIO_RESOLVING:
++		Radio_StepResolve( r );
++		break;
++	case RADIO_CONNECTING:
++		Radio_StepConnect( r );
++		break;
++	case RADIO_TLS:
++		Radio_StepTLS( r );
++		break;
++	case RADIO_SENDING:
++		Radio_StepSend( r );
++		break;
++	case RADIO_HEADERS:
++		Radio_StepHeaders( stream, r );
++		break;
++	case RADIO_PLAYING:
++		Radio_StepPlay( stream, r );
++		break;
++	case RADIO_RETRY:
++		if( host.realtime >= r->deadline )
++			Radio_Begin( r );
++		break;
++	default:
++		break;
++	}
++}
++
++/*
++==============================================================================
++
++	THE STREAM FORMAT
++
++==============================================================================
++*/
++
++// all of needBytes, silence where there is no audio yet, while the station is alive
++static int Stream_ReadHTTP( stream_t *stream, int needBytes, void *buffer )
++{
++	radio_t *r = stream->ptr;
++	size_t got = 0;
++
++	if( !r || needBytes <= 0 )
++		return 0;
++
++	Radio_Pump( stream, r );
++
++	if( r->state == RADIO_DEAD )
++		return (int)Radio_RingRead( r, buffer, needBytes );
++
++	if( r->primed )
++		got = Radio_RingRead( r, buffer, needBytes );
++
++	if( got < (size_t)needBytes )
++	{
++		memset( (byte *)buffer + got, 0, needBytes - got );
++
++		if( r->primed )
++		{
++			r->primed = false;
++			Radio_Log( "the buffer ran dry: buffering again" );
++		}
++	}
++
++	return needBytes;
++}
++
++// a live station has no position and does not seek
++static int Stream_SetPosHTTP( stream_t *stream, int newpos )
++{
++	return false;
++}
++
++static int Stream_GetPosHTTP( stream_t *stream )
++{
++	return 0;
++}
++
++static void Stream_FreeHTTP( stream_t *stream )
++{
++	radio_t *r = stream->ptr;
++
++	if( r )
++	{
++		Radio_Close( r );
++
++		if( r->mpg )
++			mpg123_delete( r->mpg );
++
++		if( r->pcm )
++			Mem_Free( r->pcm );
++
++		Mem_Free( r );
++	}
++
++	Mem_Free( stream );
++}
++
++static const streamfmt_t stream_http =
++{
++	"http", Stream_OpenHTTP, Stream_ReadHTTP, Stream_SetPosHTTP, Stream_GetPosHTTP, Stream_FreeHTTP
++};
++
++/*
++=================
++Stream_OpenHTTP
++
++returns at once: the connection is made from the read function, and the mixer hears silence
++until RADIO_PRIME_SECONDS of the station are buffered
++=================
++*/
++stream_t *Stream_OpenHTTP( const char *url )
++{
++	stream_t *stream;
++	radio_t *r;
++	int err = 0;
++
++	r = Mem_Calloc( host.soundpool, sizeof( *r ));
++	r->socket = (int)INVALID_SOCKET;
++
++	if( Q_strlen( url ) >= sizeof( r->origin ) || !Radio_ParseURL( r, url ))
++	{
++		Con_Printf( S_ERROR "radio: %s is not an address a station can have (http:// or https://, a host name, a port and a path)\n", url );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	if( r->secure && !HTTP_TlsAvailable( ))
++	{
++		Con_Printf( S_ERROR "radio: TLS is not available, so an https station cannot be played: %s\n", url );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	r->mpg = mpg123_new( NULL, &err );
++
++	if( !r->mpg )
++	{
++		Con_Printf( S_ERROR "radio: the mp3 decoder could not be made: %s\n", mpg123_plain_strerror( err ));
++		Mem_Free( r );
++		return NULL;
++	}
++
++	mpg123_param2( r->mpg, MPG123_FLAGS, MPG123_QUIET, 0.0 );
++
++	if( mpg123_open_feed( r->mpg ) != MPG123_OK )
++	{
++		Con_Printf( S_ERROR "radio: the mp3 decoder could not be opened: %s\n", mpg123_strerror( r->mpg ));
++		mpg123_delete( r->mpg );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	Q_strncpy( r->origin, url, sizeof( r->origin ));
++
++	stream = Mem_Calloc( host.soundpool, sizeof( *stream ));
++	stream->format = &stream_http;
++	stream->ptr = r;
++	stream->type = WF_MPGDATA;
++
++	// until the first frame says otherwise
++	stream->rate = 44100;
++	stream->channels = 2;
++	stream->width = 2;
++
++	Con_Printf( "radio: tuning in to %s\n", url );
++	Radio_Begin( r );
++
++	return stream;
++}
++
++void Stream_HTTPInit( void )
++{
++	Cvar_RegisterVariable( &h9_radio_buffer );
++	Cvar_RegisterVariable( &h9_radio_lan );
++	Cvar_RegisterVariable( &h9_radio_debug );
++}
++
++#else // !XASH_WIN32
++
++stream_t *Stream_OpenHTTP( const char *url )
++{
++	Con_Printf( "radio: internet radio is not available in this build: %s\n", url );
++	return NULL;
++}
++
++void Stream_HTTPInit( void )
++{
++}
++
++#endif // !XASH_WIN32
+diff --git a/engine/client/soundlib/snd_main.c b/engine/client/soundlib/snd_main.c
+index 5daf0676..1526583e 100644
+--- a/engine/client/soundlib/snd_main.c
++++ b/engine/client/soundlib/snd_main.c
+@@ -163,6 +163,12 @@ stream_t *FS_OpenStream( const char *filename )
+ 	stream_t		*stream = NULL;
+ 
+ 	Sound_Reset(); // clear old streaminfo
++
++	// H9: an http:// or https:// address is an internet radio station (snd_http.c); it is opened
++	// before the extension and media/ handling below, which would take the address apart
++	if( !Q_strnicmp( filename, "http://", 7 ) || !Q_strnicmp( filename, "https://", 8 ))
++		return Stream_OpenHTTP( filename );
++
+ 	Q_strncpy( loadname, filename, sizeof( loadname ));
+ 
+ 	if( !COM_StringEmpty( ext ))
 diff --git a/engine/client/vgui/vgui_draw.c b/engine/client/vgui/vgui_draw.c
 index e57f5612..07cf0061 100644
 --- a/engine/client/vgui/vgui_draw.c
@@ -16513,6 +18781,34 @@ index ac16815e..821e0a43 100644
  #define LAST_GOLDSRC_EDICT        ( BIT( MAX_ENTITY_BITS ) - 1 )
  
  // Master Server protocol
+diff --git a/engine/common/soundlib/snd_utils.c b/engine/common/soundlib/snd_utils.c
+index 19a74e2b..595fea38 100644
+--- a/engine/common/soundlib/snd_utils.c
++++ b/engine/common/soundlib/snd_utils.c
+@@ -74,6 +74,10 @@ void Sound_Init( void )
+ 	sound.streamformat = stream_game;
+ 
+ 	sound.tempbuffer = NULL;
++
++#ifndef XASH_DEDICATED
++	Stream_HTTPInit(); // H9: internet radio's cvars (snd_http.c)
++#endif
+ }
+ 
+ void Sound_Shutdown( void )
+diff --git a/engine/common/soundlib/soundlib.h b/engine/common/soundlib/soundlib.h
+index 0e20c8c7..5cc6d532 100644
+--- a/engine/common/soundlib/soundlib.h
++++ b/engine/common/soundlib/soundlib.h
+@@ -144,4 +144,8 @@ int Stream_SetPosOggOpus( stream_t *stream, int newpos );
+ int Stream_GetPosOggOpus( stream_t *stream );
+ void Stream_FreeOggOpus( stream_t *stream );
+ 
++// H9: internet radio, an mp3 station over http or https (client/soundlib/snd_http.c)
++stream_t *Stream_OpenHTTP( const char *url );
++void Stream_HTTPInit( void );
++
+ #endif//SOUNDLIB_H
 diff --git a/engine/common/sys_con.c b/engine/common/sys_con.c
 index b4e5bb26..bacf1ef6 100644
 --- a/engine/common/sys_con.c

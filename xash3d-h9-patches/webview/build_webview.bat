@@ -47,7 +47,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 cl /nologo /LD /O2 /MT /EHsc /std:c++17 /W3 /GS /guard:cf /DUNICODE /D_UNICODE /DNDEBUG ^
    /I"%SDK%\include" /I"%HERE%." "%HERE%h9webview.cpp" /Fo"%OUT%\\" /Fe"%OUT%\h9webview.dll" ^
    /link /NOLOGO /DLL /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT /GUARD:CF ^
-   "%SDK%\x86\WebView2LoaderStatic.lib" urlmon.lib ole32.lib oleaut32.lib advapi32.lib user32.lib shell32.lib version.lib ws2_32.lib || exit /b 1
+   "%SDK%\x86\WebView2LoaderStatic.lib" urlmon.lib ole32.lib oleaut32.lib advapi32.lib user32.lib shell32.lib version.lib ws2_32.lib windowscodecs.lib uuid.lib || exit /b 1
 if not exist "%OUT%\h9webview.dll" exit /b 1
 
 REM The .patch beside the DLL, as every DLL H9XASH builds from source carries: what it is,

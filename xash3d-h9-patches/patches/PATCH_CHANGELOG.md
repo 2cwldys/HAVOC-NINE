@@ -2067,3 +2067,105 @@ out an intermediate certificate need it in valve\cacert-extra.pem (docs\RADIO.tx
 Needs the next engine build (xash.dll); the browser build takes the stub at the next
 webclient-sync.
 
+### 2026-11-19 -- engine-h9-motdclip.patch: the splash page shows over a drawing game
+
+The splash MOTD's web page is a WebView2 child window of the game's window. In full screen and in
+borderless full screen it stayed hidden until the player alt-tabbed out: the game draws its whole
+window every frame, and without WS_CLIPCHILDREN that drawing covers the child. The page only showed
+once the game stopped drawing.
+
+- engine/client/cl_motd.c: just before the page is attached, the game window is given
+  WS_CLIPCHILDREN and WS_CLIPSIBLINGS when it lacks them, with SWP_FRAMECHANGED so the new styles
+  take effect. Microsoft's guidance is that an OpenGL window carries both; with them Windows keeps a
+  child out of its parent's drawing. Windows only, inside the existing XASH_WIN32 block; nothing
+  changes for a game that never shows a page.
+
+Cut from the scratch tree (pristine e8d773ea plus the 51 engine patches); reverse-checks there and
+forward-checks against TSM\xash3d-fwgs. Applied after engine-h9-radio.patch; its name is bare on the
+xash.dll :dllpatch line. Needs the next engine build (xash.dll).
+
+### 2026-11-19 -- engine-h9-motdpopup.patch: the splash page in its own window over the panel
+
+engine-h9-motdclip.patch was not enough: with WS_CLIPCHILDREN on the game window the page still
+showed only once the player alt-tabbed out, in full screen and in borderless full screen alike.
+So the page no longer lives inside the game window.
+
+- engine/client/cl_motd.c: the page is hosted in a borderless popup that the game window owns
+  (H9M_PopupMake), created when the page opens and destroyed when it closes (H9M_ViewClose, and a
+  failed open). Every frame H9M_ViewSync puts the popup over the panel's body, converting render
+  coordinates to the game window's client pixels and then to the screen, and gives the page the
+  popup's whole client area; it moves the popup only when that rectangle changed. An owned window
+  always sits above its owner and Windows composites it on its own, so the game's drawing cannot
+  cover it. WS_EX_NOACTIVATE keeps the game the active window: clicks reach the page, keys (ESC)
+  still reach the game. If the popup cannot be made, the page goes in the game window as a child,
+  as before. Windows only, inside the existing XASH_WIN32 blocks; h9webview.dll is unchanged.
+
+Cut from the scratch tree on top of the chain plus engine-h9-radio.patch and engine-h9-motdclip.patch;
+reverse-checks there and forward-checks against TSM\xash3d-fwgs. Applied after
+engine-h9-motdclip.patch, name bare on the xash.dll :dllpatch line; the consolemusic description on
+that line was shortened to keep it under cmd.exe's 8191 characters. Needs the next engine build.
+
+### 2026-11-19 -- engine-h9-motd.patch: the clip styles and the popup folded in
+
+engine-h9-motdclip.patch and engine-h9-motdpopup.patch are gone; their changes are now part of
+engine-h9-motd.patch. cl_motd.c is a NEW file of engine-h9-motd.patch, one hunk over the whole file,
+so any later patch that edits it makes engine-h9-motd.patch fail its "in place" check on the next
+build: the motdclip build applied, and the build after it stopped with "engine-h9-motd.patch does
+not apply". This is the trap docs\ADD_AN_ENGINE_CHANGE.txt names in section 6, and the fix is the
+one it gives: fold into one patch.
+
+The cl_motd.c section was regenerated from the scratch tree (pristine e8d773ea, the 51 engine
+patches, then the two changes) with "git diff e8d773ea -- engine/client/cl_motd.c"; no other
+section of the patch changed. TSM\xash3d-fwgs holds the same cl_motd.c, and the regenerated patch
+reverse-checks in place there and in the scratch tree. The xash.dll :dllpatch line names
+engine-h9-png.patch and engine-h9-radio.patch; the two description phrases shortened for the
+removed names stay shortened, which leaves more room under cmd.exe's 8191 characters.
+
+### 2026-11-20 -- engine-h9-motd.patch: the game window composited while the page shows
+
+The page in its own window still showed only after an alt-tab, in full screen and in borderless
+full screen, and so did the page with Chromium's occlusion tracking off (h9webview.cpp). A window
+that covers its monitor can be taken out of Windows' composition by the graphics driver, and then no
+other window is drawn over it while it has focus. A layered window is always composited, so
+H9M_PopupPlace makes the game window layered (alpha 255: it looks the same) while the page shows,
+and H9M_GameUnlayer makes it ordinary again and redraws it when the page hides or closes. Folded
+into engine-h9-motd.patch like the rest of cl_motd.c; reverse-checks in place in the scratch tree
+and in TSM\xash3d-fwgs. Needs the next engine build.
+
+### 2026-11-20 -- engine-h9-motd.patch and h9webview.dll: the page drawn in the game's own frame
+
+None of the ways of putting the page's window over the game showed it while the game had the screen,
+in full screen or borderless: a child window, WS_CLIPCHILDREN, an owned popup, Chromium's occlusion
+tracking off, and the game window layered. Nothing outside the game's own frame was drawn until the
+player alt-tabbed out. So the game now draws the page itself.
+
+- webview\h9webview.cpp, h9webview.h (API 2): H9WV_Snapshot asks WebView2 for a PNG of the page
+  (CapturePreview) and hands the bytes to the engine on its own thread; H9WV_Script runs a script in
+  the page, its result not wanted.
+- engine/client/cl_motd.c (API 2): while the page shows, H9M_ViewSync asks for a snapshot about five
+  times a second, one at a time; H9M_SnapDone decodes it with the engine's own PNG loader and makes
+  it the texture the panel draws where the panel's colour was. A click on the page clicks the element
+  under it (or the link or button it sits in) and the wheel and the arrow keys scroll the page, both
+  through H9WV_Script with scripts built from numbers only. The game's own cursor is drawn over the
+  page. The page's window stays where it was, so it is still there when the player alt-tabs.
+
+Folded into engine-h9-motd.patch like the rest of cl_motd.c; reverse-checks in place in the scratch
+tree and in TSM\xash3d-fwgs. The engine and h9webview.dll must be built together (xash.bat does).
+
+### 2026-11-20 -- engine-h9-motd.patch and h9webview.dll: snapshots as plain pixels (API 3)
+
+The snapshots reached the engine as PNG and went through the engine's own image loader, and the
+panel stayed the panel's colour. The PNG is now decoded in h9webview.dll by Windows (WIC) into
+32-bit RGBA, and the engine builds the texture straight from those pixels (an rgbdata_t of
+PF_RGBA_32), so no PNG decoding happens in the engine at all. h9webview.dll links windowscodecs.lib
+and uuid.lib for it. cl_h9_motd_debug 1 writes each step to h9_motd_debug.log in the game folder:
+the page opening, every report from the view, every change in what decides whether the page shows,
+and the first snapshots with their size and texture. engine-h9-motd.patch regenerated as before;
+reverse-checks in place in the scratch tree and in TSM\xash3d-fwgs.
+
+### 2026-11-20 -- engine-h9-motd.patch: the page snapshot in colour
+
+The page drawn in the panel showed in gray. H9M_SnapDone built its rgbdata_t with no flags, and the
+renderer reads a missing IMAGE_HAS_COLOR as an image without colour and stores it as a luminance
+texture (ref/gl/gl_image.c). The snapshot is now flagged IMAGE_HAS_COLOR; it carries no alpha flag,
+the page being opaque. Regenerated as before; in place in the scratch tree and in TSM\xash3d-fwgs.
