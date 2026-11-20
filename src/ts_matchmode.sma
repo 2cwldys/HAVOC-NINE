@@ -7286,12 +7286,17 @@ public plugin_cfg()
 {
 	// An unnamed server gets a name; one named at launch (+hostname) or by the server's own config is never touched. server.cfg no
 	// longer sets it: it runs on every map load and used to overwrite the launch line's name.
+	//
+	// "empty" counts as unnamed. The engine's hostname cvar has FCVAR_PRINTABLEONLY, and its
+	// validator replaces a name left blank with the literal word "empty" before anything here
+	// reads it, so a blank name never arrives blank: Create Game with the name box cleared
+	// produced a server called "empty" rather than one this names.
 	new host[64];
 	get_cvar_string("hostname", host, charsmax(host));
 	trim(host);
-	if (!host[0])
+	if (!host[0] || equali(host, "empty"))
 	{
-		set_cvar_string("hostname", "HAVOC 9 TEAM ELIMINATION");
+		set_cvar_string("hostname", "Havoc 9 Server");
 	}
 
 	// Load our own config rather than relying on someone remembering to exec it.

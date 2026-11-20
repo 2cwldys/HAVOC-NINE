@@ -16,7 +16,7 @@
 // looked at once a minute, which rebuilds them too.
 
 import crypto from "node:crypto";
-import { derivePlayerId, serverClientId } from "./playerid.js";
+import { derivePlayerId, serverClientId, serverClientId7 } from "./playerid.js";
 import { parseAddress } from "./servers.js";
 
 // HMAC-SHA256( key: the player id as its 32 ASCII characters, "h9adopt-key1" ), the first 32 hex:
@@ -69,14 +69,25 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
     fresh();
     let entry = byIp.get(a.ip);
     if (!entry) {
+      // Both forms of the id resolve to the same account: the 32 hex an engine sends today, and
+      // the seven base36 it sends once engine-h9-clientid7 is built. Keeping both means the two
+      // halves do not have to ship together -- a client on either engine is recognised, and the
+      // hex entries can be dropped once no old client connects. Replacing rather than adding
+      // would have stopped recognising every player the moment this deployed.
       const map = new Map();
-      for (const [id, pid] of pids) map.set(serverClientId(pid, a.bytes), id);
+      for (const [id, pid] of pids) {
+        map.set(serverClientId(pid, a.bytes), id);
+        map.set(serverClientId7(pid, a.bytes), id);
+      }
       if (byIp.size >= 64) byIp.delete(byIp.keys().next().value);
       entry = { bytes: a.bytes, map };
       byIp.set(a.ip, entry);
     }
     const map = entry.map;
-    return Object.freeze({ get: (clientId) => map.get(clientId), has: (clientId) => map.has(clientId), size: map.size });
+    // size is the number of ACCOUNTS, which is what callers mean by it, and no longer the number
+    // of map entries: each account is indexed under both shapes of its id, so map.size counts
+    // every account twice.
+    return Object.freeze({ get: (clientId) => map.get(clientId), has: (clientId) => map.has(clientId), size: pids.size });
   }
 
   function adoptIndex() {
@@ -96,7 +107,12 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
       if (!r) return;
       const pid = derivePlayerId(secrets.playerIdKey, r.uid);
       pids.set(id, pid);
-      for (const e of byIp.values()) e.map.set(serverClientId(pid, e.bytes), id);
+      // both forms, exactly as the full build above does, or an account created after a map was
+      // cached would be recognised on one engine and not the other
+      for (const e of byIp.values()) {
+        e.map.set(serverClientId(pid, e.bytes), id);
+        e.map.set(serverClientId7(pid, e.bytes), id);
+      }
       if (adopt) adopt.set(adoptKey(pid), id);
       restamp = true;
     });
@@ -105,7 +121,13 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
       if (!pids) return;
       const pid = pids.get(id);
       pids.delete(id);
-      if (pid) for (const e of byIp.values()) e.map.delete(serverClientId(pid, e.bytes));
+      // both forms, or a deleted account would keep resolving on whichever one was left behind
+      if (pid) {
+        for (const e of byIp.values()) {
+          e.map.delete(serverClientId(pid, e.bytes));
+          e.map.delete(serverClientId7(pid, e.bytes));
+        }
+      }
       if (pid && adopt) adopt.delete(adoptKey(pid));
       restamp = true;
     });

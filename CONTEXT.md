@@ -71,6 +71,15 @@ class of problem.
 
 ## Standing rules worth repeating
 
+- Test everything where able. Run the suite that exists and quote its count
+  (`cd h9web && node --test --test-timeout=30000 "test/*.test.js"`, 504 tests);
+  compile a plugin with `amxxpc.exe` from `H9XASH\ts\addons\amxmodx\scripting`,
+  never `compts` (AMX Mod X 1.8.1, `MAX_PLAYERS 32`, misleading both ways);
+  parse-check a PowerShell script. Where nothing covers the change, write the
+  smallest test that would have caught it, or lift the function out and stub
+  around it -- failure paths first, because nothing else exercises them. A test
+  that can fail is worth more than a careful reread: on 2026-11-19 three real
+  bugs were found this way in one afternoon, none of them visible in the diff.
 - No `git commit` anywhere in this project without the user's explicit,
   separate permission for that specific commit.
 - No backup copies of text files (git is the backup); only a binary being replaced

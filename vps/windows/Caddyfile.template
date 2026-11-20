@@ -28,6 +28,20 @@
 	}
 }
 
+# maintenance mode, the whole site closed (below): 503 with the site's maintenance.html. The same
+# shape as gate_closed, serving a different page. h9web answers 204 for an admin even while the
+# site is closed (lib/siteflags.js), so whoever closed it still reaches the panel to reopen it.
+(gate_maintenance) {
+	@maint status 403
+	handle_response @maint {
+		rewrite * /maintenance.html
+		file_server {
+			root {ROOT}/site
+			status 503
+		}
+	}
+}
+
 {DOMAIN} {
 	encode gzip
 
@@ -75,6 +89,18 @@
 	# the parts an admin can close (the admin panel's SITE, h9web/lib/siteflags.js): h9web is asked before every request to them
 	# (204 open, 403 closed), as nginx's auth_request does on Linux. While h9web is down they answer 502. The web client's relay
 	# is closed by h9web itself.
+	# maintenance mode (the admin panel's SITE -> THE WHOLE SITE). Pages only: /api/* is gated by
+	# h9web itself (lib/app.js), which keeps /api/login, /api/me and /api/site answerable so an
+	# admin can sign in while the site is closed -- you cannot know somebody is an admin before
+	# they have. The sign-in page and plain assets are let through for the same reason: the
+	# maintenance page and the sign-in form both need CSS, fonts and the helmet, and a stylesheet
+	# tells a visitor nothing.
+	@gate_site {
+		not path /api/*
+		not path /maintenance.html
+		not path /account/login /account/login/*
+		not path *.css *.js *.mjs *.png *.gif *.jpg *.jpeg *.webp *.svg *.ico *.woff *.woff2 *.ttf *.map
+	}
 	@gate_downloads path /downloads/H9XASH.zip /downloads/H9XASH-linux.zip /downloads/files /downloads/files/*
 	@gate_webclient {
 		path /webclient/*
@@ -96,6 +122,11 @@
 		respond @notes 404
 		respond @files_hidden 404
 		respond @packages_hidden 404
+		# first, so maintenance wins over the per-part gates below
+		forward_auth @gate_site 127.0.0.1:8090 {
+			uri /api/site/gate/site
+			import gate_maintenance
+		}
 		forward_auth @gate_downloads 127.0.0.1:8090 {
 			uri /api/site/gate/downloads
 			import gate_closed

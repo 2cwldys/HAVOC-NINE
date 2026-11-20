@@ -49,6 +49,10 @@ $Files = Join-Path $Site 'files'
 # The prune in step 6 lists $Files without -Recurse, so nothing there ever reaches into this.
 $FilesHd = Join-Path $Files 'hd'
 $Inbox = 'C:\setup\incoming'
+# Remembered SHA-256s for -Hashes (see ShaCached). Deliberately NOT under $Dl: that folder is
+# served to the public and listed on the downloads page, and cache files have no business there.
+# Losing this folder costs one slow deploy and nothing else.
+$HashCache = Join-Path $Root 'data\hashcache'
 $Buttons = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe')
 $Rules = @(
     @{ Re = '^H9XASH(-linux)?\.zip$'; Kind = 'button' },
@@ -105,6 +109,42 @@ function Sha([string]$Path) {
     }
 }
 
+# -Hashes tells the sender what this host already has, which includes the SHA-256 of every
+# download the site serves -- several GB of ZIPs. Those change only when a delivery replaces
+# them, so each hash is remembered with the length and UTC write time it was computed from, and
+# recomputed only when either has moved. A replaced file re-hashes by itself, and a missing or
+# corrupt entry costs one slow read.
+#
+# Deliberately NOT used when a delivery is checked further down: there the point is to verify
+# bytes that have just arrived over the network, and a remembered answer defeats it.
+function ShaCached([string]$Path) {
+    $fi = Get-Item -LiteralPath $Path
+    $stamp = '{0}:{1}' -f $fi.Length, $fi.LastWriteTimeUtc.ToString('o')
+    $side = Join-Path $HashCache ((Split-Path -Leaf $Path) + '.sha256')
+
+    try {
+        if (Test-Path -LiteralPath $side -PathType Leaf) {
+            $lines = @(Get-Content -LiteralPath $side -TotalCount 2)
+            if ($lines.Count -ge 2 -and $lines[1] -eq $stamp -and $lines[0] -match '^[0-9a-f]{64}$') {
+                return $lines[0]
+            }
+        }
+    }
+    catch { }           # an unreadable or malformed entry just means hashing it again
+
+    $hash = Sha $Path
+
+    try {
+        if (-not (Test-Path -LiteralPath $HashCache)) {
+            New-Item -ItemType Directory -Force -Path $HashCache | Out-Null
+        }
+        Set-Content -LiteralPath $side -Value @($hash, $stamp) -Encoding ascii
+    }
+    catch { }           # the cache is an optimisation: failing to write it must never fail a deploy
+
+    return $hash
+}
+
 # A child PowerShell script (setup.ps1, start-all.ps1 ...): its output shown, its exit code in $script:childExit. Under
 # $ErrorActionPreference 'Stop' a line a program writes to its error stream (Caddy logs its ordinary lines there) would stop
 # this script, so the preference is 'Continue' for the call: only the child's exit code says whether it worked.
@@ -122,6 +162,17 @@ function Invoke-Child([string[]]$ChildArgs) {
     finally { $ErrorActionPreference = $was }
 }
 
+# Whether the script at $Path declares the parameter $Name, so a switch that only newer copies of setup.ps1 and
+# start-all.ps1 have is passed only to a copy that has it: powershell.exe -File refuses a parameter the script does not
+# declare and runs none of it. The copy that runs can be older than this script: setup.ps1 runs from $pkgDir, which is
+# the newest package folder under C:\setup when the delivery brings no host package, and every full setup.ps1 run puts
+# its own package's start-all.ps1 into $Root. Get-Command reads the parameter block without running the script; one
+# that is missing or cannot be read answers $false, and the switch is left out.
+function Test-ScriptParam([string]$Path, [string]$Name) {
+    try { return (Get-Command -Name $Path -CommandType ExternalScript -ErrorAction Stop).Parameters.ContainsKey($Name) }
+    catch { return $false }
+}
+
 # delta.py (the host's Python): its output shown, its exit code in $script:deltaExit; see Invoke-Child for the preference
 $script:deltaExit = 0
 function Invoke-Delta([string[]]$DeltaArgs) {
@@ -132,9 +183,11 @@ function Invoke-Delta([string[]]$DeltaArgs) {
 }
 
 if ($Hashes) {
+    # The four downloads, several GB between them. ShaCached re-reads one only when its length
+    # or write time has moved. The manifests below stay on Sha: they are small JSON.
     foreach ($n in $Buttons + @('H9XASH-linux-server.zip')) {
         $p = Join-Path $Dl $n
-        if (Test-Path -LiteralPath $p -PathType Leaf) { "file $(Sha $p) $n" }
+        if (Test-Path -LiteralPath $p -PathType Leaf) { "file $(ShaCached $p) $n" }
     }
     if (Test-Path -LiteralPath $Files) {
         Get-ChildItem -LiteralPath $Files -File | Where-Object { $_.Name -match '^[0-9a-f]{64}$' } | ForEach-Object { "blob $($_.Name)" }
@@ -165,7 +218,60 @@ if (-not $Incoming -or -not $in.StartsWith($Inbox + '\', [StringComparison]::Ord
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = Join-Path $Root "logs\deploy-$stamp.log"
 Start-Transcript -LiteralPath $log -Append | Out-Null
-function Fail([string]$Text) { Write-Host "[FAIL] $Text" -ForegroundColor Red; Stop-Transcript | Out-Null; exit 1 }
+
+# Which services are up before anything is touched, so a failure can put back exactly what it
+# found. setup.ps1 stops them to replace their binaries (its "stop the services for the update"
+# step) and starts them again only at its very end, so anything that fails in between would
+# otherwise leave havoc9.org, the server list and the Discord bot down until someone noticed.
+#
+# Only services that were running are restarted. havoc9-p2p in particular can be installed and
+# deliberately not started while its relay settings are unfinished, and starting it here would
+# override that decision.
+$script:servicesWereUp = @(
+    Get-Service -Name 'havoc9-*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Status -eq 'Running' } |
+        ForEach-Object { $_.Name }
+)
+if ($script:servicesWereUp.Count) {
+    Write-Host ("services running before this delivery: " + ($script:servicesWereUp -join ', '))
+}
+
+function Restore-Services {
+    if (-not $script:servicesWereUp -or -not $script:servicesWereUp.Count) { return }
+    $back = @()
+    $stuck = @()
+    foreach ($n in $script:servicesWereUp) {
+        $svc = Get-Service -Name $n -ErrorAction SilentlyContinue
+        if (-not $svc -or $svc.Status -eq 'Running') { continue }
+        try { Start-Service -Name $n -ErrorAction Stop; $back += $n }
+        catch { $stuck += ("{0} ({1})" -f $n, $_.Exception.Message) }
+    }
+    if ($back.Count) { Write-Host ("  the site is back up: " + ($back -join ', ')) -ForegroundColor Green }
+    if ($stuck.Count) {
+        Write-Host "  COULD NOT START, the site is still down: " -ForegroundColor Red -NoNewline
+        Write-Host ($stuck -join '; ') -ForegroundColor Red
+        Write-Host "  start them by hand:  Start-Service havoc9-caddy, havoc9-h9web, havoc9-serverlist"
+    }
+}
+
+function Fail([string]$Text) {
+    Write-Host "[FAIL] $Text" -ForegroundColor Red
+    Restore-Services
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
+# Not every way this script can stop goes through Fail(). $ErrorActionPreference is 'Stop', so an
+# unforeseen error anywhere terminates the script where it stands, and before this trap existed
+# that left the services down just as surely as a handled failure did.
+trap {
+    Write-Host "[FAIL] unexpected: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ("  at {0}:{1}" -f $_.InvocationInfo.ScriptName, $_.InvocationInfo.ScriptLineNumber)
+    Restore-Services
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
 $script:t0 = Get-Date
 function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-Date) - $script:t0).TotalSeconds) }
 
@@ -181,7 +287,21 @@ function Say([string]$Text) { Write-Host ("== {0}   [{1:N0} s]" -f $Text, ((Get-
 # delivery and the self folder are never touched, and neither is a recent failure -- there is still a
 # day to look at one.
 $KeepDays = 2
-$NeedGB = 20
+
+# How much room THIS delivery wants, measured rather than assumed.
+$deliveryFiles = @(Get-ChildItem -LiteralPath $in -Recurse -File -Force -ErrorAction SilentlyContinue)
+$deliveryBytes = ($deliveryFiles | Measure-Object -Property Length -Sum).Sum
+$largestBytes = ($deliveryFiles | Measure-Object -Property Length -Maximum).Maximum
+$deliveryGB = [math]::Round(([double]$deliveryBytes) / 1GB, 2)
+$largestGB = [math]::Round(([double]$largestBytes) / 1GB, 2)
+
+# The requirement is the LARGEST SINGLE FILE plus working room, not the delivery's total and
+# not a multiple of it. The ingest puts files in one at a time and almost every one replaces
+# something of its own size in site\downloads, so the peak extra space is one file existing
+# twice while it is copied over its predecessor. A flat figure, or a multiple of the whole
+# delivery, refuses work this host can do: a failed run leaves its assembled ZIPs inside the
+# delivery folder, which makes the total a poor proxy for what the ingest needs.
+$NeedGB = [math]::Max(2.0, [math]::Round($largestGB + 2, 1))
 $swept = 0
 $freed = 0L
 foreach ($d in Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue) {
@@ -204,7 +324,7 @@ if ($freeGB -lt $NeedGB) {
     $keep = Get-ChildItem -LiteralPath $Inbox -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -ne $in -and $_.Name -ne 'self' } |
             ForEach-Object { "    $($_.Name)  (last written $($_.LastWriteTime.ToString('yyyy-MM-dd')))" }
-    Write-Host "[FAIL] $freeGB GB free, and a delivery needs about $NeedGB GB to take in." -ForegroundColor Red
+    Write-Host "[FAIL] $freeGB GB free; this delivery is $deliveryGB GB, its largest file $largestGB GB, so it wants about $NeedGB GB." -ForegroundColor Red
     Write-Host "  Nothing has been written, so the delivery is intact and can simply be run again."
     if ($keep) {
         Write-Host "  These deliveries are still here and are the usual thing to remove:"
@@ -212,6 +332,7 @@ if ($freeGB -lt $NeedGB) {
         Write-Host "  rmdir /s /q $Inbox\<name>"
     }
     Write-Host "  C:\havoc9\store is the compressed copy of everything ever delivered; it is NOT scratch."
+    Restore-Services
     Stop-Transcript | Out-Null
     exit 1
 }
@@ -328,7 +449,12 @@ function Install-HostPackage {
     if (Test-Path -LiteralPath $script:pkgDir) { Remove-Item -LiteralPath $script:pkgDir -Recurse -Force }
     Expand-Archive -LiteralPath (Join-Path $in $hostZip) -DestinationPath 'C:\setup'
     if (-not (Test-Path -LiteralPath (Join-Path $script:pkgDir 'setup.ps1'))) { Fail "$hostZip has no setup.ps1 in $script:pkgDir" }
-    Invoke-Child @('-File', (Join-Path $script:pkgDir 'setup.ps1'), '-Root', $Root)
+    # -NoFileIndex leaves the downloads' file index to step 7 (setup.ps1 -FileIndex), which makes it once the downloads
+    # are in place: made in this run as well, it would hash every download a second time for an index step 7 replaces
+    $setup = Join-Path $script:pkgDir 'setup.ps1'
+    $setupArgs = @('-File', $setup, '-Root', $Root, '-NoFingerprint')
+    if (Test-ScriptParam $setup 'NoFileIndex') { $setupArgs += '-NoFileIndex' }
+    Invoke-Child $setupArgs
     if ($script:childExit -ne 0) { Fail "setup.ps1 of $hostZip failed (above)" }
 }
 # the standard-library parts of Python that a delta uses; a Python without one of them cannot take a delta
@@ -415,7 +541,11 @@ if ($wcZip -or $wcRecipe) {
     if ($wcZip) { Expand-Archive -LiteralPath (Join-Path $in $wcZip) -DestinationPath $wcDir }
     $stage = Get-ChildItem -LiteralPath $wcDir -Recurse -Directory -Filter 'stage' | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json') } | Select-Object -First 1
     if (-not $stage) { Fail "the web client has no stage folder with a manifest.json" }
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-WebClientStage', $stage.FullName)
+    # a full setup.ps1 run like Install-HostPackage's, so the file index is left to step 7 the same way
+    $setup = Join-Path $pkgDir 'setup.ps1'
+    $setupArgs = @('-File', $setup, '-Root', $Root, '-WebClientStage', $stage.FullName, '-NoFingerprint')
+    if (Test-ScriptParam $setup 'NoFileIndex') { $setupArgs += '-NoFileIndex' }
+    Invoke-Child $setupArgs
     if ($script:childExit -ne 0) { Fail 'setup.ps1 -WebClientStage failed (above)' }
 }
 
@@ -499,15 +629,24 @@ if ($hdTars.Count) {
 if ($build) { [IO.File]::WriteAllText((Join-Path $Dl '.build'), "$build`n") }
 if ($pkgDir) {
     Say "the downloads' file index"
-    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex')
+    Invoke-Child @('-File', (Join-Path $pkgDir 'setup.ps1'), '-Root', $Root, '-FileIndex', '-NoFingerprint')
 }
 $cc = Join-Path $Root 'code-check.ps1'
+$fingerprinted = $false
 if (Test-Path -LiteralPath $cc) {
     Say 'the fingerprint of all code'
     Invoke-Child @('-File', $cc, '-Root', $Root, '-Write')
+    $fingerprinted = ($script:childExit -eq 0)
 }
 Say 'checks'
-Invoke-Child @('-File', (Join-Path $Root 'start-all.ps1'), '-Root', $Root)
+# -SkipCodeCheck: the -Write pass above has fingerprinted these same files and nothing touches them in between, so
+# start-all.ps1's code check could only answer "unchanged", after reading every one of them (several GB) again. It is
+# passed only when that pass worked, because a failed -Write is what the check would report, and only to a
+# start-all.ps1 that declares it (Test-ScriptParam).
+$startAll = Join-Path $Root 'start-all.ps1'
+$startArgs = @('-File', $startAll, '-Root', $Root)
+if ($fingerprinted -and (Test-ScriptParam $startAll 'SkipCodeCheck')) { $startArgs += '-SkipCodeCheck' }
+Invoke-Child $startArgs
 $ok = ($script:childExit -eq 0) -and -not $presetFailed
 if ($ok -and $newTrees.Count) {
     $tr = @{}

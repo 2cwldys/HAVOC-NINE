@@ -27,6 +27,26 @@ $Print = Join-Path $Root 'etc\code-fingerprint.txt'
 $Log = Join-Path $Root 'logs\code-check.log'
 $Dirs = @('h9web', 'site', 'serverlist', 'p2p', 'tools', 'services', 'game')
 
+# Published artefacts, which are not code and are large enough to dominate the run:
+#
+#   game\ts\materials   the optional HD texture pack
+#   site\webclient      laid out from webclient.zip.recipe.json, which is itself fingerprinted
+#
+# Skipped. A change to either shows up in the delivery that produced it.
+$SkipPrefixes = @('game\ts\materials\', 'site\webclient\')
+
+# Content-addressed stores: every file is NAMED by its own SHA-256, so hashing one to work out
+# its hash is circular. The name is recorded instead, which still notices a blob going missing
+# or being renamed, and costs nothing at all.
+$NamedByHash = @('site\files\', 'site\downloads\files\')
+
+# How much this actually read, so that something large wandering into the fingerprint says so
+# rather than quietly slowing every deploy. About 4 GB is expected: the published client ZIPs,
+# which are what players download and are worth a real check, plus the code itself.
+$script:readBytes = 0L
+$script:readFiles = 0
+$WarnReadGB = 8
+
 function Get-Prints
 {
     $out = New-Object 'System.Collections.Generic.SortedDictionary[string,string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -39,7 +59,28 @@ function Get-Prints
     foreach ($f in $items) {
         $rel = $f.FullName.Substring($Root.Length).TrimStart('\')
         if ($rel -match '\\__pycache__\\|\.pyc$' -or $rel -ieq 'site\downloads\files\SHA256SUMS.txt') { continue }
+
+        $skip = $false
+        foreach ($s in $SkipPrefixes) {
+            if ($rel.StartsWith($s, [StringComparison]::OrdinalIgnoreCase)) { $skip = $true; break }
+        }
+        if ($skip) { continue }
+
         if ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) { $out[$rel] = 'link:' + [string]@($f.Target)[0]; continue }
+
+        # a blob whose name already is its hash: take the name, do not read the file
+        $named = $false
+        foreach ($s in $NamedByHash) {
+            if ($rel.StartsWith($s, [StringComparison]::OrdinalIgnoreCase) -and $f.Name -match '^[0-9a-f]{64}$') {
+                $out[$rel] = $f.Name.ToLowerInvariant()
+                $named = $true
+                break
+            }
+        }
+        if ($named) { continue }
+
+        $script:readBytes += $f.Length
+        $script:readFiles++
         $out[$rel] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     return $out
@@ -51,7 +92,12 @@ if ($Write) {
     $tmp = "$Print.new"
     [IO.File]::WriteAllLines($tmp, [string[]]$lines)
     Move-Item -LiteralPath $tmp -Destination $Print -Force
-    Write-Host "code fingerprint written: $($now.Count) files ($Print)"
+    Write-Host ("code fingerprint written: {0} files, {1:N2} GB read from {2:N0} of them ({3})" -f `
+        $now.Count, ($script:readBytes / 1GB), $script:readFiles, $Print)
+    if (($script:readBytes / 1GB) -gt $WarnReadGB) {
+        Write-Host ("  WARNING: over {0} GB read. Something large is being fingerprinted that is probably not code." -f $WarnReadGB) -ForegroundColor Yellow
+        Write-Host "  Check `$SkipPrefixes and `$NamedByHash at the top of this file."
+    }
     exit 0
 }
 

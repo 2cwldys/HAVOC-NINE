@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   One command for a release: builds what packaging.ini says, then delivers it to havoc9.org's host over SSH.
 
@@ -6,13 +6,18 @@
   Run it in PowerShell 7 from this folder, after a version bump or any change to the client, the site, h9web or the list:
     .\deploy-vps.ps1                 build and deliver everything packaging.ini switches on
     .\deploy-vps.ps1 -NoBuild        deliver what dist\ holds already
+    .\deploy-vps.ps1 -Ini <file>     read another ini instead of packaging.ini
+    .\deploy-vps.ps1 -SiteOnly       read packaging.site-only.ini instead: the host package alone (the site, h9web and
+                                     the list), nothing of the client built or sent. Not together with -Ini.
     .\deploy-vps.ps1 -WhatIf         say what would be built and sent, change nothing
 
   1. Builds: stage-h9xash.ps1 (the client ZIPs and the updater's files), make-vps-package.ps1 -Target windows (the host package, which
      the host installs and nobody downloads, and the web client's package).
   2. Asks the host what it has (receive-deploy.ps1 -Hashes): each download's SHA-256 and the updater files' names. Only
      what differs is sent: a client ZIP is about 930 MB, so an unchanged one is never sent again, and of the updater's
-     files only the new ones go, in one archive.
+     files only the new ones go, in archives of at most 400 MB. The question costs the host minutes, so it is asked only
+     when the ini switches on something that is compared with the answer. The host package always goes whole, so a
+     delivery of the host package alone, such as -SiteOnly, does not ask.
   3. Writes deploy-manifest.txt (each file's SHA-256), sends the files into a new folder under C:\setup\incoming with
      scp, and runs C:\havoc9\receive-deploy.ps1 there. That script is the host's own (administrators only): it takes
      only the names it knows, checks every SHA-256 before it installs anything, installs the host package with its
@@ -26,7 +31,8 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$Ini = (Join-Path $PSScriptRoot 'packaging.ini'),
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [switch]$SiteOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +44,15 @@ $DryRun = [bool]$WhatIfPreference
 $script:deployStart = Get-Date
 function Say([string]$t) { Write-Host ("== {0}   [{1:N0} s]" -f $t, ((Get-Date) - $script:deployStart).TotalSeconds) }
 function Fail([string]$t) { Write-Host "[FAIL] $t" -ForegroundColor Red; exit 1 }
+
+# -SiteOnly reads packaging.site-only.ini beside this script, and that file is the whole definition of
+# a site-only delivery. -Ini names the file to read as well, so the two together are refused rather
+# than one of them quietly winning.
+if ($SiteOnly) {
+    if ($PSBoundParameters.ContainsKey('Ini')) { Fail '-SiteOnly reads packaging.site-only.ini and -Ini names another ini: use one or the other' }
+    $Ini = Join-Path $Here 'packaging.site-only.ini'
+    Write-Host "-SiteOnly: $Ini" -ForegroundColor Cyan
+}
 
 # packaging.ini: [section] key = value, ; comments
 $cfg = @{}
@@ -111,16 +126,41 @@ if (-not $NoBuild) {
 if (-not $DryRun) {
     # lockwatch.cmd travels with them: it is the thing to run when a received file stays unreadable
     # for longer than the receiver's Sha() waits, and it is no use sitting in the repo instead.
-    $selfFiles = @('receive-deploy.ps1', 'delta.py', 'lockwatch.cmd')
+    # Every script the host RUNS, not just the ones that answer a delivery: a stale script on the
+    # box is invisible until it misbehaves.
+    #
+    # setup.ps1 and setup.cmd are deliberately absent: they live in the package under C:\setup,
+    # never in C:\havoc9, and are covered by the package check below instead.
+    $selfFiles = @(
+        'receive-deploy.ps1', 'delta.py', 'lockwatch.cmd', 'code-check.ps1',
+        'start-all.ps1', 'stop-all.ps1', 'update-game.ps1', 'restore-backup.ps1'
+    )
     $selfStale = New-Object System.Collections.Generic.List[string]
+
+    $want = @{}
     foreach ($n in $selfFiles) {
         $local = Join-Path $Here ('vps\windows\' + $n)
         if (-not (Test-Path -LiteralPath $local)) { Fail "no $local" }
-        $want = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()
-        $out = & ssh @ssh $sshHost "certutil -hashfile C:\havoc9\$n SHA256" 2>$null
-        $have = ''
-        if ($LASTEXITCODE -eq 0) { foreach ($l in $out) { $c = ([string]$l).Replace(' ', '').Trim().ToLowerInvariant(); if ($c -match '^[0-9a-f]{64}$') { $have = $c; break } } }
-        if ($have -ne $want) { $selfStale.Add($n) }
+        $want[$n] = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+
+    # One round trip for all of them, not one each: eight small files hashed on the host costs
+    # nothing, and this is now cheaper than the three separate certutil calls it replaces.
+    # -EncodedCommand so none of this has to survive two layers of quoting.
+    $list = ($selfFiles | ForEach-Object { "'" + $_ + "'" }) -join ','
+    $probe = "foreach (`$n in $list) { `$p = 'C:\havoc9\' + `$n; if (Test-Path -LiteralPath `$p) { `$n + ' ' + (Get-FileHash -LiteralPath `$p -Algorithm SHA256).Hash.ToLowerInvariant() } else { `$n + ' missing' } }"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+    $out = & ssh @ssh $sshHost "powershell -NoProfile -EncodedCommand $enc" 2>$null
+
+    $have = @{}
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($l in $out) {
+            $parts = ([string]$l).Trim() -split '\s+'
+            if ($parts.Count -eq 2 -and $want.ContainsKey($parts[0])) { $have[$parts[0]] = $parts[1].ToLowerInvariant() }
+        }
+    }
+    foreach ($n in $selfFiles) {
+        if (-not $have.ContainsKey($n) -or $have[$n] -ne $want[$n]) { $selfStale.Add($n) }
     }
     if ($selfStale.Count) {
         Say "the host's own scripts differ from this release's: $($selfStale -join ', ')"
@@ -135,13 +175,31 @@ if (-not $DryRun) {
 }
 
 # 2. what the host has
-Say "asking $sshHost what it has"
 $remote = @{}
 $remoteTree = @{}
 $blobsThere = New-Object System.Collections.Generic.HashSet[string]
 $hdThere = New-Object System.Collections.Generic.HashSet[string]
-$answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
-if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
+# This answer exists to spare the big things: a client ZIP the host already has is not sent again,
+# and of the updater's files only the new ones go. Getting it means hashing the downloads and
+# walking the delivery store, which is minutes of the host's time, so the host is asked only when
+# a [deploy] switch that reads the answer is on. Each of these reads it, whole ZIPs or delta alike:
+#   client, linux_server  Add-If against $remote, or the delta's have list ($blobsThere) and tree check ($remoteTree)
+#   webclient             the web client's manifest against $remote, or the delta as above
+#   updater               Add-If against $remote
+#   updater_files         $blobsThere, and the files' manifest in $remote
+#   hd                    $hdThere, and the HD manifest in $remote
+#   preset                the plugin list's entry in $remoteTree
+# site is not among them: the host package goes through Add-If with $always set, which never looks
+# at the answer. Left empty, every check below reads "the host does not have it" and sends the file.
+$readers = @(@('deploy.client', 'deploy.linux_server', 'deploy.webclient', 'deploy.updater',
+        'deploy.updater_files', 'deploy.hd', 'deploy.preset') | Where-Object { On $_ })
+$answer = @()
+if ($readers.Count) {
+    Say "asking $sshHost what it has"
+    $answer = & ssh @ssh $sshHost 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\havoc9\receive-deploy.ps1 -Hashes'
+    if ($LASTEXITCODE) { Fail "the host did not answer (ssh $sshHost). Is the SSH shortcut in your .ssh\config, and C:\havoc9\receive-deploy.ps1 on the host?" }
+}
+else { Say "not asking $sshHost what it has: nothing $(Split-Path -Leaf $Ini) switches on is compared with it" }
 foreach ($l in $answer) {
     if ($l -match '^file ([0-9a-f]{64}) (\S+)$') { $remote[$Matches[2]] = $Matches[1] }
     elseif ($l -match '^(blob|have) ([0-9a-f]{64})$') { [void]$blobsThere.Add($Matches[2]) }
@@ -152,9 +210,10 @@ foreach ($l in $answer) {
 # host keeps a failed one so it can be looked at, so two failures in a row fill the disk. On
 # 2026-11-19 they did: the box reached zero bytes free, delta.py died mid-write, and sshd could no
 # longer complete a login, so the only way in to clear it was the provider's console. The host's own
-# receive-deploy.ps1 now refuses under 20 GB, but refusing there is still forty minutes of upload
-# spent first. Refusing here costs one ssh call. The number is deliberately the host's threshold plus
-# a margin, because the host needs room to take the delivery IN as well as to hold it.
+# receive-deploy.ps1 refuses too, but refusing there is forty minutes of upload spent first, so the
+# cheap check belongs here as well. Both are now sized to the delivery rather than fixed: a flat 20 GB
+# on the host turned a 0.25 GB delta away from a box with 8.9 GB free, after the upload had finished,
+# and 1.68 silently never landed. A delta exists so a small change is a small delivery.
 # A floor only. The real check is further down, once the size of THIS delivery is known: a flat
 # figure here either refuses a 200 MB delivery for no reason or waves through a 10 GB one. This
 # just refuses to begin against a host that is already at death's door, where even building the
@@ -189,7 +248,48 @@ if ((On 'deploy.client') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH.zip
 if (On 'deploy.updater') { Add-If (Join-Path $Dist 'H9XASH-Updater.exe') 'H9XASH-Updater.exe' $false }
 if ((On 'deploy.linux_server') -and -not $delta) { Add-If (Join-Path $Dist 'H9XASH-linux-server.zip') 'H9XASH-linux-server.zip' $false }
 # the host package: installed by the host from C:\setup, never put in the public downloads' file index
-if (On 'deploy.site') { $z = Newest 'havoc9-vps-windows-*.zip'; if ($z) { Add-If $z.FullName $z.Name $true } else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' } }
+if (On 'deploy.site') {
+    $z = Newest 'havoc9-vps-windows-*.zip'
+    if ($z) {
+        # The package carries its OWN copy of every host script and installs them over whatever is
+        # on the box, so a package built before a script changed puts the old one back and the next
+        # delivery meets it again. Reading those entries out of the zip is local and costs nothing,
+        # so it happens before anything is sent rather than after a long upload.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $stalePkg = New-Object System.Collections.Generic.List[string]
+        try {
+            $zip = [IO.Compression.ZipFile]::OpenRead($z.FullName)
+            try {
+                foreach ($e in $zip.Entries) {
+                    if ($e.Name -notmatch '\.(ps1|py|cmd)$') { continue }
+                    $local = Join-Path $Here ('vps\windows\' + $e.Name)
+                    if (-not (Test-Path -LiteralPath $local)) { continue }
+                    $s = $e.Open()
+                    try {
+                        $ms = New-Object IO.MemoryStream
+                        $s.CopyTo($ms)
+                        $inZip = [BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($ms.ToArray())).Replace('-', '').ToLowerInvariant()
+                    }
+                    finally { $s.Dispose() }
+                    if ($inZip -ne (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()) { $stalePkg.Add($e.Name) }
+                }
+            }
+            finally { $zip.Dispose() }
+        }
+        catch { Write-Host "  [warn] could not read $($z.Name) to check its scripts: $($_.Exception.Message)" }
+
+        if ($stalePkg.Count) {
+            Write-Host "[FAIL] $($z.Name) was built before these scripts changed, and installing it would put the old ones back:" -ForegroundColor Red
+            foreach ($n in $stalePkg) { Write-Host "    $n" }
+            Write-Host '  Re-stage the host package so it carries the current scripts, then deploy again:'
+            Write-Host '    .\make-vps-package.ps1 -Target windows'
+            Write-Host '  Nothing has been sent.'
+            exit 1
+        }
+        Add-If $z.FullName $z.Name $true
+    }
+    else { Write-Host '  [skip] no dist\havoc9-vps-windows-*.zip' }
+}
 if ((On 'deploy.webclient') -and -not $delta) {
     $z = Newest 'havoc9-vps-webclient-*.zip'
     $m = Join-Path $Here 'webclient-build\stage\manifest.json'

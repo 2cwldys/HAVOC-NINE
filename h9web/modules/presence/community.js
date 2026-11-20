@@ -74,7 +74,10 @@ const SLUG = /^[a-z0-9][a-z0-9-]{2,31}$/;
 const CHANNEL = /^[0-9]{17,20}$/;
 const TAG = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,11}$/;
 const DATA_KEY = /^[a-z0-9_.-]{1,32}$/;
-const CLIENT_ID = /^[0-9a-f]{32}$/;
+// Either form: the 32 hex an engine sends today, or the seven base36 it sends once
+// engine-h9-clientid7 is built. lib/clientids.js indexes both, so a client on either
+// engine is recognised and the two halves need not ship together.
+const CLIENT_ID = /^(?:[0-9a-f]{32}|[0-9a-z]{7})$/;
 const CLAIM_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const iso = (t) => (t ? new Date(t * 1000).toISOString().replace(/\.\d+Z$/, "Z") : null);

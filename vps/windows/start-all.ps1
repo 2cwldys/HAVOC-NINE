@@ -21,12 +21,14 @@
   At the end it prints a table; for a service that would not start it prints the end of its log.
 
     -InstallBootTask   also (re)make the task that runs this script two minutes after every boot
+    -SkipCodeCheck     leave out the code check in step 5 (receive-deploy.ps1 passes it after a code-check.ps1 -Write that worked)
     -Root D:\havoc9    another folder than C:\havoc9 (as setup.ps1 -Root)
 #>
 param(
     [string]$Root = 'C:\havoc9',
     [string]$Domain = 'havoc9.org',
-    [switch]$InstallBootTask
+    [switch]$InstallBootTask,
+    [switch]$SkipCodeCheck
 )
 
 $ErrorActionPreference = 'Continue'
@@ -140,9 +142,14 @@ Row "site over HTTPS (https://$Domain/)" "HTTP $code" ($code -eq '200')
 $code = Test-Http "https://$Domain/serverlist/v1/servers/ts"
 Row 'server list over HTTPS' "HTTP $code" ($code -eq '200')
 
-# the code against its fingerprint from the last install or delivery (code-check.ps1)
+# the code against its fingerprint from the last install or delivery (code-check.ps1). -SkipCodeCheck leaves it out:
+# receive-deploy.ps1 passes it when its code-check.ps1 -Write pass has fingerprinted the same files moments earlier,
+# so the check could only answer "unchanged", after reading all of them a second time.
 $cc = Join-Path $Root 'code-check.ps1'
-if (Test-Path -LiteralPath $cc) {
+if ($SkipCodeCheck) {
+    Row 'code as installed' 'not checked (-SkipCodeCheck)' $true
+}
+elseif (Test-Path -LiteralPath $cc) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $cc -Root $Root -Check | Out-Null
     $rc = $LASTEXITCODE
     $state = if ($rc -eq 0) { 'unchanged since the last install' } elseif ($rc -eq 2) { 'CHANGED: see logs\code-check.log' } else { 'no fingerprint yet' }

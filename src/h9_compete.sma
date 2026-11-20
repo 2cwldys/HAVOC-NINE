@@ -55,6 +55,7 @@
  */
 
 #include <amxmodx>
+#include <h9_clientid>
 #include <amxmisc>
 #include <easy_http>
 
@@ -295,8 +296,8 @@ bool:client_id(id, out[33])
 	{
 		return false;
 	}
-	get_user_info(id, "h9_clientid", out, 32);
-	if (strlen(out) != 32)
+	get_user_info(id, "h9_clientid", out, charsmax(out));
+	if (!h9_cid_ok(out))
 	{
 		out[0] = 0;
 		return false;
