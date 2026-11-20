@@ -1,9 +1,8 @@
 /*
  * h9_radio -- the music channel: local ambient tracks and internet radio, one owner.
  *
- * The engine half this needs is not in the patch chain yet -- see
- * xash3d-h9-patches/pending/engine-h9-radio. Until it is applied every /radio command
- * works and a station URL plays nothing, because the engine cannot open one.
+ * The engine half is xash3d-h9-patches/patches/engine-h9-radio.patch (Windows). An engine
+ * without it plays the ambient tracks and nothing for a station URL, because it cannot open one.
  *
  * Why one plugin owns both
  * -----------------------
@@ -20,19 +19,21 @@
  *     SRC_RADIO    an http/https mp3 stream
  *
  * Switching source is one client command either way, because the engine treats a URL as just
- * another stream format (see ..\engine\snd_http.c and ..\engine\hooks.md):
+ * another stream format (engine-h9-radio.patch), and streams a .wav there as it does an .mp3:
  *
  *     mp3 play sound/music/rachels_song.mp3      -- ambient
+ *     mp3 play sound/music/vangelis.wav          -- ambient, a wav track: the same channel
  *     mp3 play https://host:8061/listen.mp3      -- radio
  *     mp3 stop                                   -- silence
  *
- * Turning the radio on therefore interrupts the ambience by construction, not by bookkeeping.
+ * Turning the radio on therefore interrupts the ambience by construction, not by bookkeeping,
+ * and no track can play on top of another one.
  *
  * Handover from ts_matchmode
  * --------------------------
- * ts_matchmode.sma already has the rotation (g_music_mp3 / g_music_len / task_music_queue,
- * around lines 868 and 29699-30026). While h9_radio_ambient is 1 this plugin drives the
- * channel and ts_matchmode must not. See ..\engine\hooks.md for the one-line gate.
+ * ts_matchmode.sma has the same rotation (g_music_mp3 / g_music_len / task_music_queue).
+ * While h9_radio and h9_radio_ambient are both 1 this plugin drives the channel, and
+ * ts_matchmode's music_wanted() keeps its own rotation quiet.
  * Set h9_radio_ambient 0 to hand the rotation back and keep only the radio half.
  *
  * Stock behaviour
@@ -515,26 +516,16 @@ start_ambient_for( id )
 
 	g_source[id] = SRC_AMBIENT;
 
-	// contaminated.wav and vangelis.wav are not mp3s: they go through playvol, as in
-	// ts_matchmode. The mp3 player only handles the mp3 tracks.
-	if( music_is_wav( g_music_cur ))
-		client_cmd( id, "playvol music/%s %f", g_music_mp3[g_music_cur], get_pcvar_float( cvar_volume ));
-	else
-	{
-		set_volume( id );
-		client_cmd( id, "mp3 play sound/music/%s", g_music_mp3[g_music_cur] );
-	}
+	// Every track goes through the music channel, the two wavs (contaminated, vangelis) as well:
+	// the engine streams a .wav there as it does an .mp3, and whatever starts on that channel
+	// replaces what was playing. So a track never plays on top of another track or of the radio,
+	// however late the next one arrives: a client whose sound stood still (alt-tabbed) is behind
+	// the server's clock, and as a sound of its own a wav would still be playing when the next
+	// track came.
+	set_volume( id );
+	client_cmd( id, "mp3 play sound/music/%s", g_music_mp3[g_music_cur] );
 }
 
-bool:music_is_wav( idx )
-{
-	new len = strlen( g_music_mp3[idx] );
-
-	return ( len > 4 && equali( g_music_mp3[idx][len - 4], ".wav" ));
-}
-
-/// Pick the next track from the bag, play it to everyone on ambient, and schedule the one
-/// after it. Players on the radio are skipped: their channel is theirs.
 /// ts_matchmode's answer to "does this map want ambient music". Without ts_matchmode there is no
 /// rule to follow, and the rotation plays whenever this plugin is on.
 tsm_music_wanted()
@@ -544,6 +535,8 @@ tsm_music_wanted()
 	return callfunc_end();
 }
 
+/// Pick the next track from the bag, play it to everyone on ambient, and schedule the one
+/// after it. Players on the radio are skipped: their channel is theirs.
 public task_ambient()
 {
 	if( !get_pcvar_num( cvar_enabled ) || !get_pcvar_num( cvar_ambient ))
