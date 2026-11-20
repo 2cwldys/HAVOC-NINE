@@ -190,6 +190,22 @@ called from a map generator with `generateForMap()` (same guide, section 7).
 
 ## General project rules
 
+- Test everything where able, and prefer a test that can fail over a claim that
+  it works. Where a suite exists, run it and quote the count: h9web is
+  `cd h9web && node --test --test-timeout=30000 "test/*.test.js"` (504 tests,
+  about 23 s). A plugin is proved by `amxxpc.exe` from
+  `H9XASH\ts\addons\amxmodx\scripting` -- NOT `compts`, which is AMX Mod X 1.8.1
+  with `MAX_PLAYERS 32` and misleads in both directions. A PowerShell script by
+  `[System.Management.Automation.Language.Parser]::ParseFile`. Where nothing
+  covers it, write the smallest test that would have caught the mistake, or lift
+  the function out and exercise it with stubs -- failure paths especially, since
+  those are the ones nobody runs until they matter.
+  On 2026-11-19 this caught, in one afternoon: a maintenance gate that blocked
+  the very endpoint the web server asks about (so closing the site would have
+  broken it instead of closing it), an `app.js` crash from treating a mount map
+  as a folder path, and a doubled index whose `size` quietly stopped meaning what
+  its callers thought. None were hypothetical; none would have been found by
+  rereading the diff.
 - Never `git commit` anywhere in this project (including inside the
   `xash3d-fwgs` submodule or a bump of its pinned commit) without the user's
   separate, explicit permission for that specific commit. An approved plan is
