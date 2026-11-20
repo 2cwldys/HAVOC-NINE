@@ -4,10 +4,9 @@ INTERNET RADIO ON THE MUSIC CHANNEL
 h9_radio plays internet radio in game, and owns the ambient music rotation while it does.
 A player types /radio on to tune in and /radio off to go back to the server's music.
 
-STATE: the plugin is finished and compiles. The engine half is written but NOT built and NOT
-in the patch chain -- it sits in xash3d-h9-patches\pending\engine-h9-radio\. Until that is
-applied, the plugin runs but a station URL will not play, because the engine cannot yet open
-one. Everything else below is accurate today.
+STATE: both halves are in the build. The plugin is h9_radio.amxx; the engine half is
+xash3d-h9-patches\patches\engine-h9-radio.patch, the last patch in the chain. The radio is
+off on a server until h9_radio is 1.
 
 
 1. WHY ONE PLUGIN OWNS BOTH THE RADIO AND THE AMBIENCE
@@ -113,9 +112,7 @@ Reconnection is free. "mp3 play <name>" sets the loop name to the same string
 (cl_cmds.c:96), so when a dead stream finally returns 0, s_stream.c re-opens the URL through
 the same hooked FS_OpenStream. No new code.
 
-xash3d-h9-patches\pending\engine-h9-radio\HOOKS.md has the exact edits and line numbers, and
-ends with the symbols that were written from memory rather than from a definition -- those are
-what a build will complain about first.
+xash3d-h9-patches\patches\engine-h9-radio.patch holds the exact edits.
 
 
 6. HTTPS AND CERTIFICATE CHAINS
@@ -145,16 +142,22 @@ neither does mbedTLS, which is what this engine uses. Both stop with
 Port 8061 is TLS-only, so there is no http:// address to fall back to; a plain connection to
 it is simply dropped.
 
-THE FIX IS SMALL. The engine verifies against valve\cacert.pem, named by the http_tls_cafile
-cvar and built on every launch by h9_cacerts.ps1 from Mozilla's list plus every root this PC
-trusts. The Sectigo ROOT is already in there. The only thing missing is the INTERMEDIATE,
-because h9_cacerts.ps1 copies Windows' trusted ROOT stores and an intermediate does not live
-there -- it sits in "Intermediate Certification Authorities".
+THE FIX. The engine verifies against valve\cacert.pem, named by the http_tls_cafile cvar and
+built on every launch by h9_cacerts.ps1 from Mozilla's list plus every root this PC trusts. The
+Sectigo ROOT is in there. The INTERMEDIATE is not, because h9_cacerts.ps1 copies Windows' trusted
+ROOT stores and an intermediate lives in "Intermediate Certification Authorities" instead.
 
-So adding "Sectigo Public Server Authentication CA DV R36" to that bundle makes the station
-verify normally, with nothing switched off and no loss of security for any other site. It is
-a public intermediate, already signed by a root the bundle holds. That is the right fix and
-the station list says so.
+So valve\cacert-extra.pem carries "Sectigo Public Server Authentication CA DV R36", and
+h9_cacerts.ps1 adds every certificate in that file to both of the game's lists on every launch.
+The station then verifies normally, with nothing switched off and no loss of security for any
+other site: it is a public intermediate, signed by a root the bundle already holds. Checked
+against the live station with the shipped bundle:
+
+    openssl s_client -connect stream.radiofreezion.net:8061 -CAfile valve\cacert.pem
+      Verify return code: 0 (ok)
+
+Any other station with the same fault gets the same treatment: its missing intermediate goes in
+cacert-extra.pem, with a comment naming it, its SHA-256 and where it came from.
 
 What NOT to do: http_tls_insecure 1 turns certificate checking off for EVERY https request
 the client makes -- the server browser's green or red verdict, the link, the pictures -- not
@@ -165,7 +168,6 @@ config change, and it is broken right now for every non-browser client they have
 
 7. KNOWN GAPS
 -------------
-  * The engine half is not compiled. See section 5 and pending\engine-h9-radio\HOOKS.md.
   * The sixteen track names and lengths are duplicated between h9_radio.sma and
     ts_matchmode.sma. Two copies of the same list will drift; one should include the other.
   * /radio off restarts the ambient track from the beginning rather than resuming it where it

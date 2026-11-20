@@ -1,0 +1,1323 @@
+diff --git a/engine/client/soundlib/snd_http.c b/engine/client/soundlib/snd_http.c
+new file mode 100644
+index 00000000..c1e125b6
+--- /dev/null
++++ b/engine/client/soundlib/snd_http.c
+@@ -0,0 +1,1272 @@
++/*
++snd_http.c - H9: internet radio, an mp3 stream over http or https on the background music channel
++
++A station is one more stream format. FS_OpenStream (snd_main.c) hands an http:// or https://
++name here before any of its file handling, and FS_ReadStream and FS_FreeStream call through
++stream->format, so the mixer plays a station the way it plays a local mp3: "mp3 play <url>"
++starts it (h9_radio.sma sends exactly that), "mp3 stop" or any other track stops it.
++
++Windows only (H9XASH). Every other build opens no station: one console line says so, and the
++music channel stays as quiet as it is for a file that cannot be opened.
++
++The rule everything here keeps: Stream_ReadHTTP hands back all it was asked for while the
++station is alive. s_stream.c ends the track when a read gives 0 bytes, so the first seconds of
++buffering, a buffer that runs dry and a reconnect are all filled with silence. A read gives 0
++only once the station is given up on and what was buffered has played: "mp3 play" then ends,
++"mp3 loop" opens the address again.
++
++Nothing blocks the game. The name is resolved on a thread of its own, the socket is
++nonblocking, and each step (connecting, TLS through net_http_tls.c with the certificate checked
++against the CA bundle when one is loaded, the request, the response, the audio) is taken from
++the read function, which the mixer calls every frame while the music channel plays.
++
++The response may be "ICY 200" or "HTTP/1.x 200"; a Content-Type, when there is one, must be
++mp3; redirects are followed up to RADIO_REDIRECT_MAX times. Icy-MetaData is not asked for, so
++the body is audio only. mpg123 decodes it in feed mode, as snd_mp3.c does for a file, into a
++ring of h9_radio_buffer seconds; it is heard once RADIO_PRIME_SECONDS are in the ring, and again
++that way after the ring runs dry. A dropped connection is made again, RADIO_RETRY_MAX times in a
++row at most; every reconnect starts from the address as given.
++
++A station whose address is loopback, private, link-local or otherwise not public is refused,
++as the splash MOTD's picture is (cl_motd.c): a server starts the radio with a console command,
++and it must not be able to make the game send requests into the player's own network.
++h9_radio_lan 1 allows those addresses, for a station on the player's LAN; a server cannot set it.
++
++Cvars: h9_radio_buffer (seconds held, 2 to 15), h9_radio_lan, h9_radio_debug.
++*/
++
++#include "soundlib.h"
++
++#if XASH_WIN32
++
++#include "net_ws_private.h"
++#include "http/net_http_tls.h"
++
++#define MPG123_PORTABLE_API 1
++#include <mpg123.h>
++
++#define RADIO_NET_CHUNK     4096           // bytes taken off the connection at a time
++#define RADIO_NET_READS     8              // reads in one frame at most
++#define RADIO_PRIME_SECONDS 2              // audio buffered before it is heard
++#define RADIO_HDR_MAX       4096           // the status line and the headers
++#define RADIO_STEP_WAIT     10.0           // seconds one step of connecting, or a silent station, may take
++#define RADIO_RETRY_WAIT    3.0            // seconds between reconnects
++#define RADIO_RETRY_MAX     5              // reconnects in a row before the station is given up on
++#define RADIO_REDIRECT_MAX  4
++#define RADIO_NOAUDIO_MAX   ( 256 * 1024 ) // body bytes without one mp3 frame: not an mp3 stream
++
++// a read or a write on the connection: bytes (0 = closed by the station), or one of these
++#define RADIO_IO_WAIT       -1             // nothing now, the next frame may have it
++#define RADIO_IO_ERROR      -2             // the connection is lost
++
++enum
++{
++	RADIO_RESOLVING = 0,
++	RADIO_CONNECTING,
++	RADIO_TLS,
++	RADIO_SENDING,
++	RADIO_HEADERS,
++	RADIO_PLAYING,
++	RADIO_RETRY,
++	RADIO_DEAD
++};
++
++// The name lookup, on a thread of its own: the stream and the thread each hold it, and whichever
++// lets go last frees it, so a stream closed during a lookup leaves the thread nothing to touch.
++typedef struct
++{
++	volatile LONG refs;
++	volatile LONG done;
++	char  host[MAX_STRING];
++	int   found;
++	struct sockaddr_storage addr;
++} radio_dns_t;
++
++typedef struct
++{
++	// the station
++	string   origin;        // the address as given; every reconnect starts here
++	string   url;           // the address now, where a redirect may have led
++	string   host;
++	string   path;          // from the first '/', the query included
++	int      port;
++	qboolean secure;
++	qboolean literal6;      // the host is an IPv6 address, bracketed in the Host header
++
++	// the connection
++	int      state;
++	int      socket;
++	tlsctx_t *tls;
++	radio_dns_t *dns;
++	struct sockaddr_storage addr;
++	double   deadline;
++	double   heard;         // when bytes last came
++	int      retries;
++	int      redirects;
++	char     request[1024];
++	int      request_len;
++	int      request_sent;
++	char     hdr[RADIO_HDR_MAX];
++	int      hdr_len;
++
++	// the decoder, fed what comes off the connection
++	mpg123_handle *mpg;
++	qboolean have_format;
++	size_t   noaudio;       // body bytes fed since the last decoded audio
++
++	// decoded 16-bit PCM in a ring of pcm_size bytes; head and tail count every byte written and read
++	byte    *pcm;
++	size_t   pcm_size;
++	size_t   pcm_head;
++	size_t   pcm_tail;
++	size_t   prime_bytes;
++	qboolean primed;
++
++	qboolean named;         // the station's name went to the console
++	byte     net[RADIO_NET_CHUNK];
++	byte     out[OUTBUF_SIZE];
++} radio_t;
++
++static CVAR_DEFINE_AUTO( h9_radio_buffer, "4", FCVAR_ARCHIVE, "H9: internet radio, the seconds of audio it holds (2 to 15)" );
++static CVAR_DEFINE_AUTO( h9_radio_lan, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: 1 lets internet radio play a station on a loopback or private address (a server cannot set it)" );
++static CVAR_DEFINE_AUTO( h9_radio_debug, "0", 0, "H9: internet radio, each step of the connection in the console" );
++
++static void Radio_Log( const char *fmt, ... ) FORMAT_CHECK( 1 );
++static void Radio_Log( const char *fmt, ... )
++{
++	char    text[1024];
++	va_list args;
++
++	if( !h9_radio_debug.value )
++		return;
++
++	va_start( args, fmt );
++	Q_vsnprintf( text, sizeof( text ), fmt, args );
++	va_end( args );
++
++	Con_Printf( "radio: %s\n", text );
++}
++
++/*
++==============================================================================
++
++	THE ADDRESS
++
++==============================================================================
++*/
++
++// "http://host[:port][/path][?query][#fragment]" or https, the host a name, an IPv4 address or a
++// bracketed IPv6 one. Nothing below space or above '~', no quotes, no user:password@.
++static qboolean Radio_ParseURL( radio_t *r, const char *url )
++{
++	const char *p, *c;
++	char  hostport[MAX_STRING];
++	char *port = NULL;
++	size_t n;
++
++	for( c = url; *c; c++ )
++	{
++		if( *c <= ' ' || *c > '~' || *c == '"' || *c == '\\' )
++			return false;
++	}
++
++	if( !Q_strnicmp( url, "https://", 8 ))
++	{
++		r->secure = true;
++		r->port = 443;
++		p = url + 8;
++	}
++	else if( !Q_strnicmp( url, "http://", 7 ))
++	{
++		r->secure = false;
++		r->port = 80;
++		p = url + 7;
++	}
++	else return false;
++
++	n = strcspn( p, "/?#" );
++
++	if( n == 0 || n >= sizeof( hostport ))
++		return false;
++
++	memcpy( hostport, p, n );
++	hostport[n] = '\0';
++
++	if( Q_strchr( hostport, '@' ))
++		return false;
++
++	r->literal6 = false;
++
++	if( hostport[0] == '[' )
++	{
++		char *close = Q_strchr( hostport, ']' );
++
++		if( !close || close == hostport + 1 )
++			return false;
++
++		*close = '\0';
++
++		if( close[1] == ':' )
++			port = close + 2;
++		else if( close[1] )
++			return false;
++
++		for( c = hostport + 1; *c; c++ )
++		{
++			if( !isxdigit( (byte)*c ) && *c != ':' && *c != '.' )
++				return false;
++		}
++
++		Q_strncpy( r->host, hostport + 1, sizeof( r->host ));
++		r->literal6 = true;
++	}
++	else
++	{
++		char *colon = Q_strchr( hostport, ':' );
++
++		if( colon )
++		{
++			*colon = '\0';
++			port = colon + 1;
++		}
++
++		if( !hostport[0] )
++			return false;
++
++		for( c = hostport; *c; c++ )
++		{
++			if( !isalnum( (byte)*c ) && *c != '-' && *c != '.' )
++				return false;
++		}
++
++		Q_strncpy( r->host, hostport, sizeof( r->host ));
++	}
++
++	if( port )
++	{
++		int value = 0;
++
++		if( !*port )
++			return false;
++
++		for( c = port; *c; c++ )
++		{
++			if( !isdigit( (byte)*c ) || ( value = value * 10 + ( *c - '0' )) > 65535 )
++				return false;
++		}
++
++		if( value < 1 )
++			return false;
++
++		r->port = value;
++	}
++
++	// the path and the query, without the fragment; a bare query gets the root path
++	p += n;
++	n = strcspn( p, "#" );
++
++	if( *p == '/' )
++	{
++		if( n >= sizeof( r->path ))
++			return false;
++
++		memcpy( r->path, p, n );
++		r->path[n] = '\0';
++	}
++	else if( *p == '?' )
++	{
++		if( n + 1 >= sizeof( r->path ))
++			return false;
++
++		r->path[0] = '/';
++		memcpy( r->path + 1, p, n );
++		r->path[n + 1] = '\0';
++	}
++	else Q_strncpy( r->path, "/", sizeof( r->path ));
++
++	return true;
++}
++
++// the same rules as the engine's HTTP client gives a request that wants public addresses only
++// (net_http_xash.c, HTTP_PublicAddress)
++static qboolean Radio_PublicIPv4( const byte *a )
++{
++	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
++		return false; // this network, private, loopback, multicast, reserved, broadcast
++	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
++		return false; // 100.64.0.0/10, carrier-grade NAT
++	if( a[0] == 169 && a[1] == 254 )
++		return false; // link-local
++	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
++		return false; // 172.16.0.0/12
++	if( a[0] == 192 && a[1] == 168 )
++		return false;
++	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
++		return false; // IETF protocol assignments, TEST-NET-1
++	if( a[0] == 192 && a[1] == 88 && a[2] == 99 )
++		return false; // the old 6to4 relay anycast
++	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
++		return false; // 198.18.0.0/15, benchmarking
++	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
++		return false; // TEST-NET-2
++	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
++		return false; // TEST-NET-3
++	return true;
++}
++
++static qboolean Radio_PublicAddress( const struct sockaddr_storage *addr )
++{
++	if( addr->ss_family == AF_INET )
++		return Radio_PublicIPv4( (const byte *)&((const struct sockaddr_in *)addr )->sin_addr );
++
++	if( addr->ss_family == AF_INET6 )
++	{
++		const byte *a = (const byte *)&((const struct sockaddr_in6 *)addr )->sin6_addr;
++		static const byte mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
++		static const byte nat64[12] = { 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 };
++
++		if( !memcmp( a, mapped, 12 ) || !memcmp( a, nat64, 12 ))
++			return Radio_PublicIPv4( a + 12 );
++		if( a[0] == 0x20 && a[1] == 0x02 )
++			return Radio_PublicIPv4( a + 2 ); // 6to4
++		if(( a[0] & 0xe0 ) != 0x20 )
++			return false; // not global unicast: loopback, ULA, link-local, multicast and the rest
++		if( a[0] == 0x20 && a[1] == 0x01 && (( a[2] == 0x0d && a[3] == 0xb8 ) || ( a[2] == 0 && a[3] == 0 ) || ( a[2] == 0 && ( a[3] & 0xf0 ) == 0x10 )))
++			return false; // documentation, Teredo, ORCHID
++		return true;
++	}
++
++	return false;
++}
++
++/*
++==============================================================================
++
++	THE CONNECTION
++
++==============================================================================
++*/
++
++static DWORD WINAPI Radio_DNSThread( LPVOID arg )
++{
++	radio_dns_t *job = arg;
++	struct addrinfo hints, *res = NULL, *ai, *pick = NULL;
++
++	memset( &hints, 0, sizeof( hints ));
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_socktype = SOCK_STREAM;
++	hints.ai_protocol = IPPROTO_TCP;
++
++	if( !getaddrinfo( job->host, NULL, &hints, &res ))
++	{
++		// an IPv4 address when the name has one: a broken IPv6 route is the commoner failure
++		for( ai = res; ai; ai = ai->ai_next )
++		{
++			if( ai->ai_family == AF_INET && ai->ai_addrlen <= sizeof( job->addr ))
++			{
++				pick = ai;
++				break;
++			}
++
++			if( !pick && ai->ai_family == AF_INET6 && ai->ai_addrlen <= sizeof( job->addr ))
++				pick = ai;
++		}
++
++		if( pick )
++		{
++			memcpy( &job->addr, pick->ai_addr, pick->ai_addrlen );
++			job->found = true;
++		}
++
++		freeaddrinfo( res );
++	}
++
++	InterlockedExchange( &job->done, 1 );
++
++	if( !InterlockedDecrement( &job->refs ))
++		free( job );
++
++	return 0;
++}
++
++static void Radio_DropDNS( radio_t *r )
++{
++	if( r->dns && !InterlockedDecrement( &r->dns->refs ))
++		free( r->dns );
++
++	r->dns = NULL;
++}
++
++static void Radio_Close( radio_t *r )
++{
++	if( r->tls )
++	{
++		HTTP_TlsFree( r->tls );
++		r->tls = NULL;
++	}
++
++	if( NET_IsSocketValid( r->socket ))
++		closesocket( r->socket );
++
++	r->socket = (int)INVALID_SOCKET;
++	Radio_DropDNS( r );
++	r->hdr_len = 0;
++	r->request_sent = 0;
++}
++
++// the station is given up on: what is buffered plays out, then the track ends
++static void Radio_GiveUp( radio_t *r, const char *why )
++{
++	Con_Printf( S_ERROR "radio: %s: %s\n", r->origin, why );
++	Radio_Close( r );
++	r->state = RADIO_DEAD;
++}
++
++// a connection that failed or dropped is made again after a pause, a few times in a row
++static void Radio_Lost( radio_t *r, const char *why )
++{
++	Radio_Close( r );
++
++	if( ++r->retries > RADIO_RETRY_MAX )
++	{
++		Radio_GiveUp( r, why );
++		return;
++	}
++
++	Con_Printf( "radio: %s; trying again in %d seconds (%d of %d)\n", why, (int)RADIO_RETRY_WAIT, r->retries, RADIO_RETRY_MAX );
++	r->state = RADIO_RETRY;
++	r->deadline = host.realtime + RADIO_RETRY_WAIT;
++}
++
++static void Radio_Step( radio_t *r, int state )
++{
++	r->state = state;
++	r->deadline = host.realtime + RADIO_STEP_WAIT;
++}
++
++// the lookup of r->host begins (connecting from the start, or after a redirect)
++static void Radio_Resolve( radio_t *r )
++{
++	radio_dns_t *job;
++	HANDLE thread;
++
++	Radio_Close( r );
++	Radio_Step( r, RADIO_RESOLVING );
++	Radio_Log( "looking up %s", r->host );
++
++	job = calloc( 1, sizeof( *job ));
++
++	if( !job )
++	{
++		Radio_Lost( r, "out of memory" );
++		return;
++	}
++
++	Q_strncpy( job->host, r->host, sizeof( job->host ));
++	job->refs = 2;
++	r->dns = job;
++
++	thread = CreateThread( NULL, 0, Radio_DNSThread, job, 0, NULL );
++
++	if( !thread )
++	{
++		job->refs = 1;
++		Radio_Lost( r, "the name lookup could not be started" );
++		return;
++	}
++
++	CloseHandle( thread );
++}
++
++static void Radio_Begin( radio_t *r )
++{
++	r->redirects = 0;
++	Radio_ParseURL( r, r->origin );
++	Q_strncpy( r->url, r->origin, sizeof( r->url ));
++	Radio_Resolve( r );
++}
++
++static void Radio_StepResolve( radio_t *r )
++{
++	int err;
++
++	if( !r->dns )
++	{
++		Radio_Lost( r, "the name lookup was lost" );
++		return;
++	}
++
++	if( !InterlockedCompareExchange( &r->dns->done, 0, 0 ))
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station's name took too long to look up" );
++		return;
++	}
++
++	if( !r->dns->found )
++	{
++		Radio_Lost( r, va( "%s could not be found", r->host ));
++		return;
++	}
++
++	r->addr = r->dns->addr;
++	Radio_DropDNS( r );
++
++	if( r->addr.ss_family == AF_INET )
++		((struct sockaddr_in *)&r->addr )->sin_port = htons( (u_short)r->port );
++	else ((struct sockaddr_in6 *)&r->addr )->sin6_port = htons( (u_short)r->port );
++
++	if( !h9_radio_lan.value && !Radio_PublicAddress( &r->addr ))
++	{
++		Radio_GiveUp( r, va( "%s is a loopback or private address, which a station may not use (h9_radio_lan 1 allows it)", r->host ));
++		return;
++	}
++
++	r->socket = (int)socket( r->addr.ss_family, SOCK_STREAM, IPPROTO_TCP );
++
++	if( !NET_IsSocketValid( r->socket ))
++	{
++		Radio_Lost( r, va( "socket() failed: %s", NET_ErrorString( )));
++		return;
++	}
++
++	if( !NET_MakeSocketNonBlocking( r->socket ))
++	{
++		Radio_Lost( r, va( "the socket could not be made nonblocking: %s", NET_ErrorString( )));
++		return;
++	}
++
++	Radio_Log( "connecting to %s port %d%s", r->host, r->port, r->secure ? ", https" : "" );
++
++	if( NET_IsSocketError( connect( r->socket, (struct sockaddr *)&r->addr, NET_SockAddrLen( &r->addr ))))
++	{
++		err = WSAGetLastError();
++
++		if( err != WSAEWOULDBLOCK && err != WSAEINPROGRESS )
++		{
++			Radio_Lost( r, va( "the station could not be reached: %s", NET_ErrorString( )));
++			return;
++		}
++	}
++
++	Radio_Step( r, RADIO_CONNECTING );
++}
++
++static void Radio_BuildRequest( radio_t *r )
++{
++	char hosthdr[MAX_STRING + 16];
++	const qboolean default_port = r->port == ( r->secure ? 443 : 80 );
++
++	if( r->literal6 )
++		Q_snprintf( hosthdr, sizeof( hosthdr ), default_port ? "[%s]" : "[%s]:%d", r->host, r->port );
++	else Q_snprintf( hosthdr, sizeof( hosthdr ), default_port ? "%s" : "%s:%d", r->host, r->port );
++
++	// HTTP/1.0 and Connection: close, so the body is the plain stream with no chunking
++	r->request_len = Q_snprintf( r->request, sizeof( r->request ),
++		"GET %s HTTP/1.0\r\n"
++		"Host: %s\r\n"
++		"User-Agent: %s/%s\r\n"
++		"Accept: audio/mpeg, */*\r\n"
++		"Icy-MetaData: 0\r\n"
++		"Connection: close\r\n"
++		"\r\n",
++		r->path, hosthdr, XASH_ENGINE_NAME, XASH_VERSION );
++
++	if( r->request_len < 0 || r->request_len >= (int)sizeof( r->request ))
++		r->request_len = 0;
++
++	r->request_sent = 0;
++}
++
++static void Radio_StepConnect( radio_t *r )
++{
++	fd_set wr, ex;
++	struct timeval tv = { 0, 0 };
++	int err = 0;
++	socklen_t len = sizeof( err );
++
++	FD_ZERO( &wr );
++	FD_ZERO( &ex );
++	FD_SET( r->socket, &wr );
++	FD_SET( r->socket, &ex );
++
++	if( select( 0, NULL, &wr, &ex, &tv ) < 0 )
++	{
++		Radio_Lost( r, va( "select() failed: %s", NET_ErrorString( )));
++		return;
++	}
++
++	if( !FD_ISSET( r->socket, &wr ) && !FD_ISSET( r->socket, &ex ))
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station did not answer" );
++		return;
++	}
++
++	if( NET_IsSocketError( getsockopt( r->socket, SOL_SOCKET, SO_ERROR, (char *)&err, &len )) || err != 0 )
++	{
++		Radio_Lost( r, "the station refused the connection" );
++		return;
++	}
++
++	if( r->secure )
++	{
++		r->tls = HTTP_TlsNew( r->socket, r->host );
++
++		if( !r->tls )
++		{
++			Radio_GiveUp( r, "TLS could not be set up" );
++			return;
++		}
++
++		Radio_Step( r, RADIO_TLS );
++		return;
++	}
++
++	Radio_BuildRequest( r );
++	Radio_Step( r, RADIO_SENDING );
++}
++
++static void Radio_StepTLS( radio_t *r )
++{
++	int ret = HTTP_TlsHandshake( r->tls );
++
++	if( ret == HTTP_TLS_OK )
++	{
++		Radio_BuildRequest( r );
++		Radio_Step( r, RADIO_SENDING );
++	}
++	else if( ret == HTTP_TLS_ERROR )
++	{
++		// most often a station that does not send its intermediate certificate: browsers fetch
++		// the missing one themselves, mbedTLS (like curl) does not
++		Radio_GiveUp( r, "the TLS handshake failed (a station that does not send its whole certificate chain fails this way: try its http:// address)" );
++	}
++	else if( host.realtime > r->deadline )
++		Radio_Lost( r, "the TLS handshake took too long" );
++}
++
++static int Radio_Send( radio_t *r, const void *buf, int len )
++{
++	int n;
++
++	if( r->tls )
++	{
++		n = HTTP_TlsSend( r->tls, buf, len );
++
++		if( n >= 0 )
++			return n;
++
++		return n == HTTP_TLS_WANT ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++	}
++
++	n = send( r->socket, buf, len, 0 );
++
++	if( !NET_IsSocketError( n ))
++		return n;
++
++	n = WSAGetLastError();
++	return ( n == WSAEWOULDBLOCK || n == WSAENOTCONN ) ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++}
++
++static int Radio_Recv( radio_t *r, void *buf, int len )
++{
++	int n;
++
++	if( r->tls )
++	{
++		n = HTTP_TlsRecv( r->tls, buf, len );
++
++		if( n >= 0 )
++			return n;
++
++		return n == HTTP_TLS_WANT ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++	}
++
++	n = recv( r->socket, buf, len, 0 );
++
++	if( !NET_IsSocketError( n ))
++		return n;
++
++	n = WSAGetLastError();
++	return n == WSAEWOULDBLOCK ? RADIO_IO_WAIT : RADIO_IO_ERROR;
++}
++
++static void Radio_StepSend( radio_t *r )
++{
++	int n;
++
++	if( !r->request_len )
++	{
++		Radio_GiveUp( r, "the address is too long for a request" );
++		return;
++	}
++
++	n = Radio_Send( r, r->request + r->request_sent, r->request_len - r->request_sent );
++
++	if( n > 0 )
++	{
++		r->request_sent += n;
++
++		if( r->request_sent >= r->request_len )
++		{
++			Radio_Step( r, RADIO_HEADERS );
++			r->heard = host.realtime;
++		}
++	}
++	else if( n == RADIO_IO_ERROR )
++		Radio_Lost( r, "the request could not be sent" );
++	else if( host.realtime > r->deadline )
++		Radio_Lost( r, "the request could not be sent in time" );
++}
++
++/*
++==============================================================================
++
++	THE AUDIO
++
++==============================================================================
++*/
++
++static size_t Radio_Avail( const radio_t *r )
++{
++	return r->pcm_head - r->pcm_tail;
++}
++
++// a full ring drops its oldest audio: the mixer is behind, and the station does not wait
++static void Radio_RingWrite( radio_t *r, const byte *data, size_t len )
++{
++	size_t at, first;
++
++	if( !r->pcm || !len )
++		return;
++
++	if( len > r->pcm_size )
++	{
++		data += len - r->pcm_size;
++		len = r->pcm_size;
++	}
++
++	at = r->pcm_head % r->pcm_size;
++	first = Q_min( len, r->pcm_size - at );
++	memcpy( r->pcm + at, data, first );
++	memcpy( r->pcm, data + first, len - first );
++	r->pcm_head += len;
++
++	if( Radio_Avail( r ) > r->pcm_size )
++		r->pcm_tail = r->pcm_head - r->pcm_size;
++}
++
++static size_t Radio_RingRead( radio_t *r, byte *out, size_t len )
++{
++	size_t at, first;
++
++	if( !r->pcm )
++		return 0;
++
++	len = Q_min( len, Radio_Avail( r ));
++	at = r->pcm_tail % r->pcm_size;
++	first = Q_min( len, r->pcm_size - at );
++	memcpy( out, r->pcm + at, first );
++	memcpy( out + first, r->pcm, len - first );
++	r->pcm_tail += len;
++
++	return len;
++}
++
++// the decoder found the stream's format: the ring is made for it (again, when it changed)
++static qboolean Radio_Format( stream_t *stream, radio_t *r )
++{
++	long rate;
++	int  channels, encoding;
++	size_t frame;
++
++	if( mpg123_getformat( r->mpg, &rate, &channels, &encoding ) != MPG123_OK )
++		return false;
++
++	// 16-bit output, as snd_mp3.c asks for it; the decoder reports the format again once set
++	if( encoding != MPG123_ENC_SIGNED_16 )
++	{
++		mpg123_format_none( r->mpg );
++		mpg123_format( r->mpg, rate, channels, MPG123_ENC_SIGNED_16 );
++		return true;
++	}
++
++	if( rate < 8000 || rate > 96000 || channels < 1 || channels > 2 )
++		return false;
++
++	if( !r->have_format || rate != stream->rate || channels != stream->channels )
++	{
++		frame = (size_t)channels * 2;
++
++		if( r->pcm )
++			Mem_Free( r->pcm );
++
++		r->pcm_size = (size_t)rate * frame * bound( 2, (int)h9_radio_buffer.value, 15 );
++		r->prime_bytes = (size_t)rate * frame * RADIO_PRIME_SECONDS;
++		r->pcm = Mem_Calloc( host.soundpool, r->pcm_size );
++		r->pcm_head = r->pcm_tail = 0;
++		r->primed = false;
++
++		stream->rate = rate;
++		stream->channels = channels;
++		stream->width = 2;
++
++		Radio_Log( "%d Hz, %d channel(s), %d seconds held", (int)rate, channels, (int)( r->pcm_size / ( rate * frame )));
++	}
++
++	r->have_format = true;
++	return true;
++}
++
++// raw bytes from the station into the decoder, and every bit of audio it gives back into the ring
++static void Radio_Decode( stream_t *stream, radio_t *r, const byte *data, size_t len )
++{
++	r->noaudio += len;
++
++	for( ;; )
++	{
++		size_t done = 0;
++		int ret = mpg123_decode( r->mpg, data, len, r->out, sizeof( r->out ), &done );
++
++		// the input goes in once; the loop takes out what it decodes to
++		data = NULL;
++		len = 0;
++
++		if( done > 0 && r->have_format )
++		{
++			Radio_RingWrite( r, r->out, done );
++			r->noaudio = 0;
++		}
++
++		if( ret == MPG123_NEW_FORMAT )
++		{
++			if( !Radio_Format( stream, r ))
++			{
++				Radio_GiveUp( r, "the stream's audio format cannot be played" );
++				return;
++			}
++			continue;
++		}
++
++		if( ret == MPG123_OK && done > 0 )
++			continue;
++
++		if( ret == MPG123_ERR )
++		{
++			// a decoder that lost its footing starts over on the next bytes
++			Radio_Log( "the decoder stopped (%s); it starts again", mpg123_strerror( r->mpg ));
++			mpg123_open_feed( r->mpg );
++		}
++
++		break;
++	}
++
++	if( r->noaudio > RADIO_NOAUDIO_MAX )
++	{
++		Radio_GiveUp( r, "no mp3 audio came from it: only mp3 stations can be played" );
++		return;
++	}
++
++	if( !r->primed && r->pcm && Radio_Avail( r ) >= r->prime_bytes )
++	{
++		r->primed = true;
++		r->retries = 0; // audio came: the next drop is a first one again
++		Radio_Log( "buffered, playing" );
++	}
++}
++
++// a header's value, from a block of headers ending at a blank line; empty when absent
++static void Radio_Header( const char *hdr, const char *name, char *out, size_t size )
++{
++	size_t namelen = Q_strlen( name );
++	const char *line = hdr;
++	size_t n = 0;
++
++	out[0] = '\0';
++
++	while(( line = Q_strchr( line, '\n' )) != NULL )
++	{
++		line++;
++
++		if( Q_strnicmp( line, name, namelen ) || line[namelen] != ':' )
++			continue;
++
++		line += namelen + 1;
++
++		while( *line == ' ' || *line == '\t' )
++			line++;
++
++		while( line[n] && line[n] != '\r' && line[n] != '\n' && n + 1 < size )
++		{
++			out[n] = ( line[n] < ' ' || line[n] > '~' ) ? ' ' : line[n];
++			n++;
++		}
++
++		out[n] = '\0';
++		return;
++	}
++}
++
++// the media types an mp3 stream comes as; a playlist (audio/x-mpegurl, audio/x-scpls) is not one
++static qboolean Radio_MP3Type( const char *type )
++{
++	static const char *const mp3[] =
++	{
++		"audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg", "audio/x-mp3", "audio/x-mpeg-3", "application/octet-stream"
++	};
++	size_t n = strcspn( type, "; " );
++
++	for( size_t i = 0; i < ARRAYSIZE( mp3 ); i++ )
++	{
++		if( Q_strlen( mp3[i] ) == n && !Q_strnicmp( type, mp3[i], n ))
++			return true;
++	}
++
++	return false;
++}
++
++// a redirect's Location: an absolute http(s) address, or a path on the same station
++static qboolean Radio_Redirect( radio_t *r, const char *location )
++{
++	string next;
++
++	if( location[0] == '/' && location[1] != '/' )
++	{
++		if( r->literal6 )
++			Q_snprintf( next, sizeof( next ), "%s://[%s]:%d%s", r->secure ? "https" : "http", r->host, r->port, location );
++		else Q_snprintf( next, sizeof( next ), "%s://%s:%d%s", r->secure ? "https" : "http", r->host, r->port, location );
++	}
++	else Q_strncpy( next, location, sizeof( next ));
++
++	if( !Radio_ParseURL( r, next ))
++		return false;
++
++	Q_strncpy( r->url, next, sizeof( r->url ));
++	Radio_Log( "redirected to %s", r->url );
++	Radio_Resolve( r );
++	return true;
++}
++
++// the response's headers are all here: 1 the audio follows, 0 the station is given up on or a redirect began
++static int Radio_Response( radio_t *r )
++{
++	char value[MAX_STRING];
++	const char *sp;
++	int code = 0;
++
++	if( !Q_strnicmp( r->hdr, "ICY ", 4 ))
++		code = Q_atoi( r->hdr + 4 );
++	else if( !Q_strnicmp( r->hdr, "HTTP/", 5 ) && ( sp = Q_strchr( r->hdr, ' ' )) != NULL )
++		code = Q_atoi( sp + 1 );
++
++	Radio_Log( "the station answered %d", code );
++
++	if( code == 301 || code == 302 || code == 303 || code == 307 || code == 308 )
++	{
++		Radio_Header( r->hdr, "Location", value, sizeof( value ));
++
++		if( !value[0] )
++			Radio_GiveUp( r, "a redirect with no address" );
++		else if( ++r->redirects > RADIO_REDIRECT_MAX )
++			Radio_GiveUp( r, "too many redirects" );
++		else if( !Radio_Redirect( r, value ))
++			Radio_GiveUp( r, "it redirects to an address that cannot be played" );
++
++		return 0;
++	}
++
++	if( code != 200 )
++	{
++		Radio_GiveUp( r, code ? va( "the station answered %d", code ) : "the station's answer could not be read" );
++		return 0;
++	}
++
++	Radio_Header( r->hdr, "Content-Type", value, sizeof( value ));
++
++	if( value[0] && !Radio_MP3Type( value ))
++	{
++		Radio_GiveUp( r, va( "the stream is %s, and only mp3 stations can be played", value ));
++		return 0;
++	}
++
++	if( !r->named )
++	{
++		Radio_Header( r->hdr, "icy-name", value, sizeof( value ));
++		Con_Printf( "radio: playing %s\n", value[0] ? value : r->origin );
++		r->named = true;
++	}
++
++	return 1;
++}
++
++static void Radio_StepHeaders( stream_t *stream, radio_t *r )
++{
++	char *end;
++	int n, body;
++
++	n = Radio_Recv( r, r->hdr + r->hdr_len, sizeof( r->hdr ) - 1 - r->hdr_len );
++
++	if( n == RADIO_IO_WAIT )
++	{
++		if( host.realtime > r->deadline )
++			Radio_Lost( r, "the station did not answer the request" );
++		return;
++	}
++
++	if( n <= 0 )
++	{
++		Radio_Lost( r, "the station closed the connection" );
++		return;
++	}
++
++	r->hdr_len += n;
++	r->hdr[r->hdr_len] = '\0';
++
++	if(( end = Q_strstr( r->hdr, "\r\n\r\n" )) != NULL )
++		body = ( end + 4 ) - r->hdr;
++	else if(( end = Q_strstr( r->hdr, "\n\n" )) != NULL )
++		body = ( end + 2 ) - r->hdr;
++	else
++	{
++		if( r->hdr_len >= (int)sizeof( r->hdr ) - 1 )
++			Radio_GiveUp( r, "the station's answer is too long" );
++		return;
++	}
++
++	// the headers alone, for Radio_Header; the audio after them is kept apart first
++	memcpy( r->net, r->hdr + body, r->hdr_len - body );
++	n = r->hdr_len - body;
++	*end = '\0';
++
++	if( !Radio_Response( r ))
++		return;
++
++	mpg123_open_feed( r->mpg ); // a new connection is a new stream for the decoder
++	r->noaudio = 0;
++	r->heard = host.realtime;
++	r->state = RADIO_PLAYING;
++
++	if( n > 0 )
++		Radio_Decode( stream, r, r->net, n );
++}
++
++static void Radio_StepPlay( stream_t *stream, radio_t *r )
++{
++	for( int i = 0; i < RADIO_NET_READS && r->state == RADIO_PLAYING; i++ )
++	{
++		int n = Radio_Recv( r, r->net, sizeof( r->net ));
++
++		if( n > 0 )
++		{
++			r->heard = host.realtime;
++			Radio_Decode( stream, r, r->net, n );
++			continue;
++		}
++
++		if( n == RADIO_IO_WAIT )
++		{
++			if( host.realtime - r->heard > RADIO_STEP_WAIT )
++				Radio_Lost( r, "the station went silent" );
++		}
++		else Radio_Lost( r, "the station dropped the stream" );
++
++		break;
++	}
++}
++
++// one step of the connection, from the read function
++static void Radio_Pump( stream_t *stream, radio_t *r )
++{
++	switch( r->state )
++	{
++	case RADIO_RESOLVING:
++		Radio_StepResolve( r );
++		break;
++	case RADIO_CONNECTING:
++		Radio_StepConnect( r );
++		break;
++	case RADIO_TLS:
++		Radio_StepTLS( r );
++		break;
++	case RADIO_SENDING:
++		Radio_StepSend( r );
++		break;
++	case RADIO_HEADERS:
++		Radio_StepHeaders( stream, r );
++		break;
++	case RADIO_PLAYING:
++		Radio_StepPlay( stream, r );
++		break;
++	case RADIO_RETRY:
++		if( host.realtime >= r->deadline )
++			Radio_Begin( r );
++		break;
++	default:
++		break;
++	}
++}
++
++/*
++==============================================================================
++
++	THE STREAM FORMAT
++
++==============================================================================
++*/
++
++// all of needBytes, silence where there is no audio yet, while the station is alive
++static int Stream_ReadHTTP( stream_t *stream, int needBytes, void *buffer )
++{
++	radio_t *r = stream->ptr;
++	size_t got = 0;
++
++	if( !r || needBytes <= 0 )
++		return 0;
++
++	Radio_Pump( stream, r );
++
++	if( r->state == RADIO_DEAD )
++		return (int)Radio_RingRead( r, buffer, needBytes );
++
++	if( r->primed )
++		got = Radio_RingRead( r, buffer, needBytes );
++
++	if( got < (size_t)needBytes )
++	{
++		memset( (byte *)buffer + got, 0, needBytes - got );
++
++		if( r->primed )
++		{
++			r->primed = false;
++			Radio_Log( "the buffer ran dry: buffering again" );
++		}
++	}
++
++	return needBytes;
++}
++
++// a live station has no position and does not seek
++static int Stream_SetPosHTTP( stream_t *stream, int newpos )
++{
++	return false;
++}
++
++static int Stream_GetPosHTTP( stream_t *stream )
++{
++	return 0;
++}
++
++static void Stream_FreeHTTP( stream_t *stream )
++{
++	radio_t *r = stream->ptr;
++
++	if( r )
++	{
++		Radio_Close( r );
++
++		if( r->mpg )
++			mpg123_delete( r->mpg );
++
++		if( r->pcm )
++			Mem_Free( r->pcm );
++
++		Mem_Free( r );
++	}
++
++	Mem_Free( stream );
++}
++
++static const streamfmt_t stream_http =
++{
++	"http", Stream_OpenHTTP, Stream_ReadHTTP, Stream_SetPosHTTP, Stream_GetPosHTTP, Stream_FreeHTTP
++};
++
++/*
++=================
++Stream_OpenHTTP
++
++returns at once: the connection is made from the read function, and the mixer hears silence
++until RADIO_PRIME_SECONDS of the station are buffered
++=================
++*/
++stream_t *Stream_OpenHTTP( const char *url )
++{
++	stream_t *stream;
++	radio_t *r;
++	int err = 0;
++
++	r = Mem_Calloc( host.soundpool, sizeof( *r ));
++	r->socket = (int)INVALID_SOCKET;
++
++	if( Q_strlen( url ) >= sizeof( r->origin ) || !Radio_ParseURL( r, url ))
++	{
++		Con_Printf( S_ERROR "radio: %s is not an address a station can have (http:// or https://, a host name, a port and a path)\n", url );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	if( r->secure && !HTTP_TlsAvailable( ))
++	{
++		Con_Printf( S_ERROR "radio: TLS is not available, so an https station cannot be played: %s\n", url );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	r->mpg = mpg123_new( NULL, &err );
++
++	if( !r->mpg )
++	{
++		Con_Printf( S_ERROR "radio: the mp3 decoder could not be made: %s\n", mpg123_plain_strerror( err ));
++		Mem_Free( r );
++		return NULL;
++	}
++
++	mpg123_param2( r->mpg, MPG123_FLAGS, MPG123_QUIET, 0.0 );
++
++	if( mpg123_open_feed( r->mpg ) != MPG123_OK )
++	{
++		Con_Printf( S_ERROR "radio: the mp3 decoder could not be opened: %s\n", mpg123_strerror( r->mpg ));
++		mpg123_delete( r->mpg );
++		Mem_Free( r );
++		return NULL;
++	}
++
++	Q_strncpy( r->origin, url, sizeof( r->origin ));
++
++	stream = Mem_Calloc( host.soundpool, sizeof( *stream ));
++	stream->format = &stream_http;
++	stream->ptr = r;
++	stream->type = WF_MPGDATA;
++
++	// until the first frame says otherwise
++	stream->rate = 44100;
++	stream->channels = 2;
++	stream->width = 2;
++
++	Con_Printf( "radio: tuning in to %s\n", url );
++	Radio_Begin( r );
++
++	return stream;
++}
++
++void Stream_HTTPInit( void )
++{
++	Cvar_RegisterVariable( &h9_radio_buffer );
++	Cvar_RegisterVariable( &h9_radio_lan );
++	Cvar_RegisterVariable( &h9_radio_debug );
++}
++
++#else // !XASH_WIN32
++
++stream_t *Stream_OpenHTTP( const char *url )
++{
++	Con_Printf( "radio: internet radio is not available in this build: %s\n", url );
++	return NULL;
++}
++
++void Stream_HTTPInit( void )
++{
++}
++
++#endif // !XASH_WIN32
+diff --git a/engine/client/soundlib/snd_main.c b/engine/client/soundlib/snd_main.c
+index 5daf0676..1526583e 100644
+--- a/engine/client/soundlib/snd_main.c
++++ b/engine/client/soundlib/snd_main.c
+@@ -163,6 +163,12 @@ stream_t *FS_OpenStream( const char *filename )
+ 	stream_t		*stream = NULL;
+ 
+ 	Sound_Reset(); // clear old streaminfo
++
++	// H9: an http:// or https:// address is an internet radio station (snd_http.c); it is opened
++	// before the extension and media/ handling below, which would take the address apart
++	if( !Q_strnicmp( filename, "http://", 7 ) || !Q_strnicmp( filename, "https://", 8 ))
++		return Stream_OpenHTTP( filename );
++
+ 	Q_strncpy( loadname, filename, sizeof( loadname ));
+ 
+ 	if( !COM_StringEmpty( ext ))
+diff --git a/engine/common/soundlib/snd_utils.c b/engine/common/soundlib/snd_utils.c
+index 19a74e2b..595fea38 100644
+--- a/engine/common/soundlib/snd_utils.c
++++ b/engine/common/soundlib/snd_utils.c
+@@ -74,6 +74,10 @@ void Sound_Init( void )
+ 	sound.streamformat = stream_game;
+ 
+ 	sound.tempbuffer = NULL;
++
++#ifndef XASH_DEDICATED
++	Stream_HTTPInit(); // H9: internet radio's cvars (snd_http.c)
++#endif
+ }
+ 
+ void Sound_Shutdown( void )
+diff --git a/engine/common/soundlib/soundlib.h b/engine/common/soundlib/soundlib.h
+index 0e20c8c7..5cc6d532 100644
+--- a/engine/common/soundlib/soundlib.h
++++ b/engine/common/soundlib/soundlib.h
+@@ -144,4 +144,8 @@ int Stream_SetPosOggOpus( stream_t *stream, int newpos );
+ int Stream_GetPosOggOpus( stream_t *stream );
+ void Stream_FreeOggOpus( stream_t *stream );
+ 
++// H9: internet radio, an mp3 station over http or https (client/soundlib/snd_http.c)
++stream_t *Stream_OpenHTTP( const char *url );
++void Stream_HTTPInit( void );
++
+ #endif//SOUNDLIB_H

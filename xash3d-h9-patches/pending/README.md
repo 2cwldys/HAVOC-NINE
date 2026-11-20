@@ -28,7 +28,6 @@ patch with a changelog entry.
 
 | folder | what it is | state |
 |---|---|---|
-| `engine-h9-radio/` | internet radio on the background music channel | not built |
 | `engine-h9-clientid7/` | h9_clientid as seven base36 characters, to spend less userinfo | not built; its web half is on `main` already and is safe on its own |
 
 Each folder carries its own `HOOKS.md` naming the exact files, line numbers and edits, so the

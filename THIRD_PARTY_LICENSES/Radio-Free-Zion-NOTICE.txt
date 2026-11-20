@@ -1,0 +1,13 @@
+Radio Free Zion -- radiofreezion.net
+
+HAVOC 9's h9_radio plugin lists Radio Free Zion's public stream,
+https://stream.radiofreezion.net:8061/listen.mp3, among the stations a player can choose with /radio.
+
+The stream, its music and its programming belong to Radio Free Zion and to their rights holders.
+HAVOC 9 does not host, relay, record, cache or redistribute any of it. When a player turns the radio on,
+that player's own game connects to the station's public stream directly, as a web player or a media
+player would, and nothing of it passes through HAVOC 9's servers. The station's own terms of use apply
+to every listener. Nothing in HAVOC 9 grants any right to the stream or to its content.
+
+A station that does not want to be listed can ask the HAVOC 9 project to remove its line from
+h9_radio_stations.ini.

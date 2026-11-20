@@ -2037,3 +2037,33 @@ V_PreRender return false, and both are applied earlier in the chain.
 The patch reverse-checks "in place" against the dev clone. Needs the next engine build
 (xash.dll); no menu, game-DLL or cvar change, and the browser build takes it at the next
 webclient-sync.
+
+### 2026-11-19 -- engine-h9-radio.patch: internet radio on the background music channel
+
+A station is one more stream format on the music channel: an mp3 stream over http or https,
+decoded by the same mpg123 that plays sound/music. h9_radio.sma tunes a player with
+"mp3 play <url>", and this patch is the engine half. It is the last patch in the chain, applied
+after engine-h9-menubgvideo.patch.
+
+- engine/client/soundlib/snd_http.c (new): the stream. The name is resolved on a thread of its
+  own and the socket is nonblocking, so nothing blocks the game; TLS goes through net_http_tls.c,
+  checked against the engine's CA bundle. Audio is held in a ring of h9_radio_buffer seconds, and
+  a read is always filled while the station is alive (silence while it buffers, runs dry or
+  reconnects), because s_stream.c ends a track on a read of 0 bytes. Loopback, private and
+  link-local addresses are refused unless the player sets h9_radio_lan 1, which a server cannot.
+  Cvars: h9_radio_buffer, h9_radio_lan, h9_radio_debug. Windows only: every other build compiles
+  a stub that opens no station and says so once in the console.
+- engine/client/soundlib/snd_main.c: FS_OpenStream hands an http:// or https:// name to
+  Stream_OpenHTTP before its extension and media/ handling, which would take an address apart.
+- engine/common/soundlib/snd_utils.c: Stream_HTTPInit registers the cvars, outside dedicated
+  builds.
+- engine/common/soundlib/soundlib.h: the two declarations.
+
+Cut from a scratch tree of pristine e8d773ea plus all 51 engine patches in xash.bat order. It
+reverse-checks against that tree and forward-checks against TSM\xash3d-fwgs. Its name is bare on
+the xash.dll :dllpatch line, which sits close to cmd.exe's 8191-character limit; one phrase of that
+line's description (the sprite guard's) was shortened to make room. Stations whose servers leave
+out an intermediate certificate need it in valve\cacert-extra.pem (docs\RADIO.txt, section 6).
+Needs the next engine build (xash.dll); the browser build takes the stub at the next
+webclient-sync.
+
