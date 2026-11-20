@@ -258,6 +258,7 @@ class Settings:
         self.build_file = ini.get("discord", "build_file", fallback="").strip()
         self.release_channel = ini.get("discord", "release_channel", fallback="").strip()
         self.release_image = ini.get("discord", "release_image", fallback="").strip()
+        self.release_role = ini.get("discord", "release_role", fallback="").strip()
         self.heartbeat_key = secrets.get("secrets", "heartbeat_key", fallback="").strip()
         self.discord_token = (secret_from_service("H9_DISCORD_TOKEN", "discord_token")
                               or secrets.get("secrets", "discord_token", fallback="").strip())
@@ -877,9 +878,6 @@ def make_bot(state, settings):
         library need not be installed at all, so nothing outside this scope may name discord.
         """
         # The title carries the link, so the body says the one thing a reader needs and stops.
-        # There was a line about the updater taking only what changed and a field naming the
-        # exe: the first repeated the title, and the second only looked like a download link
-        # without being one, since a field value renders markdown but was never a link here.
         embed = discord.Embed(
             title=f"HAVOC 9  {build}",
             description="A new version is available.",
@@ -1007,12 +1005,23 @@ def make_bot(state, settings):
                 channel = self.get_channel(int(settings.release_channel))
                 if channel is None:                         # not in the cache (uncommon): ask for it
                     channel = await self.fetch_channel(int(settings.release_channel))
-                await channel.send(embed=release_embed(build))
+                # The role ping, if one is configured. The client is built with
+                # AllowedMentions.none() so that nothing the bot repeats can ping anybody; this
+                # one message carries its own permission, naming only that role.
+                content = None
+                mentions = discord.AllowedMentions.none()
+                if settings.release_role.isdigit():
+                    content = "<@&" + settings.release_role + ">"
+                    mentions = discord.AllowedMentions(
+                        everyone=False, users=False, roles=[discord.Object(id=int(settings.release_role))]
+                    )
+                await channel.send(content=content, embed=release_embed(build), allowed_mentions=mentions)
                 # Recorded only after the send worked, so a Discord outage retries next tick
                 # instead of losing the announcement.
                 self.announced = build
                 write_announced(build)
-                log(f"Discord: announced H9XASH {build} in {settings.release_channel}")
+                log(f"Discord: announced H9XASH {build} in {settings.release_channel}"
+                    + (f", pinging role {settings.release_role}" if settings.release_role.isdigit() else ""))
             except Exception as exc:                        # noqa: BLE001
                 log(f"Discord: release not announced: {exc}")
 

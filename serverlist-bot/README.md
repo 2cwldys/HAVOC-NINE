@@ -97,8 +97,8 @@ An empty `build_file` leaves the bio alone (a local test).
 
 Set `release_channel` in `serverlist.ini` to a channel id and the bot posts one embed there when that same build number changes: "HAVOC 9 1.68", the download link, and how many servers
 are live at that moment. It rides the signal the bio already follows, which is the point. `downloads/.build` is written when the site is actually handing the build out, so the
-announcement cannot run ahead of the release. On 2026-11-19 the 1.68 package built, uploaded every file, and was then refused by the host's free-space check; nothing anywhere said so
-and the bio simply stayed on 1.66. Anything driven from the sending end would have announced a release that did not exist.
+announcement cannot run ahead of the release: a delivery that uploads and is then refused by the host never writes it, and so announces nothing. Anything driven from the sending
+end would announce a release the moment it was sent, whether or not it ever arrived.
 
 The build it last announced is kept in `announced_build` beside `serverlist.ini`, because restarting the service must not post the same release again. The first run with no such file
 records what is being served and says nothing: announcing a release that happened before any of this existed would be wrong. Delete that file to have the current build announced once.
@@ -107,8 +107,24 @@ The file is written only after Discord accepts the message, so an outage retries
 The embed is H9 orange. A Discord embed carries exactly one colour, so `release_image` is the only place the purple can go; an empty or unreachable URL simply leaves the image out.
 An empty `release_channel` means no announcement, and the bio still follows the build as before.
 
+Set `release_role` to a role id and the announcement pings that role. Everything else the bot posts carries no mentions at all, so nothing it repeats (a server name, a player
+name) can ping anybody; the release post alone carries its own permission, for that one role. An empty `release_role` means no ping.
+
 It carries nothing but the build number, static text and a count: no addresses, no server names, no player names. The build is the string `build_file` held, and only after it matched
 `[0-9][A-Za-z0-9._-]{0,31}` -- the bot refuses anything else as "not a build number" and leaves both the bio and the announcement alone.
+
+## Announcing a release by hand
+
+`announce-release.cmd`, beside the bot, sends the same announcement on demand: for a release the bot did not post, because it was down or the setting came after the release. It
+reads the same `serverlist.ini`, takes the token from `serverlist.cfg`, pings the same role, and records the build in `announced_build` afterwards so the bot does not post it a
+second time.
+
+    announce-release.cmd                 announce the build the site serves now
+    announce-release.cmd --dry-run       show the message, send nothing
+    announce-release.cmd --build 1.67    announce a particular build
+    announce-release.cmd --force         send even if that build was announced already
+
+Set `H9_SERVERLIST_HOME` when the bot's data is somewhere other than `C:\havoc9\data\serverlist`.
 
 ## Heartbeats
 
