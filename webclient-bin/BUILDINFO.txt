@@ -1,6 +1,6 @@
 H9 web client builds -- what each file in this folder is, and what it was built from
 
-Written by tools/make_webclient_bin.py, 2026-11-19 08:16 UTC.
+Written by tools/make_webclient_bin.py, 2026-11-22 06:05 UTC.
 tools/make_webclient_game.py takes these files from this folder (havoc9.org/webclient/DEPLOY.txt,
 section 3). Only the builds are here: the game's files come from the repository's H9XASH.
 
@@ -8,7 +8,7 @@ Toolchain
     emsdk 6.0.12 (releases-6e9f6885cb17a3d6c8fd488a5cff730f50aba61d-64bit)
 
 Engine: xash3d-fwgs (https://github.com/FWGS/xash3d-fwgs, GPL-3.0), branch h9 at 17c23c81 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch),
-with the working tree as xash3d-h9-patches\xash.bat leaves it: 76 paths changed or added
+with the working tree as xash3d-h9-patches\xash.bat leaves it: 80 paths changed or added
 (the patches below, and the uncommitted menu-video work), and its submodules:
     3rdparty/freevgui        c83f47f h9: purple VGUI1 scheme defaults (freevgui-h9-scheme.patch) (working tree: 1 changed)
     3rdparty/mainui          e9fb24e h9: ask for media/gamestartup only when the game has one (working tree: 12 changed)
@@ -46,7 +46,7 @@ Patches applied, in xash.bat's order (SHA-1 of each patch file):
     30e25864ee1e  engine-h9-cvarresync.patch
     ec1924af95b7  engine-h9-webmenu.patch
     01a4c29c0435  engine-h9-phsbudget.patch
-    c3e8c77afdb3  engine-h9-motd.patch
+    96d3baa13915  engine-h9-motd.patch
     d2764c12adc8  engine-h9-travel.patch
     e1387ab7e6e6  engine-h9-slots128.patch
     23c337889843  mainui-h9-slots128.patch in 3rdparty/mainui
@@ -62,8 +62,8 @@ Patches applied, in xash.bat's order (SHA-1 of each patch file):
     a8d24b7a4cd8  engine-h9-reliableburst.patch
     0341e68c86cb  engine-h9-link.patch
     484cd86b79de  engine-h9-userinfo.patch
-    9392e7bed041  engine-h9-serverinfo.patch
-    883299878246  engine-h9-joinscreen.patch
+    c8ed003d366c  engine-h9-serverinfo.patch
+    ba47a5a80da4  engine-h9-joinscreen.patch
     9bcff5b6a079  mainui-h9-link.patch in 3rdparty/mainui
     3f8ea2f43025  mainui-h9-default64.patch in 3rdparty/mainui
     09747911dd77  mainui-h9-browser.patch in 3rdparty/mainui
@@ -80,8 +80,9 @@ Patches applied, in xash.bat's order (SHA-1 of each patch file):
     85215147531c  engine-h9-framesize.patch
     749c8f4f297a  engine-h9-upscale.patch
     6e05007a565a  engine-h9-png.patch
-    b4c4ab029c58  engine-h9-userinfo-client.patch
+    6e45bdd15f94  engine-h9-userinfo-client.patch
     b028b5a8f5e5  engine-h9-menubgvideo.patch
+    8d848bd53a3a  engine-h9-radio.patch
 
 Client library: reTS (the reconstruction of TS 3.0's client and server, CMake), as in TSM\reTS,
 its cl_dll/CMakeLists.txt with the block marked "H9 web client" (SHA-1 767c92ea276e), which compiles
@@ -90,9 +91,9 @@ xash3d-fwgs/3rdparty/freevgui into the client (VGUI with H9's scheme, the browse
     cmake --build reTS-wasm --target client
 
 Files (bytes, SHA-1):
-    engine/xash.js                             558596  5ec902a5256e25d7ecf97c68f578a91af93abd3d
+    engine/xash.js                             558596  f82063a46d7ae722738a0bd2590b30ab33bcd502
         the engine's loader (Emscripten's JavaScript, MODULARIZE, Xash3D())
-    engine/xash.wasm                          4828844  01280b9f6b014b2fd72d782741000533efea0b15
+    engine/xash.wasm                          4829201  86634933f44865aaa4754c6259a190f829fbb09a
         the engine (main module)
     filesystem/filesystem_stdio.wasm            56765  5e55bd49ed06ce74ab4402e9b0616a037e418d43
         the engine's file system (side module)

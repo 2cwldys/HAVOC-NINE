@@ -99,7 +99,8 @@ SKIP_NAMES = {"config.cfg", "video.cfg", "opengl.cfg", "vfs.cfg", "server.cfg", 
               "voice_ban.dt", "tsstats.dat", "vault.ini", "xashcomm.lst", "mapcycle.txt", "motd.txt",
               "bots.txt", "bot_say.txt", "steam_appid.txt", "tempdecal.wad", ".xash_id",
               "history_servers.lst", "favorite_servers.lst",
-              "cacert.pem"}  # cacert.pem: this PC's trusted certificates, written by h9_cacerts.ps1
+              "cacert.pem", "cacert-extra.pem"}  # cacert.pem: this PC's trusted certificates, written by h9_cacerts.ps1;
+              # cacert-extra.pem: intermediates for the desktop radio; the browser checks certificates itself
 SKIP_EXT = (".exe", ".dll", ".so", ".dylib", ".pdb", ".bat", ".cmd", ".ps1", ".py", ".log", ".fgd",
             ".zip", ".tmp", ".new", ".md")
 

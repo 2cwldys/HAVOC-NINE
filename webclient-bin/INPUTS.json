@@ -1,36 +1,36 @@
 {
  "format": 1,
- "builtAt": "2026-11-19T08:24:04.001Z",
+ "builtAt": "2026-11-22T06:06:01.086Z",
  "inputs": {
-  "engine": "6a4bf07f901c5bb98f418005197c3735260ecf9a78c1a7a2ac487e3d0255dd3b",
+  "engine": "251c7d3f7c8bbaf8e032284e6ce6b66973c537c99ff1767201311e2c77440d13",
   "client": "47e6c018478ed2269535eabf6ce013122fdb2ed3bff003980cb630263fa41879",
-  "patches": "59cf5de3b85a660af62990009f57a35897b348a436b0dd436f4c6d1ffe81789c",
+  "patches": "4e54027055c74e3f5ae1e3caf752bac71f252f51ef7d8e96aa2f624610e13b00",
   "builder": "70f0e86b45975b540613ad7718c5b82ae283b8a09db2984dbec2070437f65651",
-  "stager": "9a6b961d476ebb26d7929724bcd87c7252332af5fcef90a0958fc9370d6ddbcf",
+  "stager": "fc73da3edb7cbf7853e48ac5ccdb4dc8f32541ec8282866342ad4e6c25fcca8f",
   "pages": "99c4d527d4fa393ac356471a33080407beb503ccd3f75a54fcc6820f128d9105"
  },
  "counts": {
-  "engine": 7039,
+  "engine": 7040,
   "client": 1241,
-  "patches": 65
+  "patches": 66
  },
  "outputs": {
-  "engine/xash.wasm": "ae50ddca04cd",
-  "engine/xash.js": "4776012ff4b3",
+  "engine/xash.wasm": "87e18cf5b183",
+  "engine/xash.js": "a15d30718590",
   "cl_dll/client_emscripten_wasm32.wasm": "c8e5d4348d39",
   "3rdparty/mainui/libmenu.wasm": "d278a55efb4d"
  },
  "smoke": {
   "ok": true,
   "checks": 6,
-  "at": "2026-11-19T08:24:04.090Z",
+  "at": "2026-11-22T06:06:01.804Z",
   "perf": {
-   "fps": 60.2,
+   "fps": 60,
    "frameMs": {
     "p50": 16.7,
     "p95": 16.8,
-    "p99": 17,
-    "max": 17
+    "p99": 16.9,
+    "max": 16.9
    },
    "longTasks": {
     "count": 0,
