@@ -2,7 +2,7 @@ diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,588 @@
+@@ -0,0 +1,598 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -401,6 +401,16 @@ new file mode 100644
 +	if( !n )
 +		return;
 +	clean[n] = '\0';
++
++	// the stock text of a refused connection ("Server was reject the connection:") is shown with the right grammar
++	if( !Q_strncmp( clean, "Server was reject the connection", sizeof( "Server was reject the connection" ) - 1 ))
++	{
++		char said[sizeof( h9j.reason )];
++
++		Q_snprintf( said, sizeof( said ), "Server has rejected the connection%s", clean + sizeof( "Server was reject the connection" ) - 1 );
++		Q_strncpy( clean, said, sizeof( clean ));
++	}
++
 +	Q_strncpy( h9j.reason, clean, sizeof( h9j.reason ));
 +	h9j.reason_at = host.realtime;
 +}

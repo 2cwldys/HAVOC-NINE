@@ -47,9 +47,20 @@ index 333f4b9..ecdadcc 100644
  	// write host last so we can try to cut off too long hostnames
  	// TODO: value size limit for infostrings
 diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
-index fd2180b..003d4f0 100644
+index fd2180b..c53c6fc 100644
 --- a/engine/server/sv_client.c
 +++ b/engine/server/sv_client.c
+@@ -225,8 +225,8 @@ void SV_RejectConnection( netadr_t from, const char *fmt, ... )
+ 	va_end( argptr );
+ 
+ 	Con_Reportf( "%s connection refused. Reason: %s\n", NET_AdrToString( from ), text );
+-	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_ERRORMSG"\n^1Server was reject the connection:^7 %s", text );
+-	Netchan_OutOfBandPrint( NS_SERVER, from, A2C_PRINT"\n^1Server was reject the connection:^7 %s", text );
++	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_ERRORMSG"\n^1Server has rejected the connection:^7 %s", text );
++	Netchan_OutOfBandPrint( NS_SERVER, from, A2C_PRINT"\n^1Server has rejected the connection:^7 %s", text );
+ 	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_REJECT"\n" );
+ }
+ 
 @@ -344,6 +344,106 @@ SV_ConnectClient
  A connection request that did not come from the master
  ==================

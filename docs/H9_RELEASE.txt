@@ -55,7 +55,9 @@ and pull request that touches them (with tools\preset-check.mjs, docs\H9_PRESENC
 
 Both sides read the same file: the client engine (cl_presence.c, CL_Presence_Init) sets its read-only cvar _h9rel
 to it and writes the same key into its userinfo (a cvar set that way never reaches the userinfo by itself), which every
-connect carries to the server; `setinfo` in the console lists the keys a client sends. The server engine (common/h9_release.c, H9_Release) reads it for
+connect carries to the server; `setinfo` in the console lists the keys a client sends. The connect packet takes the release
+from the game folder's file itself (cl_main.c, CL_H9PacketUserinfo), first among its keys, and puts it back into the userinfo
+when that has lost it, so what a saved config's setinfo lines do to the userinfo cannot take it out of a join. The server engine (common/h9_release.c, H9_Release) reads it for
 a server that has no plugins' release to give. The plugins carry the release they were BUILT with.
 
 

@@ -5566,6 +5566,87 @@ Lines of the previous diff that this build replaced, kept here:
 +	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || !h9wv.Snapshot || !h9wv.Script || api() != H9WV_API_VERSION )
 Diff sha256 e848af98a25b5507f18929d04e831c1a68932b30247495de41f799b2a619925c, the diff below.
 
+Generated Sat 11/21/2026 22:28:08.90, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	"_h9rel", "_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
+Diff sha256 b5c5b47965dfd3674cc1e12bfbd4ee01ffda6b1c3c57d5cc89dc168f429757a1, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -7097,10 +7178,10 @@ index 00000000..0b1c1435
 +}
 diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
-index 00000000..4fc5d0de
+index 00000000..152c37c9
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,588 @@
+@@ -0,0 +1,598 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -7499,6 +7580,16 @@ index 00000000..4fc5d0de
 +	if( !n )
 +		return;
 +	clean[n] = '\0';
++
++	// the stock text of a refused connection ("Server was reject the connection:") is shown with the right grammar
++	if( !Q_strncmp( clean, "Server was reject the connection", sizeof( "Server was reject the connection" ) - 1 ))
++	{
++		char said[sizeof( h9j.reason )];
++
++		Q_snprintf( said, sizeof( said ), "Server has rejected the connection%s", clean + sizeof( "Server was reject the connection" ) - 1 );
++		Q_strncpy( clean, said, sizeof( clean ));
++	}
++
 +	Q_strncpy( h9j.reason, clean, sizeof( h9j.reason ));
 +	h9j.reason_at = host.realtime;
 +}
@@ -10361,7 +10452,7 @@ index 00000000..d88a23a2
 +#endif // XASH_EMSCRIPTEN
 +#endif // H9_IDPROOF_SELFTEST
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..9aff4c8b 100644
+index 39e4f9c2..1e253807 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -16,6 +16,7 @@ GNU General Public License for more details.
@@ -10599,7 +10690,7 @@ index 39e4f9c2..9aff4c8b 100644
  	ID_GetMD5ForAddress( key, adr, sizeof( key ));
  	CRC32_Init( &crc );
  	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
-@@ -1203,6 +1339,123 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+@@ -1203,6 +1339,134 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
  	*(uint32_t*)(cls.steamid + 4) = LittleLong( ((uint32_t*)buf)[5] );
  }
  
@@ -10608,6 +10699,7 @@ index 39e4f9c2..9aff4c8b 100644
 +// set, h9_clientid and even _h9rel among them, so a server could neither tie the player to an account nor tell the release (the kick "Your HAVOC 9
 +// is out of date"). The packet gets the keys a server needs to let the player in, then whatever else fits, and the rest goes with setinfo once
 +// connected (CL_H9SendLateUserinfo): an H9 server keeps H9_MAX_USERINFO of each player and takes them, any other refuses them one by one.
++const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
 +static char cl_h9_late[H9_MAX_USERINFO]; // "\key\value" pairs that did not fit the connect packet
 +static char cl_h9_packetinfo[MAX_INFO_STRING]; // the userinfo a connect packet carries
 +static char cl_h9_fullinfo[H9_MAX_USERINFO]; // cls.userinfo while the GoldSrc packet is made
@@ -10615,7 +10707,7 @@ index 39e4f9c2..9aff4c8b 100644
 +static const char *const cl_h9_packet_keys[] =
 +{
 +	"name", "model", "rate", "cl_updaterate", "cl_lw", "cl_lc", "cl_dlmax", "cl_nopred", "topcolor", "bottomcolor", "password", "team", "skin",
-+	"_h9rel", "_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
++	"_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
 +};
 +
 +static qboolean CL_H9InfoFits( const char *out, size_t size, const char *key, const char *value )
@@ -10637,6 +10729,16 @@ index 39e4f9c2..9aff4c8b 100644
 +
 +	out[0] = 0;
 +	cl_h9_late[0] = 0;
++
++	// the release goes in first, from the game folder's own file and not from what cls.userinfo holds: the join gate refuses a game that sends
++	// none. cls.userinfo gets it back when it is missing there
++	if( H9_Release()[0] )
++	{
++		Info_SetValueForKey( out, "_h9rel", H9_Release(), size );
++
++		if( !Info_ValueForKey( cls.userinfo, "_h9rel" )[0] )
++			Info_SetValueForKey( cls.userinfo, "_h9rel", H9_Release(), H9_MAX_USERINFO );
++	}
 +
 +	for( i = 0; i < (int)( sizeof( cl_h9_packet_keys ) / sizeof( cl_h9_packet_keys[0] )); i++ )
 +	{
@@ -10723,7 +10825,7 @@ index 39e4f9c2..9aff4c8b 100644
  void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticket, size_t ticketlen )
  {
  	sizebuf_t send;
-@@ -1219,13 +1472,18 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+@@ -1219,13 +1483,18 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
  	if( cl_advertise_engine_in_name.value && Q_strnicmp( name, "[Xash3D]", 8 ))
  		Info_SetValueForKeyf( cls.userinfo, "name", sizeof( cls.userinfo ), "[Xash3D]%s", name );
  
@@ -10743,7 +10845,7 @@ index 39e4f9c2..9aff4c8b 100644
  	else
  		MSG_WriteBytes( &send, ticket, ticketlen );
  
-@@ -1234,6 +1492,8 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+@@ -1234,6 +1503,8 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
  
  	NET_SendPacket( NS_CLIENT, MSG_GetNumBytesWritten( &send ), MSG_GetData( &send ), adr );
  	Con_Printf( "Trying to connect with GoldSrc 48 protocol\n" );
@@ -10752,7 +10854,7 @@ index 39e4f9c2..9aff4c8b 100644
  }
  
  /*
-@@ -1298,7 +1558,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1298,7 +1569,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  	else
  	{
  		const char *qport = Cvar_VariableString( "net_qport" );
@@ -10761,7 +10863,7 @@ index 39e4f9c2..9aff4c8b 100644
  		string key;
  
  		ID_GetMD5ForAddress( key, adr, sizeof( key ));
-@@ -1310,6 +1570,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1310,6 +1581,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
  
  		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
@@ -10782,7 +10884,7 @@ index 39e4f9c2..9aff4c8b 100644
  		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
  		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
  
-@@ -1323,7 +1597,8 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1323,7 +1608,8 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  			Info_SetValueForKeyf( protinfo, "cookie", sizeof( protinfo ), "%016"PRIx64, cls.netchan_pending_cookie );
  		}
  
@@ -10792,7 +10894,7 @@ index 39e4f9c2..9aff4c8b 100644
  		Con_Printf( "Trying to connect with modern protocol\n" );
  	}
  
-@@ -1393,6 +1668,7 @@ static void CL_CheckForResend( void )
+@@ -1393,6 +1679,7 @@ static void CL_CheckForResend( void )
  	// if the local server is running and we aren't then connect
  	if( cls.state == ca_disconnected && SV_Active( ))
  	{
@@ -10800,7 +10902,7 @@ index 39e4f9c2..9aff4c8b 100644
  		cls.signon = 0;
  		cls.state = ca_connecting;
  		Q_strncpy( cls.servername, "localhost", sizeof( cls.servername ));
-@@ -1426,6 +1702,7 @@ static void CL_CheckForResend( void )
+@@ -1426,6 +1713,7 @@ static void CL_CheckForResend( void )
  
  	if( res == NET_EAI_NONAME )
  	{
@@ -10808,7 +10910,7 @@ index 39e4f9c2..9aff4c8b 100644
  		CL_Disconnect();
  		return;
  	}
-@@ -1443,6 +1720,7 @@ static void CL_CheckForResend( void )
+@@ -1443,6 +1731,7 @@ static void CL_CheckForResend( void )
  		if( cls.bandwidth_test.retry >= CL_TEST_RETRIES )
  		{
  			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
@@ -10816,7 +10918,7 @@ index 39e4f9c2..9aff4c8b 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -1455,11 +1733,13 @@ static void CL_CheckForResend( void )
+@@ -1455,11 +1744,13 @@ static void CL_CheckForResend( void )
  		if( cls.connect_retry >= CL_CONNECTION_RETRIES )
  		{
  			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
@@ -10830,7 +10932,7 @@ index 39e4f9c2..9aff4c8b 100644
  	}
  
  	cls.serveradr = adr;
-@@ -1530,9 +1810,13 @@ static void CL_Connect_f( void )
+@@ -1530,9 +1821,13 @@ static void CL_Connect_f( void )
  	Con_Printf( "server %s\n", server );
  	CL_Disconnect();
  
@@ -10847,7 +10949,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	cls.state = ca_connecting;
  	cls.net_protocol = proto;
-@@ -1648,6 +1932,7 @@ void CL_ClearState( void )
+@@ -1648,6 +1943,7 @@ void CL_ClearState( void )
  	Cvar_SetValue( "scr_loading", 0.0f );
  	host.allow_console = host.allow_console_init;
  	HTTP_ClearCustomServers();
@@ -10855,7 +10957,7 @@ index 39e4f9c2..9aff4c8b 100644
  }
  
  /*
-@@ -1798,12 +2083,14 @@ void CL_Disconnect( void )
+@@ -1798,12 +2094,14 @@ void CL_Disconnect( void )
  	IN_LockInputDevices( false ); // unlock input devices
  
  	cls.state = ca_disconnected;
@@ -10870,7 +10972,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	// back to menu in non-developer mode
  	if( host_developer.value || cls.key_dest == key_menu )
-@@ -1931,6 +2218,7 @@ static void CL_Reconnect_f( void )
+@@ -1931,6 +2229,7 @@ static void CL_Reconnect_f( void )
  
  	if( cls.state == ca_connected )
  	{
@@ -10878,7 +10980,7 @@ index 39e4f9c2..9aff4c8b 100644
  		CL_Reconnect( false );
  		return;
  	}
-@@ -1949,6 +2237,7 @@ static void CL_Reconnect_f( void )
+@@ -1949,6 +2248,7 @@ static void CL_Reconnect_f( void )
  		cls.net_protocol = proto; // don't change protocol
  
  		Con_Printf( "reconnecting...\n" );
@@ -10886,7 +10988,7 @@ index 39e4f9c2..9aff4c8b 100644
  	}
  }
  
-@@ -1979,8 +2268,12 @@ static void CL_Retry_f( void )
+@@ -1979,8 +2279,12 @@ static void CL_Retry_f( void )
  	Con_Printf( "Commencing connection retry to %s\n", cls.servername );
  	CL_Disconnect();
  
@@ -10901,7 +11003,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	cls.state = ca_connecting;
  	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
-@@ -2092,6 +2385,8 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+@@ -2092,6 +2396,8 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
  	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
  		return;
  
@@ -10910,7 +11012,7 @@ index 39e4f9c2..9aff4c8b 100644
  	UI_AddServerToList( from, infostring );
  }
  
-@@ -2135,7 +2430,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2135,7 +2441,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  {
  	static char	s[512+8];
  	int p, numcl, maxcl, password, bots;
@@ -10919,7 +11021,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	// set to beginning but skip header
  	MSG_SeekToBit( msg, (sizeof( uint32_t ) + sizeof( uint8_t )) << 3, SEEK_SET );
-@@ -2153,7 +2448,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2153,7 +2459,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
  		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
  		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
@@ -10928,7 +11030,7 @@ index 39e4f9c2..9aff4c8b 100644
  		numcl = MSG_ReadByte( msg );
  		maxcl = MSG_ReadByte( msg );
  		MSG_ReadByte( msg ); // protocol version
-@@ -2185,7 +2480,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2185,7 +2491,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
  		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
  		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
@@ -10937,7 +11039,7 @@ index 39e4f9c2..9aff4c8b 100644
  		MSG_ReadShort( msg ); // app id
  		numcl = MSG_ReadByte( msg );
  		maxcl = MSG_ReadByte( msg );
-@@ -2213,10 +2508,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2213,10 +2519,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
  	Info_SetValueForKey( s, "team", "0", sizeof( s ));
  	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
@@ -10954,7 +11056,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	// write host last so we can try to cut off too long hostnames
  	// TODO: value size limit for infostrings
-@@ -2666,7 +2966,10 @@ static void CL_ClientConnect( connprotocol_t proto, const char *c, netadr_t from
+@@ -2666,7 +2977,10 @@ static void CL_ClientConnect( connprotocol_t proto, const char *c, netadr_t from
  	}
  
  	CL_Reconnect( true );
@@ -10966,7 +11068,7 @@ index 39e4f9c2..9aff4c8b 100644
  }
  
  static void CL_Print( const char *c, const char *args, netadr_t from, sizebuf_t *msg )
-@@ -2745,6 +3048,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2745,6 +3059,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  	if( !CL_IsFromConnectingServer( from ))
  		return;
  
@@ -10974,7 +11076,7 @@ index 39e4f9c2..9aff4c8b 100644
  	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
  	{
  		const char *s = MSG_ReadString( msg );
-@@ -2762,8 +3066,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2762,8 +3077,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
  	}
  
@@ -10993,7 +11095,7 @@ index 39e4f9c2..9aff4c8b 100644
  		Msg( "%s\n", formatted_msg );
  
  	// don't disconnect, errormsg is a FWGS extension and
-@@ -3142,6 +3455,7 @@ static void CL_ReadPackets( void )
+@@ -3142,6 +3466,7 @@ static void CL_ReadPackets( void )
  		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
  		{
  			Con_Printf( "\nServer connection timed out.\n" );
@@ -11001,7 +11103,7 @@ index 39e4f9c2..9aff4c8b 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -3221,6 +3535,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3221,6 +3546,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  	else if( !successfully_received )
  	{
  		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
@@ -11009,7 +11111,7 @@ index 39e4f9c2..9aff4c8b 100644
  	}
  
  	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
-@@ -3298,7 +3613,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3298,7 +3624,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  
  			MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
  
@@ -11018,7 +11120,7 @@ index 39e4f9c2..9aff4c8b 100644
  				CL_RegisterResources( &msg, cls.net_protocol );
  
  			if( MSG_GetNumBytesWritten( &msg ) > 0 )
-@@ -3456,6 +3771,8 @@ qboolean CL_PrecacheResources( void )
+@@ -3456,6 +3782,8 @@ qboolean CL_PrecacheResources( void )
  {
  	resource_t	*pRes;
  
@@ -11027,7 +11129,7 @@ index 39e4f9c2..9aff4c8b 100644
  	// if we downloaded new WAD files or any other archives they must be added to searchpath
  	if( CL_ShouldRescanFilesystem( ))
  		FS_Rescan_f();
-@@ -3469,6 +3786,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3469,6 +3797,7 @@ qboolean CL_PrecacheResources( void )
  		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
  			continue;
  
@@ -11035,7 +11137,7 @@ index 39e4f9c2..9aff4c8b 100644
  		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
  		SetBits( pRes->ucFlags, RES_PRECACHED );
  		cl.nummodels = 1;
-@@ -3493,6 +3811,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3493,6 +3822,7 @@ qboolean CL_PrecacheResources( void )
  
  				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  				{
@@ -11043,7 +11145,7 @@ index 39e4f9c2..9aff4c8b 100644
  					CL_Disconnect_f();
  					return false;
  				}
-@@ -3509,6 +3828,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3509,6 +3839,7 @@ qboolean CL_PrecacheResources( void )
  		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
  			continue;
  
@@ -11051,7 +11153,7 @@ index 39e4f9c2..9aff4c8b 100644
  		switch( pRes->type )
  		{
  		case t_sound:
-@@ -3529,6 +3849,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3529,6 +3860,7 @@ qboolean CL_PrecacheResources( void )
  					{
  						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  						{
@@ -11059,7 +11161,7 @@ index 39e4f9c2..9aff4c8b 100644
  							S_EndRegistration();
  							CL_Disconnect_f();
  							return false;
-@@ -3558,6 +3879,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3558,6 +3890,7 @@ qboolean CL_PrecacheResources( void )
  						{
  							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  							{
@@ -11067,7 +11169,7 @@ index 39e4f9c2..9aff4c8b 100644
  								S_EndRegistration();
  								CL_Disconnect_f();
  								return false;
-@@ -3675,9 +3997,11 @@ static void CL_InitLocal( void )
+@@ -3675,9 +4008,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -11079,7 +11181,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	Cvar_RegisterVariable( &showpause );
  	Cvar_RegisterVariable( &mp_decals );
-@@ -3688,9 +4012,11 @@ static void CL_InitLocal( void )
+@@ -3688,9 +4023,11 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_download_ingame );
  	Cvar_RegisterVariable( &cl_logofile );
  	Cvar_RegisterVariable( &cl_logocolor );
@@ -11091,7 +11193,7 @@ index 39e4f9c2..9aff4c8b 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -3708,6 +4034,7 @@ static void CL_InitLocal( void )
+@@ -3708,6 +4045,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &hud_utf8 );
  
  	Cvar_RegisterVariable( &rcon_address );
@@ -11099,7 +11201,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	Cvar_RegisterVariable( &cl_trace_consistency );
  	Cvar_RegisterVariable( &cl_trace_stufftext );
-@@ -3746,6 +4073,7 @@ static void CL_InitLocal( void )
+@@ -3746,6 +4084,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_bmodelinterp );
  	Cvar_RegisterVariable( &cl_clockreset );
  	Cvar_RegisterVariable( &cl_fixtimerate );
@@ -11107,7 +11209,7 @@ index 39e4f9c2..9aff4c8b 100644
  	Cvar_RegisterVariable( &hud_fontscale );
  	Cvar_RegisterVariable( &hud_fontrender );
  	Cvar_RegisterVariable( &hud_scale );
-@@ -3825,6 +4153,7 @@ static void CL_InitLocal( void )
+@@ -3825,6 +4164,7 @@ static void CL_InitLocal( void )
  	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
  
  	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
@@ -11115,7 +11217,7 @@ index 39e4f9c2..9aff4c8b 100644
  }
  
  //============================================================================
-@@ -3941,6 +4270,9 @@ void Host_ClientFrame( void )
+@@ -3941,6 +4281,9 @@ void Host_ClientFrame( void )
  	// handle spectator movement
  	CL_MoveSpectatorCamera();
  
@@ -11125,7 +11227,7 @@ index 39e4f9c2..9aff4c8b 100644
  	// catch changes video settings
  	VID_CheckChanges();
  
-@@ -3974,6 +4306,7 @@ void CL_Init( void )
+@@ -3974,6 +4317,7 @@ void CL_Init( void )
  	CL_InitLocal();
  
  	VID_Init();	// init video
@@ -11133,7 +11235,7 @@ index 39e4f9c2..9aff4c8b 100644
  
  	// unreliable buffer. unsed for unreliable commands and voice stream
  	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
-@@ -3981,20 +4314,24 @@ void CL_Init( void )
+@@ -3981,20 +4325,24 @@ void CL_Init( void )
  	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
  
  	S_Init();	// init sound
@@ -11158,7 +11260,7 @@ index 39e4f9c2..9aff4c8b 100644
  }
  
  /*
-@@ -4005,6 +4342,7 @@ CL_Shutdown
+@@ -4005,6 +4353,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -11166,7 +11268,7 @@ index 39e4f9c2..9aff4c8b 100644
  	Con_Printf( "%s()\n", __func__ );
  
  	if( host.status != HOST_CRASHED && cls.initialized )
-@@ -4014,6 +4352,7 @@ void CL_Shutdown( void )
+@@ -4014,6 +4363,7 @@ void CL_Shutdown( void )
  		Touch_WriteConfig();
  	}
  
@@ -18262,10 +18364,55 @@ index 2f26bd93..f50d62e3 100644
  ===============
  HTTP_Download_f
 diff --git a/engine/common/infostring.c b/engine/common/infostring.c
-index 7b8c44c6..1fe140d2 100644
+index 7b8c44c6..9dc60c8f 100644
 --- a/engine/common/infostring.c
 +++ b/engine/common/infostring.c
-@@ -436,7 +436,9 @@ qboolean Info_SetValueForStarKey( char *s, const char *key, const char *value, i
+@@ -166,7 +166,8 @@ void Info_WriteVars( file_t *f )
+ 
+ 		convar_t *pcvar = Cvar_FindVar( pkey );
+ 
+-		if( !pcvar && pkey[0] != '*' )  // don't store out star keys
++		// H9: a pair with an empty key is no setting and is not written
++		if( !pcvar && pkey[0] && pkey[0] != '*' )  // don't store out star keys
+ 			FS_Printf( f, "setinfo \"%s\" \"%s\"\n", pkey, value[valueindex] );
+ 
+ 		if( !*s ) return;
+@@ -232,13 +233,9 @@ qboolean GAME_EXPORT Info_RemoveKey( char *s, const char *key )
+ 	char	*start;
+ 	char	pkey[MAX_KV_SIZE];
+ 	char	value[MAX_KV_SIZE];
+-	int	cmpsize = Q_strlen( key );
+ 	int	count;
+ 	char	*o;
+ 
+-	if( cmpsize > ( MAX_KV_SIZE - 1 ))
+-		cmpsize = MAX_KV_SIZE - 1;
+-
+ 	if( Q_strchr( key, '\\' ))
+ 		return false;
+ 
+@@ -269,7 +266,8 @@ qboolean GAME_EXPORT Info_RemoveKey( char *s, const char *key )
+ 		}
+ 		*o = 0;
+ 
+-		if( !Q_strncmp( key, pkey, cmpsize ))
++		// H9: the whole key, as GoldSrc compares it, not its first strlen( key ) characters
++		if( !Q_strcmp( key, pkey ))
+ 		{
+ 			size_t size = Q_strlen( s ) + 1;
+ 
+@@ -412,6 +410,10 @@ qboolean Info_SetValueForStarKey( char *s, const char *key, const char *value, i
+ 	char	new[1024], *v;
+ 	int	c, team;
+ 
++	// H9: an empty key names no setting: nothing is set, and nothing is removed on its account
++	if( !key[0] )
++		return false;
++
+ 	if( Q_strchr( key, '\\' ) || Q_strchr( value, '\\' ))
+ 	{
+ 		Con_Printf( S_ERROR "SetValueForKey: can't use keys or values with a \\\n" );
+@@ -436,7 +438,9 @@ qboolean Info_SetValueForStarKey( char *s, const char *key, const char *value, i
  		return true; // just clear variable
  
  	Q_snprintf( new, sizeof( new ), "\\%s\\%s", key, value );
@@ -19632,9 +19779,20 @@ index d61e51bd..bf1eaa6a 100644
  
  //
 diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
-index c95ce9a7..b71114d0 100644
+index c95ce9a7..c53c6fc3 100644
 --- a/engine/server/sv_client.c
 +++ b/engine/server/sv_client.c
+@@ -225,8 +225,8 @@ void SV_RejectConnection( netadr_t from, const char *fmt, ... )
+ 	va_end( argptr );
+ 
+ 	Con_Reportf( "%s connection refused. Reason: %s\n", NET_AdrToString( from ), text );
+-	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_ERRORMSG"\n^1Server was reject the connection:^7 %s", text );
+-	Netchan_OutOfBandPrint( NS_SERVER, from, A2C_PRINT"\n^1Server was reject the connection:^7 %s", text );
++	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_ERRORMSG"\n^1Server has rejected the connection:^7 %s", text );
++	Netchan_OutOfBandPrint( NS_SERVER, from, A2C_PRINT"\n^1Server has rejected the connection:^7 %s", text );
+ 	Netchan_OutOfBandPrint( NS_SERVER, from, S2C_REJECT"\n" );
+ }
+ 
 @@ -344,6 +344,106 @@ SV_ConnectClient
  A connection request that did not come from the master
  ==================

@@ -2185,3 +2185,21 @@ engine's confirm box opens. A page's own click handlers still run, and a link ai
 still loads there. The engine calls H9WV_Click in place of the script it built.
 engine-h9-motd.patch regenerated as before; reverse-checks in place in the scratch tree and in
 TSM\xash3d-fwgs.
+
+### 2026-11-21 -- engine-h9-userinfo-client.patch, engine-h9-joinscreen.patch, engine-h9-serverinfo.patch: a game on the server's release is not refused as out of date
+
+A player on release 1.68 joining a server on 1.68 was told "Your HAVOC 9 is out of date (this server runs release 1.68)". That wording is the gate's text for a joiner whose `_h9rel` is EMPTY
+(`SV_H9ReleaseRefusal`), so the connect packet carried no release at all. `_h9rel` is the first pair of `cls.userinfo` (`CL_Presence_Init` runs before any userinfo cvar registers), and the player's
+saved `config.cfg` held `setinfo "" "mj"`, a line the userinfo overflow of 1.64 wrote out of `cls.physinfo` (fixed in 1.65; the saved file kept the line). Executed at start, it reached
+`Info_RemoveKey( s, "" )`, which compared `Q_strncmp( key, pkey, strlen( key ))`: a length of 0 is equal to everything, so it removed the first pair, `_h9rel`. The console cvar still read 1.68. A
+stand-alone build of the real `infostring.c` (WSL gcc, AddressSanitizer, 600000 random sets and removes in buffers of exactly their size) shows the loss with the stock file and none with this change.
+
+1. `engine-h9-userinfo-client.patch`, `common/infostring.c`: `Info_RemoveKey` compares the whole key (`Q_strcmp`), as GoldSrc does, not its first `strlen( key )` characters (so "mj" no longer removes
+"mjx" either); `Info_SetValueForStarKey` sets nothing for an empty key; `Info_WriteVars` writes no pair with an empty key, so a config that holds one is written clean at the next exit.
+2. `engine-h9-userinfo-client.patch`, `client/cl_main.c`, `CL_H9PacketUserinfo`: `_h9rel` goes into the packet first, from `H9_Release()` and not from what `cls.userinfo` holds, and is written back
+into `cls.userinfo` when it is missing there; it left the list of the keys that follow. The join no longer depends on the state of `cls.userinfo`.
+3. `engine-h9-joinscreen.patch`, `client/cl_h9join.c`, `CL_H9Join_Drop`: the stock text of a refused connection, "Server was reject the connection", is shown as "Server has rejected the connection"
+(the screen cleans the server's text already), whichever engine the server runs.
+4. `engine-h9-serverinfo.patch`, `server/sv_client.c`, `SV_RejectConnection`: the server sends "Server has rejected the connection:" in both packets; a server shows it once it runs this engine.
+
+Each change is inside the patch that owns the code (`cl_h9join.c` is that patch's own file); no patch name was added to `xash.bat`. Reverse-checks in place; needs the next engine build.
