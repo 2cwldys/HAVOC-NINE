@@ -5,6 +5,9 @@ before, a faithful Lanczos control, and the model's result side by side at 1:1, 
 textures that drifted furthest from their source are at the top. The command-line pipeline had no
 way to show a person that a mesh weave had turned into invented ribbing until it was ten
 gigabytes deep.
+
+A skybox is six pictures that meet along the edges of a cube, so it is upscaled as a set (core/skybox.py)
+and each face then appears in the review like any other picture.
 """
 from __future__ import annotations
 
@@ -23,15 +26,16 @@ from PIL import Image, ImageTk
 from ui import theme
 from ui.banner import Banner, asset
 from core import images as im
+from core import skybox as sk
 from engine.runner import Upscaler, faithfulness
 
 TITLE = "H9 UPSCALER"
 
 
 class Item:
-    __slots__ = ("path", "key", "src", "out", "state", "drift", "control", "w", "h")
+    __slots__ = ("path", "key", "src", "out", "state", "drift", "control", "w", "h", "sky", "blend")
 
-    def __init__(self, path, src, key):
+    def __init__(self, path, src, key, sky=None):
         self.path = path
         self.src = src            # RGBA uint8
         self.key = key            # sha256 of the pixels
@@ -40,6 +44,18 @@ class Item:
         self.state = "waiting"
         self.drift = None
         self.h, self.w = src.shape[:2]
+        self.sky = sky            # (SkySet, face suffix) for one face of a skybox, else None
+        self.blend = None         # the model share a sky face ended up with
+
+    @property
+    def name(self):
+        """What it is called on screen and when it is saved: a sky face keeps the engine's name."""
+        return self.sky[0].out_name(self.sky[1]) if self.sky else self.path.name
+
+
+def sk_default_limit():
+    """The drift a sky face may reach before it is mixed back toward Lanczos (tools/texpack/skies.py has the same)."""
+    return 6.5
 
 
 class App(ttk.Frame):
@@ -49,6 +65,7 @@ class App(ttk.Frame):
         self.model_path = Path(model_path)
         self.items: list[Item] = []
         self.by_id: dict[str, Item] = {}
+        self.sky_sets: dict[str, dict] = {}   # set name -> {face suffix: Item}
         self.events: queue.Queue = queue.Queue()
         self.worker = None
         self.stopping = threading.Event()
@@ -97,8 +114,9 @@ class App(ttk.Frame):
         row.pack(fill="x", pady=(0, 10))
         ttk.Button(row, text="Add folder...", command=self.add_folder).pack(side="left")
         ttk.Button(row, text="Add images...", command=self.add_files).pack(side="left", padx=6)
-        ttk.Button(row, text="Clear", command=self.clear).pack(side="left")
-        ttk.Label(row, text="png, bmp, tga, jpg. Game formats come in a later version.",
+        ttk.Button(row, text="Add skybox folder...", command=self.add_skyboxes).pack(side="left")
+        ttk.Button(row, text="Clear", command=self.clear).pack(side="left", padx=6)
+        ttk.Label(row, text="png, bmp, tga, jpg. A skybox is six faces: rt bk lf ft up dn.",
                   style="Muted.TLabel").pack(side="right")
 
         cols = ("size", "state")
@@ -153,6 +171,15 @@ class App(ttk.Frame):
                             variable=self.out_format).pack(side="left", padx=(0, 10))
         ttk.Label(opts, text="The same pixels either way. PNG is about 43 percent of the bytes; TGA decodes faster in game.",
                   style="Muted.TLabel").grid(row=4, column=2, sticky="w", pady=(10, 0))
+
+        ttk.Label(opts, text="Skies", style="Head.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
+        self.sky_limit = tk.DoubleVar(value=sk_default_limit())
+        sl = ttk.Frame(opts)
+        sl.grid(row=5, column=1, sticky="w", padx=10, pady=(10, 0))
+        ttk.Spinbox(sl, from_=0.0, to=30.0, increment=0.5, width=6, textvariable=self.sky_limit).pack(side="left")
+        ttk.Label(opts, text="A sky face the model would move further than this from its source is mixed back toward "
+                             "Lanczos. 0 turns it off. Sky faces are saved as 24-bit TGA, which is what the engine reads.",
+                  style="Muted.TLabel").grid(row=5, column=2, sticky="w", pady=(10, 0))
 
         run = ttk.Frame(t)
         run.pack(fill="x", pady=(0, 10))
@@ -261,8 +288,52 @@ class App(ttk.Frame):
             text="%d texture(s) ready%s" % (len(self.items),
                                             ", %d skipped as duplicates or unreadable" % skipped if skipped else ""))
 
+    def add_skyboxes(self):
+        d = filedialog.askdirectory(title="Folder with skybox sets (six faces each: rt bk lf ft up dn)")
+        if not d:
+            return
+        paths = [p for p in sorted(Path(d).rglob("*")) if p.suffix.lower() in sk.PICTURE_SUFFIXES]
+        sets, partial = sk.find_sets(paths)
+        added, bad = 0, []
+        for s in sets:
+            name = s.stem.lower()
+            if name in self.sky_sets:
+                continue
+            try:
+                faces = {suf: im.load_rgba(s.paths[suf]) for suf in sk.SUFFIXES}
+            except Exception:
+                bad.append(s.stem)
+                continue
+            shapes = {f.shape for f in faces.values()}
+            if len(shapes) != 1 or faces["rt"].shape[0] != faces["rt"].shape[1]:
+                bad.append(s.stem)
+                continue
+            n = faces["rt"].shape[0]
+            parent = "skyset:" + name
+            self.src_tree.insert("", "end", iid=parent, text="sky  " + s.stem, open=True,
+                                 values=("6 x %dx%d" % (n, n), "waiting"), tags=("muted",))
+            members = {}
+            for suf in sk.SUFFIXES:
+                rgba = faces[suf]
+                key = "sky:%s:%s:%s" % (name, suf, im.pixel_key(rgba))
+                it = Item(s.paths[suf], rgba, key, sky=(s, suf))
+                self.items.append(it)
+                self.by_id[key] = it
+                members[suf] = it
+                self.src_tree.insert(parent, "end", iid=key, text=it.name,
+                                     values=("%dx%d" % (n, n), "waiting"), tags=("muted",))
+            self.sky_sets[name] = members
+            added += 1
+        note = []
+        if partial:
+            note.append("%d incomplete set(s) left out: %s" % (len(partial), ", ".join(p.stem for p in partial[:4])))
+        if bad:
+            note.append("unreadable or not square: %s" % ", ".join(bad[:4]))
+        self.status.configure(text="%d skybox set(s) added%s" % (added, ("; " + "; ".join(note)) if note else ""))
+
     def clear(self):
         self.items.clear()
+        self.sky_sets.clear()
         self.by_id.clear()
         self.src_tree.delete(*self.src_tree.get_children())
         self.rev_tree.delete(*self.rev_tree.get_children())
@@ -271,24 +342,31 @@ class App(ttk.Frame):
 
     # ----------------------------------------------------------------- run
     def start(self):
-        todo = [i for i in self.items if i.state in ("waiting", "failed")]
-        if not todo:
+        todo = [i for i in self.items if i.sky is None and i.state in ("waiting", "failed")]
+        sky_todo = [name for name, members in self.sky_sets.items()
+                    if any(i.state in ("waiting", "failed") for i in members.values())]
+        if not todo and not sky_todo:
             self.status.configure(text="Nothing to do.")
             return
+        try:
+            limit = float(self.sky_limit.get())
+        except (tk.TclError, ValueError):
+            limit = 0.0
         self.stopping.clear()
         self.go.configure(state="disabled")
         self.stop_btn.configure(state="normal")
-        self.progress.configure(maximum=len(todo), value=0)
+        self.progress.configure(maximum=len(todo) + len(sky_todo), value=0)
         self.tabs.select(self.tab_run)
-        self.worker = threading.Thread(target=self._work, args=(todo, float(self.blend.get()),
-                                                                int(self.tile.get()), int(self.scale_to.get())), daemon=True)
+        self.worker = threading.Thread(target=self._work, args=(todo, sky_todo, float(self.blend.get()),
+                                                                int(self.tile.get()), int(self.scale_to.get()), limit),
+                                       daemon=True)
         self.worker.start()
 
     def stop(self):
         self.stopping.set()
         self._say("stopping after the texture in flight...")
 
-    def _work(self, todo, blend, tile, out_scale):
+    def _work(self, todo, sky_todo, blend, tile, out_scale, limit):
         try:
             if self.upscaler is None or self.upscaler.tile != tile:
                 self.events.put(("say", "loading the model..."))
@@ -306,6 +384,31 @@ class App(ttk.Frame):
                 it.state = "done"
                 done += 1
                 self.events.put(("done", (it.key, done)))
+            for name in sky_todo:
+                if self.stopping.is_set():
+                    break
+                members = self.sky_sets[name]
+                for it in members.values():
+                    self.events.put(("state", (it.key, "working")))
+                self.events.put(("state", ("skyset:" + name, "working")))
+                faces = {suf: it.src[:, :, :3] for suf, it in members.items()}
+                up = self.upscaler
+                try:
+                    res = sk.upscale_set(faces, lambda rgb: up._tiled(rgb), model_scale=up.probe(), blend=blend,
+                                         out_scale=out_scale, max_drift=(limit or None))
+                except ValueError as e:
+                    for it in members.values():
+                        it.state = "failed"
+                    self.events.put(("say", "  sky %s: %s" % (name, e)))
+                    continue
+                for suf, it in members.items():
+                    face = res.faces[suf]
+                    it.out = np.dstack([face, np.full(face.shape[:2], 255, dtype=np.uint8)])
+                    it.drift = res.drifts[suf]
+                    it.blend = res.blends[suf]
+                    it.state = "done"
+                done += 1
+                self.events.put(("skydone", (name, done, res)))
             self.events.put(("finished", done))
         except Exception:
             self.events.put(("error", traceback.format_exc(limit=4)))
@@ -332,6 +435,22 @@ class App(ttk.Frame):
                     self._say("  %-42s %dx%d -> %dx%d   drift %.2f"
                               % (it.path.name, it.w, it.h,
                                  it.out.shape[1], it.out.shape[0], it.drift))
+                elif kind == "skydone":
+                    name, n, res = payload
+                    for it in self.sky_sets[name].values():
+                        self.src_tree.set(it.key, "state", "done")
+                        self.src_tree.item(it.key, tags=("good",))
+                    self.src_tree.set("skyset:" + name, "state", "done")
+                    self.src_tree.item("skyset:" + name, tags=("good",))
+                    self.progress.configure(value=n)
+                    self.count.configure(text="%d / %d" % (n, self.progress["maximum"]))
+                    lowered = sorted(s for s, w in res.blends.items() if w < max(res.blends.values()) - 1e-6)
+                    self._say("  sky %-14s ring %s %s   caps %s   worst drift %.2f%s"
+                              % (name, "-".join(res.ring), "joined" if res.ring_joined else "NOT joined",
+                                 "joined" if all(res.caps_joined.values())
+                                 else "partly" if any(res.caps_joined.values()) else "reflected",
+                                 max(res.drifts.values()),
+                                 ("   model share lowered on " + ", ".join(lowered)) if lowered else ""))
                 elif kind == "finished":
                     self._finish(payload)
                 elif kind == "error":
@@ -360,7 +479,7 @@ class App(ttk.Frame):
         done.sort(key=lambda i: -(i.drift or 0))
         for it in done:
             tag = "bad" if it.drift and it.drift > 6 else ("warn" if it.drift and it.drift > 4 else "good")
-            self.rev_tree.insert("", "end", iid=it.key, text=it.path.name,
+            self.rev_tree.insert("", "end", iid=it.key, text=it.name,
                                  values=("%.2f" % (it.drift or 0), "%dx%d" % (it.w, it.h)),
                                  tags=(tag,))
         if done:
@@ -397,9 +516,10 @@ class App(ttk.Frame):
             x += crop.shape[1] + 10
         self.canvas.create_text(8, 24 + side + 12, anchor="nw", tags="pane",
                                 fill=theme.MUTED, font=theme.MONO,
-                                text="%s   %dx%d -> %dx%d   drift %.2f   (1:1 crop, no shrinking)"
-                                     % (it.path.name, it.w, it.h,
-                                        it.out.shape[1], it.out.shape[0], it.drift or 0))
+                                text="%s   %dx%d -> %dx%d   drift %.2f%s   (1:1 crop, no shrinking)"
+                                     % (it.name, it.w, it.h,
+                                        it.out.shape[1], it.out.shape[0], it.drift or 0,
+                                        ("   model share %.1f" % it.blend) if it.blend is not None else ""))
 
     def save_all(self):
         done = [i for i in self.items if i.state == "done"]
@@ -407,18 +527,26 @@ class App(ttk.Frame):
             self.status.configure(text="Nothing done yet.")
             return
         fmt = self.out_format.get()
-        d = filedialog.askdirectory(title="Where to save the %s files" % fmt.upper())
+        skies = [i for i in done if i.sky]
+        title = "Where to save the %s files" % fmt.upper()
+        if skies:
+            title += " (sky faces go in the same folder as 24-bit TGA: use the game's materials\\gfx\\env)"
+        d = filedialog.askdirectory(title=title)
         if not d:
             return
         out = Path(d)
         for it in done:
+            if it.sky:
+                # the engine reads a sky as dds, tga or bmp, so a sky face is always a TGA, named as the engine asks
+                sk.save_tga_rgb(out / it.name, it.out[:, :, :3])
+                continue
             target = out / (it.path.stem + "." + fmt)
             if fmt == "png":
                 im.save_png(target, it.out)
             else:
                 im.save_tga(target, it.out)
         self.status.configure(
-            text="Saved %d %s file(s) to %s" % (len(done), fmt.upper(), out))
+            text="Saved %d file(s) to %s%s" % (len(done), out, (" (%d sky faces as TGA)" % len(skies)) if skies else ""))
 
 
 def _own_the_taskbar_button():

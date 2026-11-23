@@ -15,6 +15,13 @@
 #   tools\texpack\hd-pass.ps1 -WhatIfOnly     say what it would do and stop, change nothing
 #   tools\texpack\hd-pass.ps1 -Publish        also publish into dist\files\hd, ready for a deploy
 #   tools\texpack\hd-pass.ps1 -Tile 256       smaller tiles, if video memory is tight
+#   tools\texpack\hd-pass.ps1 -SkiesOnly      only the sky sets, without scanning the textures
+#   tools\texpack\hd-pass.ps1 -NoSkies        leave the sky sets out of this pass
+#
+# The skies (the 25 sets of six TGAs in H9XASH\ts\gfx\env) are part of the pass. The engine reads them by
+# name from gfx\env, not through a wad, a map or a model, so extract.mjs never sees them; skies.py makes them,
+# a set at a time and only the ones that are not current, into <materials>\gfx\env. That folder is walked by
+# the publish below with everything else, so a sky travels in the HD pack like any other texture.
 #
 # The batch model is a 4x one and this pass is always 4x. Choosing 2x or 3x is a thing you do to
 # ONE folder of textures by hand, which is what tools\upscaler_gui is for; a pack mixed between
@@ -36,7 +43,9 @@ param(
 	[int]$Tile = 0,
 	[switch]$Publish,
 	[switch]$WhatIfOnly,
-	[switch]$Link
+	[switch]$Link,
+	[switch]$SkiesOnly,
+	[switch]$NoSkies
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,25 +74,48 @@ function Run([string]$what, [string]$exe, [string[]]$exeArgs) {
 
 $t0 = Get-Date
 
-# ---- 1. what the mod has now ----------------------------------------------------------------
-Say 'reading every map, wad, model and sprite'
-Run 'the scan' 'node' @((Join-Path $PSScriptRoot 'extract.mjs'), '--work', $Work)
-
-# ---- 2. what of that is already done ----------------------------------------------------------
-Say 'comparing with what has been upscaled before'
-$report = & node (Join-Path $PSScriptRoot 'manifest.mjs') --work $Work 2>&1
-$report | ForEach-Object { Write-Host "   $_" }
-# manifest.mjs prints "to do N" for sources with no output and "stale N" for outputs this recipe
-# cannot vouch for. Both are work: a stale entry was made by an older model and has to be redone,
-# or the pack ends up half in one style and half in another.
+# $units is the count of textures to make. It is not called $work: PowerShell names are not case
+# sensitive, so that would be the -Work folder again and every path below would be a number.
+$units = 0
 $todo = 0
 $stale = 0
-foreach ($line in $report) {
-	if ("$line" -match '(?i)^\s*to\s*do\s+([0-9]+)') { $todo = [int]$Matches[1] }
-	if ("$line" -match '(?i)^\s*stale\s+([0-9]+)') { $stale = [int]$Matches[1] }
+$skyTodo = 0
+$skies = Join-Path $PSScriptRoot 'skies.py'
+$skyModel = Join-Path $Work 'model\4xLSDIRplus.pth'
+
+if (-not $SkiesOnly) {
+	# ---- 1. what the mod has now ----------------------------------------------------------------
+	Say 'reading every map, wad, model and sprite'
+	Run 'the scan' 'node' @((Join-Path $PSScriptRoot 'extract.mjs'), '--work', $Work)
+
+	# ---- 2. what of that is already done ----------------------------------------------------------
+	Say 'comparing with what has been upscaled before'
+	$report = & node (Join-Path $PSScriptRoot 'manifest.mjs') --work $Work 2>&1
+	$report | ForEach-Object { Write-Host "   $_" }
+	# manifest.mjs prints "to do N" for sources with no output and "stale N" for outputs this recipe
+	# cannot vouch for. Both are work: a stale entry was made by an older model and has to be redone,
+	# or the pack ends up half in one style and half in another.
+	foreach ($line in $report) {
+		if ("$line" -match '(?i)^\s*to\s*do\s+([0-9]+)') { $todo = [int]$Matches[1] }
+		if ("$line" -match '(?i)^\s*stale\s+([0-9]+)') { $stale = [int]$Matches[1] }
+	}
+	$units = $todo + $stale
 }
-$work = $todo + $stale
-if ($work -eq 0) {
+
+# ---- 2b. the skies ---------------------------------------------------------------------------------
+if (-not $NoSkies) {
+	if (-not (Test-Path -LiteralPath $skies)) { Fail "no sky tool at $skies" 2 }
+	Say 'comparing the skies with what has been upscaled before'
+	$skyReport = & $Venv $skies --list --work $Work --dest $Dest --model $skyModel 2>&1
+	$skyCode = $LASTEXITCODE
+	$skyReport | ForEach-Object { Write-Host "   $_" }
+	if ($skyCode) { Fail "the sky check failed (exit $skyCode)" }
+	foreach ($line in $skyReport) {
+		if ("$line" -match '^\s*([0-9]+) set\(s\) to do') { $skyTodo = [int]$Matches[1] }
+	}
+}
+
+if (($units + $skyTodo) -eq 0) {
 	Note 'nothing new to upscale.'
 	if (-not $Publish) {
 		Say ("done in {0:N0} s -- the pack is already current" -f ((Get-Date) - $t0).TotalSeconds)
@@ -92,15 +124,15 @@ if ($work -eq 0) {
 	Note 'going on to the publish, in case the store is behind the textures.'
 }
 if ($WhatIfOnly) {
-	Say "would upscale $work texture(s) ($todo new, $stale stale), then place them into $Dest"
+	Say "would upscale $units texture(s) ($todo new, $stale stale) and $skyTodo sky set(s), then place them into $Dest"
 	exit 0
 }
 
 # ---- 3. upscale only those -------------------------------------------------------------------
 # upscale.py reads the extracted PNGs and writes the TGAs beside them; it skips an output that is
 # already there, which is what makes this the delta step rather than a rerun of everything.
-if ($work -gt 0) {
-	Say "upscaling $work texture(s)  ($todo new, $stale stale)"
+if ($units -gt 0) {
+	Say "upscaling $units texture(s)  ($todo new, $stale stale)"
 	Note 'upscale.py holds the heavy-job lock while it runs; it is resumable, so stopping it is safe'
 	$upArgs = @((Join-Path $PSScriptRoot 'upscale.py'),
 		'--in', (Join-Path $Work 'source'),
@@ -111,14 +143,27 @@ if ($work -gt 0) {
 }
 
 # ---- 4. put them where the engine looks --------------------------------------------------------
-Say "placing them into $Dest"
-$placeArgs = @((Join-Path $PSScriptRoot 'place.mjs'), '--work', $Work, '--dest', $Dest)
-if ($Link) { $placeArgs += '--link' }
-Run 'the placement' 'node' $placeArgs
+if (-not $SkiesOnly) {
+	Say "placing them into $Dest"
+	$placeArgs = @((Join-Path $PSScriptRoot 'place.mjs'), '--work', $Work, '--dest', $Dest)
+	if ($Link) { $placeArgs += '--link' }
+	Run 'the placement' 'node' $placeArgs
+}
+
+# ---- 4b. the skies, into <materials>\gfx\env ----------------------------------------------------
+if ($skyTodo -gt 0) {
+	Say "upscaling $skyTodo sky set(s) into $Dest\gfx\env"
+	Note 'skies.py holds the heavy-job lock while it runs; a set that is already current is skipped'
+	$skyArgs = @($skies, '--work', $Work, '--dest', $Dest, '--model', $skyModel)
+	if ($Tile -gt 0) { $skyArgs += @('--tile', "$Tile") }
+	Run 'the skies' $Venv $skyArgs
+}
 
 # ---- 5. record what this pass made --------------------------------------------------------------
-Say 'recording the recipe, so the next pass skips all of this'
-Run 'the manifest' 'node' @((Join-Path $PSScriptRoot 'manifest.mjs'), '--work', $Work, '--write')
+if (-not $SkiesOnly) {
+	Say 'recording the recipe, so the next pass skips all of this'
+	Run 'the manifest' 'node' @((Join-Path $PSScriptRoot 'manifest.mjs'), '--work', $Work, '--write')
+}
 
 # ---- 6. publish, when asked ----------------------------------------------------------------------
 # The same publisher the client's own files go through, pointed at the materials folder alone. It
@@ -127,6 +172,13 @@ Run 'the manifest' 'node' @((Join-Path $PSScriptRoot 'manifest.mjs'), '--work', 
 if ($Publish) {
 	Say 'publishing into dist\files\hd'
 	$publisher = Join-Path $Here 'tools\updater\publish_files.py'
+	# the publisher wants the build, which stage-h9xash.ps1 reads from the same line of VERSION.txt
+	$build = 'local'
+	$versionFile = Join-Path $Here 'VERSION.txt'
+	if (Test-Path -LiteralPath $versionFile) {
+		$vm = Select-String -LiteralPath $versionFile -Pattern '^\s*Build:\s*(\S+)' | Select-Object -First 1
+		if ($vm) { $build = $vm.Matches[0].Groups[1].Value }
+	}
 	$hdDir = Join-Path $Here 'dist\files\hd'
 	$stage = Join-Path $Here 'dist\.stage-hd'
 	if (-not (Test-Path -LiteralPath $publisher)) { Fail "no publisher at $publisher" 2 }
@@ -137,7 +189,7 @@ if ($Publish) {
 	& cmd /c mklink /J "$stage\ts\materials" "$Dest" | Out-Null
 	if ($LASTEXITCODE) { Fail 'could not make the staging junction' }
 	try {
-		Run 'the publish' 'py' @('-3', '-I', $publisher, $stage, $hdDir, '--name', 'H9XASH-HD', '--subtree', 'ts/materials')
+		Run 'the publish' 'py' @('-3', '-I', $publisher, $stage, $hdDir, '--build', $build, '--name', 'H9XASH-HD', '--subtree', 'ts/materials')
 	} finally {
 		& cmd /c rmdir "$stage\ts\materials" | Out-Null
 		Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue

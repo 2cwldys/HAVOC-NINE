@@ -96,7 +96,30 @@ def main() -> int:
         print("scale      : x%d  %dx%d -> %dx%d  in %.2fs" % (s, n, n, out.shape[1], out.shape[0], took))
         print("alpha      :", "hard-edged" if hard else "SOFTENED, which would bleed in game")
         print("drift      : %.2f" % drift)
-        good = ok and hard and drift < 40
+        # a skybox: four sides cut from one wide picture, so they meet along their edges, and two plain caps. The
+        # sides must be found in the order they were cut and joined into one strip, and every face must come back
+        # at the model's scale. This is what proves core/skybox.py made it into a build.
+        from core import skybox as sk
+
+        side = 48
+        xs = np.linspace(0.0, 2 * np.pi * 3, side * 4, dtype=np.float32)
+        ys = np.linspace(0.0, 1.0, side, dtype=np.float32)[:, None]
+        pano = np.zeros((side, side * 4, 3), dtype=np.uint8)
+        pano[:, :, 0] = (127 + 120 * np.sin(xs)[None, :] * (1.0 - ys)).astype(np.uint8)
+        pano[:, :, 1] = (255 * ys).astype(np.uint8)
+        pano[:, :, 2] = (127 + 120 * np.cos(xs * 0.5)[None, :]).astype(np.uint8)
+        faces = {s: np.ascontiguousarray(pano[:, i * side:(i + 1) * side]) for i, s in enumerate(("ft", "rt", "bk", "lf"))}
+        faces["up"] = np.full((side, side, 3), 40, dtype=np.uint8)
+        faces["dn"] = np.full((side, side, 3), 200, dtype=np.uint8)
+        t1 = time.time()
+        sky = sk.upscale_set(faces, lambda rgb: u._tiled(rgb), model_scale=s, blend=1.0)
+        sky_ok = (sky.ring == ["ft", "rt", "bk", "lf"] and sky.ring_joined
+                  and all(sky.faces[f].shape == (side * s, side * s, 3) for f in sk.SUFFIXES))
+        print("sky        : ring %s %s, %d faces of %dpx in %.2fs -> %s"
+              % ("-".join(sky.ring), "joined" if sky.ring_joined else "NOT joined", len(sky.faces), side * s,
+                 time.time() - t1, "OK" if sky_ok else "FAILED"))
+
+        good = ok and hard and drift < 40 and sky_ok
         print("result     :", "OK" if good else "FAILED")
         return 0 if good else 1
 
