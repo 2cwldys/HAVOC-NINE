@@ -58,6 +58,8 @@ sweeps it; if one is ever listed here while a run is stuck, Stop-Process -Name v
     BEFORE build.bat compiles it into the plugins, and release-check fails when they differ. A release with no new plugin but a new engine or client still needs
     a new build number: node tools\release-prepare.mjs --bump (it rebuilds the plugins with it). --release alone makes the release the current build.
     Everyone on an older build is refused by the gate until they update (the updater does it): say so in the report.
+    The ship does not write dockerfiles\VERSION or the Pterodactyl egg (they live only in the git copy, and the GitHub check fails on both until they say the new build):
+    after the ship, in the git copy, run  node tools\release-check.mjs --write  then  python dockerfiles\pterodactyl\build-egg.py,  and commit both with the release.
  d. Linux:  build-linux.cmd (no -Stage), then export.bat again so H9XASH-linux reaches the git copy.
  e. Web client:  node tools\webclient-sync.mjs  (rebuilds the wasm engine and client, lays the stage out, runs a headless-browser smoke test), then
     node tools\webclient-sync.mjs --check in the master AND in the git copy (both must say "up to date"). "out of date ... client" in the git copy means its
