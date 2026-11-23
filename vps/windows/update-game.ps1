@@ -14,6 +14,9 @@
 
   -Apply refuses while a process runs from the folder (a running server holds its DLLs open, so files could not be replaced); stop
   the server first (or add -StopServer to end it), then start it again with h9xash_server.bat. Nothing here touches the site.
+
+  The server's name is the +hostname on h9xash_server.bat's launch line, and the release ships that file with its own name. -Apply
+  reads the name before the update and puts it back after, so an update never renames the server.
 #>
 param(
     [switch]$Apply,
@@ -45,8 +48,27 @@ $updaterArgs = @('--dir', $Dir, '--yes', '--skip-link', '--no-pause')
 if ($Rollback) { $updaterArgs += '--rollback' }
 elseif (-not $Apply) { $updaterArgs += '--check' }
 
+# the launch line's +hostname "..." is this server's name; read as Latin-1 so every byte of the .bat round-trips unchanged
+$bat = Join-Path $Dir 'h9xash_server.bat'
+$latin1 = [Text.Encoding]::GetEncoding(28591)
+$nameRe = '\+hostname\s+"([^"]*)"'
+$keepName = $null
+if ($Apply -and -not $Rollback -and (Test-Path -LiteralPath $bat)) {
+    $m = [regex]::Match($latin1.GetString([IO.File]::ReadAllBytes($bat)), $nameRe)
+    if ($m.Success) { $keepName = $m.Groups[1].Value }
+}
+
 Write-Host "== H9XASH-Updater $($updaterArgs -join ' ')"
 & $exe @updaterArgs
 if ($LASTEXITCODE) { throw "the updater said no (exit $LASTEXITCODE); nothing was left half-done: --rollback puts the last files back" }
+if ($null -ne $keepName -and (Test-Path -LiteralPath $bat)) {
+    $text = $latin1.GetString([IO.File]::ReadAllBytes($bat))
+    $m = [regex]::Match($text, $nameRe)
+    if ($m.Success -and $m.Groups[1].Value -ne $keepName) {
+        $text = $text.Substring(0, $m.Groups[1].Index) + $keepName + $text.Substring($m.Groups[1].Index + $m.Groups[1].Length)
+        [IO.File]::WriteAllBytes($bat, $latin1.GetBytes($text))
+        Write-Host "== kept this server's name: +hostname `"$keepName`" (the release's h9xash_server.bat says `"$($m.Groups[1].Value)`")"
+    }
+}
 if ($Apply) { Write-Host "== updated. Start the server with $Dir\h9xash_server.bat (it sets up the Visual C++ runtime on a PC that lacks it)." }
 elseif (-not $Rollback) { Write-Host '== check only: nothing changed. Add -Apply to update.' }
