@@ -4,10 +4,10 @@
         "version": "PTDL_v1",
         "update_url": null
     },
-    "exported_at": "2026-11-22T01:35:45-05:00",
+    "exported_at": "2026-11-23T14:08:10-05:00",
     "name": "HAVOC 9",
     "author": "support@havoc9.org",
-    "description": "HAVOC 9 dedicated server: The Specialists 3.0 on Xash3D FWGS, with Metamod-R, AMX Mod X, RCBot and H9's own game modes (Team Elimination, Assault, Uplink, Wave Survival, Mech Warrior and the Apollo roleplay set). The server is native 32-bit Linux. A server refuses a player whose game is a different release than its own, so keep this server's build in step with the one your players have (docs/H9_RELEASE.txt).\n\nThis egg is generated for H9XASH build 1.69.",
+    "description": "HAVOC 9 dedicated server: The Specialists 3.0 on Xash3D FWGS, with Metamod-R, AMX Mod X, RCBot and H9's own game modes (Team Elimination, Assault, Uplink, Wave Survival, Mech Warrior and the Apollo roleplay set). The server is native 32-bit Linux. A server refuses a player whose game is a different release than its own, so keep this server's build in step with the one your players have (docs/H9_RELEASE.txt).\n\nThis egg is generated for H9XASH build 1.70.",
     "features": [],
     "images": [
         "ghcr.io/2cwldys/h9xash-server:latest"
