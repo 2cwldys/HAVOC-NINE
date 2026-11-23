@@ -40,6 +40,7 @@ every one of these call sites. The pack is built to match them exactly.
   decals                       materials\decals\<name>.tga
   studio models                materials\models\<model>\<texture>.tga
   sprites                      materials\sprites\<sprite>\frame00.tga
+  skyboxes                     materials\gfx\env\<set><rt|bk|lf|ft|up|dn>.tga   (24-bit; a whole set or none)
 
 Where each comes from:
 
@@ -54,6 +55,13 @@ Where each comes from:
     so sprites\foo.spr is looked up under materials\sprites\foo\. The file is
     <group_suffix><NN>.tga, where group_suffix is "frame", "group" or "angle" depending on the
     frame's type (lines 307-315), and NN is the frame number as two digits.
+  * Skyboxes: R_SetupSky, client\dll_int\ref_common.c, with engine-h9-hdsky.patch. A sky is named
+    by worldspawn's skyname and the game's own set is gfx\env\<set><rt|bk|lf|ft|up|dn> (dds, tga
+    or bmp; Quake-style sets put an underscore before the suffix). Upstream looks nowhere else.
+    With host_allow_materials not 0 the patch tries the same names under materials\ FIRST, and
+    uses the set only if it is WHOLE. A missing or half set falls back to the game's own, so a
+    set is all six faces or none. A sky is read when the map loads, so the cvar is latched here
+    too. The faces are TGA because that is what the engine looks for after dds.
 
 NAMES. The engine rewrites exactly one character: a leading '*' becomes '!' (mod_bmodel.c:2855).
 A leading '{' is KEPT -- the engine's own documented example is materials/decals/{shot2.tga. A
@@ -106,11 +114,13 @@ Measured, not estimated. 13,383 places a texture is used, which dedupe to 6,189 
   decals            decals.wad              244               231
   sprites                                 1,051               962
 
+SKYBOXES ARE COVERED TOO, by a pass of their own. gfx\env\ holds 25 sets of six loose TGAs
+(150 faces: 24 sets at 256 px and one at 512) that the engine loads by worldspawn's skyname, not through
+any wad, bsp, mdl or spr, so extract.mjs never sees them. tools\texpack\skies.py makes each set
+4x into materials\gfx\env (section 5). The 25 are 366 MB of the pack.
+
 NOT covered, and why:
 
-  * Skyboxes. gfx\env\ is 154 loose TGA files the engine loads by worldspawn's skyname, not
-    through any wad, bsp, mdl or spr, and sky replacement uses a different path with _solid and
-    _alpha suffixes. A separate pass.
   * HUD sprites. cl_sprite.c:163 sends them down the other branch entirely; materials\ is never
     consulted for them.
   * Colormap model skins. gl_studio.c:3439 refuses a replacement for a texture flagged
@@ -143,6 +153,31 @@ the upscaler; the venv built for this lives outside the repo because torch is 2.
     node tools\texpack\manifest.mjs --write
         Stamps what has been made, with the recipe that made it (section 6).
 
+    <venv>\python.exe tools\texpack\skies.py
+        The skies. Reads every complete set in H9XASH\ts\gfx\env, upscales it, and writes
+        <materials>\gfx\env\<set><suffix>.tga (24-bit, run-length encoded). --list says what is
+        there and what is current, --only neuro does one set, --preview D:\temp\sky writes a
+        contact sheet and a 1:1 crop per set. Resumable, takes the heavy-job lock, about six
+        seconds a set on an RTX 3070.
+
+        The faces are not upscaled one by one, which leaves a visible line along every edge of
+        the cube: the model sees a picture with a border and invents detail that stops there.
+        The four sides are joined into one wrapped strip and upscaled as one picture, and the up
+        and down faces are padded with the real rows of the sides beside them. Which face is
+        beside which is READ FROM THE PICTURES (the arrangement whose edges agree best), never
+        assumed: 23 of the 25 sets have ft next to lf, and two (neuro, construct_) have ft next to
+        rt. Where the pictures do not say, as with a flat colour, it falls back to one face at a
+        time and prints that. tools\upscaler_gui\core\skybox.py is the code, shared with the
+        window; tools\upscaler_gui\test_skybox.py proves its geometry on a cube with a known answer.
+
+        THE LIMIT. The model reads grain and dither as detail and substitutes something sharper
+        and wrong: a grassy ground came back as dark veins, a noisy floor as chain mail. So a
+        face whose result moves further than --max-drift (6.5) from its source, measured by
+        shrinking it back, is mixed back toward Lanczos until it is well inside that. A face
+        under the limit keeps the whole model, so crisp skylines and star fields are untouched.
+        Two of the 25 sets needed it: tsccity_ (its down face) and xt_medibeach (its four sides and
+        its ground). The four sides of a set always share one setting, so their seams stay alike. The window has the same control, under Skies on its Run tab.
+
 Measured on an RTX 3070: 200 images in 97 s, the whole 6,189 in about an hour, roughly 10 GiB of
 distinct output. RLE roughly halves a TGA, and the engine reads type 10 at 32 bits
 (engine\common\imagelib\img_tga.c:112-119 and 149), so there is no reason to ship uncompressed.
@@ -151,10 +186,11 @@ ALL OF THAT IN ONE COMMAND
 
     tools\texpack\hd-pass.ps1
 
-Runs the four steps in order and stops early when there is nothing to do, which is the usual
-answer. A pass that finds no new art takes about thirteen seconds. -WhatIfOnly says what it
-would do and changes nothing; -Publish also writes dist\files\hd, ready for a deploy; -Tile
-lowers the tile size if video memory is tight.
+Runs the steps in order, the skies among them, and stops early when there is nothing to do,
+which is the usual answer. A pass that finds no new art takes about thirteen seconds.
+-WhatIfOnly says what it would do and changes nothing; -Publish also writes dist\files\hd,
+ready for a deploy; -Tile lowers the tile size if video memory is tight; -SkiesOnly makes only the
+sky sets and does not scan the textures; -NoSkies leaves them out.
 
 This is deliberately NOT part of a release. Scanning the mod and upscaling ten gigabytes
 belongs to the day somebody adds a map or a model, not to every build. A release only ever
@@ -199,6 +235,13 @@ that fills it. Because a blob is named by the hash of its bytes, the server keep
 each distinct texture: 9,765 installed files come from 6,182 blobs, so an install pulls about a
 third fewer files than copying path by path, and an update that changes fifty textures is fifty
 blobs rather than a new ten-gigabyte download.
+
+The skies have a third, small record, sky-manifest.json in the work folder, and it never ships.
+Per set it holds a hash of the six source pictures and the recipe that made the result: the
+model's own sha256, the algorithm's version, the scale, the highest model share, the drift limit
+and the padding. A set is current when both still match and its six TGAs are in the materials
+folder. Change the model, a setting, or one picture, and that set (or every set, for the model)
+is made again, and only then.
 
 ONE THING IN THIS FOLDER IS NOT WHAT SHIPS. tools\texpack\pack.mjs lays the pack out as
 hd/<ab>/<sha>.tga with hd-pack.json beside it. That was the first design and it was replaced
@@ -278,6 +321,15 @@ downloaded; the game plays exactly as it did. Once they are installed, every lat
 them up to date without --hd, because an installed pack is a thing to maintain, not a thing to
 ask about again.
 
+THE SKIES TRAVEL IN IT AS ORDINARY FILES
+
+The publisher walks all of ts\materials, so a sky face is an entry like any other in
+hd/manifest.json: ts/materials/gfx/env/<set><suffix>.tga, stored as one blob named by its
+SHA-256. --hd installs it, an update replaces it only when its hash changed, and --hd-remove takes
+it out with the rest. Nothing in the publisher, the deploy or the updater knows what a sky is.
+hd-pack.json, which place.mjs writes, does not list them, and nothing on this path reads that
+file. A change to the sky recipe is 150 changed files, about 370 MB; a change to one set is six.
+
 THE ACCOUNT
 
 The pack is for linked accounts. If the install is not linked, the updater runs the same
@@ -349,6 +401,10 @@ At that setting every lookup is logged at any developer level, in the form
     Looking for maps/<map>.bsp:<texture> tex replacement...OK (materials/common/<texture>.tga)
     Looking for <texture> ... MISS (not found)
     Looking for models/<model> ... FAIL (materials/models/<model>/<texture>.tga)
+    Looking for sky <skyname> replacement...OK (materials/gfx/env/<skyname>)
+    Looking for sky <skyname> replacement...MISS (materials/gfx/env/<skyname>)
+
+A sky is looked up once, when the map loads, and its line says only whole set found or not.
 
 OK means found and loaded. MISS means the file is not where the engine looked, which is a naming
 or a folder mistake. FAIL means it was found and could not be read, which is a bad TGA. Capture
