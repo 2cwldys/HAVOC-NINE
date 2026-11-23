@@ -106,6 +106,7 @@ about the first kind:
 | 58 | `engine-h9-chatraise.patch` (now folded into `engine-h9-chatinput.patch`, file in `retired/`) | `client/console.c` (`Con_ChatInputPosition`, cvar `h9_chatraise`) | the say: line is raised `h9_chatraise` pixels (16; 0 = where the chat lines end), clear of the team box and the health box of TS's HUD in the lower left |
 | 59 | `engine-h9-userinfo-client.patch` | `client/cl_main.c` (`CL_H9PacketUserinfo`, `CL_H9SendLateUserinfo`, the two connect packets, `CL_SendCommand`), `client/client.h` (`cls.userinfo`), `common/common.h` (`H9_MAX_USERINFO`), `client/cl_presence.c`, `client/cl_travel.c`, `common/cvar.c`, `client/dll_int/cl_gameui.c` (`UI_UpdateUserinfo`), `common/infostring.c` (`Info_SetValueForStarKey`: `>=`) | the client keeps `H9_MAX_USERINFO` (512) of its own userinfo, where the 255 of before refused keys one by one (h9_clientid, even `_h9rel`); a connect packet gets the keys a server needs first and what else fits in 255, the rest goes with `setinfo` once connected |
 | 59a | `engine-h9-menubgvideo.patch` | `client/avi/avi_ffmpeg.c/.h`, `client/client.h`, `client/dll_int/cl_gameui.c`, `common/common.h`, `menu_int.h` | the native (non-browser) FFmpeg menu background video: `CIN_MENUBG`, the extended menu API v2 and its four `ui_extendedfuncs_t` pointers, the `menubg_*` gameui fields, the forced AVI demuxer and the `AVI_REWIND` loop-by-reopen that works around an FFmpeg `avio_seek` crash on long menu sessions, and the `UI_*MenuBgVideo` wiring. **Applies last** -- it edits lines #59 adds, so it is generated from the fully patched tree. Its mainui half is #49a |
+| 60 | `engine-h9-hdsky.patch` | `client/dll_int/ref_common.c` (`R_SetupSky`) | with texture replacement on, a whole sky set under `materials/gfx/env` is used before the game's own `gfx/env` one; a missing or half set falls back to the game's |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -2203,3 +2204,14 @@ into `cls.userinfo` when it is missing there; it left the list of the keys that 
 4. `engine-h9-serverinfo.patch`, `server/sv_client.c`, `SV_RejectConnection`: the server sends "Server has rejected the connection:" in both packets; a server shows it once it runs this engine.
 
 Each change is inside the patch that owns the code (`cl_h9join.c` is that patch's own file); no patch name was added to `xash.bat`. Reverse-checks in place; needs the next engine build.
+
+### 2026-11-23 -- engine-h9-hdsky.patch (new): a sky set under materials/gfx/env is used before the game's own
+
+`R_SetupSky` (`client/dll_int/ref_common.c`) looked for a sky only at `gfx/env/<name><rt|bk|lf|ft|up|dn>` (dds, tga, bmp; with and without an underscore). The HD texture pack puts everything else
+under `ts/materials`, which the engine reads when `host_allow_materials` is not 0 (`Mod_AllowMaterials()`), and skies were the one kind of texture it never looked up there.
+
+With `Mod_AllowMaterials()` on, `R_SetupSky` first asks `CheckSkybox` for the same name under `materials/gfx/env/`; a complete set there is used. A missing or half set leaves everything as it was: the
+game's own `gfx/env` set, then the default sky. With replacement off the new lines do nothing. At `host_allow_materials 2` it also prints `Looking for sky <name> replacement...OK (materials/gfx/env/<name>)` or `MISS`, the report the world's textures give (docs\HD_TEXTURES.txt section 9). No other patch touches this part of the file (the webassembly patch's two hunks are 600 lines further on).
+
+Cut from the patched tree against its own copy of the file; forward-checks on the file without the change and reverse-checks in place. Applied last, after engine-h9-radio.patch; its name is at the end of the
+xash.dll :dllpatch line (8,133 of 8,191 characters). Needs the next engine build (xash.dll).

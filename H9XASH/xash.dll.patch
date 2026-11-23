@@ -35,6 +35,7 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 engine-h9-png.patch
 engine-h9-png.patch, engine-h9-radio.patch
 engine-h9-png.patch, engine-h9-radio.patch, engine-h9-motdclip.patch
+engine-h9-png.patch, engine-h9-radio.patch, engine-h9-hdsky.patch
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -5646,6 +5647,166 @@ e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way m
 Lines of the previous diff that this build replaced, kept here:
 +	"_h9rel", "_h9idv", "_h9lnk", "_h9idl", "h9_clientid",
 Diff sha256 b5c5b47965dfd3674cc1e12bfbd4ee01ffda6b1c3c57d5cc89dc168f429757a1, the diff below.
+
+Generated Mon 11/23/2026  0:50:25.77, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/dll_int/ref_common.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 dd6ad4e01f7d30f7b8dc52074be60cd6e085a16fee7342ec88b579c3039dd306, the diff below.
+
+Generated Mon 11/23/2026  0:56:00.53, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_scrn.c
+ M engine/client/cl_sprite.c
+ M engine/client/cl_tent.c
+ M engine/client/cl_video.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/dll_int/ref_common.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/soundlib/snd_main.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/dedicated.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/infostring.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/soundlib/snd_utils.c
+ M engine/common/soundlib/soundlib.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/client/soundlib/snd_http.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 b2148eb5021a2064ba6159660c4b8135f1a49d68c18177fa81af9cd2a8f8f4cb, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -15728,10 +15889,40 @@ index 993304fa..87e3b6b4 100644
  
  void UI_UnloadProgs( void )
 diff --git a/engine/client/dll_int/ref_common.c b/engine/client/dll_int/ref_common.c
-index 8ea38dc5..c5f9f644 100644
+index 8ea38dc5..8312f949 100644
 --- a/engine/client/dll_int/ref_common.c
 +++ b/engine/client/dll_int/ref_common.c
-@@ -704,6 +704,9 @@ static void R_CollectRendererNames( void )
+@@ -103,10 +103,11 @@ static qboolean CheckSkybox( const char *name, char out[SKYBOX_MAX_SIDES][MAX_ST
+ 
+ void R_SetupSky( const char *name )
+ {
+-	string loadname;
++	string loadname, hdname;
+ 	char sidenames[SKYBOX_MAX_SIDES][MAX_STRING];
+ 	int skyboxTextures[SKYBOX_MAX_SIDES] = { 0 };
+ 	int i, len;
++	qboolean hdsky;
+ 
+ 	if( COM_StringEmptyOrNULL( name ))
+ 	{
+@@ -123,8 +124,15 @@ void R_SetupSky( const char *name )
+ 	if( loadname[len - 1] == '_' )
+ 		loadname[len - 1] = '\0';
+ 
++	// with texture replacement on, a whole set under materials/gfx/env goes first; a missing or half set leaves the game's own
++	Q_snprintf( hdname, sizeof( hdname ), "materials/%s", loadname );
++	hdsky = Mod_AllowMaterials( ) && CheckSkybox( hdname, sidenames );
++
++	if( host_allow_materials.value == 2.0f ) // the lookup report the world's textures give
++		Con_Printf( "Looking for sky %s replacement..." "%s (%s)\n", name, hdsky ? S_GREEN "OK" : S_YELLOW "MISS", hdname );
++
+ 	// to prevent infinite recursion if default skybox was missed
+-	if( !CheckSkybox( loadname, sidenames ) && Q_stricmp( name, DEFAULT_SKYBOX_NAME ))
++	if( !hdsky && !CheckSkybox( loadname, sidenames ) && Q_stricmp( name, DEFAULT_SKYBOX_NAME ))
+ 	{
+ 		Con_Reportf( S_WARN "missed or incomplete skybox '%s'\n", name );
+ 		R_SetupSky( DEFAULT_SKYBOX_NAME ); // force to default
+@@ -704,6 +712,9 @@ static void R_CollectRendererNames( void )
  #if XASH_REF_GL4ES_ENABLED
  		"gl4es",
  #endif
@@ -15741,7 +15932,7 @@ index 8ea38dc5..c5f9f644 100644
  #if XASH_REF_GLES3COMPAT_ENABLED
  		"gles3compat",
  #endif
-@@ -727,6 +730,9 @@ static void R_CollectRendererNames( void )
+@@ -727,6 +738,9 @@ static void R_CollectRendererNames( void )
  #if XASH_REF_GL4ES_ENABLED
  		"GL4ES",
  #endif

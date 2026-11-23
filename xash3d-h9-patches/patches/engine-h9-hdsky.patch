@@ -1,0 +1,33 @@
+diff --git a/engine/client/dll_int/ref_common.c b/engine/client/dll_int/ref_common.c
+--- a/engine/client/dll_int/ref_common.c
++++ b/engine/client/dll_int/ref_common.c
+@@ -103,10 +103,11 @@ static qboolean CheckSkybox( const char *name, char out[SKYBOX_MAX_SIDES][MAX_ST
+ 
+ void R_SetupSky( const char *name )
+ {
+-	string loadname;
++	string loadname, hdname;
+ 	char sidenames[SKYBOX_MAX_SIDES][MAX_STRING];
+ 	int skyboxTextures[SKYBOX_MAX_SIDES] = { 0 };
+ 	int i, len;
++	qboolean hdsky;
+ 
+ 	if( COM_StringEmptyOrNULL( name ))
+ 	{
+@@ -123,8 +124,15 @@ void R_SetupSky( const char *name )
+ 	if( loadname[len - 1] == '_' )
+ 		loadname[len - 1] = '\0';
+ 
++	// with texture replacement on, a whole set under materials/gfx/env goes first; a missing or half set leaves the game's own
++	Q_snprintf( hdname, sizeof( hdname ), "materials/%s", loadname );
++	hdsky = Mod_AllowMaterials( ) && CheckSkybox( hdname, sidenames );
++
++	if( host_allow_materials.value == 2.0f ) // the lookup report the world's textures give
++		Con_Printf( "Looking for sky %s replacement..." "%s (%s)\n", name, hdsky ? S_GREEN "OK" : S_YELLOW "MISS", hdname );
++
+ 	// to prevent infinite recursion if default skybox was missed
+-	if( !CheckSkybox( loadname, sidenames ) && Q_stricmp( name, DEFAULT_SKYBOX_NAME ))
++	if( !hdsky && !CheckSkybox( loadname, sidenames ) && Q_stricmp( name, DEFAULT_SKYBOX_NAME ))
+ 	{
+ 		Con_Reportf( S_WARN "missed or incomplete skybox '%s'\n", name );
+ 		R_SetupSky( DEFAULT_SKYBOX_NAME ); // force to default
