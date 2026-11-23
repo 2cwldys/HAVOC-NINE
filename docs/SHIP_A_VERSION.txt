@@ -92,7 +92,8 @@ the updater's manifest, the host's build file, THE SERVER LIST BOT'S ABOUT ME (i
 follows, and the verification waits up to 2 minutes for its log to say "About Me now names H9XASH <build>"), the versioned downloads, that the public file index holds no
 host package, the join gate (h9_release.txt = the build), that the compiled plugin carries that release (h9_presence.amxx, read out of the binary: a bump
 that stopped before the compile leaves the old one in it while every text file agrees) and that the updater's manifest serves that very file, the game
-server folder on the host (WARN until update-game.ps1 -Apply has run, server stopped) and the site. Nothing here has to be
+server folder on the host (WARN until update-game.ps1 -Apply has run, server stopped), the site, and that every file the updater's manifest and the HD
+manifest name is on the host at its size (a file deleted there by hand would otherwise show up only as a player's failed download). Nothing here has to be
 looked up by hand; the list below says what each line means.
 - deploy log ends "everything is up", exit 0; all services Running; "code as installed: unchanged since the last install".
 - ssh havoc9-vps "type C:\havoc9\site\downloads\.build"  ->  the build number.

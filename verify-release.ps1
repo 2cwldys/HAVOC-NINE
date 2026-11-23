@@ -17,6 +17,8 @@
     5  the join gate: h9_release.txt in the package is the build (docs\H9_RELEASE.txt)
     6  the game server folder on the host (C:\havoc9\H9XASH), when there is one: its h9_release.txt is the build (WARN: update-game.ps1 -Apply, server stopped)
     7  the site answers (the servers list)
+    8  every file the live manifests name is on the host under its SHA-256, at its size: the updater's files (site\files) and,
+       when published, the HD textures (site\files\hd)
 #>
 [CmdletBinding()]
 param([string]$Ini = (Join-Path $PSScriptRoot 'packaging.ini'), [int]$BioSeconds = 120)
@@ -153,6 +155,41 @@ else {
 # 7. the site
 $api = (& curl.exe -s -o NUL -w '%{http_code}' https://havoc9.org/api/servers 2>$null)
 if ($api -eq '200') { Result PASS 'site' '/api/servers answers' } else { Result FAIL 'site' "/api/servers answers HTTP $api" }
+
+# 8. every file the live manifests name is on the host. receive-deploy.ps1 refuses a delivery whose manifest names a file it cannot place, so a gap can
+# only come later: a file deleted by hand, or lost on the disk. The updater then stops on the 404 before it changes anything (test_updater.py, web v5),
+# so players keep what they have, but nobody who lacks that file can update until it is back. Sizes, not hashes: hashing 12 GB of HD textures is too slow here.
+$blobCheck = @'
+$ProgressPreference = 'SilentlyContinue'
+foreach ($s in @(@('updater files', 'C:\havoc9\site\files'), @('HD textures', 'C:\havoc9\site\files\hd'))) {
+    $dir = $s[1]
+    $m = Join-Path $dir 'manifest.json'
+    if (-not (Test-Path -LiteralPath $m)) { "set|$($s[0])|none"; continue }
+    $have = @{}
+    foreach ($f in [IO.Directory]::EnumerateFiles($dir)) { $have[[IO.Path]::GetFileName($f)] = (New-Object IO.FileInfo $f).Length }
+    $want = @{}
+    foreach ($e in (Get-Content -Raw -LiteralPath $m | ConvertFrom-Json).files) { $want[[string]$e.sha256] = [long]$e.size }
+    $miss = @(); $bad = @()
+    foreach ($k in $want.Keys) { if (-not $have.ContainsKey($k)) { $miss += $k } elseif ($have[$k] -ne $want[$k]) { $bad += $k } }
+    "set|$($s[0])|$($want.Count)|$($miss.Count)|$($bad.Count)|$((@($miss + $bad) | Select-Object -First 3) -join ',')"
+}
+'@
+$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($blobCheck))
+$seen = 0
+foreach ($ln in ((OnHost "powershell -NoProfile -NonInteractive -EncodedCommand $enc") -split "`n")) {
+    $p = $ln.Trim() -split '\|'
+    if ($p.Count -lt 3 -or $p[0] -ne 'set') { continue }
+    $seen++
+    if ($p[2] -eq 'none') {
+        if ($p[1] -eq 'updater files') { Result FAIL 'served files' 'no manifest.json in C:\havoc9\site\files' }
+        else { Result PASS 'served files' "$($p[1]): none published" }
+        continue
+    }
+    if ($p.Count -lt 6) { Result WARN 'served files' "$($p[1]): the host's answer could not be read"; continue }
+    if ($p[3] -eq '0' -and $p[4] -eq '0') { Result PASS 'served files' "$($p[1]): all $($p[2]) named files are there, at their size" }
+    else { Result FAIL 'served files' "$($p[1]): $($p[3]) of $($p[2]) named files are missing and $($p[4]) have the wrong size (first: $($p[5])); run the delivery again, it sends what the host lacks" }
+}
+if (-not $seen) { Result WARN 'served files' 'the host did not answer the check' }
 
 Write-Host ("== {0} FAIL, {1} WARN" -f $fails, $warns)
 if ($fails) { exit 1 }
