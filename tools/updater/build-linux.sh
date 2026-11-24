@@ -33,7 +33,7 @@ trap 'rm -rf "$WORK"' EXIT
 echo "  sources : $HERE"
 echo "  work    : $WORK"
 
-for f in h9xash_updater.py h9link.py h9tls.py cacert.pem; do
+for f in h9xash_updater.py h9link.py h9tls.py h9color.py cacert.pem; do
 	if [ ! -f "$HERE/$f" ]; then
 		echo "  [FAIL] $f is not beside this script" >&2
 		exit 1

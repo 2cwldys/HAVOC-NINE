@@ -27,6 +27,7 @@ import urllib.request
 import webbrowser
 
 import h9tls
+from h9color import paint
 
 SITE = 'https://havoc9.org'
 STORE = 'user_id.ini'
@@ -304,15 +305,15 @@ def _link(install, say, site, device):
     try:
         ans = _get(site + '/api/link/start?' + urllib.parse.urlencode(query))
     except (urllib.error.URLError, OSError, ValueError) as e:
-        say('Account: cannot reach %s (%s). Link later from the game menu, or run the updater with --link.'
-            % (site, getattr(e, 'reason', e)))
+        say(paint('Account: cannot reach %s (%s). Link later from the game menu, or run the updater with --link.'
+                  % (site, getattr(e, 'reason', e)), 'warn'))
         return False
     if ans.get('status') == 'busy':
-        say('Account: %s is busy right now; try again in %s seconds (H9XASH-Updater.exe --link).'
-            % (site, ans.get('retryAfter', 60)))
+        say(paint('Account: %s is busy right now; try again in %s seconds (H9XASH-Updater.exe --link).'
+                  % (site, ans.get('retryAfter', 60)), 'warn'))
         return False
     if ans.get('status') != 'ok' or not ans.get('deviceCode') or not ans.get('userCode'):
-        say('Account: %s did not start a link (%s).' % (site, ans.get('status')))
+        say(paint('Account: %s did not start a link (%s).' % (site, ans.get('status')), 'warn'))
         return False
     code, device_code = ans['userCode'], ans['deviceCode']
     url = ans.get('linkUrl') or site + '/link/'
@@ -320,7 +321,7 @@ def _link(install, say, site, device):
     deadline = time.monotonic() + int(ans.get('expiresIn') or 600)
     say('')
     say('  1. Sign in on %s/link/ (it opens in your browser now).' % site)
-    say('  2. Check that the page shows this code, then press LINK:   %s' % code)
+    say('  2. Check that the page shows this code, then press LINK:   %s' % paint(code, 'code'))
     say('  Waiting for you to approve it there (Ctrl+C skips)...')
     try:
         webbrowser.open(url)
@@ -346,15 +347,15 @@ def _link(install, say, site, device):
                     say('Account: the site\'s answer was not a link; nothing was stored.')
                     return False
                 write_link(install, pid, token, account, site)
-                say('Account: linked to %s account %s, stored in user_id.ini protected for this Windows user.'
-                    % (site_name(site), account))
+                say(paint('Account: linked to %s account %s, stored in user_id.ini protected for this Windows user.'
+                          % (site_name(site), account), 'ok'))
                 return True
             if st == 'denied':
-                say('Account: the code was turned down on %s (NOT ME), or the account is suspended.'
-                    % site_name(site))
+                say(paint('Account: the code was turned down on %s (NOT ME), or the account is suspended.'
+                          % site_name(site), 'err'))
                 return False
             break
-        say('Account: the code ran out of time. Run H9XASH-Updater.exe --link for a new one.')
+        say(paint('Account: the code ran out of time. Run H9XASH-Updater.exe --link for a new one.', 'warn'))
         return False
     except KeyboardInterrupt:
         say('Account: skipped.')

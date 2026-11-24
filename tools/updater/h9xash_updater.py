@@ -29,10 +29,12 @@ import urllib.error
 import urllib.request
 import zipfile
 
+import h9color
 import h9link
 import h9tls
+from h9color import paint
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 WEB_URL = 'https://havoc9.org/files/'
 REPO_URL = 'https://github.com/2cwldys/HAVOC-NINE.git'
 BRANCH = 'main'
@@ -288,13 +290,16 @@ class Progress:
         if self.tty and (force or now - self.last >= 0.25):
             self.last = now
             line = '  %s: %s' % (self.label, text)
-            sys.stdout.write('\r' + line[:110].ljust(110))
+            width = len(h9color.plain(line))
+            if width > 110:                     # too long: cut the plain text, colour codes and all
+                line, width = h9color.plain(line)[:110], 110
+            sys.stdout.write('\r' + line + ' ' * (110 - width))
             sys.stdout.flush()
             self.shown = True
 
-    def done(self, text=None):
+    def done(self, text=None, style=None):
         if text is not None:
-            self.update(text, force=True)
+            self.update(paint(text, style) if style else text, force=True)
         if self.shown:
             sys.stdout.write('\n')
             sys.stdout.flush()
@@ -322,15 +327,16 @@ class Log:
         self.pending = []
 
     def note(self, text):
-        line = time.strftime('%Y-%m-%d %H:%M:%S  ') + text
+        line = time.strftime('%Y-%m-%d %H:%M:%S  ') + h9color.plain(text)
         if self.f:
             self.f.write(line + '\n')
             self.f.flush()
         else:
             self.pending.append(line)
 
-    def say(self, text=''):
-        print(text, flush=True)
+    def say(self, text='', style=None):
+        """A line on the console (in `style` when colour is on) and in updater.log (always plain)."""
+        print(paint(text, style) if style else text, flush=True)
         self.note(text)
 
     def close(self):
@@ -883,11 +889,11 @@ class WebSource(Source):
                 if prog:
                     pct = (done[0] * 100 // total) if total else 100
                     prog.update('%s %3d%%  %d of %d files, %s of %s'
-                                % (bar(done[0], total), pct, k, len(todo),
+                                % (paint(bar(done[0], total), 'bar'), pct, k, len(todo),
                                    mb(done[0]), mb(total)))
             self._download(sha, size, tick)
         if prog:
-            prog.done('%d files, %s, every one matches its SHA-256' % (len(todo), mb(total)))
+            prog.done('%d files, %s, every one matches its SHA-256' % (len(todo), mb(total)), 'ok')
 
     def _download(self, sha, size, tick):
         """One file into the cache as <sha>.part, resumed from what an earlier try left there,
@@ -1160,7 +1166,7 @@ def stage_files(plan, source, stage):
                                        'installed.' % rel)
         done_bytes += size
         prog.update('%d of %d files, %s of %s' % (k, len(items), mb(done_bytes), mb(total)))
-    prog.done('%d files, %s, all match the release' % (len(items), mb(total)))
+    prog.done('%d files, %s, all match the release' % (len(items), mb(total)), 'ok')
 
 
 def apply_plan(plan, source, install, state_dir, state, release, source_info):
@@ -1526,7 +1532,7 @@ def run_update(args, install, cache, state_dir, interactive):
             LOG.note('  %s %s' % (word, rel))
     if plan.overwritten_changed:
         LOG.say('  %d of the changed files were edited in this folder since the last update; the update '
-                'replaces them (the old copies stay in the rollback).' % len(plan.overwritten_changed))
+                'replaces them (the old copies stay in the rollback).' % len(plan.overwritten_changed), 'warn')
         for rel in plan.overwritten_changed:
             LOG.note('  edited here, replaced: ' + rel)
     if plan.kept_changed:
@@ -1536,7 +1542,7 @@ def run_update(args, install, cache, state_dir, interactive):
 
     if plan.empty():
         LOG.say()
-        LOG.say('H9XASH is up to date.')
+        LOG.say('H9XASH is up to date.', 'ok')
         if args.check:
             return 0
         if not state.exists or state.source != source.info:
@@ -1565,7 +1571,7 @@ def run_update(args, install, cache, state_dir, interactive):
     seed_and_dirs(source, install)
     source.finish()
     LOG.say()
-    LOG.say('Done: H9XASH in %s is %s.' % (install, source.describe()))
+    LOG.say('Done: H9XASH in %s is %s.' % (install, source.describe()), 'ok')
     if not fresh:
         LOG.say('If something is wrong, %s --rollback puts the previous files back.' % exe_name())
     LOG.say('Start the game with h9xash.bat in that folder.')
@@ -1678,7 +1684,7 @@ def hd_wanted(args, install, state_dir, interactive):
         LOG.note('HD textures: not offered (hd.offer is off in %s).' % PREFS_NAME)
         return False
     print()
-    print('Optional HD textures')
+    print(paint('Optional HD textures', 'head'))
     print('  Every texture in the game, AI-upscaled, installed into ts\\materials. The engine')
     print('  reads those in place of the textures inside the maps and the models, and goes')
     print('  straight back to the originals if they are removed.')
@@ -1718,11 +1724,11 @@ def hd_account_ok(args, install, interactive):
         raise UpdaterError('the HD textures need a linked havoc9.org account: run '
                            '%s --link first, then --hd' % exe_name())
     print()
-    print('The HD textures are for linked accounts, and this install is %s.' % detail)
+    print(paint('The HD textures are for linked accounts, and this install is %s.' % detail, 'warn'))
     h9link.link(install, say=LOG.say, interactive=True, site=args.link_site)
     state, detail = h9link.status(install)
     if state != 'linked':
-        LOG.say('HD textures: skipped, the account was not linked.')
+        LOG.say('HD textures: skipped, the account was not linked.', 'warn')
         return False
     return True
 
@@ -1738,7 +1744,7 @@ def hd_step(args, install, cache, state_dir, interactive):
     os.makedirs(hd_dir, exist_ok=True)
     source = hd_source(args, cache)
     LOG.say()
-    LOG.say('HD textures')
+    LOG.say('HD textures', 'head')
     source.sync()
     rules = hd_rules()
     release = source.release(rules)
@@ -1754,7 +1760,7 @@ def hd_step(args, install, cache, state_dir, interactive):
     if plan.empty():
         if not state.exists or state.source != source.info:
             state.save(source.info, installed_files(release, install))
-        LOG.say('  up to date (%d textures).' % len(release))
+        LOG.say('  up to date (%d textures).' % len(release), 'ok')
         return 0
     LOG.say('  to download: %s' % mb(plan.copy_bytes()))
     if args.check:
@@ -1772,8 +1778,8 @@ def hd_step(args, install, cache, state_dir, interactive):
     source.fetch(plan.add + plan.replace)
     apply_plan(plan, source, install, hd_dir, state, release, source.info)
     LOG.say()
-    LOG.say('  HD textures: %d in %s.' % (len(release), os.path.join(install, HD_INSTALL)))
-    LOG.say('  Turn them on in the game with host_allow_materials 1, then restart it.')
+    LOG.say('  HD textures: %d in %s.' % (len(release), os.path.join(install, HD_INSTALL)), 'ok')
+    LOG.say('  Turn them on in the game with %s, then restart it.' % paint('host_allow_materials 1', 'code'))
     LOG.say('  host_allow_materials 0 goes back to the textures inside the maps and models.')
     return 0
 
@@ -1841,6 +1847,8 @@ def parse_args(argv):
                                                               'unless --link is given)')
     p.add_argument('--force', action='store_true', help='install into a folder that holds other files')
     p.add_argument('--no-pause', action='store_true', help='do not wait for Enter at the end')
+    p.add_argument('--no-color', action='store_true',
+                   help='plain text only (colour is used only in a console that shows it; NO_COLOR works too)')
     p.add_argument('--hd', action='store_true',
                    help='also install the optional HD textures into ts\\materials, or update '
                         'them. Once installed they are kept up to date without this')
@@ -1856,7 +1864,7 @@ def parse_args(argv):
 
 def run(args):
     interactive = not args.yes and sys.stdin is not None and sys.stdin.isatty()
-    print('H9XASH-Updater %s' % VERSION)
+    print(paint('H9XASH-Updater %s' % VERSION, 'head'))
     print()
     install, cache = choose_install_dir(args, interactive)
     state_dir = os.path.join(install, STATE_DIR)
@@ -1902,20 +1910,21 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     pause = not argv and getattr(sys, 'frozen', False)
     args = parse_args(argv)
+    h9color.enable(not args.no_color)
     pause = pause and not args.no_pause
     try:
         rc = run(args)
     except UpdaterError as e:
         LOG.say()
-        LOG.say('Stopped: %s' % e)
+        LOG.say('Stopped: %s' % e, 'err')
         rc = 1
     except KeyboardInterrupt:
         LOG.say()
-        LOG.say('Stopped (Ctrl+C).')
+        LOG.say('Stopped (Ctrl+C).', 'warn')
         rc = 1
     except Exception:
         LOG.say()
-        LOG.say('Stopped by an unexpected error:')
+        LOG.say('Stopped by an unexpected error:', 'err')
         LOG.say(traceback.format_exc().rstrip())
         rc = 2
     LOG.close()
