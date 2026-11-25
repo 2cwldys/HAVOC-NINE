@@ -46,6 +46,7 @@ TeamFortressViewport* gViewPort = NULL;
 #include "ts_emitter.h" // TSEmitter_Frame
 #include "h9_rallysnd.h" // H9RallySnd_Frame
 #include "h9_keymap.h" // H9Keys_Frame
+#include "h9_customvgui.h" // h9customvgui::Frame
 #include "pm_defs.h"
 extern float g_h9RallyCrashAmount; // pm_shared/h9_rally.cpp
 IParticleMan* g_pParticleMan = nullptr;
@@ -276,6 +277,7 @@ void DLLEXPORT HUD_Frame(double time)
 	TSEmitter_Frame(time); // client.dll HUD_Frame -> FUN_1003ab40: the map's ts_emitter effects
 	H9Keys_Frame(); // H9 key layouts: a mode that has ended lets go of the keys it holds (h9_keymap.cpp)
 	H9RallySnd_Frame(); // H9 rally mode: the engine loops, the squeal and the backfire of the cars (h9_rallysnd.cpp)
+	h9customvgui::Frame(); // H9: h9_customvgui, the console colour and a line when it changes (h9_customvgui.h)
 	gHUD.m_TSPowerUp.InterpolateSlow((float)time); // 0x10055ae0, the slow factor's easing
 	extern bool g_bTSKeyBound;
 	g_bTSKeyBound = false; // 0x1001ab27

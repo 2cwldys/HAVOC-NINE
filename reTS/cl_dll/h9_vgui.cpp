@@ -1321,6 +1321,7 @@ void H9Vgui_Init()
 	s_cvEnabled = CVAR_CREATE("cl_h9_vgui", "1", FCVAR_ARCHIVE);
 	CVAR_CREATE("cl_h9_vgui_scale", "1", FCVAR_ARCHIVE);
 	h9theme::Init(); // cl_h9_vgui_r, _g, _b and cl_h9_vgui_color: the colour of the panels
+	h9customvgui::Init(); // h9_customvgui: H9's purple, or TS 3.0's own colours (h9_customvgui.h)
 	s_cvTop = CVAR_CREATE("cl_h9_vgui_top", "0", FCVAR_ARCHIVE);
 	s_cvMarks = CVAR_CREATE("cl_h9_marks", "1", FCVAR_ARCHIVE);
 	s_cvStrip = CVAR_CREATE("cl_h9_marks_strip", "1", FCVAR_ARCHIVE);

@@ -63,6 +63,7 @@ repository as a git submodule of its own repository.
 >
 > - `h9_customweapons 0` gives TS 3.0's own weapons.
 > - `h9_customhands 0` gives its own hands.
+> - `h9_customvgui 0` gives its own look: its menus and scoreboard, the HUD and crosshair, and the console in TS 3.0's colours.
 > - The H9 game modes run only on maps named for them (`h9_te_`, `h9_siege_` and so on), and a race only on a map with a `race_rules` entity. Any other map plays as TS plays it.
 >
 > Every setting is listed in [CVARS.md](CVARS.md).

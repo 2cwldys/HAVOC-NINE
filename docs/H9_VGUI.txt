@@ -673,6 +673,7 @@ a hint dim; a game without it draws the lines as the plain notice they read as (
    freevgui-h9-scheme.patch  freevgui's six default colours are H9's:
        PRIMARY1 223 213 245, PRIMARY2 138 66 196, PRIMARY3 178 146 226,
        SECONDARY1 122 86 180, SECONDARY2 255 250 255, SECONDARY3 200 186 230.
+       h9_customvgui 0 gives TS 3.0's own colours and Arial back (4l).
 
    Font sizes (px) in the textschemes, by screen width:
                               640   800  1024  1152  1280  1600+
@@ -1339,7 +1340,8 @@ docs\ARP_INVENTORY.txt, 10; H9VGUI_CTXMENU_PROTOCOL, carried by ARP_H9Ctx likewi
  purple keeps its distance from the band's hue (the art's run from 255 to 275 degrees), and the dark greys of the art keep their faint cast in the new
  hue. A grey (or white or black) player's colour takes the colour out. What is not a purple is left as it is: a warning's red, the green,
  yellow and red of a need's bar, a team's colour, the pictures of items, a notice's white. TS's own menus (the team and class menus, the
- scoreboard) take their colours from the text scheme files and are not changed.
+ scoreboard) take their colours from the text scheme files and are not changed by these cvars; h9_customvgui 0 gives them
+ TS 3.0's own (4l).
  The cvars are read through a settle time of 0.4 seconds, so a colour typed as three commands is one change, and a change is made once
  (h9theme::Generation counts them). VGUI1 frees no texture, so the old art stays with the engine when a new colour makes it again: no more than twelve
  colours do that in one game, and then the art keeps the colour it has until the game is restarted (the rest follows the cvars as ever).
@@ -1349,6 +1351,33 @@ docs\ARP_INVENTORY.txt, 10; H9VGUI_CTXMENU_PROTOCOL, carried by ARP_H9Ctx likewi
  reTS\cl_dll\tests\test_theme.cpp checks the arithmetic without the game (1363 checks: the shipped colour moves nothing, every purple of H9's becomes
  a green, a blue, a grey of its own lightness, what is not a purple is left alone, the edges of the hue range, no value out of 0 to 255): build and run
  it with cl /std:c++17 /EHsc test_theme.cpp in that folder.
+
+ 4l. TS 3.0's own colours (h9_customvgui)
+ h9_customvgui (saved, 1 as shipped) is H9's look or The Specialists 3.0's own. 1: everything above, the purple. 0: what TS 3.0 shows, and
+ H9's panels in its colour:
+   TS's own VGUI   the menus, the scoreboard, the team and class windows: the colours of Half-Life's valve\*_textscheme.txt, which TS 3.0 uses
+                   (it ships no text scheme of its own). H9's files carry three purples in their place (the text 223 213 245, the panel behind
+                   it 26 14 40 141, a lit row 138 66 196 67), and vgui_SchemeManager.cpp puts Half-Life's back as it reads them (255 170 0
+                   255, 0 0 0 141, 255 170 0 67). The font is Arial: on Windows the schemes ask for "Helvetica", which Windows gives as
+                   Arial (its font substitutes), so fonts.txt, which draws Arial as Square 721 (3d), passes them by. VGUI's sc_secondary3,
+                   the one scheme colour the viewport leaves to VGUI, is VGUI's own grey, 204 204 204 (freevgui-h9-scheme.patch gives VGUI
+                   H9's purples).
+   H9's panels     the menus, the notices, the match bar, Apollo RP's HUD, the chat bubbles, the marks and the inventory window:
+                   Half-Life's VGUI orange, 255 170 0, in place of the purple, through the recolouring of 4k (cl_h9_vgui_r, _g and _b
+                   apply again once h9_customvgui is 1).
+   The TS HUD      and its crosshair: TS 3.0's own 125 150 165 (its config.cfg's) where hud_r, hud_g and hud_b are H9's purple, 190 160
+                   255, which H9XASH's userconfig.cfg sets at every start; a colour a player set is left as it is.
+   The console     and the chat text: Xash's own 240 180 24 where con_color is H9's purple, 190 140 255 (userconfig.cfg's).
+   Not changed     the main menu (the engine's own, H9's mainui), the pictures of items, and everything that is not a colour or a font.
+ When: TS's own VGUI is made once, with the viewport, as the game starts, and Xash makes the viewport before it runs config.cfg, so the
+ client reads the value saved in config.cfg itself (h9customvgui::StockAtStart): a change shows in the menus and the scoreboard at the next
+ start of the game. The rest changes at once, and the console says so when the value changes. It is in H9XASH's client.dll; the Steam
+ install's GoldSrc package keeps its older client until that one is replaced (reTS\binaries\goldsrc\).
+ Code: reTS\cl_dll\h9_customvgui.h (the cvar, and where it applies) and h9_customvgui_rules.h (the values), tested without the game by
+ reTS\cl_dll\tests\test_customvgui.cpp: cl /std:c++17 /EHsc test_customvgui.cpp in that folder (37 checks), or g++ -std=c++17 elsewhere.
+ Check, in a game with the new client.dll: h9_customvgui 0, and the HUD and its crosshair are grey-blue, the console's text orange, a
+ notice and an H9 menu orange; restart the game, and the team menu and the scoreboard are orange on black, in Arial. h9_customvgui 1 and
+ a restart: all purple again.
 
  5. ORDER OF WORK
  ----------------
