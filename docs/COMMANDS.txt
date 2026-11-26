@@ -1404,6 +1404,8 @@
  values back instead -- usecash 0, initial_cash 1200, cashforwin 10000,
  cashforlose 1200, nopowerup 0 -- and holds nobody's wallet: that map plays as
  the game ships.
+ A roleplay map, or any map while Apollo RP runs, gets nopowerup 1 all the
+ same (no powerups in a town); its mapconfig can still set it back.
 
 
 ===============================================================================
