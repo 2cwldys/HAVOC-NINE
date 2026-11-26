@@ -230,7 +230,7 @@ pictures of items are not moved, and neither are TS's own menus, whose colours a
 An H9 addition. `h9_customvgui` (saved, 1 as shipped) is H9's purple; 0 gives what TS 3.0 shows: its own menus and scoreboard in the
 colours of Half-Life's text scheme files, which TS 3.0 uses (`cl_dll/vgui_SchemeManager.cpp` puts back the three colours H9's files carry in
 their place), and in Arial (asked for as Helvetica on Windows, past H9's `fonts.txt`); VGUI's own grey for the one scheme colour the
-viewport leaves to VGUI; H9's panels in Half-Life's VGUI orange; and the HUD with its crosshair in TS 3.0's 125 150 165, and the console in
+viewport leaves to VGUI; H9's panels in TS 3.0's HUD grey-blue with white text; and the HUD with its crosshair in TS 3.0's 125 150 165, and the console in
 Xash's own colour, where they are H9's purple (`cl_dll/h9_customvgui.h`, the values in `cl_dll/h9_customvgui_rules.h`, tested by
 `cl_dll/tests/test_customvgui.cpp`). The menus and the scoreboard change at the next start of the game, the rest at once.
 

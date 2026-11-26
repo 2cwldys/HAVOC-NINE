@@ -38,6 +38,7 @@
 #include "h9_vgui.h"
 #include "vgui_H9Panel.h"
 #include "h9_arphud.h"
+#include "h9_customvgui.h" // h9_customvgui 0: white text (PanelText)
 
 #include <string.h>
 #include <stdio.h>
@@ -267,6 +268,8 @@ void TextColour(int& r, int& g, int& b)
 	r = 223;
 	g = 213;
 	b = 245;
+	if (h9customvgui::PanelText(r, g, b))
+		return; // H9: h9_customvgui 0, white text on TS 3.0's grey-blue (h9_customvgui.h)
 	if (gViewPort)
 	{
 		CSchemeManager* sm = gViewPort->GetSchemeManager();

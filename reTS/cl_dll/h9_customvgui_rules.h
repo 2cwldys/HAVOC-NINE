@@ -7,10 +7,11 @@
 
 namespace h9customvgui
 {
-// Half-Life's VGUI orange: the text of TS 3.0's menus, and the colour H9's own panels take in place of the purple (h9_theme.h).
-const int STOCK_R = 255;
-const int STOCK_G = 170;
-const int STOCK_B = 0;
+// TS 3.0's HUD grey-blue (its config.cfg's hud_r, hud_g and hud_b): the colour H9's own panels take in place of the purple
+// (h9_theme.h), with white text (PanelText in h9_customvgui.h).
+const int STOCK_R = 125;
+const int STOCK_G = 150;
+const int STOCK_B = 165;
 
 // The three colours H9's text scheme files (TSM\textscheme\*_textscheme.txt) carry in place of Half-Life's (valve\*_textscheme.txt, which
 // TS 3.0 uses: it ships none of its own). Every other colour in the files is Half-Life's already.

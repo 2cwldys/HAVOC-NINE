@@ -3,8 +3,8 @@
 //  - TS's own VGUI (its menus, the scoreboard, the team and class windows): the colours of Half-Life's text scheme files, which TS 3.0
 //    uses, and Arial (vgui_SchemeManager.cpp); VGUI's sc_secondary3, the one scheme colour the viewport leaves to VGUI, is VGUI's own grey
 //    (vgui_TeamFortressViewport.cpp). These are made once, with the viewport, when the game starts: a change is seen at the next start.
-//  - H9's own panels (CH9Surface, the inventory window, the chat bubbles, the marks): Half-Life's VGUI orange in place of the purple
-//    (h9_theme.h), at once.
+//  - H9's own panels, everything H9's VGUI draws (the menus, the notices, the match bar, Apollo RP's HUD and windows, the chat
+//    bubbles, the marks): TS 3.0's HUD grey-blue in place of the purple, with white text (h9_theme.h, PanelText), at once.
 //  - The TS HUD and its crosshair: TS 3.0's own colour where hud_r, hud_g and hud_b are H9's purple (ts_hud.cpp), at once.
 //  - The console and chat text: Xash's own colour where con_color is H9's purple (Frame), at once.
 // The main menu is the engine's own (H9's mainui) and stays as it is.
@@ -33,6 +33,18 @@ inline bool Stock()
 {
 	cvar_t* c = Cvar() ? Cvar() : gEngfuncs.pfnGetCvarPointer("h9_customvgui");
 	return c != nullptr && c->value == 0.0f;
+}
+
+// The text colour of H9's own panels (vgui_H9Panel.cpp, h9_arphud.cpp, h9_chatbubble.cpp) with h9_customvgui 0: white, on TS 3.0's
+// grey-blue. True when it gave the colour; false with h9_customvgui 1, where the text scheme's colour stands.
+inline bool PanelText(int& r, int& g, int& b)
+{
+	if (!Stock())
+		return false;
+	r = 255;
+	g = 255;
+	b = 255;
+	return true;
 }
 
 // h9_customvgui as the game started, for what is made once with the viewport. Xash makes the viewport (HUD_VidInit) before it runs

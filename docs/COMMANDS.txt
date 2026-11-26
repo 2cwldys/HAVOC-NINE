@@ -2849,12 +2849,13 @@
  h9_customvgui 0|1               H9's purple (1), or The Specialists 3.0's own
                                  colours (0): TS's own menus and scoreboard in
                                  Half-Life's orange and in Arial, as TS 3.0
-                                 has them; H9's panels in that orange; the HUD
-                                 and crosshair in TS's 125 150 165 and the
-                                 console in Xash's own colour where they are
-                                 H9's purple (a colour a player set stays). The
-                                 menus and the scoreboard change at the next
-                                 start of the game, the rest at once. Saved.
+                                 has them; H9's panels, the HUD and its
+                                 crosshair in TS's grey-blue, 125 150 165 (the
+                                 panels with white text), and the console in
+                                 Xash's own colour, where they are H9's purple
+                                 (a colour a player set stays). The menus and
+                                 the scoreboard change at the next start of
+                                 the game, the rest at once. Saved.
                                  H9XASH's client.dll (docs\H9_VGUI.txt 4l)
  cl_h9_marks 0|1                 the marks a server shows through the walls (1):
                                  Assault's capture points, Capture the

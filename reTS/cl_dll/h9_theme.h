@@ -5,13 +5,13 @@
 // argument. The cvars are read through a settle time, so a colour typed as three commands is one change, and a change is made once:
 // Generation() counts them, for what is made once for a colour (the panel art, vgui_H9Panel.cpp). Every H9 drawing that goes through
 // CH9Surface (vgui_H9Panel.cpp), and the inventory window's canvas (h9_arpinv.cpp), takes its colours through Tint(). With
-// h9_customvgui 0 (h9_customvgui.h) the colour is Half-Life's VGUI orange, 255 170 0, whatever the cvars say.
+// h9_customvgui 0 (h9_customvgui.h) the colour is TS 3.0's HUD grey-blue, 125 150 165, whatever the cvars say.
 #pragma once
 
 #include "hud.h"
 #include "cl_util.h"
 #include "h9_theme_math.h"
-#include "h9_customvgui.h" // h9_customvgui 0: the panels in Half-Life's VGUI orange, whatever the cvars say
+#include "h9_customvgui.h" // h9_customvgui 0: the panels in TS 3.0's grey-blue, whatever the cvars say
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +99,7 @@ inline void CmdColour()
 							 "  the same as the cvars cl_h9_vgui_r, cl_h9_vgui_g and cl_h9_vgui_b.\n",
 			cr, cg, cb, SHIPPED_R, SHIPPED_G, SHIPPED_B);
 		if (h9customvgui::Stock())
-			gEngfuncs.Con_Printf("  h9_customvgui is 0: the panels are in TS 3.0's own orange until it is 1 again.\n");
+			gEngfuncs.Con_Printf("  h9_customvgui is 0: the panels are in TS 3.0's grey-blue, with white text, until it is 1 again.\n");
 		return;
 	}
 	char value[8];

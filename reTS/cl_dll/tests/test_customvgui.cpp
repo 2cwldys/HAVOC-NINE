@@ -71,6 +71,9 @@ int main()
 	Check(0 == strcmp(StockFace("Square721 BT"), "Square721 BT"), "another face stays");
 	Check(0 == strcmp(StockFace(""), ""), "no name stays");
 
+	// H9's panels take TS 3.0's HUD grey-blue
+	Check(STOCK_R == HUD_STOCK_R && STOCK_G == HUD_STOCK_G && STOCK_B == HUD_STOCK_B, "the panels' colour is TS 3.0's HUD grey-blue");
+
 	// the HUD colour: H9's purple is TS 3.0's own; any other is the player's
 	int r = 190, g = 160, b = 255;
 	StockHudColour(r, g, b);

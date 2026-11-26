@@ -141,7 +141,7 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | `cl_h9_vgui_r` | `138` | the red part (0 to 255) of the colour of H9's panels; 138 66 196 is the default purple | client library |
 | `cl_h9_vgui_scale` | `1` | the panels' size (1; the panels are a quarter smaller than they were before 2026-11-05, and 1.33 is that size again) | client library |
 | `cl_h9_vgui_top` | `0` | how far down panels may start, from the top of the screen: 0 for 1.5% of the height (16 px at 1080); TS's own notices stand beneath the panels at the top (0) | client library |
-| `h9_customvgui` | `1` | H9's purple (1), or The Specialists 3.0's own colours (0): TS's own menus and scoreboard in Half-Life's orange and in Arial, as TS 3.0 has them; H9's panels in that orange; the HUD | client library |
+| `h9_customvgui` | `1` | H9's purple (1), or The Specialists 3.0's own colours (0): TS's own menus and scoreboard in Half-Life's orange and in Arial, as TS 3.0 has them; H9's panels, the HUD and its | client library |
 | `h9_customweapons` | `1` | 1: the weapons H9 adds to TS (the PPSh-41, the laser rifle, the Mech's rocket launcher, and any it adds later) are in play. | server library |
 | `h9_laserrifle` | `1` | the same for the laser rifle (weapon 40) | server library |
 | `h9_mechrocket` | `1` | present and 1 when the game library has the Mech rocket launcher (weapon 41), so a plugin can give a library without it another gun. | server library |
