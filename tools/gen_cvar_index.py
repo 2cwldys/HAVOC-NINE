@@ -229,7 +229,9 @@ def module_cvars():
 
 
 # ---- 3. the plugins -------------------------------------------------------------------------------------------
-REGISTER = re.compile(r'(?:register_cvar|create_cvar)\s*\(\s*"([^"]+)"\s*,\s*"([^"]*)"')
+# a default in quotes, or the name of a #define of the same file that gives it in quotes (DEFINE_TEXT)
+REGISTER = re.compile(r'(?:register_cvar|create_cvar)\s*\(\s*"([^"]+)"\s*,\s*(?:"([^"]*)"|([A-Za-z_]\w*))')
+DEFINE_TEXT = re.compile(r'^[ \t]*#define[ \t]+([A-Za-z_]\w*)[ \t]+"([^"]*)"', re.M)
 STOCK = {"admin", "adminchat", "admincmd", "adminhelp", "adminslots", "adminvote", "antiflood", "cmdmenu", "imessage", "mapchooser", "mapsmenu",
          "menufront", "multilingual", "nextmap", "pausecfg", "plmenu", "pluginmenu", "scrollmsg", "statscfg", "telemenu", "timeleft"}
 
@@ -255,8 +257,12 @@ def plugin_cvars():
         source = text_of(path)
         title = re.search(r'#define\s+PLUGIN\s+"([^"]+)"', source)
         found = {}
+        defines = dict(DEFINE_TEXT.findall(source))
         for m in REGISTER.finditer(source):
-            found.setdefault(m.group(1), m.group(2))
+            if m.group(2) is not None:
+                found.setdefault(m.group(1), m.group(2))
+            elif m.group(3) in defines:
+                found.setdefault(m.group(1), defines[m.group(3)])
         if not found:
             continue
         rows = []

@@ -712,7 +712,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### ts_survival
 
-`src/ts_survival.sma`. Config: `ts_survival.cfg`. 16 cvars.
+`src/ts_survival.sma`. Config: `ts_survival.cfg`. 17 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
@@ -732,6 +732,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `tsm_ws_overtime_hp` | `2` | health each living mutant loses a second in overtime |
 | `tsm_ws_stall` | `120` | seconds with three or fewer mutants left and none falling before the wave is cleared |
 | `tsm_ws_wave` | `30` | the breather between waves, in seconds |
+| `tsm_ws_wave_sound` | `xom_laugh.wav` | played to everyone as a wave comes |
 
 #### ts_uplink
 
@@ -749,7 +750,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### tsrp_roambots
 
-`src/tsrp_roambots.sma`. Config: `tsrp_roambots.cfg`. 25 cvars.
+`src/tsrp_roambots.sma`. Config: `tsrp_roambots.cfg`. 27 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
@@ -767,9 +768,11 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `tsrp_roambots_insurgency` | `0` | 1: the citizens are insurgents; set by .insurgency and .civilians, or by a mapconfig (RCBot reads it) |
 | `tsrp_roambots_insurgent_drop` | `1` | what a dying insurgent leaves on the ground: 1 the gun in its hands, 0 nothing |
 | `tsrp_roambots_insurgent_team` | `0` | 0: insurgents are set on every player who is not a bot; with team play on every player and every bot that is not on their own team; a team number: only |
+| `tsrp_roambots_join_pace` | `0.5` | seconds between one new citizen's userinfo changes and the next: a bot that joins gets its face and name when its turn comes, one bot a step, and its |
 | `tsrp_roambots_names` | (empty) | names for a face with no gender; empty: the plugin's own 16 |
 | `tsrp_roambots_names_f` | (empty) | women's names, ";" between; empty: the plugin's own 40 |
 | `tsrp_roambots_names_m` | (empty) | men's names; empty: the plugin's own 40 |
+| `tsrp_roambots_pace` | `1.0` | seconds between one citizen's taking up arms (.insurgency) or standing down (.civilians) and the next's, at least 0.1 (0.25 was the fixed step before): |
 | `tsrp_roambots_pause` | `40` | percent chance of a pause before each walk (RCBot reads it) |
 | `tsrp_roambots_reserve` | `2` | slots always kept free for real players (at least 1) |
 | `tsrp_roambots_speed` | `120` | the walk, units a second (RCBot reads it) |
