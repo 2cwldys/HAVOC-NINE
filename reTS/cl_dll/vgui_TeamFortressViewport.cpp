@@ -58,6 +58,7 @@
 #include "h9_carmenu.h"
 #include "vgui_ScorePanel.h"
 #include "vgui_SpectatorPanel.h"
+#include "h9_customvgui.h" // H9: h9_customvgui 0, VGUI's own grey
 
 #include "shake.h"
 #include "screenfade.h"
@@ -564,6 +565,11 @@ TeamFortressViewport::TeamFortressViewport(int x, int y, int wide, int tall) : P
 		// pScheme->setColor(Scheme::sc_secondary1, r, g, b, a );
 		pScheme->setColor(Scheme::sc_secondary1, 255 * 0.7, 170 * 0.7, 0, 0);
 	}
+
+	// H9: h9_customvgui 0, TS 3.0's own colours (h9_customvgui.h). The one scheme colour left to VGUI is VGUI's own grey, as Valve's
+	// vgui.dll has it; H9's vgui.dll carries its purple there (freevgui-h9-scheme.patch).
+	if (h9customvgui::StockAtStart())
+		pScheme->setColor(Scheme::sc_secondary3, 204, 204, 204, 0);
 
 	// Change the second primary font (used in the scoreboard)
 	SchemeHandle_t hScoreboardScheme = m_SchemeManager.getSchemeHandle("Scoreboard Text");

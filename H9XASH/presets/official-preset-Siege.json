@@ -269,7 +269,7 @@
     {
       "kind": "amxx",
       "file": "ts_matchmode.amxx",
-      "sha256": "5009ab1db03750c9f85a85f3e97e174e4b6e8477dac92f58250fb815e2bf19db",
+      "sha256": "caff61ca1ccf9eb4b2633a86d031fdaf2356380c74dcb500d33deb24248f4605",
       "note": "build 1.70"
     },
     {
@@ -299,7 +299,7 @@
     {
       "kind": "amxx",
       "file": "tsrp_roambots.amxx",
-      "sha256": "ff87b0d1c4f82f41c42cad8af4669aabac81959e572c814207f2c56c456fe6df",
+      "sha256": "64ad2c5e6c04bffb10e762383ed64576b9144507ed51dc513d2c6272f4733ca8",
       "note": "build 1.70"
     },
     {

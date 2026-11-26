@@ -7343,6 +7343,15 @@ public plugin_cfg()
 		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots %d, and TS's own cash, powerups and weapon rules (weaponrestriction 0).", g_mapname, here_bots);
 	}
 
+	// Apollo RP's towns keep powerups off: a roleplay map (g_map_rp), or any map while Apollo RP runs (ARP_Core's arp_version, which
+	// exists by now, plugin_init having run in every plugin), gets nopowerup 1, also where the block above has just put TS's own 0
+	// back. A map's mapconfig runs after this and can set it back for its map.
+	if (g_map_rp || cvar_exists("arp_version"))
+	{
+		set_cvar_num("nopowerup", 1);
+		log_amx("[TSM] %s: nopowerup 1 (%s).", g_mapname, g_map_rp ? "a roleplay map" : "Apollo RP runs");
+	}
+
 	get_mapname(g_mapname, charsmax(g_mapname));
 	refresh_gamedesc();
 	kill_ts_cash_cvars();

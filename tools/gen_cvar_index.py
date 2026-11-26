@@ -229,7 +229,9 @@ def module_cvars():
 
 
 # ---- 3. the plugins -------------------------------------------------------------------------------------------
-REGISTER = re.compile(r'(?:register_cvar|create_cvar)\s*\(\s*"([^"]+)"\s*,\s*"([^"]*)"')
+# a default in quotes, or the name of a #define of the same file that gives it in quotes (DEFINE_TEXT)
+REGISTER = re.compile(r'(?:register_cvar|create_cvar)\s*\(\s*"([^"]+)"\s*,\s*(?:"([^"]*)"|([A-Za-z_]\w*))')
+DEFINE_TEXT = re.compile(r'^[ \t]*#define[ \t]+([A-Za-z_]\w*)[ \t]+"([^"]*)"', re.M)
 STOCK = {"admin", "adminchat", "admincmd", "adminhelp", "adminslots", "adminvote", "antiflood", "cmdmenu", "imessage", "mapchooser", "mapsmenu",
          "menufront", "multilingual", "nextmap", "pausecfg", "plmenu", "pluginmenu", "scrollmsg", "statscfg", "telemenu", "timeleft"}
 
@@ -255,8 +257,12 @@ def plugin_cvars():
         source = text_of(path)
         title = re.search(r'#define\s+PLUGIN\s+"([^"]+)"', source)
         found = {}
+        defines = dict(DEFINE_TEXT.findall(source))
         for m in REGISTER.finditer(source):
-            found.setdefault(m.group(1), m.group(2))
+            if m.group(2) is not None:
+                found.setdefault(m.group(1), m.group(2))
+            elif m.group(3) in defines:
+                found.setdefault(m.group(1), defines[m.group(3)])
         if not found:
             continue
         rows = []
@@ -295,13 +301,13 @@ def build():
            "current as the last time that was run.", "",
            "> [!IMPORTANT]",
            "> **Normal The Specialists 3.0 stays fully playable.** Everything below has a stock \"off\" or a default that leaves the game as",
-           "> TS plays it: for example `h9_customweapons 0` gives TS 3.0's own weapons and `h9_customhands 0` gives its own hands. The game",
-           "> modes run only on maps named for them, and any other map plays as TS plays it.", "",
+           "> TS plays it: for example `h9_customweapons 0` gives TS 3.0's own weapons, `h9_customhands 0` its own hands and `h9_customvgui 0`",
+           "> its own colours. The game modes run only on maps named for them, and any other map plays as TS plays it.", "",
            "**Where a cvar is set.** A plugin's cvars have their defaults in the plugin's own config file in `ts\\addons\\amxmodx\\configs\\`",
            "(`ts_matchmode.cfg`, `ts_assault.cfg`, ...), which also explains each one at length. A map can set them for itself in",
            "`ts\\mapconfigs\\<map>.cfg`, which runs after the map has loaded and wins for that map (see the README's presets and map configs).",
-           "A preset swaps whole config files. The console and `rcon` set a cvar until the next map. Client cvars (`cl_h9_*`) are the",
-           "player's own and are kept in their `config.cfg`.", "",
+           "A preset swaps whole config files. The console and `rcon` set a cvar until the next map. Client cvars (`cl_h9_*`, and",
+           "`h9_customvgui`) are the player's own and are kept in their `config.cfg`.", "",
            "- [Part 1: the engine](#part-1-the-engine)",
            "- [Part 2: the module](#part-2-the-module-the-mods-own-libraries)",
            "- [Part 3: the plugins](#part-3-the-plugins)", ""]

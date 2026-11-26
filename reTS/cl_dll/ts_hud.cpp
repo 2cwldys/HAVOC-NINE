@@ -24,6 +24,7 @@
 #include "hud.h"
 #include "cl_util.h"
 #include "ts_hud.h"
+#include "h9_customvgui.h" // H9: h9_customvgui 0, TS 3.0's own HUD colour
 
 static cvar_t* s_hud_r = nullptr;
 static cvar_t* s_hud_g = nullptr;
@@ -75,6 +76,8 @@ void TSHud_Color(int& r, int& g, int& b)
 	r = s_hud_r ? (int)s_hud_r->value : 150;
 	g = s_hud_g ? (int)s_hud_g->value : 175;
 	b = s_hud_b ? (int)s_hud_b->value : 255;
+	if (h9customvgui::Stock())
+		h9customvgui::StockHudColour(r, g, b); // H9: h9_customvgui 0, H9's purple as TS 3.0's own colour
 }
 
 bool TSHud_RealHud()
@@ -99,6 +102,8 @@ void TSHud_MeleeBar(int x, int y, float bar)
 	int r = (int)(s_hud_r ? s_hud_r->value : 150.0f);
 	int g = (int)(s_hud_g ? s_hud_g->value : 175.0f);
 	int b = (int)(s_hud_b ? s_hud_b->value : 255.0f);
+	if (h9customvgui::Stock())
+		h9customvgui::StockHudColour(r, g, b); // H9: h9_customvgui 0, as TSHud_Color
 
 	if (bar <= 0.01f)
 	{

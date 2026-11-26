@@ -1404,6 +1404,8 @@
  values back instead -- usecash 0, initial_cash 1200, cashforwin 10000,
  cashforlose 1200, nopowerup 0 -- and holds nobody's wallet: that map plays as
  the game ships.
+ A roleplay map, or any map while Apollo RP runs, gets nopowerup 1 all the
+ same (no powerups in a town); its mapconfig can still set it back.
 
 
 ===============================================================================
@@ -1812,7 +1814,8 @@
  never the Proletarians); with Apollo RP's team play running (TEAM PLAY,
  below), every player and every bot that is not on the Insurrection team,
  and never one that is.
- They take up arms one at a time, a quarter of a second apart, as the match
+ They take up arms one at a time, tsrp_roambots_pace seconds apart (1 by
+ default), as the match
  mode arms its players: the first weapon listed is given last, so it is the
  one in their hands and the one they fight with. A killed insurgent comes
  back an insurgent; of everything TS throws down as it dies, only the gun
@@ -1827,8 +1830,9 @@
  Proletarians' team (team 3) and, while an insurgency lasts, on the
  Insurrection team (2), in its team field (what RCBot compares) and in TS.
  A bot joins onto the team with the fewest players (mp_defaultteam 0), so
- the plugin moves each citizen to its team as soon as it sees it, before it
- has spawned; TS keeps it there through every respawn. The plaque of Apollo
+ the plugin moves each citizen to its team before it has spawned, a step
+ (tsrp_roambots_join_pace, 0.5 seconds) after its face and name, one new
+ citizen a step; TS keeps it there through every respawn. The plaque of Apollo
  RP reads Civilian and Insurgency from that field. .insurgency sets every
  citizen's team field to 2 at once and moves each citizen to team 2 in TS
  as it takes up arms, a quarter of a second apart; .civilians moves them
@@ -2846,6 +2850,17 @@
                                  255, cl_h9_vgui_color #28a0ff, cl_h9_vgui_color
                                  default (the purple again); with no argument it
                                  prints the colour
+ h9_customvgui 0|1               H9's purple (1), or The Specialists 3.0's own
+                                 colours (0): TS's own menus and scoreboard in
+                                 Half-Life's orange and in Arial, as TS 3.0
+                                 has them; H9's panels, the HUD and its
+                                 crosshair in TS's grey-blue, 125 150 165 (the
+                                 panels with white text), and the console in
+                                 Xash's own colour, where they are H9's purple
+                                 (a colour a player set stays). The menus and
+                                 the scoreboard change at the next start of
+                                 the game, the rest at once. Saved.
+                                 H9XASH's client.dll (docs\H9_VGUI.txt 4l)
  cl_h9_marks 0|1                 the marks a server shows through the walls (1):
                                  Assault's capture points, Capture the
                                  Uplink's zones and uplink, Capture the
@@ -4460,6 +4475,19 @@
  tsrp_roambots_insurgent_drop  1      what a dying insurgent leaves on the
                                       ground: 1 the gun in its hands, 0
                                       nothing
+ tsrp_roambots_join_pace   0.5        seconds between one new citizen's
+                                      userinfo changes and the next: a bot
+                                      that joins gets its face and name when
+                                      its turn comes, one bot a step, and its
+                                      team a step later, before its first
+                                      spawn; 0 does it all at once [cfg 0.5]
+ tsrp_roambots_pace        1.0        seconds between one citizen's taking up
+                                      arms (.insurgency) or standing down
+                                      (.civilians) and the next's, at least
+                                      0.1 (0.25 was the fixed step before):
+                                      each is a team move, a new face every
+                                      client is told of, and a respawn. Read
+                                      when the pace starts [cfg 1.0]
  tsrp_roambots_admin_flag  h          the admin flags .insurgency and
                                       .civilians need; empty: anyone
  tsrp_roambots_commands    1          0: .insurgency and .civilians do

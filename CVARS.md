@@ -7,14 +7,14 @@ current as the last time that was run.
 
 > [!IMPORTANT]
 > **Normal The Specialists 3.0 stays fully playable.** Everything below has a stock "off" or a default that leaves the game as
-> TS plays it: for example `h9_customweapons 0` gives TS 3.0's own weapons and `h9_customhands 0` gives its own hands. The game
-> modes run only on maps named for them, and any other map plays as TS plays it.
+> TS plays it: for example `h9_customweapons 0` gives TS 3.0's own weapons, `h9_customhands 0` its own hands and `h9_customvgui 0`
+> its own colours. The game modes run only on maps named for them, and any other map plays as TS plays it.
 
 **Where a cvar is set.** A plugin's cvars have their defaults in the plugin's own config file in `ts\addons\amxmodx\configs\`
 (`ts_matchmode.cfg`, `ts_assault.cfg`, ...), which also explains each one at length. A map can set them for itself in
 `ts\mapconfigs\<map>.cfg`, which runs after the map has loaded and wins for that map (see the README's presets and map configs).
-A preset swaps whole config files. The console and `rcon` set a cvar until the next map. Client cvars (`cl_h9_*`) are the
-player's own and are kept in their `config.cfg`.
+A preset swaps whole config files. The console and `rcon` set a cvar until the next map. Client cvars (`cl_h9_*`, and
+`h9_customvgui`) are the player's own and are kept in their `config.cfg`.
 
 - [Part 1: the engine](#part-1-the-engine)
 - [Part 2: the module](#part-2-the-module-the-mods-own-libraries)
@@ -30,6 +30,7 @@ The Xash3D FWGS engine of H9XASH, with the H9 patch chain in `xash3d-h9-patches/
 | `cl_h9_cloakfix` | `1` | H9: show a server-side cloak on your own model instead of the client dll's own third person transparency | `engine-h9-cloak.patch` |
 | `cl_h9_joinscreen` | `1` | H9: the menu's join screen while a server is joined (0: the console, as upstream) | `engine-h9-joinscreen.patch` |
 | `cl_h9_motd` | `1` | H9: show a server's splash MOTD (a picture or a web page) in place of its text MOTD: 1 = on, 0 = the text MOTD | `engine-h9-motd.patch` |
+| `cl_h9_motd_debug` | `0` | H9: 1 writes what the splash MOTD's web page does, with the time, to h9_motd_debug.log in the game folder | `engine-h9-motd.patch` |
 | `cl_h9_motd_wine` | `0` | H9: under Wine or Proton, show a server's web page inside the game with Edge WebView2, without Chromium's sandbox: 0 = no, its picture or text and OPEN PAGE; 1 = yes; 2 = yes, with the GPU off | `engine-h9-motd.patch` |
 | `cl_h9_servers` | `1` | H9: ask havoc9.org which servers are authenticated, for the server browser's chain (cl_h9auth.c) | `engine-h9-serverauth.patch` |
 | `cl_h9_site` | (empty) | H9: for testing only, http://127.0.0.1:&lt;port&gt; or http://localhost:&lt;port&gt; in place of https://havoc9.org for the scoreboard's pictures | `engine-h9-avatars.patch` |
@@ -37,7 +38,10 @@ The Xash3D FWGS engine of H9XASH, with the H9 patch chain in `xash3d-h9-patches/
 | `cl_h9_userid` | (empty) | H9: this install's regenerable client id -- see docs/CUSTOM_XASH_USERID.txt | `engine-h9-userid.patch` |
 | `con_shownotify` | `0` | draw console notify lines over the game | `engine-h9-consoleoverlay.patch` |
 | `h9_autoconfig` | `1` | H9: exec mapconfigs/&lt;mapname&gt;.cfg once the map and its plugins are up | `engine-h9-autoconfig.patch` |
-| `h9_chatraise` | `16` | raise the chat input line by this many pixels, clear of the HUD in the lower left | `engine-h9-chatraise.patch` |
+| `h9_chatraise` | `16` | raise the chat input line by this many pixels, clear of the HUD in the lower left | `engine-h9-chatinput.patch` |
+| `h9_radio_buffer` | `4` | H9: internet radio, the seconds of audio it holds (2 to 15) | `engine-h9-radio.patch` |
+| `h9_radio_debug` | `0` | H9: internet radio, each step of the connection in the console | `engine-h9-radio.patch` |
+| `h9_radio_lan` | `0` | H9: 1 lets internet radio play a station on a loopback or private address (a server cannot set it) | `engine-h9-radio.patch` |
 | `h9_upscale` | `1` | upscale the scene rendered with r_scene_scale with AMD FSR 1, EASU then RCAS (0 off, 1 on) | `engine-h9-upscale.patch` |
 | `h9_upscale_sharp` | `0.84` | how strongly h9_upscale sharpens (RCAS): 0 none, 1 the most, 0.84 is AMD's recommended 0.25 stops | `engine-h9-upscale.patch` |
 | `ts_intro` | `1` | play the intro video before the main menu | `engine-h9-intro.patch` |
@@ -54,6 +58,9 @@ The Xash3D FWGS engine of H9XASH, with the H9 patch chain in `xash3d-h9-patches/
 | `_h9join` | `0` | H9: 1 while the join screen is up (set by the engine) | `engine-h9-joinscreen.patch` |
 | `_h9join_file` | (empty) | H9: the file the join screen downloads (set by the engine) | `engine-h9-joinscreen.patch` |
 | `_h9join_fileprog` | `0` | H9: that file's progress, 0 to 100 (set by the engine) | `engine-h9-joinscreen.patch` |
+| `_h9join_map` | (empty) | H9: the map the join screen loads (set by the engine) | `engine-h9-joinscreen.patch` |
+| `_h9join_mapnext` | (empty) | H9: the map a map change brings, for the join screen (set by the engine) | `engine-h9-joinscreen.patch` |
+| `_h9join_mode` | (empty) | H9: the mode that map plays, for the join screen (set by the engine) | `engine-h9-joinscreen.patch` |
 | `_h9join_server` | (empty) | H9: the server the join screen joins (set by the engine) | `engine-h9-joinscreen.patch` |
 | `_h9join_stage` | (empty) | H9: the join screen's stage (set by the engine) | `engine-h9-joinscreen.patch` |
 | `_h9join_total` | (empty) | H9: the downloads together, for the join screen (set by the engine) | `engine-h9-joinscreen.patch` |
@@ -134,6 +141,7 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | `cl_h9_vgui_r` | `138` | the red part (0 to 255) of the colour of H9's panels; 138 66 196 is the default purple | client library |
 | `cl_h9_vgui_scale` | `1` | the panels' size (1; the panels are a quarter smaller than they were before 2026-11-05, and 1.33 is that size again) | client library |
 | `cl_h9_vgui_top` | `0` | how far down panels may start, from the top of the screen: 0 for 1.5% of the height (16 px at 1080); TS's own notices stand beneath the panels at the top (0) | client library |
+| `h9_customvgui` | `1` | H9's purple (1), or The Specialists 3.0's own colours (0): TS's own menus and scoreboard in Half-Life's orange and in Arial, as TS 3.0 has them; H9's panels, the HUD and its | client library |
 | `h9_customweapons` | `1` | 1: the weapons H9 adds to TS (the PPSh-41, the laser rifle, the Mech's rocket launcher, and any it adds later) are in play. | server library |
 | `h9_laserrifle` | `1` | the same for the laser rifle (weapon 40) | server library |
 | `h9_mechrocket` | `1` | present and 1 when the game library has the Mech rocket launcher (weapon 41), so a plugin can give a library without it another gun. | server library |
@@ -147,6 +155,7 @@ reTS is the mod's game library (`mp.dll`) and client library (`client.dll`), reb
 | `h9_mechrocket_reload` | `3.0` | seconds a reload takes (0.5 to 30): the length of the launcher's reload animation | server library |
 | `h9_mechrocket_salvo` | `4` | rockets one trigger pull launches in burst mode (1 to 8); a clip with fewer launches what it holds. | server library |
 | `h9_mechrocket_selfdamage` | `0` | 1: a rocket's blast hurts the player who fired it, and pushes him | server library |
+| `h9_mechrocket_side` | `-12` | (no description yet) | server library |
 | `h9_mechrocket_speed` | `1100` | speed of the rocket, in units a second | server library |
 | `h9_mechrocket_spread` | `2.5` | degrees the rockets after the first may stray from the aim (0 to 15); the first goes straight, so a salvo of one is exact | server library |
 | `h9_mechrocket_stagger` | `0.12` | seconds between two rockets of a salvo (0.03 to 1). | server library |
@@ -253,6 +262,17 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `h9_require_account_grace` | `45` | seconds a game has to prove its account (10 to 300) |
 | `h9_require_release` | `1` | 0: any game may join. |
 
+#### h9_radio
+
+`src/h9_radio.sma`. Config: `h9_radio.cfg`. 4 cvars.
+
+| Cvar | Default | What it does |
+|---|---|---|
+| `h9_radio` | `0` | 1: players tune a station with /radio (the list is h9_radio_stations.ini), and this plugin plays the ambient rotation, under the same rule ts_matchmode uses (the match mode on, or a roleplay map with tsm_music_rp). |
+| `h9_radio_ambient` | `1` | (no description yet) |
+| `h9_radio_default` | (empty) | (no description yet) |
+| `h9_radio_volume` | `0.8` | (no description yet) |
+
 #### h9_rank
 
 `src/h9_rank.sma`. Config: `h9_rank.cfg`. 2 cvars.
@@ -261,6 +281,16 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 |---|---|---|
 | `h9_rank_command` | `1` | .rank answers; 0 leaves .rank alone |
 | `h9_rank_cooldown` | `5` | seconds between two .rank from one player (1 to 60) |
+
+#### h9_shovemod
+
+`src/h9_shovemod.sma`. 3 cvars.
+
+| Cvar | Default | What it does |
+|---|---|---|
+| `shove_allow_inuse` | `1` | (no description yet) |
+| `shove_cooldown` | `10` | (no description yet) |
+| `shove_force` | `7` | (no description yet) |
 
 #### h9_staticprops
 
@@ -660,13 +690,13 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `tsm_gamedesc_mechwarrior` | `Mech Warrior` | What the server browser, the server-list bot, the adverts and the Discord card call the game while the mode runs. |
 | `tsm_mechwarrior_mode` | `1` | the mode on, on every h9_mw_ map |
 | `tsm_mw_engineer` | `1` | the Combat Engineer is played too, at his class's limit and lives; 0 not |
-| `tsm_mw_landdust` | `1` | a Mech landing from a fall raises a cloud of dust under it, bigger the harder it came down; 0 no dust |
+| `tsm_mw_landdust` | `1` | a Mech landing from a fall raises dust under it; 0 not |
 | `tsm_mw_mech_lives` | `3` | Mechs a side (0: no limit), and the lives each one has. |
 | `tsm_mw_mechs` | `0` | Mechs a side; 0 no limit |
 | `tsm_mw_officer_lives` | `2` | each Officer's lives |
 | `tsm_mw_officers` | `1` | Officers a side; 0 no Officer |
-| `tsm_mw_thruster` | `1` | a stunting Mech gets a thruster drawn at its back and a thrust sound; 0 not |
-| `tsm_mw_thruster_max` | `6` | how many thrusters are drawn in one pass, so a round of bot Mechs cannot flood it; 0 no cap |
+| `tsm_mw_thruster` | `1` | a stunting Mech gets a thruster at its back and a thrust sound; 0 not |
+| `tsm_mw_thruster_max` | `6` | thrusters drawn in one pass, so a round of bot Mechs cannot flood it; 0 no cap |
 
 #### ts_rtv
 
@@ -682,7 +712,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### ts_survival
 
-`src/ts_survival.sma`. Config: `ts_survival.cfg`. 16 cvars.
+`src/ts_survival.sma`. Config: `ts_survival.cfg`. 17 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
@@ -702,6 +732,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `tsm_ws_overtime_hp` | `2` | health each living mutant loses a second in overtime |
 | `tsm_ws_stall` | `120` | seconds with three or fewer mutants left and none falling before the wave is cleared |
 | `tsm_ws_wave` | `30` | the breather between waves, in seconds |
+| `tsm_ws_wave_sound` | `xom_laugh.wav` | played to everyone as a wave comes |
 
 #### ts_uplink
 
@@ -719,7 +750,7 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 
 #### tsrp_roambots
 
-`src/tsrp_roambots.sma`. Config: `tsrp_roambots.cfg`. 25 cvars.
+`src/tsrp_roambots.sma`. Config: `tsrp_roambots.cfg`. 27 cvars.
 
 | Cvar | Default | What it does |
 |---|---|---|
@@ -737,9 +768,11 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `tsrp_roambots_insurgency` | `0` | 1: the citizens are insurgents; set by .insurgency and .civilians, or by a mapconfig (RCBot reads it) |
 | `tsrp_roambots_insurgent_drop` | `1` | what a dying insurgent leaves on the ground: 1 the gun in its hands, 0 nothing |
 | `tsrp_roambots_insurgent_team` | `0` | 0: insurgents are set on every player who is not a bot; with team play on every player and every bot that is not on their own team; a team number: only |
+| `tsrp_roambots_join_pace` | `0.5` | seconds between one new citizen's userinfo changes and the next: a bot that joins gets its face and name when its turn comes, one bot a step, and its |
 | `tsrp_roambots_names` | (empty) | names for a face with no gender; empty: the plugin's own 16 |
 | `tsrp_roambots_names_f` | (empty) | women's names, ";" between; empty: the plugin's own 40 |
 | `tsrp_roambots_names_m` | (empty) | men's names; empty: the plugin's own 40 |
+| `tsrp_roambots_pace` | `1.0` | seconds between one citizen's taking up arms (.insurgency) or standing down (.civilians) and the next's, at least 0.1 (0.25 was the fixed step before): |
 | `tsrp_roambots_pause` | `40` | percent chance of a pause before each walk (RCBot reads it) |
 | `tsrp_roambots_reserve` | `2` | slots always kept free for real players (at least 1) |
 | `tsrp_roambots_speed` | `120` | the walk, units a second (RCBot reads it) |
@@ -1107,61 +1140,4 @@ AMX Mod X plugins. Each section is one plugin, with the config file that carries
 | `arp_message_lol` | `0` | Whether or not to replace "lol", "rofl" and other chat with "haha" This only works when arp_printmode is set to 2 |
 | `arp_printmode` | `1` | Print mode 0 - no standard chat 1 - normal print mode, i.e. 'Hawk: this is a sample message' 2 - extra print mode, i.e. 'Hawk says, "This is a sample message."' |
 | `arp_radio_channels` | `10` | (no description yet) |
-
-### Metamod plugins (reconstructed)
-
-Native Metamod-R plugins (`addons/metamod/plugins.ini`), not AMX Mod X. Both stay INERT unless the current map's name contains "entmap", the map is listed in `entmod_maps`, or `entmod_force 1` is set. While active they de-rank the server (no career XP or ELO). The `entmod` cvar is a state readout the gate sets each map -- `entmod 1` means the tools are live on this map, `entmod 0` means they are not -- so you can check it in the console. Each plugin also prints its decision to the server console every map (`[EntMod] map '<name>' -> tools ON/off`, `[HookMod] ... -> hook ON/off`). EntMod registers all its commands with the engine, so they appear in the console autocomplete (type `e_`, `es_`, `t_` or `entmod_` to list them) and run when typed. Every command still needs admin (`DF_admins.txt` + `setinfo _entpass`), except on the server console / listen-server host, where the operator is trusted.
-
-#### EntMod
-
-`EntMod4/src/EntMod4/` (reconstructed from the abandoned "Ent Mod v4"). The entity admin tools. Admin identity is `addons/EntMod/DF_admins.txt` lines (`id;password;flags`, the id being the engine auth id / SteamID or the `h9_clientid` Xash id) plus a per-player `setinfo _entpass <password>` -- not cvars. See `EntMod4/DF_admins.example.txt`.
-
-| Cvar | Default | What it does |
-|---|---|---|
-| `DF_entversion` | `4` | EntMod's version / identity marker (read-only) |
-| `entmod` | `0` | STATE READOUT the gate sets each map: `1` = the EntMod/HookMod tools are live on this map (an entmap, a listed map, or `entmod_force 1`), `0` = inert. Setting it by hand does not last -- it is overwritten each map |
-| `entmod_force` | `0` | `1`: force the tools on on every map, not just entmaps. While the tools are on the server de-ranks: no career XP or ELO, and the browser shows it not authenticated |
-| `entmod_maps` | `the_betterthanbest_entmap;the_betterthanbest_entmap2` | the `;`-separated map names the tools turn on for; a map whose name contains "entmap" also counts |
-| `entmod_preset` | (empty) | when active, auto-load `addons/EntMod/entsave/<map>_<name>.txt` (what the `es_save` command writes) at map start, so an admin's placed entities persist with no manual `es_load`; empty = off. The file is plain text -- edit it to change the preset |
-
-#### HookMod
-
-`EntMod4/src/HookMod/` (reconstructed from the abandoned "Hook Mod v5"). A grappling hook, gated the same way (an "entmap" map name, `entmod_maps`, or `entmod_force 1`). Commands: `+hook` (fire), `-hook` (retract), `hook_login <password>`.
-
-| Cvar | Default | What it does |
-|---|---|---|
-| `DF_hook_on` | `1` | master enable |
-| `DF_hook_deployspeed` | `1500` | projectile tip launch speed |
-| `DF_hook_speed` | `1.5` | reel pull speed (x the player's maxspeed) |
-| `DF_hook_ground` | `0` | 1: allow pulling down into the ground |
-| `DF_hook_showspy` | `0` | 1: draw the rope in the player's team colour |
-| `DF_hook_sound` | `1` | 1: play the fire sound |
-| `DF_hook_hold` | `15` | max seconds a hook may stay attached |
-| `DF_hook_sky` | `0` | 1: allow attaching to the sky |
-| `DF_hook_players` | `0` | 1: allow attaching to players |
-| `DF_hook_onlywalls` | `0` | 1: only let the hook attach to world / walls |
-| `DF_hook_color` | `1` | rope colour (1 blue, 2 red, 3 yellow, 4 green, 5+ white) |
-| `DF_hook_gravity` | `0.5` | gravity on the tip projectile |
-| `DF_hook_instant` | `0` | 1: instant hit-scan hook instead of a travelling projectile |
-| `DF_hook_swing` | `0` | 1: pendulum swing physics instead of a straight reel |
-| `DF_hook_swing_acceleration` | `150` | swing input acceleration (swing mode) |
-| `DF_hook_swing_reelspeed` | `200` | rope reel in / out rate (swing mode) |
-| `DF_hook_swing_minlength` | `100` | shortest the rope may be reeled (swing mode) |
-| `DF_hook_wait` | `0.05` | seconds between hook fires |
-| `DF_hook_forcespeed` | `0` | non-zero: pull with a constant force instead of the speed curve |
-| `DF_hook_width` | `20` | rope beam width |
-| `DF_hook_noise` | `1` | rope beam noise / amplitude |
-| `DF_hook_weapon` | `0` | a rope render flag |
-| `DF_hook_usekey` | `0` | 1: fire the hook with +use as well as +hook |
-| `DF_hook_password` | `0` | "0" = none; otherwise a player must `hook_login` with this password before they may hook |
-
-#### h9_shovemod
-
-`src/h9_shovemod.sma`. Shove the player you aim at -- `/shove`, the use key, or the "Shove" entry in the ARP use-key menu. The use-key shove is suppressed where `arp_h9_ctxmenu` is on (use the menu entry there instead).
-
-| Cvar | Default | What it does |
-|---|---|---|
-| `shove_force` | `7` | how hard the shove flings the target (a velocity multiplier) |
-| `shove_cooldown` | `10` | seconds a player waits between shoves |
-| `shove_allow_inuse` | `1` | 1: the use key shoves too (not only /shove); 0: only /shove and the menu |
 

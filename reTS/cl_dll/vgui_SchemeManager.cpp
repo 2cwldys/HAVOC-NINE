@@ -19,6 +19,7 @@
 #include "hud.h"
 #include "vgui_SchemeManager.h"
 #include "cvardef.h"
+#include "h9_customvgui.h" // H9: h9_customvgui 0, TS 3.0's own colours and font in the schemes
 
 #include <string.h>
 
@@ -142,7 +143,8 @@ static byte* LoadFileByResolution(const char* filePrefix, int xRes, const char* 
 	return pFile;
 }
 
-static void ParseRGBAFromString(byte colorArray[4], const char* colorVector)
+// H9: `stock` (h9_customvgui 0) gives a colour of H9's text scheme files as TS 3.0 has it (h9_customvgui_rules.h).
+static void ParseRGBAFromString(byte colorArray[4], const char* colorVector, bool stock)
 {
 	int r, g, b, a;
 	if (4 == sscanf(colorVector, "%d %d %d %d", &r, &g, &b, &a))
@@ -160,6 +162,8 @@ static void ParseRGBAFromString(byte colorArray[4], const char* colorVector)
 		colorArray[2] = 255;
 		colorArray[3] = 255;
 	}
+	if (stock)
+		h9customvgui::StockSchemeColour(colorArray);
 }
 
 //-----------------------------------------------------------------------------
@@ -170,6 +174,10 @@ static void ParseRGBAFromString(byte colorArray[4], const char* colorVector)
 //-----------------------------------------------------------------------------
 CSchemeManager::CSchemeManager(int xRes, int yRes)
 {
+	// H9: h9_customvgui 0 as the game started: TS 3.0's own colours and Arial (h9_customvgui.h). Ahead of the goto below, which may not
+	// jump past an initialised variable.
+	const bool stock = h9customvgui::StockAtStart();
+
 	// basic setup
 	m_pSchemeList = NULL;
 	m_iNumSchemes = 0;
@@ -279,7 +287,7 @@ CSchemeManager::CSchemeManager(int xRes, int yRes)
 				}
 				if ('\0' == pScheme->fontName[0])
 				{
-					strcpy(pScheme->fontName, "Arial");
+					strcpy(pScheme->fontName, stock ? h9customvgui::StockFace("Arial") : "Arial");
 				}
 			}
 
@@ -301,7 +309,7 @@ CSchemeManager::CSchemeManager(int xRes, int yRes)
 		// pull the data out into the scheme
 		if (!stricmp(paramName, "FontName"))
 		{
-			strncpy(pScheme->fontName, paramValue, CScheme::FONT_NAME_LENGTH);
+			strncpy(pScheme->fontName, stock ? h9customvgui::StockFace(paramValue) : paramValue, CScheme::FONT_NAME_LENGTH);
 			pScheme->fontName[CScheme::FONT_NAME_LENGTH - 1] = 0;
 		}
 		else if (!stricmp(paramName, "FontSize"))
@@ -314,37 +322,37 @@ CSchemeManager::CSchemeManager(int xRes, int yRes)
 		}
 		else if (!stricmp(paramName, "FgColor"))
 		{
-			ParseRGBAFromString(pScheme->fgColor, paramValue);
+			ParseRGBAFromString(pScheme->fgColor, paramValue, stock);
 			hasFgColor = true;
 		}
 		else if (!stricmp(paramName, "BgColor"))
 		{
-			ParseRGBAFromString(pScheme->bgColor, paramValue);
+			ParseRGBAFromString(pScheme->bgColor, paramValue, stock);
 			hasBgColor = true;
 		}
 		else if (!stricmp(paramName, "FgColorArmed"))
 		{
-			ParseRGBAFromString(pScheme->armedFgColor, paramValue);
+			ParseRGBAFromString(pScheme->armedFgColor, paramValue, stock);
 			hasArmedFgColor = true;
 		}
 		else if (!stricmp(paramName, "BgColorArmed"))
 		{
-			ParseRGBAFromString(pScheme->armedBgColor, paramValue);
+			ParseRGBAFromString(pScheme->armedBgColor, paramValue, stock);
 			hasArmedBgColor = true;
 		}
 		else if (!stricmp(paramName, "FgColorMousedown"))
 		{
-			ParseRGBAFromString(pScheme->mousedownFgColor, paramValue);
+			ParseRGBAFromString(pScheme->mousedownFgColor, paramValue, stock);
 			hasMouseDownFgColor = true;
 		}
 		else if (!stricmp(paramName, "BgColorMousedown"))
 		{
-			ParseRGBAFromString(pScheme->mousedownBgColor, paramValue);
+			ParseRGBAFromString(pScheme->mousedownBgColor, paramValue, stock);
 			hasMouseDownBgColor = true;
 		}
 		else if (!stricmp(paramName, "BorderColor"))
 		{
-			ParseRGBAFromString(pScheme->borderColor, paramValue);
+			ParseRGBAFromString(pScheme->borderColor, paramValue, stock);
 			hasMouseDownBgColor = true;
 		}
 
@@ -363,7 +371,7 @@ buildDefaultFont:
 	{
 		currentScheme = 0;
 		strcpy(tmpSchemes[0].schemeName, "Default Scheme");
-		strcpy(tmpSchemes[0].fontName, "Arial");
+		strcpy(tmpSchemes[0].fontName, stock ? h9customvgui::StockFace("Arial") : "Arial");
 		tmpSchemes[0].fontSize = 0;
 		tmpSchemes[0].fgColor[0] = tmpSchemes[0].fgColor[1] = tmpSchemes[0].fgColor[2] = tmpSchemes[0].fgColor[3] = 255;
 		tmpSchemes[0].armedFgColor[0] = tmpSchemes[0].armedFgColor[1] = tmpSchemes[0].armedFgColor[2] = tmpSchemes[0].armedFgColor[3] = 255;

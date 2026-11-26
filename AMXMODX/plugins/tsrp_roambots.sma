@@ -87,7 +87,7 @@
  * set, only the players of that team; with team play running (TEAMS, below) every player and every
  * bot that is not on the Insurrection team (a guard of the Republic is one, FACTIONS below), and
  * never one of the Insurrection team, whatever that says.
- * They take up arms one at a time, RB_PACE_STEP apart, as ts_matchmode arms its players, and the
+ * They take up arms one at a time, tsrp_roambots_pace seconds apart (1 by default), as ts_matchmode arms its players, and the
  * first weapon listed is given last and held: RCBot fights with the weapon in hand. A citizen
  * killed in the insurgency comes back an insurgent. TS throws a dying player's whole arsenal to
  * the ground; of an insurgent's, the gun in its hands is left (tsrp_roambots_insurgent_drop 0:
@@ -164,6 +164,8 @@
  *                                number: only on that team's players (and bots), 1 the Middle Sea
  *                                Republic's (read by RCBot)
  *   tsrp_roambots_insurgent_drop 1  1: a dying insurgent leaves the gun in its hands; 0: nothing
+ *   tsrp_roambots_pace   1.0     seconds between one citizen's rising (or standing down) and the next's, at least 0.1;
+ *                                0.25 was the fixed step before this cvar. Read when the pace starts.
  *   tsrp_roambots_admin_flag "h" the admin flags .insurgency and .civilians need; empty: anyone
  *   tsrp_roambots_commands 0|1   0: .insurgency and .civilians do nothing on this map
  *   tsrp_roambots_use      0|1   1: a player's +use on a citizen gets him a murmur
@@ -196,6 +198,7 @@
 
 #define RB_TASK_TICK 73100
 #define RB_TASK_PACE 73101
+#define RB_TASK_JOIN 73102
 
 // tsrp_roambots_defend_time when it is not above 0: RCBot's own default.
 #define RB_DEFEND_TIME_DEFAULT 30.0
@@ -225,9 +228,17 @@
 #define RB_TSW_LAST TSW_TKNIFE
 // The most weapons of tsrp_roambots_insurgent_weapons an insurgent is given.
 #define RB_INS_WEAPONS 8
-// One citizen takes up arms, or is put down, every RB_PACE_STEP seconds -- ts_matchmode's arm
-// stagger (ARM_STAGGER) -- so a whole city's gives, faces and deaths never land in one frame.
-#define RB_PACE_STEP 0.25
+// One citizen takes up arms, or is put down, every tsrp_roambots_pace seconds -- after ts_matchmode's arm
+// stagger (ARM_STAGGER) -- so a whole city's team moves, faces, respawns and gives never land in one frame: each move is
+// a userinfo change every client is told of, and a respawn that the bot's own placement and arming follow. At least RB_PACE_LEAST.
+#define RB_PACE_DEFAULT "1.0"
+#define RB_PACE_LEAST 0.1
+
+// A new bot is taken on as a citizen one at a time, tsrp_roambots_join_pace seconds apart: its face and name when its turn comes, its
+// team a step after that (still before its first spawn: TS holds a joining bot back for its respawn time). Each is a userinfo change
+// every client is told of, and a bot's connection is one too, so a bot's changes, and two bots', never land in the same frame. 0 takes
+// a new bot on at once, face, name and team together, as before this cvar.
+#define RB_JOIN_PACE_DEFAULT "0.5"
 
 // A player's +use reaches a citizen this far from his eyes; the citizen faces him for RB_HEED_TIME.
 #define RB_HEED_REACH 96
@@ -323,7 +334,9 @@ new g_cv_names_g[RB_GENDERS];   // the name list cvar of each gender (g_cv_names
 new g_cv_tsm_enabled;
 new g_cv_defend, g_cv_talk, g_cv_talk_range, g_cv_insurgency, g_cv_ins_models, g_cv_ins_weapons,
 	g_cv_ins_team, g_cv_admin_flag, g_cv_commands, g_cv_use, g_cv_use_cooldown, g_cv_defend_time,
-	g_cv_ins_drop;
+	g_cv_ins_drop, g_cv_pace, g_cv_join_pace;
+// A bot waiting its turn to be taken on as a citizen (tsrp_roambots_join_pace, task_join).
+new bool:g_join_wait[RB_SLOTS];
 
 // Hostility (HOSTILITY ENDS WITH THE LIFE, above): when a player last hurt a citizen in this life of
 // both (0.0: he has not), a citizen's health at its last frame (0.0: not alive), what is known of
@@ -504,6 +517,8 @@ public plugin_init()
 	g_cv_ins_weapons = register_cvar("tsrp_roambots_insurgent_weapons", RB_DEFAULT_INS_WEAPONS);
 	g_cv_ins_team    = register_cvar("tsrp_roambots_insurgent_team",    "0");
 	g_cv_ins_drop    = register_cvar("tsrp_roambots_insurgent_drop",    "1");
+	g_cv_pace        = register_cvar("tsrp_roambots_pace",              RB_PACE_DEFAULT);
+	g_cv_join_pace   = register_cvar("tsrp_roambots_join_pace",         RB_JOIN_PACE_DEFAULT);
 	g_cv_admin_flag  = register_cvar("tsrp_roambots_admin_flag",  "h");
 	g_cv_commands    = register_cvar("tsrp_roambots_commands",    "1");
 	g_cv_use         = register_cvar("tsrp_roambots_use",         "1");
@@ -856,15 +871,65 @@ find_citizens()
 	for (new id = 1; id <= g_maxplayers; id++)
 	{
 		new bool:bot = is_user_connected(id) && is_user_bot(id);
+		if (!bot)
+		{
+			g_join_wait[id] = false;
+		}
 		if (g_citizen[id] && !bot)
 		{
 			forget(id);
 		}
 		else if (bot && !g_citizen[id] && g_active)
 		{
-			adopt(id);
+			join_later(id);
 		}
 	}
+}
+
+/// tsrp_roambots_join_pace: the seconds between one new citizen's userinfo changes and the next, 0 for all at once.
+Float:join_step()
+{
+	new Float:step = get_pcvar_float(g_cv_join_pace);
+	return step > 0.0 ? step : 0.0;
+}
+
+/// A new bot is taken on now with tsrp_roambots_join_pace 0, else when its turn comes (task_join), one bot a step.
+join_later(id)
+{
+	new Float:step = join_step();
+	if (step <= 0.0)
+	{
+		adopt(id);
+		return;
+	}
+	if (g_join_wait[id])
+	{
+		return;
+	}
+	g_join_wait[id] = true;
+	if (!task_exists(RB_TASK_JOIN))
+	{
+		set_task(step, "task_join", RB_TASK_JOIN, "", 0, "b");
+	}
+}
+
+/// One waiting bot taken on as a citizen a step; the task ends when no bot waits. A bot that left, or citizens that stopped, waits no more.
+public task_join()
+{
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (!g_join_wait[id])
+		{
+			continue;
+		}
+		g_join_wait[id] = false;
+		if (g_active && !g_citizen[id] && is_user_connected(id) && is_user_bot(id))
+		{
+			adopt(id);
+			return;
+		}
+	}
+	remove_task(RB_TASK_JOIN);
 }
 
 forget(id)
@@ -904,7 +969,8 @@ adopt(id)
 	g_citizen[id] = true;
 	g_faction[id] = new_faction(id);
 	g_team_tries[id] = 0;
-	g_team_try_at[id] = 0.0;
+	// its team move a step after its face and name (tsrp_roambots_join_pace): two userinfo changes never in one frame
+	g_team_try_at[id] = get_gametime() + join_step();
 	g_was_alive[id] = false;
 	g_place_at[id] = 0.0;
 	g_godded[id] = false;
@@ -1020,7 +1086,7 @@ builtin_names(g)
  * same_gender, a face of the citizen's own gender (a new face after a death, so its name still
  * fits); without, any face, and the citizen takes that face's gender.
  */
-pick_model(id, bool:same_gender)
+pick_model(id, bool:same_gender, bool:store = true)
 {
 	if (!g_model_count)
 	{
@@ -1038,13 +1104,19 @@ pick_model(id, bool:same_gender)
 	}
 	if (!n)
 	{
-		write_model(id);   // no other face of its gender: it keeps the one it has
+		if (store)
+		{
+			write_model(id);   // no other face of its gender: it keeps the one it has
+		}
 		return;
 	}
 	new pick = pool[random_num(0, n - 1)];
 	copy(g_model_pick[id], RB_NAME_LEN - 1, g_models[pick]);
 	g_gender[id] = g_model_gender[pick];
-	write_model(id);
+	if (store)
+	{
+		write_model(id);
+	}
 }
 
 /*
@@ -1627,8 +1699,10 @@ move_to(id, const Float:spot[3])
 /// the insurgent's weapons, while the insurgency lasts.
 dress(id)
 {
-	pick_model(id, true);
-	if (insurgency() && is_citizen(id))
+	// an insurgent's face is written once, by insurgent_face: a second userinfo change in the same respawn is told to every client again
+	new bool:arm = insurgency() && is_citizen(id);
+	pick_model(id, true, !arm);
+	if (arm)
 	{
 		make_insurgent(id);
 	}
@@ -2034,16 +2108,23 @@ insurgency_due()
 }
 
 /// The insurgency's pace (task_pace) set going when it has citizens to change and is not going yet.
+/// The seconds between two citizens of the insurgency: tsrp_roambots_pace, at least RB_PACE_LEAST.
+Float:pace_step()
+{
+	new Float:step = get_pcvar_float(g_cv_pace);
+	return step < RB_PACE_LEAST ? RB_PACE_LEAST : step;
+}
+
 pace_insurgency()
 {
 	if (g_active && !task_exists(RB_TASK_PACE) && insurgency_due() > 0)
 	{
-		set_task(RB_PACE_STEP, "task_pace", RB_TASK_PACE, "", 0, "b");
+		set_task(pace_step(), "task_pace", RB_TASK_PACE, "", 0, "b");
 	}
 }
 
 /*
- * The insurgency's pace, every RB_PACE_STEP seconds while it has work: the next citizen, in slot
+ * The insurgency's pace, every tsrp_roambots_pace seconds while it has work: the next citizen, in slot
  * order, takes up arms (the insurgency on) or is put down (off). It stops once none is left; a
  * citizen back on its feet later is dressed and armed as it is placed (dress).
  */
@@ -2379,6 +2460,8 @@ insurgent_face(id)
 			return;
 		}
 	}
+	// a face with no pair keeps its own, which dress did not write
+	write_model(id);
 }
 
 /// The insurgent face pairs ("civilian:insurgent", ";" between), parsed again only when their cvar changes.
@@ -2560,7 +2643,7 @@ cmd_insurgency(id, bool:rise)
 		new n = insurgency_due();
 		pace_insurgency();
 		log_amx("[ROAMBOTS] %s started an insurgency on %s: %d citizens take up arms, one every %.2f seconds.",
-			name, g_mapname, n, RB_PACE_STEP);
+			name, g_mapname, n, pace_step());
 		client_print(0, print_chat, "[CITY] Insurgency! The citizens are taking up arms.");
 	}
 	else
@@ -2575,7 +2658,7 @@ cmd_insurgency(id, bool:rise)
 		new n = insurgency_due();
 		pace_insurgency();
 		log_amx("[ROAMBOTS] %s ended the insurgency on %s: %d insurgents put down, one every %.2f seconds, to come back as citizens.",
-			name, g_mapname, n, RB_PACE_STEP);
+			name, g_mapname, n, pace_step());
 		client_print(0, print_chat, "[CITY] The insurgency is over: the citizens lay down their arms.");
 	}
 }
